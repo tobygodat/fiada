@@ -216,10 +216,12 @@ function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   }
   const method = CLIENT_VERB[verb] ?? (HTTP_VERBS.has(verb) ? verb.toUpperCase() : (methodFromOptions(argv[1]) ?? 'GET'));
   // client.get("/items") or client.get({ url: "/items" }) as generated SDKs do.
-  const url = requestUrl(argv[0]) ?? (argv[0].type === 'object' ? urlFromOptions(argv[0]) : null);
+  const urlNode = argv[0].type === 'object' ? urlOption(argv[0]) : argv[0];
+  const url = requestUrl(urlNode);
   if (!url) return;
   const req: HttpRequest = { method, ...url, line: line(call) };
-  if (obj?.type === 'identifier' && !url.base) req.via = obj.text;
+  // An absolute URL replaces the client's base URL (axios, ky, fetch wrappers), so only relative ones go through it.
+  if (obj?.type === 'identifier' && !url.base && !/^[`'"]?([a-z][a-z0-9+.-]*:)?\/\//i.test(urlNode?.text ?? '')) req.via = obj.text;
   out.requests.push(req);
 }
 
@@ -257,30 +259,56 @@ function classBaseUrl(cls: SyntaxNode): { parts: UrlPart[]; line: number } | und
   return undefined;
 }
 
-/** `new ApiClient()`, `axios.create({ baseURL: "/api" })`, `ky.create({ prefixUrl: "/api" })`. */
+/**
+ * The base URL a constructor or factory call passes in: `{ baseURL: "/api" }` or a leading "/api" string.
+ * `null` when the arguments set nothing we can see, `'unknown'` when they may set one we can't read.
+ */
+function baseArgument(args: SyntaxNode[]): UrlPart[] | null | 'unknown' {
+  const first = args[0];
+  if (!first) return null;
+  if (first.type === 'object') {
+    for (const pair of first.namedChildren) {
+      if (pair.type === 'spread_element') return 'unknown';
+      if (pair.type !== 'pair' && pair.type !== 'shorthand_property_identifier') continue;
+      const key = (pair.type === 'pair' ? pair.childForFieldName('key')?.text : pair.text)?.replace(/['"]/g, '') ?? '';
+      if (!BASE_PROP.test(key) && !/^prefix$/i.test(key)) continue;
+      return (pair.type === 'pair' && baseValue(pair.childForFieldName('value'))) || 'unknown';
+    }
+    return null;
+  }
+  const parts = baseValue(first);
+  const lead = parts?.[0];
+  if (lead && 'lit' in lead && /^(\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(lead.lit)) return parts;
+  return 'unknown';
+}
+
+/**
+ * `new ApiClient()` (its class's base URL applies), `new ApiClient({ baseUrl: "/v2" })`,
+ * `axios.create({ baseURL: "/api" })`, `ky.create({ prefixUrl: "/api" })`.
+ */
 function clientFrom(name: string, value: SyntaxNode, at: number): ClientDecl | null {
+  const args = value.childForFieldName('arguments')?.namedChildren ?? [];
   if (value.type === 'new_expression') {
     const ctor = value.childForFieldName('constructor');
-    return ctor?.type === 'identifier' && isPascal(ctor.text) ? { name, ctor: ctor.text, line: at } : null;
+    if (ctor?.type !== 'identifier' || !isPascal(ctor.text)) return null;
+    const base = baseArgument(args);
+    // Arguments that may override the class's base URL, and that we can't read, leave the client unknown.
+    if (base === 'unknown') return null;
+    return base ? { name, base, line: at } : { name, ctor: ctor.text, line: at };
   }
   if (value.type !== 'call_expression') return null;
   const fn = value.childForFieldName('function');
   if (fn?.type !== 'member_expression' || !/^(create|extend)$/.test(fn.childForFieldName('property')?.text ?? '')) return null;
-  const opts = value.childForFieldName('arguments')?.namedChildren[0];
-  for (const pair of opts?.type === 'object' ? opts.namedChildren : []) {
-    if (pair.type !== 'pair') continue;
-    const key = pair.childForFieldName('key')?.text.replace(/['"]/g, '') ?? '';
-    const base = /^(baseURL|baseUrl|prefixUrl|prefix)$/.test(key) ? baseValue(pair.childForFieldName('value')) : null;
-    if (base) return { name, base, line: at };
-  }
-  return null;
+  const base = baseArgument(args);
+  return base && base !== 'unknown' ? { name, base, line: at } : null;
 }
 
-function urlFromOptions(opts: SyntaxNode): { path: string; base?: string } | null {
+/** The `url` or `path` value in `client.get({ url: "/items" })`, as generated SDKs call it. */
+function urlOption(opts: SyntaxNode): SyntaxNode | null {
   for (const pair of opts.namedChildren) {
     if (pair.type !== 'pair') continue;
     const key = pair.childForFieldName('key')?.text.replace(/['"]/g, '');
-    if (key === 'url' || key === 'path') return requestUrl(pair.childForFieldName('value'));
+    if (key === 'url' || key === 'path') return pair.childForFieldName('value');
   }
   return null;
 }

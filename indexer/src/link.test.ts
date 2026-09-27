@@ -244,8 +244,13 @@ test('Koa: koa-mount, koa-router routes() and slashless paths; the client wrappe
       'server/gitlab.ts': 'export const token = (url: string) => fetch(oauthUrl(url) + "/documents.list", { method: "POST" });\n',
       'app/utils/ApiClient.ts':
         'class ApiClient {\n  baseUrl: string;\n  constructor(options: { baseUrl?: string } = {}) {\n    this.baseUrl = options.baseUrl || "/api";\n  }\n' +
-        '  post = (path: string) => fetch(this.baseUrl + path, { method: "POST" });\n}\n\nexport const client = new ApiClient();\n',
+        '  post = (path: string) => fetch(this.baseUrl + path, { method: "POST" });\n}\n\nexport const client = new ApiClient();\n' +
+        'export const v2 = new ApiClient({ baseUrl: "/v2" });\nexport const custom = new ApiClient(options);\n',
       'app/stores/DocumentsStore.ts': 'import { client } from "../utils/ApiClient";\n\nexport class DocumentsStore {\n  list = () => client.post("/documents.list");\n}\n',
+      'app/stores/Other.ts':
+        'import { v2, custom } from "../utils/ApiClient";\n\n' +
+        'export const listV2 = () => v2.post("/documents.list");\nexport const listCustom = () => custom.post("/documents.list");\n' +
+        'export const listRemote = () => v2.post("https://service.example/api/documents.list");\n',
       'app/api.ts': 'import axios from "axios";\n\nconst api = axios.create({ baseURL: "/api" });\nexport const listDocuments = () => api.post("/documents.list");\n',
     },
   });
@@ -260,6 +265,12 @@ test('Koa: koa-mount, koa-router routes() and slashless paths; the client wrappe
   assert.ok(code.includes('app.use(mount("/api", api));'));
 
   assert.equal(edge(g, 'outline/app/api.ts#listDocuments', docs, 'http').basis, 'evidenced');
+  // A base passed to the constructor replaces the class's; one we can't read leaves the base unknown.
+  assert.ok(!g.edges.some((x) => x.kind === 'http' && x.from === 'outline/app/stores/Other.ts#listV2'), '/v2/documents.list is not /api/documents.list');
+  assert.equal(edge(g, 'outline/app/stores/Other.ts#listCustom', docs, 'http').basis, 'inferred');
+  // An absolute URL ignores the client's base URL, so it isn't read as /v2/api/documents.list.
+  const remote = edge(g, 'outline/app/stores/Other.ts#listRemote', docs, 'http');
+  assert.ok(!remote.reason!.includes('/v2'), remote.reason);
   assert.ok(!g.edges.some((x) => x.kind === 'http' && x.from.startsWith('outline/server/gitlab.ts')), 'server code calling out is not linked to its own routes');
 });
 
