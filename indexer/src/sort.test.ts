@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@strata/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
 import { sortProject, type Ask } from './classify/model-sort.ts';
-import type { JsonRequest, LLM } from './llm.ts';
+import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';
 import { defaultGrouping, leftoverFiles, normalizeGrouping, sortStats } from './classify/index.ts';
 import { Sorter, type SortHost } from './sorter.ts';
 import type { ProjectStore } from './store.ts';
@@ -99,7 +99,7 @@ test('Claude fills the classifier gaps, merges and names domains, and says why',
   const settings = after.nodes.find((n) => n.id === 'app/settings.py#Settings')!;
   assert.equal(settings.domain?.id, 'platform');
   assert.equal(settings.domain?.source, 'model');
-  assert.equal(settings.domain?.inferredBy, 'claude-test');
+  assert.equal(settings.domain?.inferredBy, 'Claude', 'credited by label');
   assert.equal(settings.domain?.evidence[0].detail, 'its file: app configuration loaded from the environment');
   assert.equal(settings.layer?.id, 'service');
   assert.equal(settings.layer?.evidence[0].detail, 'its file: reads the environment at startup');
@@ -116,7 +116,7 @@ test('Claude fills the classifier gaps, merges and names domains, and says why',
   );
   const stats = sortStats(after);
   assert.equal(stats.leftover, 0);
-  assert.equal(stats.sortedByClaude, 3);
+  assert.equal(stats.sortedByModel, 3);
 });
 
 test("the user's pins, rules and names win over Claude's sort", async () => {
@@ -196,7 +196,10 @@ test('the sorter runs once per set of repositories, off the request path', async
 
   const off = new Sorter();
   off.request(host, true);
-  assert.deepEqual(off.state(defaultGrouping(), 0), { available: false, status: 'off' });
+  assert.deepEqual(off.state(defaultGrouping(), 0), { available: false, status: 'off', keyHint: KEY_HINT });
+  const kept = off.state(grouping, 3);
+  assert.equal(kept.status, 'done', 'a stored sort still shows without a key');
+  assert.equal(kept.by, 'Claude', "credited to the client that sorted, from the stored sort");
 });
 
 test("a grouping sent without Claude's sort keeps it", async () => {
@@ -219,5 +222,5 @@ test("a grouping sent without Claude's sort keeps it", async () => {
   assert.deepEqual(ws.getGrouping().sorted, sorted);
   await ws.setGrouping({ ...withoutSort, sorted: null });
   assert.equal(ws.getGrouping().sorted, undefined, 'null clears it');
-  assert.deepEqual(ws.state().sorting, { available: false, status: 'off' });
+  assert.deepEqual(ws.state().sorting, { available: false, status: 'off', keyHint: KEY_HINT });
 });
