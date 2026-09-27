@@ -2,21 +2,23 @@
 // user's rules and pins on top. This is the one place to swap strategies.
 
 import { UNSORTED_DOMAIN, type GraphEdge, type GraphNode, type Grouping, type Placement } from '@strata/shared';
-import { featureTokens } from './domains.ts';
 import { applyUserPlacements, domainList } from './grouping.ts';
 import { projectMatchers } from './layers.ts';
+import { seedAndPropagate } from './propagate.ts';
 import type { Assignments, DomainStrategy, LayerStrategy } from './types.ts';
 
 export type { Assignments, ClassifyInput, DomainStrategy, LayerStrategy } from './types.ts';
 export { defaultGrouping, presetLayers, PRESETS, rolesPreset } from './presets.ts';
 export { GroupingError, normalizeGrouping } from './grouping.ts';
+export { featureTokens } from './domains.ts';
+export { seedAndPropagate } from './propagate.ts';
 
 export interface Strategies {
   layers: LayerStrategy;
   domains: DomainStrategy;
 }
 
-export const defaultStrategies = (): Strategies => ({ layers: projectMatchers, domains: featureTokens() });
+export const defaultStrategies = (): Strategies => ({ layers: projectMatchers, domains: seedAndPropagate() });
 
 export interface ClassifyResult {
   layers: Assignments;
