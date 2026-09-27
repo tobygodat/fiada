@@ -1,18 +1,19 @@
-// Sends events to the Strata indexer. An agent must never wait on Strata or
+// Sends events to the Fiada indexer. An agent must never wait on Fiada or
 // fail because it's down, so every send is short and swallows errors.
 
+import './env.ts';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
-import type { AgentEvent, AgentRef } from '@strata/shared';
+import type { AgentEvent, AgentRef } from '@fiada/shared';
 import { checkout, real, type Checkout } from './git.ts';
 
 const exec = promisify(execFile);
 
-export const STRATA_URL = (process.env.STRATA_URL ?? `http://127.0.0.1:${process.env.STRATA_INDEXER_PORT ?? 4178}`).replace(/\/+$/, '');
+export const FIADA_URL = (process.env.FIADA_URL ?? `http://127.0.0.1:${process.env.FIADA_INDEXER_PORT ?? 4178}`).replace(/\/+$/, '');
 
 /** The indexer's access key, for a hosted indexer that has one. */
-const KEY = process.env.STRATA_API_KEY;
+const KEY = process.env.FIADA_API_KEY;
 
 /** What the indexer made of the files in a batch. */
 export interface IngestReply {
@@ -22,7 +23,7 @@ export interface IngestReply {
 export async function send(events: AgentEvent[], timeoutMs = 1500): Promise<IngestReply | null> {
   if (!events.length) return null;
   try {
-    const res = await fetch(`${STRATA_URL}/api/agent/events`, {
+    const res = await fetch(`${FIADA_URL}/api/agent/events`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) },
       body: JSON.stringify(events),

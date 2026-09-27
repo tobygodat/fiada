@@ -44,9 +44,9 @@ export function defaultHost(env: NodeJS.ProcessEnv = process.env): string {
  * Whether local folders can be imported. Importing a path reads that
  * directory, which only makes sense for an indexer on your own machine, so
  * it's off once the indexer listens beyond loopback unless
- * STRATA_ALLOW_LOCAL=1 says otherwise.
+ * FIADA_ALLOW_LOCAL=1 says otherwise.
  */
-export function allowLocalPaths(host: string, flag = process.env.STRATA_ALLOW_LOCAL): boolean {
+export function allowLocalPaths(host: string, flag = process.env.FIADA_ALLOW_LOCAL): boolean {
   return flag ? flag === '1' : isLoopback(host);
 }
 

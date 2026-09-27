@@ -2,13 +2,13 @@
 // path reads that directory, so on your own machine it's a single-user tool.
 // Bound anywhere else (HOST=0.0.0.0 in the container, and by default on
 // Railway, Render and Fly), local paths are off,
-// browsers on STRATA_ALLOWED_ORIGINS may call it, and with STRATA_API_KEY set
+// browsers on FIADA_ALLOWED_ORIGINS may call it, and with FIADA_API_KEY set
 // only requests carrying the key can change anything.
 
 import './env.ts';
 import type { OutgoingHttpHeaders } from 'node:http';
 import Fastify from 'fastify';
-import type { AgentEvent, LayerPreset } from '@strata/shared';
+import type { AgentEvent, LayerPreset } from '@fiada/shared';
 import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS } from './access.ts';
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
@@ -17,21 +17,21 @@ import { Sorter } from './sorter.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { Summaries } from './summaries/index.ts';
 import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
-import { STRATA_HOME, Workspace } from './workspace.ts';
+import { FIADA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST || defaultHost();
-const KEY = process.env.STRATA_API_KEY || undefined;
-const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
+const KEY = process.env.FIADA_API_KEY || undefined;
+const allowedOrigin = originMatcher(process.env.FIADA_ALLOWED_ORIGINS);
 
-const store = await createStore(STRATA_HOME);
+const store = await createStore(FIADA_HOME);
 const ws = new Workspace(
   store,
-  checkProjectId(process.env.STRATA_PROJECT ?? 'default'),
+  checkProjectId(process.env.FIADA_PROJECT ?? 'default'),
   { localPaths: allowLocalPaths(HOST), keyRequired: !!KEY },
   Sorter.fromEnv(),
 );
-const llm = /^(off|0|false|no)$/i.test(process.env.STRATA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv();
+const llm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv();
 const summaries = new Summaries({
   store,
   projectId: ws.projectId,
@@ -196,10 +196,10 @@ app.delete<{ Querystring: { id?: string } }>('/api/agent', async (req) => {
 });
 
 await app.listen({ port: PORT, host: HOST });
-console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);
-if (!ws.allowLocal) console.log('[strata] local folders are off: this indexer imports git repositories only');
-if (process.env.STRATA_ALLOWED_ORIGINS) console.log(`[strata] browsers may call the API from ${process.env.STRATA_ALLOWED_ORIGINS}`);
-console.log(ws.sorter.available ? `[strata] sorting imports with ${ws.sorter.describe}` : `[strata] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
-console.log(llm ? `[strata] node summaries: written by ${llm.label} (${llm.model})` : `[strata] no ${KEY_HINT}: node summaries are lines from the graph`);
-if (KEY) console.log('[strata] changes need the access key (STRATA_API_KEY)');
-else if (!isLoopback(HOST)) console.warn('[strata] no STRATA_API_KEY: anyone who can reach this indexer can change its project');
+console.log(`[fiada] indexer listening on http://${HOST}:${PORT}`);
+if (!ws.allowLocal) console.log('[fiada] local folders are off: this indexer imports git repositories only');
+if (process.env.FIADA_ALLOWED_ORIGINS) console.log(`[fiada] browsers may call the API from ${process.env.FIADA_ALLOWED_ORIGINS}`);
+console.log(ws.sorter.available ? `[fiada] sorting imports with ${ws.sorter.describe}` : `[fiada] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
+console.log(llm ? `[fiada] node summaries: written by ${llm.label} (${llm.model})` : `[fiada] no ${KEY_HINT}: node summaries are lines from the graph`);
+if (KEY) console.log('[fiada] changes need the access key (FIADA_API_KEY)');
+else if (!isLoopback(HOST)) console.warn('[fiada] no FIADA_API_KEY: anyone who can reach this indexer can change its project');

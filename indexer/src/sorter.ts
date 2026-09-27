@@ -4,7 +4,7 @@
 // runs after it. Without a model (no API key) it does nothing, and the map
 // keeps the classifier's result.
 
-import type { Graph, Grouping, SortedGrouping, SortingState } from '@strata/shared';
+import type { Graph, Grouping, SortedGrouping, SortingState } from '@fiada/shared';
 import { sortProject } from './classify/model-sort.ts';
 import { describeLLMError, KEY_HINT, llmFromEnv, type LLM } from './llm.ts';
 
@@ -106,18 +106,18 @@ export class Sorter {
     this.error = undefined;
     const started = Date.now();
     const llm = this.llm!;
-    console.log(`[strata] sorting ${graph.repos.map((r) => r.id).join(', ')} with ${this.describe}`);
+    console.log(`[fiada] sorting ${graph.repos.map((r) => r.id).join(', ')} with ${this.describe}`);
     try {
       const sorted = await sortProject(graph, host.grouping(), (req) => llm.json(req), { model: llm.model, by: llm.label, log: (l) => console.log(l) });
       await host.save(sorted);
       this.failed = undefined;
       this.status = 'done';
-      console.log(`[strata] sorted in ${((Date.now() - started) / 1000).toFixed(0)}s: ${Object.keys(sorted.placements).length} placements, ${sorted.domains.length} domain decisions`);
+      console.log(`[fiada] sorted in ${((Date.now() - started) / 1000).toFixed(0)}s: ${Object.keys(sorted.placements).length} placements, ${sorted.domains.length} domain decisions`);
     } catch (err) {
       this.failed = key;
       this.status = 'error';
       this.error = describeLLMError(err);
-      console.error(`[strata] sorting failed: ${this.error}`);
+      console.error(`[fiada] sorting failed: ${this.error}`);
     }
   }
 }

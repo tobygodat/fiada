@@ -19,7 +19,7 @@
 // The user's domain pins act as seeds too, so moving one symbol pulls its
 // unclaimed neighbours along on the next run.
 
-import { SHARED_DOMAIN, UNSORTED_DOMAIN, type EdgeKind, type GraphNode, type Placement } from '@strata/shared';
+import { SHARED_DOMAIN, UNSORTED_DOMAIN, type EdgeKind, type GraphNode, type Placement } from '@fiada/shared';
 import { GENERIC, words } from './domains.ts';
 import type { Assignments, DomainStrategy } from './types.ts';
 

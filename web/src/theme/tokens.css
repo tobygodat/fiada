@@ -1,4 +1,4 @@
-/* Strata's design tokens: the Toby Godat design system, plus the map's three palettes.
+/* Fiada's design tokens: the Toby Godat design system, plus the map's three palettes.
    Warm paper in two themes, Literata, one green that means "here". DESIGN.md at the repo root
    says what each token is for; tokens.ts reads them for the canvas.
 
@@ -92,7 +92,7 @@
   --size-title: 20px; /* a panel's title, a dialog's title */
   --size-heading: 17px; /* section headings, 600, lowercase, green "// " */
   --size-body: 17px; /* the default */
-  --size-small: 15px; /* supporting lines; the working size of Strata's panels */
+  --size-small: 15px; /* supporting lines; the working size of Fiada's panels */
   --size-fine: 13px; /* the floor: dense metadata, table headers, map tags, code */
 
   --leading-tight: 1.3; /* display, title, heading */
@@ -134,7 +134,7 @@
   --width-dialog: 512px;
   --width-command: 560px;
 
-  /* ── Motion. Strata keeps its own motion; these are the system's, for anything new ── */
+  /* ── Motion. Fiada keeps its own motion; these are the system's, for anything new ── */
   --motion-scale: 1;
   --duration-quick: 150ms;
   --duration-fast: 250ms;

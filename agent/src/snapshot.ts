@@ -4,11 +4,12 @@
 // State lives in a small file per agent session and checkout, because every
 // hook call is a separate process.
 
+import './env.ts';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { ChangeKind } from '@strata/shared';
+import type { ChangeKind } from '@fiada/shared';
 import { kindOf, status, type Checkout } from './git.ts';
 
 export interface Snapshot {
@@ -17,7 +18,7 @@ export interface Snapshot {
   files: Record<string, { xy: string; mtime: number }>;
 }
 
-export const STATE_DIR = process.env.STRATA_AGENT_STATE ?? path.join(os.tmpdir(), 'strata-agent');
+export const STATE_DIR = process.env.FIADA_AGENT_STATE ?? path.join(os.tmpdir(), 'fiada-agent');
 
 const stateFile = (key: string, root: string) =>
   path.join(STATE_DIR, `${createHash('sha1').update(`${key}\0${root}`).digest('hex').slice(0, 16)}.json`);

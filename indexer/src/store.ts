@@ -1,4 +1,4 @@
-// Persistence boundary for what Strata keeps per project: the repositories
+// Persistence boundary for what Fiada keeps per project: the repositories
 // imported into it, its grouping (layer definitions, domain names, rules and
 // pins), and the node summaries a model wrote. The graph is derived from
 // those and is never stored.
@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import type { Grouping, RepoKind } from '@strata/shared';
+import type { Grouping, RepoKind } from '@fiada/shared';
 import { MongoProjectStore, redact, unquote } from './mongo-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
@@ -36,7 +36,7 @@ export interface StoredSummary {
 }
 
 export interface ProjectStore {
-  /** Where this project's data lives, for display ("…/strata.grouping.json", "mongodb: strata.projects"). */
+  /** Where this project's data lives, for display ("…/fiada.grouping.json", "mongodb: fiada.projects"). */
   describe(projectId: string): string;
   /** null when the project has never been saved. */
   loadRepos(projectId: string): Promise<SavedRepo[] | null>;
@@ -64,7 +64,7 @@ export function checkProjectId(id: string): string {
 /**
  * One directory per project under `root`:
  *   projects/<id>/repos.json
- *   projects/<id>/strata.grouping.json   (hand-editable; edits apply live)
+ *   projects/<id>/fiada.grouping.json   (hand-editable; edits apply live)
  *   projects/<id>/summaries.json         (generated summaries by hash)
  */
 export class FileProjectStore implements ProjectStore {
@@ -79,7 +79,10 @@ export class FileProjectStore implements ProjectStore {
     return path.join(this.root, 'projects', checkProjectId(id));
   }
   private groupingFile(id: string) {
-    return path.join(this.dir(id), 'strata.grouping.json');
+    // Projects saved before the rename keep their strata.grouping.json.
+    const old = path.join(this.dir(id), 'strata.grouping.json');
+    const file = path.join(this.dir(id), 'fiada.grouping.json');
+    return !fs.existsSync(file) && fs.existsSync(old) ? old : file;
   }
 
   describe(id: string) {
@@ -164,13 +167,13 @@ export async function createStore(home: string): Promise<ProjectStore> {
   const uri = unquote(process.env.MONGODB_URI);
   if (uri) {
     try {
-      const db = process.env.STRATA_MONGODB_DB?.trim() || 'strata';
+      const db = process.env.FIADA_MONGODB_DB?.trim() || 'strata';
       const store = await MongoProjectStore.connect(uri, db);
-      console.log(`[strata] saving projects to MongoDB at ${redact(uri)} (${db}.projects)`);
+      console.log(`[fiada] saving projects to MongoDB at ${redact(uri)} (${db}.projects)`);
       return store;
     } catch (err) {
-      console.error(`[strata] can't use MongoDB at ${redact(uri)}: ${(err as Error).message}`);
-      console.error(`[strata] saving to ${path.join(home, 'projects')} for this run instead`);
+      console.error(`[fiada] can't use MongoDB at ${redact(uri)}: ${(err as Error).message}`);
+      console.error(`[fiada] saving to ${path.join(home, 'projects')} for this run instead`);
     }
   }
   return new FileProjectStore(home);

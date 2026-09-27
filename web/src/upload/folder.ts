@@ -4,7 +4,7 @@
 // name its remote and HEAD. The indexer unpacks and indexes it (see
 // indexer/src/upload.ts), so a private repository needs no token.
 
-import type { UploadPolicy } from '@strata/shared';
+import type { UploadPolicy } from '@fiada/shared';
 import { isIgnored, parseGitignore, type IgnoreRule } from './gitignore.ts';
 
 /** A folder to walk, from the File System Access API or from an <input webkitdirectory>. */
@@ -86,7 +86,7 @@ export const canPickDirectory = () => typeof window !== 'undefined' && typeof (w
 export async function pickDirectory(): Promise<Folder | null> {
   const pick = (window as unknown as { showDirectoryPicker: DirectoryPicker }).showDirectoryPicker;
   try {
-    return fromHandle(await pick({ id: 'strata-upload', mode: 'read' }));
+    return fromHandle(await pick({ id: 'fiada-upload', mode: 'read' }));
   } catch (err) {
     if ((err as Error).name === 'AbortError') return null;
     throw err;

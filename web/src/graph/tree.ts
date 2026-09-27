@@ -3,7 +3,7 @@
 //   function  domain → layer → symbol               (the theoretical grouping)
 // Symbols keep their graph ids in both, so edges resolve the same way.
 
-import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode } from '@strata/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode } from '@fiada/shared';
 
 export type View = 'code' | 'function';
 

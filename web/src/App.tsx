@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GraphNode } from '@strata/shared';
+import type { GraphNode } from '@fiada/shared';
 import { canEdit } from './api.ts';
 import { AgentQueue } from './components/AgentQueue.tsx';
 import { Detail } from './components/Detail.tsx';
@@ -27,7 +27,7 @@ import { useTheme } from './useTheme.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
 // What the floating panels cover, from the window's edge: the 16px inset plus
-// --strata-sidebar and --strata-detail in styles.css.
+// --fiada-sidebar and --fiada-detail in styles.css.
 const SIDEBAR = 16 + 312;
 const DETAIL = 16 + 372;
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
@@ -476,7 +476,7 @@ export function App() {
           <div className="empty">
             <div className="empty-title">map a codebase</div>
             <p>
-              Import one or more repositories from the sidebar. Strata parses them, links imports, calls and HTTP routes across repos, and
+              Import one or more repositories from the sidebar. Fiada parses them, links imports, calls and HTTP routes across repos, and
               draws one map you can open from systems down to symbols.
             </p>
           </div>

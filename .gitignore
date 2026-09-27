@@ -1,8 +1,9 @@
 node_modules/
 dist/
-.strata/
+.fiada/
 *.log
 .DS_Store
 graph.json
 .env
 *.graph.json
+.strata/

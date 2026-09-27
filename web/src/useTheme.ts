@@ -1,4 +1,4 @@
-// Which paper Strata is on: the system's choice until the person picks dark or
+// Which paper Fiada is on: the system's choice until the person picks dark or
 // light. index.html applies the same rule before first paint, so nothing flashes.
 
 import { useEffect, useState } from 'react';

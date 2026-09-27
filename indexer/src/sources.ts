@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { RepoInfo } from '@strata/shared';
+import type { RepoInfo } from '@fiada/shared';
 import type { PackageManifest, ParsedFile, ParsedRepo, TsConfigPaths } from './model.ts';
 import { linkGoTableNames } from './parse/go.ts';
 import { langOf, parseFile } from './parse/index.ts';
@@ -19,8 +19,8 @@ export interface LoadOptions {
 }
 
 export const DEFAULT_LOAD: LoadOptions = {
-  includeTests: process.env.STRATA_INCLUDE_TESTS === '1',
-  maxFiles: Number(process.env.STRATA_MAX_FILES ?? 4000),
+  includeTests: process.env.FIADA_INCLUDE_TESTS === '1',
+  maxFiles: Number(process.env.FIADA_MAX_FILES ?? 4000),
   maxFileBytes: 400_000,
 };
 
@@ -161,7 +161,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
       const f = await parseFile(rel, text);
       if (f) files.push(f);
     } catch (err) {
-      console.warn(`[strata] failed to parse ${info.id}/${rel}:`, (err as Error).message);
+      console.warn(`[fiada] failed to parse ${info.id}/${rel}:`, (err as Error).message);
     }
   }
 
@@ -232,7 +232,7 @@ export async function reloadFiles(repo: ParsedRepo, paths: string[], opts: LoadO
       try {
         parsed = await parseFile(rel, text);
       } catch (err) {
-        console.warn(`[strata] failed to parse ${repo.info.id}/${rel}:`, (err as Error).message);
+        console.warn(`[fiada] failed to parse ${repo.info.id}/${rel}:`, (err as Error).message);
       }
     }
     const i = repo.files.findIndex((f) => f.path === rel);

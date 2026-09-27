@@ -3,7 +3,7 @@
 // halves are separate so a grouping change reclassifies without re-linking.
 
 import path from 'node:path';
-import type { Graph, GraphEdge, GraphNode, Grouping, RepoInfo } from '@strata/shared';
+import type { Graph, GraphEdge, GraphNode, Grouping, RepoInfo } from '@fiada/shared';
 import { classify, type Strategies } from './classify/index.ts';
 import { detectFacts } from './facts.ts';
 import { fileId, link, symbolIds } from './link.ts';

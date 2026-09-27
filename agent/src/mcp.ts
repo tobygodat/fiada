@@ -1,5 +1,5 @@
-// strata-mcp: a stdio MCP server a coding agent is given, so it can tell the
-// human watching Strata what it's working on and which files it's changing.
+// fiada-mcp: a stdio MCP server a coding agent is given, so it can tell the
+// human watching Fiada what it's working on and which files it's changing.
 //
 // Two tools:
 //   report_task    the task, the plan as steps, which step is active
@@ -9,21 +9,22 @@
 // MCP stdio transport is, and forwards everything to the indexer's
 // /api/agent/events. Logging goes to stderr; stdout is the protocol.
 
+import './env.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentEvent, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@strata/shared';
-import { send, STRATA_URL, whoAndWhere } from './client.ts';
+import type { AgentEvent, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@fiada/shared';
+import { send, FIADA_URL, whoAndWhere } from './client.ts';
 import { checkout, describe } from './git.ts';
 
 const VERSION = '0.1.0';
 /** Newest first. We answer with the client's version when we know it; tools work the same in all of them. */
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
-const INSTRUCTIONS = `Strata is a live map of this codebase that the user watches while you work.
+const INSTRUCTIONS = `Fiada is a live map of this codebase that the user watches while you work.
 - Call report_task when you start a task: a short task title and your plan as steps. Call it again each time a step starts or finishes, so the user can follow along.
 - Call flag_changes with the files you add, modify or delete, and the functions or classes you touched when you know them. Edits may also be picked up automatically, but deletions, renames and generated files are easy to miss, so flag them.
-Both are cheap and never fail your work; if Strata isn't running they do nothing.`;
+Both are cheap and never fail your work; if Fiada isn't running they do nothing.`;
 
 const STEP = {
   type: 'object',
@@ -37,9 +38,9 @@ const STEP = {
 const TOOLS = [
   {
     name: 'report_task',
-    title: 'Report your task to Strata',
+    title: 'Report your task to Fiada',
     description:
-      "Show the user what you're working on in Strata's task queue. Send the task and your plan when you start, then call again whenever a step starts or finishes (send the whole plan with updated statuses, or just `step` for the one you're on). Set done when the task is finished.",
+      "Show the user what you're working on in Fiada's task queue. Send the task and your plan when you start, then call again whenever a step starts or finishes (send the whole plan with updated statuses, or just `step` for the one you're on). Set done when the task is finished.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -54,7 +55,7 @@ const TOOLS = [
   },
   {
     name: 'flag_changes',
-    title: 'Flag changed files on the Strata map',
+    title: 'Flag changed files on the Fiada map',
     description:
       "Mark files you added, modified or deleted so they light up on the user's map of the codebase. Paths can be absolute or relative to your working directory; a folder flags the module. Include the names of functions, classes or components you touched when you know them.",
     inputSchema: {
@@ -82,7 +83,7 @@ const TOOLS = [
 type Json = Record<string, any>;
 
 const write = (msg: Json) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...msg })}\n`);
-const log = (...args: unknown[]) => process.stderr.write(`[strata-mcp] ${args.join(' ')}\n`);
+const log = (...args: unknown[]) => process.stderr.write(`[fiada-mcp] ${args.join(' ')}\n`);
 
 /** Stable client names, so the hook's events and these land on the same agent. */
 export function clientId(name?: string): string {
@@ -93,9 +94,9 @@ export function clientId(name?: string): string {
   return n.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mcp';
 }
 
-export class StrataMcp {
+export class FiadaMcp {
   private client = 'mcp';
-  private cwd = process.env.STRATA_CWD ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
+  private cwd = process.env.FIADA_CWD ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
   private agent: Promise<AgentRef> | null = null;
   private rootsSupported = false;
   private nextId = 1;
@@ -133,7 +134,7 @@ export class StrataMcp {
           this.client = clientId(p.clientInfo?.name);
           this.rootsSupported = !!p.capabilities?.roots;
           const protocolVersion = PROTOCOLS.includes(p.protocolVersion) ? p.protocolVersion : PROTOCOLS[0];
-          return void reply({ protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'strata', title: 'Strata', version: VERSION }, instructions: INSTRUCTIONS });
+          return void reply({ protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fiada', title: 'Fiada', version: VERSION }, instructions: INSTRUCTIONS });
         }
         case 'notifications/initialized':
         case 'notifications/roots/list_changed':
@@ -156,7 +157,7 @@ export class StrataMcp {
 
   /** The client's workspace folder beats our cwd, which some clients set to somewhere unrelated. */
   private async askRoots() {
-    const id = `strata-${this.nextId++}`;
+    const id = `fiada-${this.nextId++}`;
     const result = await new Promise<Json | null>((resolve) => {
       this.pending.set(id, resolve);
       this.out({ id, method: 'roots/list' });
@@ -190,10 +191,10 @@ export class StrataMcp {
         state: args.done ? 'waiting' : 'working',
       };
       const ok = await this.post([ev]);
-      if (!ok) return this.text(`Strata isn't reachable at ${STRATA_URL}; nothing to do, carry on.`);
+      if (!ok) return this.text(`Fiada isn't reachable at ${FIADA_URL}; nothing to do, carry on.`);
       const active = steps?.findIndex((s) => s.status === 'active') ?? -1;
       return this.text(
-        args.done ? 'Marked done in Strata.' : `Strata shows: ${ev.task ?? 'your task'}${steps?.length ? ` (${active >= 0 ? `step ${active + 1} of ${steps.length}` : `${steps.length} steps`})` : ''}.`,
+        args.done ? 'Marked done in Fiada.' : `Fiada shows: ${ev.task ?? 'your task'}${steps?.length ? ` (${active >= 0 ? `step ${active + 1} of ${steps.length}` : `${steps.length} steps`})` : ''}.`,
       );
     }
     if (name === 'flag_changes') {
@@ -214,13 +215,13 @@ export class StrataMcp {
         files.push(change);
       }
       const res = await this.post([{ agent, type: 'changes', files }, { agent, type: 'state', state: 'working' }]);
-      if (!res) return this.text(`Strata isn't reachable at ${STRATA_URL}; nothing to do, carry on.`);
+      if (!res) return this.text(`Fiada isn't reachable at ${FIADA_URL}; nothing to do, carry on.`);
       const mapped = res.files ?? [];
       const on = mapped.filter((m) => m.repo);
       const off = mapped.filter((m) => !m.repo);
       const parts = [];
       if (on.length) parts.push(`On the map: ${on.map((m) => `${m.path} (${m.kind}${m.symbols ? `, ${m.symbols} symbol${m.symbols === 1 ? '' : 's'}` : ''})`).join(', ')}.`);
-      if (off.length) parts.push(`Not in any repository Strata has imported: ${off.map((m) => m.path).join(', ')}.`);
+      if (off.length) parts.push(`Not in any repository Fiada has imported: ${off.map((m) => m.path).join(', ')}.`);
       return this.text(parts.join(' ') || 'Flagged.');
     }
     return this.text(`Unknown tool ${name}.`, true);
@@ -230,7 +231,7 @@ export class StrataMcp {
 const exists = (p: string) => fs.stat(p).then(() => true, () => false);
 
 async function main() {
-  const server = new StrataMcp();
+  const server = new FiadaMcp();
   const inflight = new Set<Promise<void>>();
   let buf = '';
   process.stdin.setEncoding('utf8');
@@ -257,7 +258,7 @@ async function main() {
   });
   // The client closed our stdin: answer what's in flight, then go.
   process.stdin.on('end', () => void Promise.allSettled([...inflight]).then(() => process.exit(0)));
-  log(`ready; sending to ${STRATA_URL}`);
+  log(`ready; sending to ${FIADA_URL}`);
 }
 
-if (process.argv[1] && /strata-mcp(\.mjs)?$|mcp\.ts$/.test(process.argv[1])) void main();
+if (process.argv[1] && /(fiada|strata)-mcp(\.mjs)?$|mcp\.ts$/.test(process.argv[1])) void main();

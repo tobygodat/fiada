@@ -3,7 +3,7 @@
 // knows about frameworks (which base classes are ORM tables, what a Next.js
 // page is); classification only ever reads the facts.
 
-import type { Fact } from '@strata/shared';
+import type { Fact } from '@fiada/shared';
 import { nextPath } from './link.ts';
 import type { ParsedFile, ParsedRepo, ParsedSymbol } from './model.ts';
 import { isTable } from './orm.ts';

@@ -1,4 +1,4 @@
-# Strata: Devpost write-up
+# Fiada: Devpost write-up
 
 Track: Oracle of the Deep (ML/AI + visualization). Also entered for MLH Best Use of MongoDB Atlas, MLH Best Domain Name from .tech [pending: register a .tech domain and point it at the map], and the Create-X checkbox.
 
@@ -14,7 +14,7 @@ Coding agents now change more code in an hour than I can read in a day. The tool
 
 ## What it does
 
-Strata turns one or more real repositories into a single zoomable map. Circles nest from repository to folder to file to function. Click a circle to see what it is, click again to open it in place, and the rest of the map stays on screen around it. Lines between circles are contracts: imports, calls, HTTP requests, shared types and database models, with thickness showing how many interactions sit underneath.
+Fiada turns one or more real repositories into a single zoomable map. Circles nest from repository to folder to file to function. Click a circle to see what it is, click again to open it in place, and the rest of the map stays on screen around it. Lines between circles are contracts: imports, calls, HTTP requests, shared types and database models, with thickness showing how many interactions sit underneath.
 
 The AI part is what makes the map readable on a repo you've never seen:
 

@@ -1,7 +1,7 @@
 // Runs classification: a layer strategy and a domain strategy, then the
 // user's rules and pins on top. This is the one place to swap strategies.
 
-import { UNSORTED_DOMAIN, type GraphEdge, type GraphNode, type Grouping, type Placement } from '@strata/shared';
+import { UNSORTED_DOMAIN, type GraphEdge, type GraphNode, type Grouping, type Placement } from '@fiada/shared';
 import { applyUserPlacements, domainList } from './grouping.ts';
 import { projectMatchers } from './layers.ts';
 import { seedAndPropagate } from './propagate.ts';

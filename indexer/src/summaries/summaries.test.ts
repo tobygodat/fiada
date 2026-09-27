@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { Graph, RepoInfo } from '@strata/shared';
+import type { Graph, RepoInfo } from '@fiada/shared';
 import { buildGraph } from '../build.ts';
 import { defaultGrouping } from '../classify/index.ts';
 import { loadRepo } from '../sources.ts';
@@ -42,7 +42,7 @@ const FILES: Record<string, string> = {
 };
 
 async function fixtureGraph(files = FILES): Promise<{ graph: Graph; dir: string }> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-summaries-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-summaries-'));
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
@@ -243,7 +243,7 @@ test('a cut-off reply is retried in halves; a failed request marks its items wit
 });
 
 test('summaries persist in the file store and merge across saves', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-store-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
   const store = new FileProjectStore(home);
   assert.equal(await store.loadSummaries('p'), null);
   const a = { text: 'a', model: 'm', at: '2026-09-27T00:00:00Z' };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { EdgeKind, GraphNode } from '@strata/shared';
+import type { EdgeKind, GraphNode } from '@fiada/shared';
 import { directZoom, enclose, frame, freeArea, smoothZoom, zoomAt, type Camera } from './camera.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { closedRadius, layoutExpanded, type Circle } from './layout.ts';

@@ -1,6 +1,6 @@
 // npm run agent:setup [-- --write <project dir>]
 //
-// Prints the Claude Code configuration that connects an agent to Strata: the
+// Prints the Claude Code configuration that connects an agent to Fiada: the
 // MCP server command and the hooks block, with this checkout's absolute
 // paths. With --write it merges the hooks into <project>/.claude/settings.local.json
 // (Claude Code's per-user, git-ignored settings) and registers the MCP server
@@ -15,8 +15,8 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 const BIN = fileURLToPath(new URL('../bin/', import.meta.url));
 const q = (p: string) => (/[\s"'$]/.test(p) ? JSON.stringify(p) : p);
-const HOOK = `node ${q(path.join(BIN, 'strata-hook.mjs'))}`;
-const MCP = ['node', path.join(BIN, 'strata-mcp.mjs')];
+const HOOK = `node ${q(path.join(BIN, 'fiada-hook.mjs'))}`;
+const MCP = ['node', path.join(BIN, 'fiada-mcp.mjs')];
 
 /** Tools whose results can change files or the plan. Read-only tools are left out so they cost nothing. */
 export const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate';
@@ -34,12 +34,12 @@ export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
   };
 }
 
-/** Adds Strata's hooks to a settings object, replacing any earlier Strata entries and keeping everything else. */
+/** Adds Fiada's hooks to a settings object, replacing any earlier Fiada (or Strata) entries and keeping everything else. */
 export function mergeHooks(settings: Record<string, any>, block = hooksBlock()): Record<string, any> {
   const hooks: Record<string, HookEntry[]> = { ...(settings.hooks ?? {}) };
   for (const [event, entries] of Object.entries(block)) {
     const kept = (hooks[event] ?? [])
-      .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !String(h.command ?? '').includes('strata-hook')) }))
+      .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !String(h.command ?? '').match(/(fiada|strata)-hook/)) }))
       .filter((e) => e.hooks.length);
     hooks[event] = [...kept, ...entries];
   }
@@ -50,11 +50,11 @@ async function main() {
   const args = process.argv.slice(2);
   const at = args.indexOf('--write');
   if (at < 0) {
-    console.log(`Connect Claude Code to Strata
+    console.log(`Connect Claude Code to Fiada
 
 1. The MCP server (run in your project):
 
-   claude mcp add strata -- ${MCP.map(q).join(' ')}
+   claude mcp add fiada -- ${MCP.map(q).join(' ')}
 
 2. The hooks, in your project's .claude/settings.local.json (or .claude/settings.json to share them, or ~/.claude/settings.json for every project):
 
@@ -76,15 +76,17 @@ Or let this script do both:  npm run agent:setup -- --write /path/to/your/projec
   await fs.writeFile(file, `${JSON.stringify(mergeHooks(settings), null, 2)}\n`);
   console.log(`Hooks written to ${file}`);
   try {
+    // Before the rename the server was registered as "strata"; replace it.
     await exec('claude', ['mcp', 'remove', 'strata'], { cwd: dir }).catch(() => undefined);
-    await exec('claude', ['mcp', 'add', 'strata', '--', ...MCP], { cwd: dir });
-    console.log(`MCP server "strata" added for ${dir}`);
+    await exec('claude', ['mcp', 'remove', 'fiada'], { cwd: dir }).catch(() => undefined);
+    await exec('claude', ['mcp', 'add', 'fiada', '--', ...MCP], { cwd: dir });
+    console.log(`MCP server "fiada" added for ${dir}`);
   } catch {
-    console.log(`Couldn't run \`claude mcp add\`; in ${dir}, run:\n  claude mcp add strata -- ${MCP.map(q).join(' ')}`);
+    console.log(`Couldn't run \`claude mcp add\`; in ${dir}, run:\n  claude mcp add fiada -- ${MCP.map(q).join(' ')}`);
   }
 }
 
-if (process.argv[1] && /strata-setup(\.mjs)?$|setup\.ts$/.test(process.argv[1])) {
+if (process.argv[1] && /fiada-setup(\.mjs)?$|setup\.ts$/.test(process.argv[1])) {
   main().catch((err) => {
     console.error((err as Error).message);
     process.exit(1);

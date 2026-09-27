@@ -28,11 +28,11 @@ export interface LLM {
 
 export const DEFAULT_MODEL = 'claude-opus-5';
 
-/** Claude, with the key in ANTHROPIC_API_KEY and the model in STRATA_LLM_MODEL (default claude-opus-5); null without a key. */
+/** Claude, with the key in ANTHROPIC_API_KEY and the model in FIADA_LLM_MODEL (default claude-opus-5); null without a key. */
 export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LLM | null {
   const key = unquote(env.ANTHROPIC_API_KEY);
   if (!key) return null;
-  return anthropicLLM(key, env.STRATA_LLM_MODEL?.trim() || DEFAULT_MODEL);
+  return anthropicLLM(key, env.FIADA_LLM_MODEL?.trim() || DEFAULT_MODEL);
 }
 
 /** Where to set a key, for messages that say a feature is unavailable. */

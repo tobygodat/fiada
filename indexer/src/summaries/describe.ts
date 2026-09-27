@@ -3,7 +3,7 @@
 // the summary until a generated one exists, and the whole summary when no
 // model key is set, so it has to read as a sentence, not a list of fields.
 
-import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphEdge, type GraphNode } from '@strata/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphEdge, type GraphNode } from '@fiada/shared';
 
 /** Lookups over one graph, built once per graph version. */
 export interface GraphIndex {

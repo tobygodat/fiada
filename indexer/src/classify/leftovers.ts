@@ -1,8 +1,8 @@
 // What classification left undecided: code in Unlayered or Unsorted. The
-// counts are how Strata measures a fresh import, and the list is what the
+// counts are how Fiada measures a fresh import, and the list is what the
 // model sort is asked to place.
 
-import { SHARED_DOMAIN, UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode } from '@strata/shared';
+import { SHARED_DOMAIN, UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode } from '@fiada/shared';
 
 export interface SortStats {
   /** What the By-function view draws: symbols, and files that have no symbols. */

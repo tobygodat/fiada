@@ -5,13 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import zlib from 'node:zlib';
-import type { UploadPolicy } from '@strata/shared';
+import type { UploadPolicy } from '@fiada/shared';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { gitMeta, readTar, safePath, unpackUpload, UPLOAD, UploadError, withoutCredentials } from './upload.ts';
 
-// Uploads unpack under STRATA_HOME; keep this file's out of the checkout.
-const home = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-upload-'));
-process.env.STRATA_HOME = home;
+// Uploads unpack under FIADA_HOME; keep this file's out of the checkout.
+const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-upload-'));
+process.env.FIADA_HOME = home;
 const { Workspace } = await import('./workspace.ts');
 const { AgentHub } = await import('./agents.ts');
 

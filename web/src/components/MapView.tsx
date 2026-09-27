@@ -34,8 +34,8 @@ export function MapView({ scene, from, renderer, panels, events }: Props) {
       resize: (w, h) => on.current.resize(w, h),
     });
     renderer.current = r;
-    // Reachable from the element for scripted walkthroughs and debugging: document.querySelector('.stage').strata
-    (stage.current as HTMLDivElement & { strata?: MapRenderer }).strata = r;
+    // Reachable from the element for scripted walkthroughs and debugging: document.querySelector('.stage').fiada
+    (stage.current as HTMLDivElement & { fiada?: MapRenderer }).fiada = r;
     // ?links=all or ?links=none, to compare against the default without a rebuild.
     const links = new URLSearchParams(window.location.search).get('links');
     if (links && links in EDGE_POLICIES) r.setEdgePolicy(links as EdgePreset);

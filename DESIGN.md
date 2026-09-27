@@ -1,21 +1,21 @@
-# Strata design system
+# Fiada design system
 
-Strata wears the Toby Godat design system: warm paper in two themes, one serif, one green that means "here", rules instead of boxes, words before icons. This page is enough to restyle any part of Strata without asking. The values live in [`web/src/theme/tokens.css`](web/src/theme/tokens.css); the canvas reads them through [`web/src/theme/tokens.ts`](web/src/theme/tokens.ts).
+Fiada wears the Toby Godat design system: warm paper in two themes, one serif, one green that means "here", rules instead of boxes, words before icons. This page is enough to restyle any part of Fiada without asking. The values live in [`web/src/theme/tokens.css`](web/src/theme/tokens.css); the canvas reads them through [`web/src/theme/tokens.ts`](web/src/theme/tokens.ts).
 
-Source: the [Toby Godat design system](https://claude.ai/artifact/XoJ7FUqR1v7ZKfTDkpfBV3) (its tokens, foundations and "building an application" rules), which was drawn from [`tobygodat/portfolio-website`](https://github.com/tobygodat/portfolio-website). What Strata adds is marked **Strata**.
+Source: the [Toby Godat design system](https://claude.ai/artifact/XoJ7FUqR1v7ZKfTDkpfBV3) (its tokens, foundations and "building an application" rules), which was drawn from [`tobygodat/portfolio-website`](https://github.com/tobygodat/portfolio-website). What Fiada adds is marked **Fiada**.
 
 ## Fixed and free
 
-Toby's direction for Strata (27 Sep 2026):
+Toby's direction for Fiada (27 Sep 2026):
 
 - **Fixed: colour and type.** Only the colour tokens below, both themes, and Literata in the seven styles at 400 and 600. No colour is written anywhere but `tokens.css`.
-- **Free: everything else.** Layout, panel widths, density, motion and component shapes are Strata's to choose, inside the Don'ts at the end. Strata keeps its own motion (panels rising in, change pulses, the working breath).
+- **Free: everything else.** Layout, panel widths, density, motion and component shapes are Fiada's to choose, inside the Don'ts at the end. Fiada keeps its own motion (panels rising in, change pulses, the working breath).
 
 ## Colour
 
 Dark is the default; light is the same roles on light paper. Set `data-theme="dark|light"` on `<html>`.
 
-| token | dark | light | in Strata |
+| token | dark | light | in Fiada |
 | --- | --- | --- | --- |
 | `--ground` | `#1b1a19` | `#f4f1eb` | the app and the map's paper, flat: no gradient |
 | `--ground-raised` | `#252422` | `#fbf9f5` | what floats over the map: sidebar, detail panel, agent window, tooltip, menus; the inside of fields |
@@ -35,7 +35,7 @@ Dark is the default; light is the same roles on light paper. Set `data-theme="da
 
 **Two surfaces.** The map is `--ground`. Everything that floats over it is `--ground-raised` with a 1px `--hairline-strong` border and `--radius` corners. No shadow, no blur, no translucency.
 
-## The map's three palettes (Strata)
+## The map's three palettes (Fiada)
 
 Three meanings, three palettes, no hue shared between them. They colour map marks (circles, rings, badges) and their legend and outline swatches only; words in panels stay in the inks above. `tokens.test.ts` fails if a hue collides or a colour drops below 3:1 on the paper.
 
@@ -76,10 +76,10 @@ Three meanings, three palettes, no hue shared between them. They colour map mark
 
 Literata throughout, from Google Fonts with its optical-size axis (loaded in `web/index.html`). Kerning and ligatures on; tabular figures wherever numbers line up; `text-wrap: balance` on headings.
 
-| style | size / leading | weight | in Strata |
+| style | size / leading | weight | in Fiada |
 | --- | --- | --- | --- |
 | display | 24px / 1.3, −0.01em | 600 | once per screen: an empty-state title |
-| title | 20px / 1.3, −0.005em | 600 | "strata" in the sidebar head; the detail panel's node name |
+| title | 20px / 1.3, −0.005em | 600 | the Fiada wordmark in the sidebar head (the logo SVG at 20px tall, letters in `currentColor`, see `web/src/components/Logo.tsx`); the detail panel's node name |
 | heading | 17px / 1.3 | 600 | section headings, lowercase, with a green `// `: `// repositories` |
 | body | 17px / 1.6 | 400 | prose: summaries, empty-state sentences |
 | small | 15px / 1.6 | 400 | the working size of panels: rows, names, tasks, crumbs, controls |
@@ -89,13 +89,13 @@ Literata throughout, from Google Fonts with its optical-size axis (loaded in `we
 - **Two weights, six sizes, nothing smaller than 13px.** On the map, container labels are 600 and leaf labels 400, sized 13 to 24px by the circle; a label that would be under 13px is not drawn.
 - **Lowercase interface words**: "code", "by function", "import", "repositories", "working". Names keep their case: repos, files, symbols.
 - **No uppercase, no letter-spaced kickers, no monospace labels.** Paths, symbols, routes and counts are Literata in `fine`.
-- **One exception (Strata):** quoted source code (snippets and diffs in the detail panel) is `--font-code`, IBM Plex Mono at 13px / 1.5, so its columns hold. Nothing else is monospace.
+- **One exception (Fiada):** quoted source code (snippets and diffs in the detail panel) is `--font-code`, IBM Plex Mono at 13px / 1.5, so its columns hold. Nothing else is monospace.
 
 ## Space, radius, size
 
 - Space: 4 · 8 · 12 · 16 · 24 · 40, then 56 and 64 (`--space-xs`, `--space-8`, `--space-sm`, `--space-md`, `--space-24`, `--space-lg`, `--space-bottom`, `--space-top`). Closer means related: 4 inside a pair, 8 to 12 inside a row, 16 inside a panel, 24 between groups.
 - Radius: `--radius` (6px) for panels, fields and the tooltip; `--radius-sm` (2px) for tags, badges, checkboxes and the focus ring. Nothing rounder, so no pills. Circles exist only as map data.
-- Controls you press or type into are `--size-control` (36px) to the eye, with a `--size-hit` (44px) area on coarse pointers. Dense rows (the outline tree, file lists) may be shorter; that is Strata's call.
+- Controls you press or type into are `--size-control` (36px) to the eye, with a `--size-hit` (44px) area on coarse pointers. Dense rows (the outline tree, file lists) may be shorter; that is Fiada's call.
 
 ## Idioms
 
@@ -109,6 +109,7 @@ Literata throughout, from Google Fonts with its optical-size axis (loaded in `we
 - **Diffs**: an added line on `--text` at 6%, a deleted line on `--danger` at 10% with its words in `--muted`; `+` and `−` in the gutter carry the meaning.
 - **Agent window**: a task is a list row; its state is a word ("working" in `--accent`, "waiting for you" in `--warning`, "done" in `--muted`). A finished step is `--muted`; the current step is `--text`.
 - **Icons**: optional, an 18px 1.5px-stroke line drawing beside its word in `currentColor`, never alone except a stepping chevron.
+- **Logo**: the F mark with its full stop in `--accent` (collapsed sidebar, favicon) and the Fiada wordmark (sidebar head). Letters take the text colour so both themes work; nothing else in the logo is coloured.
 
 ## Do and don't
 
@@ -127,5 +128,5 @@ Don't:
 
 - **CSS**: `var(--muted)`; to fade a token, `color-mix(in srgb, var(--layer-3) 12%, transparent)`.
 - **Canvas**: `token('--accent')`, `withAlpha(color, a)`, `layerColor(i, a)`, `repoColor(i, a)`, `changeColor('modified', a)`, and `fonts().serif` for `ctx.font`. Values follow the theme; call `onThemeChange(redraw)` to repaint on a switch.
-- **Theme**: `setTheme('light' | 'dark')` sets `data-theme` and remembers it; `index.html` restores it before first paint. Strata stays dark unless light is chosen; once every surface is on tokens, it should follow the system preference until the person chooses.
-- **Checks**: `npm test -w @strata/web` runs the palette test with the rest.
+- **Theme**: `setTheme('light' | 'dark')` sets `data-theme` and remembers it; `index.html` restores it before first paint. Fiada stays dark unless light is chosen; once every surface is on tokens, it should follow the system preference until the person chooses.
+- **Checks**: `npm test -w @fiada/web` runs the palette test with the rest.

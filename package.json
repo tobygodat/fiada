@@ -1,5 +1,5 @@
 {
-  "name": "strata",
+  "name": "fiada",
   "private": true,
   "version": "0.1.0",
   "description": "Codebase cartography: one map from repositories down to symbols.",
@@ -11,12 +11,12 @@
     "agent"
   ],
   "scripts": {
-    "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @strata/web\"",
-    "build": "npm run build -w @strata/web",
+    "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @fiada/web\"",
+    "build": "npm run build -w @fiada/web",
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web && tsc -p agent",
-    "test": "npm test -w @strata/indexer -w @strata/web -w @strata/agent",
+    "test": "npm test -w @strata/indexer -w @fiada/web -w @fiada/agent",
     "index": "npm run index -w @strata/indexer --",
-    "agent:setup": "npm run setup -w @strata/agent --"
+    "agent:setup": "npm run setup -w @fiada/agent --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

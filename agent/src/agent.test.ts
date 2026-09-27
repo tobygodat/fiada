@@ -4,18 +4,18 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { AgentEvent } from '@strata/shared';
+import type { AgentEvent } from '@fiada/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import { sweep } from './hook.ts';
-import { clientId, StrataMcp } from './mcp.ts';
+import { clientId, FiadaMcp } from './mcp.ts';
 import { hooksBlock, mergeHooks } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 async function repo(files: Record<string, string>) {
-  const dir = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'strata-agent-')));
+  const dir = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-agent-')));
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 'test@example.com');
   git(dir, 'config', 'user.name', 'test');
@@ -154,9 +154,9 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
     sent.push(events);
     return { files: [{ path: 'app/models.py', repo: 'r', node: 'r/app/models.py', kind: 'modified', symbols: 1 }] };
   };
-  process.env.STRATA_CWD = dir;
-  const fresh = new StrataMcp((m) => out.push(m), post);
-  delete process.env.STRATA_CWD;
+  process.env.FIADA_CWD = dir;
+  const fresh = new FiadaMcp((m) => out.push(m), post);
+  delete process.env.FIADA_CWD;
   const outer = process.env.CLAUDE_CODE_SESSION_ID;
   process.env.CLAUDE_CODE_SESSION_ID = 'sess-1';
 
@@ -210,11 +210,11 @@ test('the processes above this one, nearest first, and when one started', async 
 test('setup merges hooks without disturbing others and replaces its own', () => {
   const mine = { type: 'command' as const, command: 'echo other' };
   const settings = { model: 'x', hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [mine] }] } };
-  const once = mergeHooks(settings, hooksBlock('node /x/strata-hook.mjs'));
-  const twice = mergeHooks(once, hooksBlock('node /y/strata-hook.mjs'));
+  const once = mergeHooks(settings, hooksBlock('node /x/fiada-hook.mjs'));
+  const twice = mergeHooks(once, hooksBlock('node /y/fiada-hook.mjs'));
   assert.equal(twice.model, 'x');
   assert.equal(twice.hooks.PostToolUse.length, 2);
   assert.deepEqual(twice.hooks.PostToolUse[0].hooks, [mine]);
-  assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/strata-hook.mjs');
+  assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/fiada-hook.mjs');
   assert.equal(twice.hooks.Stop.length, 1);
 });

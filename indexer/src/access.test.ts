@@ -22,10 +22,10 @@ test('listens on loopback locally and on every interface on a hosting platform',
   assert.equal(defaultHost({}), '127.0.0.1');
   assert.equal(defaultHost({ RAILWAY_PROJECT_ID: 'b7c1' }), '0.0.0.0');
   assert.equal(defaultHost({ RENDER: 'true' }), '0.0.0.0');
-  assert.equal(defaultHost({ FLY_APP_NAME: 'strata' }), '0.0.0.0');
+  assert.equal(defaultHost({ FLY_APP_NAME: 'fiada' }), '0.0.0.0');
 });
 
-test('local folders only on loopback unless STRATA_ALLOW_LOCAL says otherwise', () => {
+test('local folders only on loopback unless FIADA_ALLOW_LOCAL says otherwise', () => {
   assert.equal(allowLocalPaths('127.0.0.1', undefined), true);
   assert.equal(allowLocalPaths('localhost', undefined), true);
   assert.equal(allowLocalPaths('0.0.0.0', undefined), false);

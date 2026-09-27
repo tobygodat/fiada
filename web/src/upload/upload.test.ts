@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { UploadPolicy } from '@strata/shared';
+import type { UploadPolicy } from '@fiada/shared';
 import { collect, fromFileList, pack, type Folder } from './folder.ts';
 import { isIgnored, parseGitignore } from './gitignore.ts';
 
@@ -63,7 +63,7 @@ function fromDisk(dir: string): Folder {
 }
 
 async function repo() {
-  const root = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'strata-pick-')), 'private-app');
+  const root = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-pick-')), 'private-app');
   const files: Record<string, string> = {
     '.gitignore': 'generated/\n*.local.ts\n',
     'package.json': '{"name":"private-app"}',

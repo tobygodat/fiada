@@ -3,7 +3,7 @@
 // EventSource reconnects by itself when the indexer restarts.
 
 import { useCallback, useEffect, useState } from 'react';
-import type { ActivityState } from '@strata/shared';
+import type { ActivityState } from '@fiada/shared';
 import { api, apiUrl } from './api.ts';
 
 export interface AgentsHandle {

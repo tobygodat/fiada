@@ -5,12 +5,13 @@
 
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@strata/shared';
+import type { Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@fiada/shared';
 import { remoteKey } from './agents.ts';
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
@@ -23,8 +24,11 @@ import { folderName, unpackUpload, UPLOAD } from './upload.ts';
 const exec = promisify(execFile);
 
 export const PROJECT_ROOT = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
-export const STRATA_HOME = process.env.STRATA_HOME ?? path.join(PROJECT_ROOT, '.strata');
-const CLONES = path.join(STRATA_HOME, 'repos');
+// Checkouts from before the rename keep their .strata folder.
+const OLD_HOME = path.join(PROJECT_ROOT, '.strata');
+export const FIADA_HOME =
+  process.env.FIADA_HOME ?? (!existsSync(path.join(PROJECT_ROOT, '.fiada')) && existsSync(OLD_HOME) ? OLD_HOME : path.join(PROJECT_ROOT, '.fiada'));
+const CLONES = path.join(FIADA_HOME, 'repos');
 
 export interface RepoSource {
   kind: 'git' | 'local';
@@ -76,11 +80,11 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').repla
 
 /**
  * Token for private GitHub repos, passed per command so it never lands in
- * .git/config. Strata-specific on purpose: a GITHUB_TOKEN already in the
+ * .git/config. Fiada-specific on purpose: a GITHUB_TOKEN already in the
  * environment may be scoped to something else entirely.
  */
 function authArgs(url: string): string[] {
-  const token = process.env.STRATA_GITHUB_TOKEN;
+  const token = process.env.FIADA_GITHUB_TOKEN;
   if (!token || !url.startsWith('https://github.com/')) return [];
   const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
   return ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`];
@@ -125,7 +129,7 @@ export class Workspace {
     }
     await this.loadGrouping(true);
     this.store.watchGrouping?.(this.projectId, () => {
-      this.loadGrouping(false).then(() => this.reclassify(), (err) => console.error('[strata]', err));
+      this.loadGrouping(false).then(() => this.reclassify(), (err) => console.error('[fiada]', err));
     });
     const saved = (await this.store.loadRepos(this.projectId)) ?? [];
     this.repos = saved.map(({ id, name, source, kind, remote, branch, commit, uploadedAt }) =>
@@ -171,7 +175,7 @@ export class Workspace {
    * something like an agent changed them. Parsing only the changed files
    * and relinking is much cheaper than reloading the repo, which only
    * happens when a manifest changed. Resolves once the graph is rebuilt.
-   * Clones aren't touched: an agent edits its own checkout, not Strata's.
+   * Clones aren't touched: an agent edits its own checkout, not Fiada's.
    */
   updateFiles(id: string, paths: string[]): Promise<void> {
     const run = async () => {
@@ -180,11 +184,11 @@ export class Workspace {
       if (!repo || !parsed || repo.kind !== 'local' || repo.status !== 'ready') return;
       const started = Date.now();
       if (!(await reloadFiles(parsed, paths))) return this.process(id, false);
-      console.log(`[strata] re-indexed ${paths.length} file${paths.length === 1 ? '' : 's'} in ${id} in ${Date.now() - started}ms`);
+      console.log(`[fiada] re-indexed ${paths.length} file${paths.length === 1 ? '' : 's'} in ${id} in ${Date.now() - started}ms`);
       this.rebuild();
     };
     const done = this.queue.then(run);
-    this.queue = done.catch((err) => console.error('[strata]', err));
+    this.queue = done.catch((err) => console.error('[fiada]', err));
     return done.catch(() => undefined);
   }
 
@@ -234,7 +238,7 @@ export class Workspace {
       raw = await this.store.loadGrouping(this.projectId);
     } catch (err) {
       this.groupingError = `Couldn't read the grouping: ${(err as Error).message}`;
-      console.error(`[strata] ${this.groupingError}`);
+      console.error(`[fiada] ${this.groupingError}`);
       return;
     }
     if (raw == null) {
@@ -248,7 +252,7 @@ export class Workspace {
     } catch (err) {
       if (!(err instanceof GroupingError)) throw err;
       this.groupingError = err.message;
-      console.error(`[strata] grouping not applied: ${err.message}`);
+      console.error(`[fiada] grouping not applied: ${err.message}`);
     }
   }
 
@@ -287,7 +291,7 @@ export class Workspace {
     let unpacked;
     try {
       unpacked = await unpackUpload(archive, tmp);
-      // Its own repository, so git lists its files (honouring its .gitignore) rather than whatever encloses STRATA_HOME.
+      // Its own repository, so git lists its files (honouring its .gitignore) rather than whatever encloses FIADA_HOME.
       await git(['-C', tmp, 'init', '-q'], 30_000);
     } catch (err) {
       await fs.rm(tmp, { recursive: true, force: true });
@@ -318,7 +322,7 @@ export class Workspace {
       await fs.rm(tmp, { recursive: true, force: true });
       throw err;
     }
-    console.log(`[strata] received ${name}: ${unpacked.files} files, ${(unpacked.bytes / 1024).toFixed(0)} KB${remote ? ` from ${remote}` : ''}`);
+    console.log(`[fiada] received ${name}: ${unpacked.files} files, ${(unpacked.bytes / 1024).toFixed(0)} KB${remote ? ` from ${remote}` : ''}`);
     this.queue = this.queue
       .then(async () => {
         if (!this.repos.includes(info)) return fs.rm(tmp, { recursive: true, force: true });
@@ -333,7 +337,7 @@ export class Workspace {
         }
         await this.process(info.id, false);
       })
-      .catch((err) => console.error('[strata]', err));
+      .catch((err) => console.error('[fiada]', err));
     return info;
   }
 
@@ -364,7 +368,7 @@ export class Workspace {
   }
 
   private enqueue(id: string, pull: boolean) {
-    this.queue = this.queue.then(() => this.process(id, pull)).catch((err) => console.error('[strata]', err));
+    this.queue = this.queue.then(() => this.process(id, pull)).catch((err) => console.error('[fiada]', err));
   }
 
   private checkout(repo: RepoInfo) {
@@ -400,17 +404,17 @@ export class Workspace {
       Object.assign(repo, parsed.info, { status: 'ready', error: undefined, indexedAt: new Date().toISOString() });
       parsed.info = repo;
       this.parsed.set(id, parsed);
-      console.log(`[strata] indexed ${id}: ${repo.fileCount} files, ${repo.symbolCount} symbols in ${Date.now() - started}ms`);
+      console.log(`[fiada] indexed ${id}: ${repo.fileCount} files, ${repo.symbolCount} symbols in ${Date.now() - started}ms`);
     } catch (err) {
       const e = err as Error & { stderr?: string };
       repo.status = 'error';
       repo.error = (e.stderr?.trim().split('\n').pop() || e.message).slice(0, 300);
-      console.error(`[strata] ${id}: ${repo.error}`);
+      console.error(`[fiada] ${id}: ${repo.error}`);
     }
     // A failed save (the database dropped, or another indexer saved first) is
     // logged rather than thrown here, so the map still rebuilds. Adding and
     // removing repos report it to the caller instead.
-    await this.save().catch((err) => console.error(`[strata] couldn't save repos for project "${this.projectId}": ${(err as Error).message}`));
+    await this.save().catch((err) => console.error(`[fiada] couldn't save repos for project "${this.projectId}": ${(err as Error).message}`));
     this.rebuild();
   }
 
@@ -418,7 +422,7 @@ export class Workspace {
     const ordered = this.repos.map((r) => this.parsed.get(r.id)).filter((p): p is ParsedRepo => !!p);
     const started = Date.now();
     this.base = buildBase(ordered);
-    console.log(`[strata] linked ${this.base.nodes.length} nodes, ${this.base.edges.length} edges in ${Date.now() - started}ms`);
+    console.log(`[fiada] linked ${this.base.nodes.length} nodes, ${this.base.edges.length} edges in ${Date.now() - started}ms`);
     this.reclassify();
     this.sorter.request(this.sortHost());
   }
@@ -444,7 +448,7 @@ export class Workspace {
     this.graph = classifyGraph(this.base, this.grouping);
     this.sortedPlaced = this.graph.nodes.filter((n) => n.layer?.source === 'model' || n.domain?.source === 'model').length;
     this.graphVersion++;
-    console.log(`[strata] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
+    console.log(`[fiada] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
     for (const fn of this.graphListeners) fn();
   }
 

@@ -11,7 +11,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { GraphNode, LayerPreset, RepoInfo } from '@strata/shared';
+import type { GraphNode, LayerPreset, RepoInfo } from '@fiada/shared';
 import { buildBase, classifyGraph } from './build.ts';
 import { defaultGrouping, describeStats, normalizeGrouping, PRESETS, sortStats } from './classify/index.ts';
 import { sortProject } from './classify/model-sort.ts';
@@ -21,7 +21,7 @@ import { loadRepo } from './sources.ts';
 import type { ProjectStore } from './store.ts';
 import { Summaries } from './summaries/index.ts';
 import { SYSTEM } from './summaries/items.ts';
-import { parseSource, STRATA_HOME } from './workspace.ts';
+import { parseSource, FIADA_HOME } from './workspace.ts';
 
 const exec = promisify(execFile);
 const args = process.argv.slice(2);
@@ -44,7 +44,7 @@ for (const input of sources) {
   const src = await parseSource(input);
   let dir = src.location;
   if (src.kind === 'git') {
-    dir = path.join(STRATA_HOME, 'cli', src.name);
+    dir = path.join(FIADA_HOME, 'cli', src.name);
     const cloned = await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
     if (!cloned) {
       console.error(`cloning ${src.location} …`);

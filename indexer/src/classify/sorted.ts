@@ -3,7 +3,7 @@
 // gaps the classifier left (Unlayered, Unsorted). It never moves code the
 // classifier placed, and the user's names, rules and pins still win over it.
 
-import { modelLabel, UNLAYERED, UNSORTED_DOMAIN, type GraphNode, type Grouping, type Placement, type SortedDomain, type SortedGrouping, type SortedPlacement } from '@strata/shared';
+import { modelLabel, UNLAYERED, UNSORTED_DOMAIN, type GraphNode, type Grouping, type Placement, type SortedDomain, type SortedGrouping, type SortedPlacement } from '@fiada/shared';
 import type { Assignments } from './types.ts';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { EdgeKind, GraphEdge } from '@strata/shared';
+import type { EdgeKind, GraphEdge } from '@fiada/shared';
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
 import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, restEdges } from './edges.ts';

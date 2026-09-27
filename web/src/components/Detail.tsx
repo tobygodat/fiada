@@ -18,7 +18,7 @@ import {
   type Placement,
   type PlacementSource,
   type RepoInfo,
-} from '@strata/shared';
+} from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { Chevron } from './Icon.tsx';

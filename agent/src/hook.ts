@@ -1,4 +1,4 @@
-// strata-hook: tells Strata what an agent did, from the agent's own tool
+// fiada-hook: tells Fiada what an agent did, from the agent's own tool
 // hooks, so the map is right even when the agent never calls the MCP tools.
 //
 // With no arguments it reads a hook payload on stdin and works out who sent it:
@@ -6,19 +6,20 @@
 //   Cursor       beforeSubmitPrompt, afterFileEdit, stop
 //
 // Commands, for other agents and scripts:
-//   strata-hook changed <file>... [--kind added|modified|deleted]
-//   strata-hook task "<task>" [--step "<step text>"]
-//   strata-hook sweep     report whatever changed in the working tree since the last call
-//   strata-hook done      the agent finished its turn
-//   strata-hook codex '<json>'   Codex's `notify` program (it appends the JSON)
+//   fiada-hook changed <file>... [--kind added|modified|deleted]
+//   fiada-hook task "<task>" [--step "<step text>"]
+//   fiada-hook sweep     report whatever changed in the working tree since the last call
+//   fiada-hook done      the agent finished its turn
+//   fiada-hook codex '<json>'   Codex's `notify` program (it appends the JSON)
 // Options: --client <name> (default "cli"), --session <id>, --cwd <dir>
 //
 // It always exits 0 and prints nothing an agent would read, so a missing or
-// broken Strata never gets in the agent's way.
+// broken Fiada never gets in the agent's way.
 
+import './env.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@strata/shared';
+import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@fiada/shared';
 import { send, startedAt, whoAndWhere } from './client.ts';
 import { checkout, describe, real, type Checkout } from './git.ts';
 import { changedSince, compare, forget, load, save, take } from './snapshot.ts';
@@ -220,7 +221,7 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
   }
 
   const { opts, rest } = parseArgs(more);
-  const client = opts.client || process.env.STRATA_AGENT || 'cli';
+  const client = opts.client || process.env.FIADA_AGENT || 'cli';
   const { agent, co } = await whoAndWhere(client, opts.cwd || process.cwd(), opts.session);
   const key = `${client}:${opts.session ?? agent.cwd}`;
   const cwd = opts.cwd || process.cwd();
@@ -236,7 +237,7 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
     case 'done':
       return { agent, out: { events: [...changes(await sweep(key, co)), { type: 'state', state: 'waiting' }] } };
     default:
-      process.stderr.write(`strata-hook: unknown command "${cmd}". Commands: changed, task, sweep, done, codex.\n`);
+      process.stderr.write(`fiada-hook: unknown command "${cmd}". Commands: changed, task, sweep, done, codex.\n`);
       return null;
   }
 }
@@ -256,7 +257,7 @@ async function main() {
     const raw = await readStdin();
     if (!raw.trim()) return;
     // Every payload, one per line, for seeing what an agent actually sends.
-    if (process.env.STRATA_HOOK_LOG) await fs.appendFile(process.env.STRATA_HOOK_LOG, `${raw.replace(/\n/g, ' ')}\n`).catch(() => undefined);
+    if (process.env.FIADA_HOOK_LOG) await fs.appendFile(process.env.FIADA_HOOK_LOG, `${raw.replace(/\n/g, ' ')}\n`).catch(() => undefined);
     const p = JSON.parse(raw) as Payload;
     result = p.conversation_id != null || Array.isArray(p.workspace_roots) ? await fromCursor(p) : await fromClaude(p);
   }
@@ -267,10 +268,10 @@ async function main() {
 }
 
 // Imported by the tests for `sweep`; run when started as the hook.
-if (process.argv[1] && /strata-hook(\.mjs)?$|hook\.ts$/.test(process.argv[1])) {
+if (process.argv[1] && /(fiada|strata)-hook(\.mjs)?$|hook\.ts$/.test(process.argv[1])) {
   main()
     .catch((err) => {
-      if (process.env.STRATA_DEBUG) process.stderr.write(`strata-hook: ${(err as Error).stack}\n`);
+      if (process.env.FIADA_DEBUG) process.stderr.write(`fiada-hook: ${(err as Error).stack}\n`);
     })
     .finally(() => process.exit(0));
 }

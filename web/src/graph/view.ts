@@ -6,7 +6,7 @@
 //               to open); zooming is pure scale.
 //   zoom mode   a circle opens once it is big enough on screen.
 
-import type { EdgeKind, GraphEdge, GraphNode } from '@strata/shared';
+import type { EdgeKind, GraphEdge, GraphNode } from '@fiada/shared';
 import type { Camera } from './camera.ts';
 import type { Circle } from './layout.ts';
 import { locate, type Tree, type TNode } from './tree.ts';
