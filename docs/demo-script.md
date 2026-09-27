@@ -13,7 +13,7 @@ npm run agent:setup -- --write ~/demo/fastapi     # hooks + MCP server for that 
 ```
 
 1. Open http://localhost:5178, type the full path of `~/demo/fastapi` (for example `/Users/toby/demo/fastapi`) in the sidebar box under **repositories**, and press **import**. Wait for "124 files" to appear.
-2. Check the domains are named and nothing big is left in Unsorted. [pending: Automatic sorting on repo import]
+2. Check the domains are named and nothing big is left in Unsorted.
 3. Open a terminal in `~/demo/fastapi`, run `unset CLAUDE_CODE_SESSION_ID` if you're inside another Claude session, and have `claude` ready but not started.
 4. Arrange the screen: browser on the left two thirds, terminal on the right third. Sidebar view set to **code**, colour by **layer**, open **on click**.
 5. Do one practice run, then remove the repo and add it again so the map starts clean (or `git stash` the agent's changes in `~/demo/fastapi`).
@@ -23,7 +23,7 @@ npm run agent:setup -- --write ~/demo/fastapi     # hooks + MCP server for that 
 | Time | Do this | Say this |
 | --- | --- | --- |
 | 0:00 to 0:10 | Map on screen, one repository, closed circles for frontend and backend. | "Coding agents change more code than I can read. Strata is a map of the codebase, so I can see what's there and what the agent is touching. This is the FastAPI full-stack template, which I've never worked in." |
-| 0:10 to 0:22 | In the sidebar under **view**, click **by function**. The map regroups into feature circles. | "On import, Strata sorts every function into a layer and a feature. Rules do most of it from routes, models and imports, and a language model names the features and places what the rules couldn't, with a reason for each." [pending: Automatic sorting on repo import] |
+| 0:10 to 0:22 | In the sidebar under **view**, click **by function**. The map regroups into feature circles. | "On import, Strata sorts every function into a layer and a feature. Rules do most of it from routes, models and imports, and Claude names the features and places what the rules couldn't, with a reason for each." |
 | 0:22 to 0:32 | Click the **Items** circle once. Point at the summary at the top of the panel. Click it again to open it: UI, Client, API and Data layers appear inside. | "Every circle says what it does in one line. Items opens into its layers: the React page, the generated client, the API routes, and the database model." [pending: Short summary for every node] |
 | 0:32 to 0:47 | Click the **HTTP** tag on the line from Client to API. The contract panel opens. Point at one interaction, then at its **why**: the request line and the route it matched. | "Lines are contracts. This one is HTTP: every request the frontend makes to the items routes, and for each one, the exact line of code and the route it matched. Solid means the code proves it. Dotted means Strata guessed, and it tells you how sure it is." |
 | 0:47 to 0:57 | In the interaction list, click `read_items` to jump to the backend route. Then click the **Item** model in the Data layer. The panel shows its code. | "One click takes me to the route, and from there to the table it reads. That's how creating and listing items works, end to end, without opening a file tree." |
