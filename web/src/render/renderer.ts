@@ -12,10 +12,10 @@ import type { Camera } from '../graph/camera.ts';
 import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/camera.ts';
 import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
-import { visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
+import { countKind, crossRepo, direction, kindCounts, meetingPoint, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import { BG, INK, MONO, SANS, type ColorBy, type Palette } from '../theme.ts';
 import { type BadgeCache, drawBadges, drawRings } from './activity.ts';
-import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
@@ -113,6 +113,8 @@ export class MapRenderer {
   /** The agent overlay has a pulse running, so keep drawing frames. */
   private pulsing = false;
   private listeners = new Set<() => void>();
+  /** The camera listeners last heard about; wheel and drag replace `cam` between frames. */
+  private emitted: Camera | null = null;
 
   private drag: { x: number; y: number; cam: Camera; moved: boolean; id: number } | null = null;
   private pointer: { x: number; y: number } | null = null;
@@ -206,7 +208,7 @@ export class MapRenderer {
     return this.cam;
   }
 
-  /** Subscribe to camera changes (for the zoom readout). */
+  /** Subscribe to camera changes, however they happen (for the zoom readout and breadcrumb). */
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
     return () => {
@@ -246,7 +248,6 @@ export class MapRenderer {
   private tick = (now: number) => {
     this.raf = 0;
     let more = false;
-    const before = this.cam;
     if (this.camAnim) {
       const t = Math.min(1, (now - this.camAnim.start) / this.camAnim.dur);
       this.cam = this.camAnim.at(easeInOut(t));
@@ -261,7 +262,10 @@ export class MapRenderer {
     }
     this.draw(easeInOut(lt));
     if (this.pulsing) more = true;
-    if (before !== this.cam) for (const fn of this.listeners) fn();
+    if (this.emitted !== this.cam) {
+      this.emitted = this.cam;
+      for (const fn of this.listeners) fn();
+    }
     // Whatever is under a resting pointer may have moved or changed.
     if (this.pointer && !this.drag?.moved) this.setHover(this.hitTest(this.pointer.x, this.pointer.y));
     if (more) this.request();
@@ -405,26 +409,19 @@ export class MapRenderer {
     const onScreen = (s: { x: number; y: number; r: number }) => s.x + s.r > 0 && s.x - s.r < w && s.y + s.r > 0 && s.y - s.r < h;
 
     // ── edges ──
-    // At rest only the few strongest contracts are drawn. Pointing at a closed
-    // circle, or selecting one, brings in every contract that crosses its rim.
+    // At rest only each open circle's few strongest contracts are drawn.
+    // Pointing at a closed circle, or selecting one, brings in the strongest
+    // of the contracts that cross its rim; its panel lists the rest. An open
+    // circle is a place you're in, not something in focus, so selecting it
+    // draws nothing extra.
     const selKey = scene.selectedEdge;
     const anyEdgeSel = !!selKey && scene.contracts.some((c) => c.key === selKey);
     const hoverNode = this.hover?.type === 'node' && !this.hover.open ? this.hover.id : null;
-    const fv = hoverNode ?? sv;
-    const withinMemo = new Map<string, boolean>();
-    const within = (id: string): boolean => {
-      if (!fv) return false;
-      let hit = withinMemo.get(id);
-      if (hit == null) {
-        let cur: string | null = id;
-        while (cur && cur !== fv) cur = tree.nodes.get(cur)?.parent ?? null;
-        withinMemo.set(id, (hit = cur === fv));
-      }
-      return hit;
-    };
+    const fv = hoverNode ?? (sv && !vis.open.has(sv) ? sv : null);
+    const within = this.within(fv);
     const rest = this.restSet(scene);
     const hoverKey = this.hover?.type === 'edge' || this.hover?.type === 'tag' ? this.hover.key : null;
-    const focusEdges: { g: Contract; A: Circle; B: Circle; role: 'focus' | 'sel' | 'rest' }[] = [];
+    let focusEdges: { g: Contract; A: Circle; B: Circle; role: 'focus' | 'sel' | 'rest' }[] = [];
     const resting: typeof focusEdges = [];
     for (const g of scene.contracts) {
       if (!this.visIds.has(g.a) || !this.visIds.has(g.b)) continue;
@@ -440,11 +437,17 @@ export class MapRenderer {
       if (!onScreen(sa) && !onScreen(sb) && (role === 'rest' || !segmentOnScreen(sa, sb, w, h))) continue;
       (role === 'rest' ? resting : focusEdges).push({ g, A, B, role });
     }
+    if (focusEdges.length > this.policy.focusMax) {
+      // The selected contract always stays.
+      const score = (e: (typeof focusEdges)[number]) => (e.role === 'sel' ? Infinity : edgeScore(e.g, this.policy.boost));
+      focusEdges.sort((p, q) => score(q) - score(p));
+      focusEdges = focusEdges.slice(0, Math.max(this.policy.focusMax, selKey && focusEdges[0].g.key === selKey ? 1 : 0));
+    }
     // Rest edges underneath, the ones in focus on top.
     const drawn = [...resting, ...focusEdges.slice(0, MAX_EDGES)];
     const inFocus = focusEdges.length > 0 || anyEdgeSel;
     const heaviest = Math.max(1, ...drawn.map((e) => e.g.items.length));
-    const tagQueue: { g: Contract; x: number; y: number; isSel: boolean; touches: boolean }[] = [];
+    const tagQueue: { g: Contract; pts: [number, number, number, number, number, number]; isSel: boolean }[] = [];
     const tagBox = this.free();
     ctx.lineCap = 'round';
     drawn.forEach(({ g, A, B, role }, i) => {
@@ -458,7 +461,8 @@ export class MapRenderer {
       const guess = g.inferred === n;
       const A0 = tree.nodes.get(g.a)!;
       const stroke = isSel ? INK : this.nodeColor(A0, 1);
-      let op = role === 'rest' ? (inFocus ? this.policy.restFade : g.cross ? 0.7 : 0.55) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.9;
+      const cross = crossRepo(g);
+      let op = role === 'rest' ? (inFocus ? this.policy.restFade : cross ? 0.7 : 0.55) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.9;
       if (guess && !isSel) op *= 0.8;
       if (isHover) op = Math.max(op, 0.9);
       // Width follows the log of the number of interactions, relative to the heaviest on screen.
@@ -466,7 +470,7 @@ export class MapRenderer {
       ctx.globalAlpha = op;
       ctx.strokeStyle = stroke;
       ctx.lineWidth = sw;
-      ctx.setLineDash(guess ? [0.5, 3 + sw] : g.cross ? [6, 5] : []);
+      ctx.setLineDash(guess ? [0.5, 3 + sw] : cross ? [6, 5] : []);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.quadraticCurveTo(mx, my, x2, y2);
@@ -480,13 +484,9 @@ export class MapRenderer {
         maxX: Math.max(x1, mx, x2),
         maxY: Math.max(y1, my, y2),
       });
-      // Letter tags on what's in focus and the edge under the pointer; on the resting overview only if the policy asks.
+      // Tags on what's in focus and the edge under the pointer; on the resting overview only if the policy asks.
       const tagged = isSel || isHover || (role === 'focus' ? i - resting.length < MAX_TAGS : this.policy.restTags && !inFocus && i < MAX_TAGS);
-      if (tagged && c.gap > 36) {
-        // Mid-curve, or the nearest point to it that isn't off screen or under a panel.
-        const at = tagPoint(x1, y1, mx, my, x2, y2, tagBox);
-        if (at) tagQueue.push({ g, x: at.x, y: at.y, isSel, touches: role === 'focus' });
-      }
+      if (tagged && c.gap > 36) tagQueue.push({ g, pts: [x1, y1, mx, my, x2, y2], isSel });
     });
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -581,12 +581,24 @@ export class MapRenderer {
     }
 
     // ── edge tags ──
+    // Mid-curve, or the nearest point along it that isn't off screen, under a
+    // panel or on top of another tag. The selected and hovered links go first.
     this.font('mono-medium', 11);
+    const first = (t: (typeof tagQueue)[number]) => (t.isSel ? 0 : t.g.key === hoverKey ? 1 : 2);
+    tagQueue.sort((p, q) => first(p) - first(q));
     for (const t of tagQueue) {
       const isHover = t.g.key === hoverKey;
-      const label = t.g.inferred === t.g.items.length ? `${t.g.tag}?` : t.g.tag;
+      const label = t.g.tag;
       const tw = Math.max(20, this.textWidth(label, 'mono', 11) + 12);
-      const r = { x: t.x - tw / 2, y: t.y - 10, w: tw, h: 20 };
+      const box = (p: { x: number; y: number }) => ({ x: p.x - tw / 2, y: p.y - 10, w: tw, h: 20 });
+      const clear = (p: { x: number; y: number }) => {
+        const b = box(p);
+        return !this.drawnTags.some((o) => b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
+      };
+      const half = { w: tw / 2, h: 10 };
+      const at = tagPoint(...t.pts, tagBox, half, clear) ?? (t.isSel || isHover ? tagPoint(...t.pts, tagBox, half) : null);
+      if (!at) continue;
+      const r = box(at);
       ctx.globalAlpha = t.isSel || !anyEdgeSel ? 1 : 0.3;
       ctx.fillStyle = t.isSel ? INK : BG;
       ctx.strokeStyle = t.isSel || isHover ? INK : 'rgba(230,227,218,0.3)';
@@ -595,7 +607,7 @@ export class MapRenderer {
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = t.isSel ? BG : 'rgba(230,227,218,0.85)';
-      ctx.fillText(label, t.x, t.y + 0.5);
+      ctx.fillText(label, at.x, at.y + 0.5);
       this.drawnTags.push({ ...r, key: t.g.key });
     }
     ctx.globalAlpha = 1;
@@ -629,9 +641,25 @@ export class MapRenderer {
         const o = scene.L.get(n.id);
         if (o && !vis.open.has(n.id)) obstacles.push(o);
       }
-      c = this.edgeCache = { L: scene.L, vis, contracts: scene.contracts, rest: restEdges(scene.contracts, this.visIds, this.policy), bends: new Map(), obstacles };
+      c = this.edgeCache = { L: scene.L, vis, contracts: scene.contracts, rest: restEdges(scene.contracts, this.visIds, this.policy, (g) => meetingPoint(scene.tree, g.a, g.b)), bends: new Map(), obstacles };
     }
     return c;
+  }
+
+  /** Whether a node sits inside `id` (or is it). */
+  private within(id: string | null): (n: string) => boolean {
+    const tree = this.scene!.tree;
+    const memo = new Map<string, boolean>();
+    return (n) => {
+      if (!id) return false;
+      let hit = memo.get(n);
+      if (hit == null) {
+        let cur: string | null = n;
+        while (cur && cur !== id) cur = tree.nodes.get(cur)?.parent ?? null;
+        memo.set(n, (hit = cur === id));
+      }
+      return hit;
+    };
   }
 
   private restSet(scene: Scene): Set<string> {
@@ -790,8 +818,10 @@ export class MapRenderer {
 
   private placeTip() {
     if (!this.pointer) return;
-    const x = Math.min(this.pointer.x + 14, this.w - this.tip.offsetWidth - 8);
-    const y = this.pointer.y + 18 + this.tip.offsetHeight > this.h ? this.pointer.y - this.tip.offsetHeight - 10 : this.pointer.y + 18;
+    // Kept out from under the side panels, like the tags.
+    const f = this.free();
+    const x = Math.max(f.x0, Math.min(this.pointer.x + 14, f.x1 - this.tip.offsetWidth - 8));
+    const y = this.pointer.y + 18 + this.tip.offsetHeight > f.y1 ? this.pointer.y - this.tip.offsetHeight - 10 : this.pointer.y + 18;
     this.tip.style.transform = `translate(${x}px, ${y}px)`;
   }
 
@@ -801,10 +831,15 @@ export class MapRenderer {
     if (hit.type === 'edge' || hit.type === 'tag') {
       const c = scene.contracts.find((g) => g.key === hit.key);
       if (!c) return '';
-      const A = scene.tree.nodes.get(c.a)?.name;
-      const B = scene.tree.nodes.get(c.b)?.name;
+      const [from, to, both] = direction(c);
+      const A = scene.tree.nodes.get(from)?.name;
+      const B = scene.tree.nodes.get(to)?.name;
+      const kinds = kindCounts(c)
+        .map(([kind, n]) => countKind(kind, n))
+        .join(', ');
       const guessed = !c.inferred ? '' : c.inferred === c.items.length ? ' · inferred' : ` · ${c.inferred} inferred`;
-      return `${c.tag} · ${A} ⇄ ${B} · ${c.items.length} interaction${c.items.length === 1 ? '' : 's'}${guessed}`;
+      const cross = !c.cross ? '' : c.cross === c.items.length ? ' · cross-repo' : ` · ${c.cross} cross-repo`;
+      return `${A} ${both ? '⇄' : '→'} ${B} · ${kinds}${cross}${guessed}`;
     }
     const n = scene.tree.nodes.get(hit.id);
     if (!n) return '';
@@ -818,7 +853,15 @@ export class MapRenderer {
     }
     const marks = scene.activity?.get(n.id);
     const changed = marks ? describeMarks(marks, scene.tree.view) : '';
-    return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${changed ? ` · ${changed}` : ''}${action}`;
+    // Say when some of its links are left off the map.
+    let links = '';
+    if (!hit.open) {
+      const inside = this.within(n.id);
+      let count = 0;
+      for (const g of scene.contracts) if (this.visIds.has(g.a) && this.visIds.has(g.b) && inside(g.a) !== inside(g.b)) count++;
+      if (count > this.policy.focusMax) links = ` · strongest ${this.policy.focusMax} of ${count} links shown`;
+    }
+    return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${changed ? ` · ${changed}` : ''}${links}${action}`;
   }
 }
 
@@ -880,17 +923,31 @@ function segmentOnScreen(a: { x: number; y: number }, b: { x: number; y: number 
   return maxX > 0 && minX < w && maxY > 0 && minY < h;
 }
 
-/** Where on a curve to put its tag: the middle if that's in `box`, else the in-box point nearest the middle. */
-function tagPoint(x1: number, y1: number, cx: number, cy: number, x2: number, y2: number, box: { x0: number; x1: number; y0: number; y1: number }) {
+/**
+ * Where on a curve to put its tag: the middle if a tag of half-size `half`
+ * fits inside `box` there, else the fitting point nearest the middle.
+ */
+function tagPoint(
+  x1: number,
+  y1: number,
+  cx: number,
+  cy: number,
+  x2: number,
+  y2: number,
+  box: { x0: number; x1: number; y0: number; y1: number },
+  half: { w: number; h: number },
+  ok: (p: { x: number; y: number }) => boolean = () => true,
+) {
   const at = (t: number) => {
     const u = 1 - t;
     return { x: u * u * x1 + 2 * u * t * cx + t * t * x2, y: u * u * y1 + 2 * u * t * cy + t * t * y2 };
   };
-  const inside = (p: { x: number; y: number }) => p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1;
+  const inside = (p: { x: number; y: number }) =>
+    p.x - half.w >= box.x0 && p.x + half.w <= box.x1 && p.y - half.h >= box.y0 && p.y + half.h <= box.y1;
   for (let step = 0; step <= 7; step++) {
     for (const t of step ? [0.5 - step * 0.05, 0.5 + step * 0.05] : [0.5]) {
       const p = at(t);
-      if (inside(p)) return p;
+      if (inside(p) && ok(p)) return p;
     }
   }
   return null;

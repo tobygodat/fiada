@@ -2,7 +2,7 @@
 // one bends so it goes around circles rather than through them.
 
 import type { Circle } from '../graph/layout.ts';
-import type { Contract } from '../graph/view.ts';
+import { crossRepo, type Contract } from '../graph/view.ts';
 
 /**
  * How much of the web the map shows. Kept in one place so the look can be
@@ -11,6 +11,15 @@ import type { Contract } from '../graph/view.ts';
 export interface EdgePolicy {
   /** Most links drawn before anyone points at anything: 0 draws none, Infinity every one. */
   restMax: number;
+  /**
+   * Most resting links inside any one open circle (or between the top-level
+   * circles). Every open circle gets its strongest links first, so opening one
+   * shows its own few key links rather than a tangle, and a small repository
+   * isn't starved by a big one.
+   */
+  perContainer: number;
+  /** Most links drawn for the circle you point at or select, strongest first; its panel lists the rest. */
+  focusMax: number;
   /**
    * A resting link must score at least the strongest one's score to this power
    * (0 keeps everything). Weights are heavy-tailed, one contract often carrying
@@ -31,35 +40,59 @@ export interface EdgePolicy {
 
 export const EDGE_POLICIES = {
   /** The few strongest links at rest; a circle's own links when you point at it or select it. */
-  key: { restMax: 6, restPower: 0.3, restMinItems: 2, boost: 3, restTags: false, restFade: 0.12, route: true },
+  key: { restMax: 6, perContainer: 3, focusMax: 8, restPower: 0.3, restMinItems: 2, boost: 3, restTags: false, restFade: 0.12, route: true },
   /** Every link and tag, as the map used to draw them. */
-  all: { restMax: Infinity, restPower: 0, restMinItems: 1, boost: 1, restTags: true, restFade: 0.12, route: true },
+  all: { restMax: Infinity, perContainer: Infinity, focusMax: Infinity, restPower: 0, restMinItems: 1, boost: 1, restTags: true, restFade: 0.12, route: true },
   /** No links until you point at a circle. */
-  none: { restMax: 0, restPower: 0, restMinItems: 1, boost: 3, restTags: false, restFade: 0, route: true },
+  none: { restMax: 0, perContainer: 0, focusMax: 8, restPower: 0, restMinItems: 1, boost: 3, restTags: false, restFade: 0, route: true },
 } satisfies Record<string, EdgePolicy>;
 
 export type EdgePreset = keyof typeof EDGE_POLICIES;
 export const DEFAULT_EDGE_POLICY: EdgePolicy = EDGE_POLICIES.key;
 
-export const edgeScore = (g: Contract, boost: number) => g.items.length * (g.kinds.has('http') || g.cross ? boost : 1);
+export const edgeScore = (g: Contract, boost: number) => g.items.length * (g.kinds.has('http') || crossRepo(g) ? boost : 1);
 
-/** The few contracts worth drawing before anyone points at anything. */
-export function restEdges(contracts: Contract[], visible: ReadonlySet<string>, policy: EdgePolicy = DEFAULT_EDGE_POLICY): Set<string> {
-  if (policy.restMax <= 0) return new Set();
-  const top: Contract[] = [];
+/**
+ * The few contracts worth drawing before anyone points at anything. `home`
+ * names the open circle a contract sits in (see `meetingPoint`); each one
+ * gets its own few strongest links, and the places take turns up to the cap.
+ */
+export function restEdges(
+  contracts: Contract[],
+  visible: ReadonlySet<string>,
+  policy: EdgePolicy = DEFAULT_EDGE_POLICY,
+  home: (g: Contract) => string = () => '',
+): Set<string> {
+  if (policy.restMax <= 0 || policy.perContainer <= 0) return new Set();
+  const score = (g: Contract) => edgeScore(g, policy.boost);
+  const byScore = (p: Contract, q: Contract) => score(q) - score(p) || (p.key < q.key ? -1 : 1);
+  const places = new Map<string, Contract[]>();
   for (const g of contracts) {
     if (!visible.has(g.a) || !visible.has(g.b) || g.items.length < policy.restMinItems) continue;
-    top.push(g);
+    const h = home(g);
+    const list = places.get(h);
+    if (list) list.push(g);
+    else places.set(h, [g]);
   }
-  const score = (g: Contract) => edgeScore(g, policy.boost);
-  top.sort((p, q) => score(q) - score(p) || (p.key < q.key ? -1 : 1));
-  const floor = top.length ? score(top[0]) ** policy.restPower : Infinity;
-  return new Set(
-    top
-      .slice(0, policy.restMax)
-      .filter((g) => score(g) >= floor)
-      .map((g) => g.key),
-  );
+  const picks: Contract[][] = [];
+  for (const list of places.values()) {
+    list.sort(byScore);
+    const floor = score(list[0]) ** policy.restPower;
+    picks.push(list.slice(0, policy.perContainer).filter((g) => score(g) >= floor));
+  }
+  // Every place's strongest link first, then every place's second, and so on.
+  picks.sort((p, q) => byScore(p[0], q[0]));
+  const out = new Set<string>();
+  for (let round = 0; out.size < policy.restMax; round++) {
+    let more = false;
+    for (const list of picks) {
+      if (round >= list.length || out.size >= policy.restMax) continue;
+      out.add(list[round].key);
+      more = true;
+    }
+    if (!more) break;
+  }
+  return out;
 }
 
 /** Sideways offset of the curve's control point, as a share of the gap between the two rims. */

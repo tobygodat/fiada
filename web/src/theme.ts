@@ -1,7 +1,14 @@
-// Palette and type from the prototype's "orbital" look.
+// Type from the prototype, and the map's colours from the design tokens.
+//
+// Colour carries three meanings, and they never share a hue (DESIGN.md, "The
+// map's three palettes"; theme/tokens.test.ts checks it):
+// - change state, what an agent added, modified or deleted: ink, ochre, brick;
+// - layers: quiet tints from the cool half of the wheel, then cool greys;
+// - repositories: warm greys with no hue, told apart by name and place.
+// The values live only in theme/tokens.css; this module hands them to the canvas.
 
 import { UNLAYERED, type ChangeKind } from '@strata/shared';
-import { changeColor } from './theme/tokens.ts';
+import { changeColor, layerColor, repoColor } from './theme/tokens.ts';
 
 export const INK = '#e6e3da';
 export const BG = '#0c0d10';
@@ -29,17 +36,6 @@ export const CHANGE: Readonly<Record<ChangeKind, string>> = {
   },
 };
 
-// One hue per repository, in import order.
-const REPO_HUES = ['72% 0.14 280', '74% 0.13 190', '74% 0.14 25', '78% 0.10 95', '76% 0.13 150', '74% 0.14 330', '78% 0.12 60', '74% 0.12 230'];
-
-// Layers are per project, so hues go by position in the project's layer list
-// (the roles preset reads ui, client, api, service, data, job, contract, test).
-const LAYER_HUES = ['74% 0.14 330', '72% 0.14 280', '74% 0.13 190', '76% 0.13 150', '78% 0.12 60', '74% 0.14 25', '78% 0.10 95', '70% 0.07 250', '76% 0.12 115', '72% 0.13 0', '76% 0.11 215', '78% 0.09 170'];
-
-const NEUTRAL = '80% 0 0';
-
-const oklch = (hue: string, a?: number) => `oklch(${hue}${a == null ? '' : ` / ${a}`})`;
-
 export type ColorBy = 'repo' | 'layer';
 
 export interface Palette {
@@ -52,15 +48,13 @@ export interface Palette {
 export function palette(repoIds: string[], layerIds: string[] = []): Palette {
   const idx = new Map(repoIds.map((id, i) => [id, i]));
   const layerIdx = new Map(layerIds.map((id, i) => [id, i]));
+  const none = (a?: number) => layerColor(undefined, a);
   return {
     repo: (id, a) => {
       const i = idx.get(id);
-      return oklch(i == null ? NEUTRAL : REPO_HUES[i % REPO_HUES.length], a);
+      return i == null ? none(a) : repoColor(i, a);
     },
-    layer: (l, a) => {
-      const i = l && l !== UNLAYERED ? layerIdx.get(l) : undefined;
-      return oklch(i == null ? NEUTRAL : LAYER_HUES[i % LAYER_HUES.length], a);
-    },
-    neutral: (a) => oklch(NEUTRAL, a),
+    layer: (l, a) => layerColor(l && l !== UNLAYERED ? layerIdx.get(l) : undefined, a),
+    neutral: none,
   };
 }
