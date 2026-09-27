@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
-import { API_BASE, canEdit } from '../api.ts';
+import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
@@ -11,7 +11,8 @@ import type { ColorBy, Palette } from '../theme.ts';
 interface Props {
   workspace: Workspace | null;
   graph: Graph | null;
-  offline: boolean;
+  /** Why the indexer can't be reached; null while it answers. */
+  offline: string | null;
   tree: Tree | null;
   view: View;
   mode: ExpandMode;
@@ -182,7 +183,7 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
   return (
     <section className="section">
       <div className="section-title">Repositories</div>
-      {offline && <div className="notice">{API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with npm run dev."}</div>}
+      {offline && <div className="notice">{offline}</div>}
       <div className="repo-list">
         {repos.map((r) => (
           <div key={r.id} className="repo-row" title={r.source}>
