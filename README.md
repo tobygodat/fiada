@@ -12,7 +12,7 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 
 ## What it does
 
-- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; a language model names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
+- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; Claude names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
 - **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash. [pending: Short summary for every node]
 - **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
 - **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
