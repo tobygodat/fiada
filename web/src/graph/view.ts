@@ -2,7 +2,8 @@
 // edges aggregated up to whatever is visible.
 //
 // Two ways to decide what's open:
-//   click mode  the user opens and closes circles; zooming is pure scale.
+//   click mode  the user opens and closes circles (select, then click again
+//               to open); zooming is pure scale.
 //   zoom mode   a circle opens once it is big enough on screen.
 
 import type { EdgeKind, GraphEdge, GraphNode } from '@strata/shared';
@@ -81,6 +82,16 @@ export function withPathOpen(tree: Tree, expanded: ReadonlySet<string>, id: stri
   return next;
 }
 
+/**
+ * Click mode: what a click on a circle does. The first click selects it, so
+ * the detail panel shows what it is and what it talks to; a second click on
+ * the selected circle opens it in place.
+ */
+export function clickAction(n: TNode, selected: string | null, open: boolean): 'select' | 'open' | 'none' {
+  if (selected !== n.id) return 'select';
+  return n.children.length && !open ? 'open' : 'none';
+}
+
 /** Closes `id` and everything open inside it. */
 export function withCollapsed(tree: Tree, expanded: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(expanded);
@@ -101,6 +112,8 @@ export interface Contract {
   items: GraphEdge[];
   kinds: Set<EdgeKind>;
   cross: boolean;
+  /** How many of the interactions a heuristic guessed rather than the code proving them. */
+  inferred: number;
   tag: string;
 }
 
@@ -213,12 +226,13 @@ export function aggregateEdges(ix: EdgeIndex, vis: Visible): Contract[] {
       const B = ix.nodes[hi];
       // Keys and ends ordered by id, so a contract keeps its key whatever the index order.
       const [x, y] = A.id < B.id ? [A, B] : [B, A];
-      p = { key: `${x.id}|${y.id}`, a: x.id, b: y.id, items: [], kinds: new Set(), cross: x.repo !== y.repo, tag: '' };
+      p = { key: `${x.id}|${y.id}`, a: x.id, b: y.id, items: [], kinds: new Set(), cross: x.repo !== y.repo, inferred: 0, tag: '' };
       pairs.set(pk, p);
     }
     const edge = ix.edges[e];
     p.items.push(edge);
     p.kinds.add(edge.kind);
+    if (edge.basis === 'inferred') p.inferred++;
     if (ix.cross[e]) p.cross = true;
   }
   const out = [...pairs.values()].sort((p, q) => q.items.length - p.items.length || (p.key < q.key ? -1 : 1));

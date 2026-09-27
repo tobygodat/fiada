@@ -9,6 +9,7 @@ import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
+  clickAction,
   expandedNodes,
   indexEdges,
   withCollapsed,
@@ -168,6 +169,27 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L]);
 
+  /** Pans, without zooming, just enough to bring `id` out from under the panels. */
+  const reveal = useCallback(
+    (id: string) => {
+      const r = renderer.current;
+      const c = L.get(id);
+      if (!r || !c) return;
+      const cam = r.camera;
+      const f = freeArea(viewport(true));
+      const margin = 24;
+      const shift = (s: number, sr: number, lo: number, hi: number) => {
+        const pad = Math.min(sr + margin, (hi - lo) / 2);
+        return s < lo + pad ? lo + pad - s : s > hi - pad ? hi - pad - s : 0;
+      };
+      const sr = c.r * cam.k;
+      const dx = shift(cam.tx + c.x * cam.k, sr, f.cx - f.w / 2, f.cx + f.w / 2);
+      const dy = shift(cam.ty + c.y * cam.k, sr, 0, f.h);
+      if (Math.abs(dx) + Math.abs(dy) >= 1) r.animateTo({ k: cam.k, tx: cam.tx + dx, ty: cam.ty + dy }, 'direct', 380);
+    },
+    [L, viewport],
+  );
+
   // ── navigation ──
 
   const remember = useCallback(() => {
@@ -202,7 +224,8 @@ export function App() {
       setSelected(at);
       // Coming from a selection (a dependency or contract end in the detail panel): keep it in view too.
       const opts = { detail: true, from: selected ?? focus };
-      if (mode === 'click') go(withPathOpen(tree, expanded, at, true), at, opts);
+      // Click mode opens the way to it but not the node itself: that's a second click, as on the map.
+      if (mode === 'click') go(withPathOpen(tree, expanded, at, false), at, opts);
       else go(null, at, opts);
     },
     [tree, graphIndex, mode, expanded, go, remember, selected, focus],
@@ -215,12 +238,15 @@ export function App() {
       if (!n) return;
       setSelectedEdge(null);
       if (mode === 'zoom') return select(id);
+      const action = clickAction(n, selected, open);
+      if (action === 'none') return;
       remember();
+      if (action === 'open') return go(withPathOpen(tree, expanded, id, true), id, { detail: true });
+      // First click: select it and show its details, moving the view only if the panel would cover it.
       setSelected(id);
-      // A closed circle opens in place; leaves and open circles are just selected, so the view stays put.
-      if (!open && n.children.length) go(withPathOpen(tree, expanded, id, true), id, { detail: true });
+      reveal(id);
     },
-    [tree, mode, expanded, go, select, remember],
+    [tree, mode, selected, expanded, go, select, remember, reveal],
   );
 
   const collapse = useCallback(
@@ -323,18 +349,22 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLElement && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable);
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
       if (e.key === 'Escape') {
         setSelected(null);
         setSelectedEdge(null);
       } else if (!typing && (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft'))) {
         e.preventDefault();
         back();
+      } else if (e.key === 'Enter' && selected && !typing && !el?.closest('button, a, select')) {
+        // Same as clicking the selected circle again.
+        onNodeClick(selected, !!clickVis?.open.has(selected));
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [back]);
+  }, [back, selected, onNodeClick, clickVis]);
 
   const altitude = useMemo(() => {
     if (!vis || !tree) return 0;
@@ -425,12 +455,15 @@ export function App() {
 function Legend({ colorBy, pal, layers, mode }: { colorBy: ColorBy; pal: ReturnType<typeof palette>; layers: { id: string; name: string }[]; mode: ExpandMode }) {
   return (
     <div className="legend">
-      <span>{mode === 'click' ? 'click a circle to open it · scroll to zoom' : 'scroll to zoom and open circles'}</span>
+      <span>{mode === 'click' ? 'click a circle for details, again to open it · scroll to zoom' : 'scroll to zoom and open circles'}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo
       </span>
       <span className="row gap">
         <span className="swatch-line dashed" /> cross-repo
+      </span>
+      <span className="row gap">
+        <span className="swatch-line dotted" /> inferred
       </span>
       {colorBy === 'layer' &&
         layers.map((l) => (

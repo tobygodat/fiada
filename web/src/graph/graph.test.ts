@@ -5,7 +5,7 @@ import { directZoom, enclose, frame, freeArea, smoothZoom, zoomAt, type Camera }
 import { fixtureGraph } from './fixture.test-util.ts';
 import { closedRadius, layoutExpanded, type Circle } from './layout.ts';
 import { buildCodeTree, buildFunctionTree, locate, type Tree } from './tree.ts';
-import { aggregateEdges, expandedNodes, indexEdges, withCollapsed, withPathOpen, type Visible } from './view.ts';
+import { aggregateEdges, clickAction, expandedNodes, indexEdges, withCollapsed, withPathOpen, type Visible } from './view.ts';
 
 const graph = fixtureGraph();
 const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
@@ -51,6 +51,18 @@ test('opening and closing circles', () => {
   assert.deepEqual([...withCollapsed(code, open, 'web/src')].sort(), ['web']);
 });
 
+test('click mode: the first click selects, a second click on the selection opens', () => {
+  const file = code.nodes.get('web/src/pages/items.tsx')!;
+  const symbol = code.nodes.get('web/src/pages/items.tsx#ItemsPage')!;
+  assert.equal(clickAction(file, null, false), 'select');
+  assert.equal(clickAction(file, 'web/src/client/api.ts', false), 'select');
+  assert.equal(clickAction(file, file.id, false), 'open');
+  // Already open, or nothing inside: a second click has nothing to do.
+  assert.equal(clickAction(file, file.id, true), 'none');
+  assert.equal(clickAction(symbol, null, false), 'select');
+  assert.equal(clickAction(symbol, symbol.id, false), 'none');
+});
+
 test('indexed edge lifting matches the straightforward version', () => {
   const ix = indexEdges(code, graphIndex, graph.edges);
   const ids = [...code.nodes.keys()].filter((id) => code.nodes.get(id)!.children.length && id !== 'root');
@@ -70,13 +82,16 @@ test('edges reattach to the inner component that is responsible', () => {
   assert.equal(closed[0].key, 'api|web');
   assert.ok(closed[0].cross);
   assert.equal(closed[0].items.length, 2);
+  assert.equal(closed[0].inferred, 1);
   assert.equal(closed[0].tag, 'A');
 
   const open = withPathOpen(code, withPathOpen(code, new Set(), 'web/src/client/api.ts', true), 'api/app/routes/items.py', true);
   const opened = aggregateEdges(ix, expandedNodes(code, open));
   const http = opened.find((c) => c.kinds.has('http'))!;
   assert.equal(http.key, 'api/app/routes/items.py#create_item|web/src/client/api.ts#ItemsService');
-  assert.ok(opened.some((c) => c.key === 'api/app/routes/items.py#read_items|web/src/client/api.ts#ItemsService'));
+  // Opened up, the guessed request is a contract of its own, drawn as inferred; the proven one isn't.
+  assert.equal(http.inferred, http.items.length);
+  assert.equal(opened.find((c) => c.key === 'api/app/routes/items.py#read_items|web/src/client/api.ts#ItemsService')?.inferred, 0);
 });
 
 test('by-function tree keeps symbol ids, so edges resolve the same way', () => {

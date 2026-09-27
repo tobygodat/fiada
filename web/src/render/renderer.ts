@@ -430,15 +430,18 @@ export class MapRenderer {
       const isSel = g.key === selKey;
       const isHover = g.key === hoverKey;
       const n = g.items.length;
+      // Every interaction behind it was guessed: dotted, and a little fainter.
+      const guess = g.inferred === n;
       const A0 = tree.nodes.get(g.a)!;
       const stroke = isSel ? INK : this.nodeColor(A0, 1);
       let op = sv ? (touches ? 0.95 : 0.08) : anyEdgeSel ? (isSel ? 1 : 0.08) : (g.cross ? 0.6 : 0.42) * density;
+      if (guess && !isSel) op *= 0.8;
       if (isHover) op = Math.max(op, 0.9);
       const sw = Math.min(14, 1 + (n - 1) * 0.9) + (isHover ? 1 : 0);
       ctx.globalAlpha = op;
       ctx.strokeStyle = stroke;
       ctx.lineWidth = sw;
-      ctx.setLineDash(g.cross ? [6, 5] : []);
+      ctx.setLineDash(guess ? [0.5, 3 + sw] : g.cross ? [6, 5] : []);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.quadraticCurveTo(mx, my, x2, y2);
@@ -546,7 +549,8 @@ export class MapRenderer {
     this.font('mono-medium', 11);
     for (const t of tagQueue) {
       const isHover = t.g.key === hoverKey;
-      const tw = Math.max(20, this.textWidth(t.g.tag, 'mono', 11) + 12);
+      const label = t.g.inferred === t.g.items.length ? `${t.g.tag}?` : t.g.tag;
+      const tw = Math.max(20, this.textWidth(label, 'mono', 11) + 12);
       const r = { x: t.x - tw / 2, y: t.y - 10, w: tw, h: 20 };
       ctx.globalAlpha = sv && !t.touches ? 0.15 : anyEdgeSel && !t.isSel ? 0.3 : 1;
       ctx.fillStyle = t.isSel ? INK : BG;
@@ -556,7 +560,7 @@ export class MapRenderer {
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = t.isSel ? BG : 'rgba(230,227,218,0.85)';
-      ctx.fillText(t.g.tag, t.x, t.y + 0.5);
+      ctx.fillText(label, t.x, t.y + 0.5);
       this.drawnTags.push({ ...r, key: t.g.key });
     }
     ctx.globalAlpha = 1;
@@ -714,14 +718,19 @@ export class MapRenderer {
       if (!c) return '';
       const A = scene.tree.nodes.get(c.a)?.name;
       const B = scene.tree.nodes.get(c.b)?.name;
-      return `${c.tag} · ${A} ⇄ ${B} · ${c.items.length} interaction${c.items.length === 1 ? '' : 's'}`;
+      const guessed = !c.inferred ? '' : c.inferred === c.items.length ? ' · inferred' : ` · ${c.inferred} inferred`;
+      return `${c.tag} · ${A} ⇄ ${B} · ${c.items.length} interaction${c.items.length === 1 ? '' : 's'}${guessed}`;
     }
     const n = scene.tree.nodes.get(hit.id);
     if (!n) return '';
     if (hit.type === 'tab') return `Close ${n.name}`;
     const sub = this.subtitle(n);
     const kind = KIND[n.kind] ?? n.kind;
-    const action = n.children.length && !hit.open && scene.mode === 'click' ? ' · click to open' : '';
+    let action = '';
+    if (scene.mode === 'click') {
+      if (scene.selected !== n.id) action = ' · click for details';
+      else if (n.children.length && !hit.open) action = ' · click again to open';
+    }
     return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${action}`;
   }
 }

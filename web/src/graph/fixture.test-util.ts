@@ -36,7 +36,16 @@ export function fixtureGraph(): Graph {
     { from: 'web/src/pages/items.tsx#useItems', to: 'web/src/client/api.ts#ItemsService', kind: 'calls' },
     { from: 'web/src/pages/about.tsx', to: 'web/src/client/api.ts', kind: 'imports' },
     { from: 'web/src/client/api.ts#ItemsService', to: 'api/app/routes/items.py#read_items', kind: 'http', detail: 'GET /items/' },
-    { from: 'web/src/client/api.ts#ItemsService', to: 'api/app/routes/items.py#create_item', kind: 'http', detail: 'POST /items/' },
+    // Matched on the route's tail only, so a guess.
+    {
+      from: 'web/src/client/api.ts#ItemsService',
+      to: 'api/app/routes/items.py#create_item',
+      kind: 'http',
+      detail: 'POST /items/',
+      basis: 'inferred',
+      confidence: 0.6,
+      reason: "request matched the route's tail; the /api prefix wasn't found",
+    },
     { from: 'api/app/routes/items.py#read_items', to: 'api/app/models.py#Item', kind: 'references' },
     { from: 'api/app/routes/items.py#create_item', to: 'api/app/models.py#Item', kind: 'calls' },
     { from: 'api/app/models.py#Item', to: 'api/app/models.py#User', kind: 'type' },

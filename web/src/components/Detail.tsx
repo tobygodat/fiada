@@ -2,7 +2,19 @@
 // layer and domain), what it depends on, or the contract behind an edge.
 
 import { useEffect, useMemo, useState } from 'react';
-import { describeFact, UNLAYERED, type EdgeKind, type Graph, type GraphEdge, type GraphNode, type Placement, type PlacementSource, type RepoInfo } from '@strata/shared';
+import {
+  describeFact,
+  UNLAYERED,
+  type EdgeEvidence,
+  type EdgeEvidenceSource,
+  type EdgeKind,
+  type Graph,
+  type GraphEdge,
+  type GraphNode,
+  type Placement,
+  type PlacementSource,
+  type RepoInfo,
+} from '@strata/shared';
 import { api, type SourceText } from '../api.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import type { Contract } from '../graph/view.ts';
@@ -110,16 +122,16 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
-/** The node's code: a symbol's lines, or the top of a file, read from the indexer's checkout. */
-function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
-  const key = `${g.repo}|${g.path}|${repo?.commit ?? ''}`;
+/** A file's lines from the indexer's checkout, fetched once per file and commit. */
+function useSource(repo: string, path: string, commit?: string): { lines: string[] | null; error: string | null } {
+  const key = `${repo}|${path}|${commit ?? ''}`;
   const [state, setState] = useState<{ key: string; text?: string; error?: string } | null>(null);
-  const [whole, setWhole] = useState(false);
   useEffect(() => {
+    if (!repo || !path) return;
     let live = true;
     let p = sources.get(key);
     if (!p) {
-      p = api.source(g.repo, g.path!);
+      p = api.source(repo, path);
       sources.set(key, p);
       p.catch(() => sources.delete(key));
     }
@@ -130,10 +142,17 @@ function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
     return () => {
       live = false;
     };
-  }, [key, g.repo, g.path]);
+  }, [key, repo, path]);
+  const mine = state?.key === key ? state : null;
+  return { lines: mine?.text != null ? mine.text.split('\n') : null, error: mine?.error ?? null };
+}
+
+/** The node's code: a symbol's lines, or the top of a file, read from the indexer's checkout. */
+function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
+  const { lines: all, error } = useSource(g.repo, g.path!, repo?.commit);
+  const [whole, setWhole] = useState(false);
   useEffect(() => setWhole(false), [g.id]);
 
-  const all = state?.key === key && state.text != null ? state.text.split('\n') : null;
   const [a, b] = g.kind === 'symbol' && g.lines && !whole ? g.lines : [1, all?.length ?? 1];
   const shown = all ? all.slice(a - 1, Math.min(b, a - 1 + MAX_LINES)) : [];
   const web = repo && webUrl(repo, g.path!, g.kind === 'symbol' && g.lines ? g.lines : null);
@@ -154,8 +173,8 @@ function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
           </a>
         )}
       </div>
-      {state?.key === key && state.error && <div className="muted small">Couldn't load the source: {state.error}</div>}
-      {!all && !(state?.key === key && state.error) && <div className="muted small">Loading…</div>}
+      {error && <div className="muted small">Couldn't load the source: {error}</div>}
+      {!all && !error && <div className="muted small">Loading…</div>}
       {all && (
         <pre className="code">
           {shown.map((line, i) => (
@@ -237,6 +256,9 @@ function Facts({ rows }: { rows: [string, string, string?][] }) {
 interface Dep {
   id: string;
   kind: EdgeKind;
+  /** Every edge behind this row was guessed, not proven by the code. */
+  inferred: boolean;
+  reason?: string;
 }
 
 function DepList({ title, items, graphIndex, self, onSelect }: { title: string; items: Dep[]; graphIndex: Map<string, GraphNode>; self: TNode; onSelect(id: string): void }) {
@@ -249,12 +271,13 @@ function DepList({ title, items, graphIndex, self, onSelect }: { title: string; 
         const other = graphIndex.get(d.id);
         const crossRepo = other && self.repo && other.repo !== self.repo;
         return (
-          <button key={d.id + d.kind} className="dep" onClick={() => onSelect(d.id)} title={d.id}>
+          <button key={d.id + d.kind} className="dep" onClick={() => onSelect(d.id)} title={d.inferred && d.reason ? `${d.id}\ninferred: ${d.reason}` : d.id}>
             <span className="muted">{EDGE_VERB[d.kind]}</span>
             <span className="dep-name">
               {short(d.id)}
               {crossRepo ? <span className="muted"> · {other!.repo}</span> : null}
             </span>
+            {d.inferred && <span className="guess">inferred</span>}
           </button>
         );
       })}
@@ -275,16 +298,19 @@ function dependencies(tree: Tree, edges: GraphEdge[], n: TNode) {
   const has = (id: string) => inside.has(id) || (n.kind === 'file' && id.startsWith(n.id + '#'));
   const uses = new Map<string, Dep>();
   const usedBy = new Map<string, Dep>();
-  // One row per node on the other side, under its strongest kind of use.
-  const keep = (m: Map<string, Dep>, id: string, kind: EdgeKind) => {
+  // One row per node on the other side, under its strongest kind of use; inferred only if nothing proves it.
+  const keep = (m: Map<string, Dep>, id: string, e: GraphEdge) => {
+    const guess = e.basis === 'inferred';
     const cur = m.get(id);
-    if (!cur || KIND_RANK[kind] < KIND_RANK[cur.kind]) m.set(id, { id, kind });
+    if (!cur) return void m.set(id, { id, kind: e.kind, inferred: guess, reason: guess ? e.reason : undefined });
+    if (KIND_RANK[e.kind] < KIND_RANK[cur.kind]) cur.kind = e.kind;
+    if (!guess) cur.inferred = false;
   };
   for (const e of edges) {
     const a = has(e.from);
     const b = has(e.to);
-    if (a && !b) keep(uses, e.to, e.kind);
-    else if (b && !a) keep(usedBy, e.from, e.kind);
+    if (a && !b) keep(uses, e.to, e);
+    else if (b && !a) keep(usedBy, e.from, e);
   }
   // Requests first: following them is how you get from a page to its backend.
   const order = (m: Map<string, Dep>) => [...m.values()].sort((x, y) => KIND_RANK[x.kind] - KIND_RANK[y.kind]);
@@ -303,7 +329,7 @@ function summary(n: TNode): string {
   return `${n.children.length} entries, ${n.symbols} symbols.`;
 }
 
-function ContractDetail({ tree, contract: c, onSelect }: Props & { contract: Contract }) {
+function ContractDetail({ graph, graphIndex, tree, contract: c, onSelect }: Props & { contract: Contract }) {
   const A = tree.nodes.get(c.a)!;
   const B = tree.nodes.get(c.b)!;
   const http = c.items.filter((e) => e.kind === 'http');
@@ -327,6 +353,7 @@ function ContractDetail({ tree, contract: c, onSelect }: Props & { contract: Con
           <span className="tag sel static">{c.tag}</span>
           Contract · {plural(c.items.length, 'interaction')}
           {c.cross ? ' · cross-repo' : ''}
+          {c.inferred ? <span className="guess">{c.inferred === c.items.length ? 'inferred' : `${c.inferred} inferred`}</span> : null}
         </div>
         <div className="contract-ends">
           <button onClick={() => onSelect(A.id)}>{A.name}</button>
@@ -343,23 +370,130 @@ function ContractDetail({ tree, contract: c, onSelect }: Props & { contract: Con
       <div className="detail-block">
         <div className="block-title">Interactions</div>
         {c.items.slice(0, 80).map((e, i) => (
-          <div key={i} className="interaction" title={`${e.from} → ${e.to}`}>
-            <span className="muted">{EDGE_VERB[e.kind]}</span>
-            <span className="dep-name">
-              {/* Each end opens the exact file or symbol responsible, not just the circle the contract is drawn to. */}
-              <button className="end" onClick={() => onSelect(e.from)}>
-                {short(e.from)}
-              </button>{' '}
-              →{' '}
-              <button className="end" onClick={() => onSelect(e.to)}>
-                {short(e.to)}
-              </button>
-              {e.detail && <span className="muted"> · {e.detail}</span>}
-            </span>
-          </div>
+          // Rows are marked only when the contract mixes proven and guessed interactions; otherwise the header says it.
+          <Interaction
+            key={`${c.key}|${i}`}
+            e={e}
+            graph={graph}
+            graphIndex={graphIndex}
+            open={c.items.length === 1}
+            mark={c.inferred > 0 && c.inferred < c.items.length}
+            onSelect={onSelect}
+          />
         ))}
         {c.items.length > 80 && <div className="muted small">and {c.items.length - 80} more</div>}
       </div>
     </aside>
+  );
+}
+
+const EVIDENCE_LABEL: Record<EdgeEvidenceSource, string> = {
+  import: 'import',
+  call: 'call',
+  jsx: 'renders',
+  'type-ref': 'type',
+  reference: 'use',
+  request: 'request',
+  route: 'route',
+  mount: 'mount',
+  constant: 'constant',
+  orm: 'orm',
+};
+
+/** One underlying edge: its two ends, and on demand how the indexer knows about it. */
+function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, GraphNode>; open: boolean; mark: boolean; onSelect(id: string): void }) {
+  const { e, graph, graphIndex, open, onSelect } = p;
+  const [shown, setShown] = useState(open);
+  const [line, setLine] = useState<number | null>(null);
+  const guess = p.mark && e.basis === 'inferred';
+  const why = !!(e.reason || e.evidence?.length);
+  return (
+    <div className="interaction-wrap">
+      <div className="interaction" title={`${e.from} → ${e.to}`}>
+        <span className="muted">{EDGE_VERB[e.kind]}</span>
+        <span className="dep-name">
+          {/* Each end opens the exact file or symbol responsible, not just the circle the contract is drawn to. */}
+          <button className="end" onClick={() => onSelect(e.from)}>
+            {short(e.from)}
+          </button>{' '}
+          →{' '}
+          <button className="end" onClick={() => onSelect(e.to)}>
+            {short(e.to)}
+          </button>
+          {e.detail && <span className="muted"> · {e.detail}</span>}
+        </span>
+        {guess && <span className="guess">inferred</span>}
+        {why && (
+          <button className="link why" onClick={() => setShown((v) => !v)} aria-expanded={shown}>
+            {shown ? 'hide' : 'why'}
+          </button>
+        )}
+      </div>
+      {shown && why && (
+        <div className="evidence">
+          {e.reason && (
+            <div className="muted small">
+              {e.reason}
+              {e.confidence != null && <span className="mono"> · {e.confidence.toFixed(2)}</span>}
+            </div>
+          )}
+          {(e.evidence ?? []).map((ev, i) => (
+            <div key={i}>
+              <button className="ev" onClick={() => setLine((cur) => (cur === i ? null : i))} aria-expanded={line === i} title={`${ev.file}:${ev.line}`}>
+                <span className="ev-src">{EVIDENCE_LABEL[ev.source] ?? ev.source}</span>
+                <span className="ev-body">
+                  <span className="ev-at">
+                    {short(ev.file)}:{ev.line}
+                    {ev.note && <span className="muted"> · {ev.note}</span>}
+                  </span>
+                  {ev.code && <span className="ev-code">{ev.code}</span>}
+                </span>
+              </button>
+              {line === i && <Snippet ev={ev} graph={graph} graphIndex={graphIndex} onSelect={onSelect} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CONTEXT = 4;
+
+/** A few lines either side of one piece of evidence, read through the indexer's source route. */
+function Snippet({ ev, graph, graphIndex, onSelect }: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, GraphNode>; onSelect(id: string): void }) {
+  const file = graphIndex.get(ev.file);
+  const repo = graph.repos.find((r) => r.id === file?.repo);
+  const { lines, error } = useSource(file?.repo ?? '', file?.path ?? '', repo?.commit);
+  if (!file?.path) return <div className="muted small snippet">That file isn't in the map.</div>;
+  const a = Math.max(1, ev.line - CONTEXT);
+  const b = lines ? Math.min(lines.length, ev.line + CONTEXT) : a;
+  const web = repo && webUrl(repo, file.path, [ev.line, ev.line]);
+  return (
+    <div className="snippet">
+      {error && <div className="muted small">Couldn't load the source: {error}</div>}
+      {!lines && !error && <div className="muted small">Loading…</div>}
+      {lines && (
+        <pre className="code">
+          {lines.slice(a - 1, b).map((text, i) => (
+            <div key={i} className={a + i === ev.line ? 'hl' : ''}>
+              <span className="ln">{a + i}</span>
+              {text || ' '}
+            </div>
+          ))}
+        </pre>
+      )}
+      <div className="row gap">
+        <button className="link" onClick={() => onSelect(ev.file)}>
+          show {short(ev.file)} on the map
+        </button>
+        <span className="grow" />
+        {web && (
+          <a className="link" href={web} target="_blank" rel="noreferrer">
+            open on GitHub ↗
+          </a>
+        )}
+      </div>
+    </div>
   );
 }
