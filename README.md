@@ -204,7 +204,7 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 }
 ```
 
-Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. To watch an agent work on Strata itself, run `npm run dev:self` instead: `npm run dev` restarts the indexer whenever its code changes, which clears the agents window. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
+Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. To watch an agent work on Fiada itself, run `npm run dev:self` instead: `npm run dev` restarts the indexer whenever its code changes, which clears the agents window. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
 ### Other agents
 

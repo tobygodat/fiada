@@ -3,7 +3,7 @@
 // edits do. One watcher per local repository re-indexes what changed and puts
 // the files no agent reported on their own record, "You", with a diff against
 // HEAD. Git's ignore rules keep dependencies and build output out. Clones
-// aren't watched: nobody edits Strata's copy.
+// aren't watched: nobody edits Fiada's copy.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
