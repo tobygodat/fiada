@@ -176,11 +176,19 @@ export class Workspace {
   async remove(id: string) {
     const repo = this.repos.find((r) => r.id === id);
     if (!repo) return;
-    this.repos = this.repos.filter((r) => r.id !== id);
+    const index = this.repos.indexOf(repo);
+    this.repos = this.repos.filter((r) => r !== repo);
+    // Persist the removal before discarding anything, so a rejected save
+    // (another indexer changed the list) leaves the repo in place.
+    try {
+      await this.save();
+    } catch (err) {
+      if (!this.repos.includes(repo)) this.repos.splice(Math.min(index, this.repos.length), 0, repo);
+      throw err;
+    }
     this.parsed.delete(id);
     if (repo.kind === 'git') await fs.rm(path.join(CLONES, id), { recursive: true, force: true });
     this.rebuild();
-    await this.save();
   }
 
   refresh(id: string) {

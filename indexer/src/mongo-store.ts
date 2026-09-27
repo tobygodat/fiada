@@ -39,6 +39,12 @@ export class MongoProjectStore implements ProjectStore {
   private revs = new Map<string, number>();
   /** The stored (encoded) value at that revision, as JSON, to skip no-op saves. */
   private stored = new Map<string, string>();
+  /**
+   * Loads and saves of one project field run one at a time, so overlapping
+   * saves from this process each build on the revision the previous one wrote
+   * instead of racing and failing as if another indexer had saved.
+   */
+  private queues = new Map<string, Promise<unknown>>();
 
   private constructor(
     private client: MongoClient,
@@ -88,10 +94,25 @@ export class MongoProjectStore implements ProjectStore {
     await this.client.close();
   }
 
-  private async load(projectId: string, field: Field): Promise<unknown | null> {
+  private inTurn<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const result = (this.queues.get(key) ?? Promise.resolve()).then(run);
+    this.queues.set(key, result.catch(() => {}));
+    return result;
+  }
+
+  private load(projectId: string, field: Field): Promise<unknown | null> {
+    const key = `${projectId}\0${field}`;
+    return this.inTurn(key, () => this.loadNow(key, projectId, field));
+  }
+
+  private save(projectId: string, field: Field, value: unknown): Promise<void> {
+    const key = `${projectId}\0${field}`;
+    return this.inTurn(key, () => this.saveNow(key, projectId, field, value));
+  }
+
+  private async loadNow(key: string, projectId: string, field: Field): Promise<unknown | null> {
     const rev = `${field}Rev` as const;
     const doc = await this.projects.findOne({ _id: projectId }, { projection: { [field]: 1, [rev]: 1 } });
-    const key = `${projectId}\0${field}`;
     this.revs.set(key, doc?.[rev] ?? 0);
     if (doc?.[field] == null) {
       this.stored.delete(key);
@@ -101,8 +122,7 @@ export class MongoProjectStore implements ProjectStore {
     return decodeKeys(doc[field]);
   }
 
-  private async save(projectId: string, field: Field, value: unknown) {
-    const key = `${projectId}\0${field}`;
+  private async saveNow(key: string, projectId: string, field: Field, value: unknown) {
     const rev = `${field}Rev` as const;
     const seen = this.revs.get(key) ?? 0;
     const encoded = encodeKeys(value);

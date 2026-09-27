@@ -95,6 +95,16 @@ test('mongo store keeps repos and grouping in one document per project', needsMo
   }),
 );
 
+test('overlapping saves from one indexer apply in order instead of conflicting', needsMongo, () =>
+  withDb('overlap', async (open) => {
+    const store = await open();
+    assert.equal(await store.loadRepos('p'), null);
+    const lists = [repos, [], [...repos, { id: 'api', name: 'api', source: '/src/api', kind: 'local' as const }]];
+    await Promise.all(lists.map((list) => store.saveRepos('p', list)));
+    assert.deepEqual(await store.loadRepos('p'), lists[2]);
+  }),
+);
+
 test('mongo store refuses to overwrite a save from another indexer', needsMongo, () =>
   withDb('conflict', async (open) => {
     const a = await open();
