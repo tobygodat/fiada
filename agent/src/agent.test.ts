@@ -126,7 +126,8 @@ test('a first sweep with a start time reports what changed after it, and nothing
   await fs.writeFile(path.join(dir, 'src/a.ts'), 'export const a = 2;\n');
   const old = new Date(Date.now() - 60_000);
   await fs.utimes(path.join(dir, 'src/a.ts'), old, old);
-  const since = Date.now() - 5;
+  // Well between the two: file times come from a coarse kernel clock and can trail Date.now() by a few ms.
+  const since = Date.now() - 30_000;
   // During the session: an edit, a new file, a deletion (its folder's time moves).
   await fs.writeFile(path.join(dir, 'src/b.ts'), 'export const b = 2;\n');
   await fs.writeFile(path.join(dir, 'src/new.ts'), 'export const n = 1;\n');
