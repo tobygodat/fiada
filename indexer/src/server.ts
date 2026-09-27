@@ -12,6 +12,8 @@ import type { AgentEvent, LayerPreset } from '@strata/shared';
 import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS } from './access.ts';
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
+import { KEY_HINT } from './llm.ts';
+import { Sorter } from './sorter.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
@@ -20,10 +22,12 @@ const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.STRATA_API_KEY || undefined;
 const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
 
-const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'), {
-  localPaths: allowLocalPaths(HOST),
-  keyRequired: !!KEY,
-});
+const ws = new Workspace(
+  await createStore(STRATA_HOME),
+  checkProjectId(process.env.STRATA_PROJECT ?? 'default'),
+  { localPaths: allowLocalPaths(HOST), keyRequired: !!KEY },
+  Sorter.fromEnv(),
+);
 await ws.init();
 const agents = new AgentHub(ws);
 
@@ -87,6 +91,12 @@ app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, repl
   return { grouping: await ws.applyPreset(preset) };
 });
 
+// Sorts the project's leftovers with Claude again. Answers at once; the map picks the result up when it lands.
+app.post('/api/grouping/sort', async (_req, reply) => {
+  if (!ws.sortAgain()) return reply.code(409).send({ error: `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
+  return reply.code(202).send(ws.state());
+});
+
 app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async (req, reply) => {
   const { repo, path } = req.query;
   if (!repo || !path) return reply.code(400).send({ error: 'Query must be ?repo=<id>&path=<repo-relative path>' });
@@ -141,5 +151,6 @@ await app.listen({ port: PORT, host: HOST });
 console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);
 if (!ws.allowLocal) console.log('[strata] local folders are off: this indexer imports git repositories only');
 if (process.env.STRATA_ALLOWED_ORIGINS) console.log(`[strata] browsers may call the API from ${process.env.STRATA_ALLOWED_ORIGINS}`);
+console.log(ws.sorter.available ? `[strata] sorting imports with ${ws.sorter.describe}` : `[strata] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
 if (KEY) console.log('[strata] changes need the access key (STRATA_API_KEY)');
 else if (!isLoopback(HOST)) console.warn('[strata] no STRATA_API_KEY: anyone who can reach this indexer can change its project');

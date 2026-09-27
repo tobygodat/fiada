@@ -9,10 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Graph, Grouping, LayerPreset, RepoInfo, Workspace as WorkspaceState } from '@strata/shared';
+import type { Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@strata/shared';
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
 import type { ParsedRepo } from './model.ts';
+import { Sorter, type SortHost } from './sorter.ts';
 import { loadRepo, reloadFiles } from './sources.ts';
 import type { ProjectStore } from './store.ts';
 
@@ -83,12 +84,16 @@ export class Workspace {
   private groupingError?: string;
   private queue: Promise<unknown> = Promise.resolve();
   private graphListeners = new Set<() => void>();
+  /** Files and symbols Claude's sort placed in the current graph. */
+  private sortedPlaced = 0;
 
   constructor(
     private store: ProjectStore,
     readonly projectId = 'default',
     /** What clients may do: import local folders (off for an indexer others can reach), change things without the key. */
     readonly access: WorkspaceState['access'] = { localPaths: true, keyRequired: false },
+    /** Sorts the classifier's leftovers with Claude once repositories are imported. Off unless given one with a key. */
+    readonly sorter: Sorter = new Sorter(),
   ) {}
 
   /** Whether local folders can be imported and read. */
@@ -114,6 +119,7 @@ export class Workspace {
       graphVersion: this.graphVersion,
       suggestions: [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
       project: { id: this.projectId, groupingLocation: this.store.describe(this.projectId), groupingError: this.groupingError },
+      sorting: this.sorter.state(this.grouping, this.sortedPlaced),
       access: this.access,
     };
   }
@@ -176,9 +182,15 @@ export class Workspace {
     return this.grouping;
   }
 
-  /** Replaces the project's grouping. Throws GroupingError when it doesn't validate. */
+  /**
+   * Replaces the project's grouping. Throws GroupingError when it doesn't
+   * validate. A grouping sent without `sorted` keeps Claude's sort (send
+   * `"sorted": null` to drop it), so a client that never saw it can't erase it.
+   */
   async setGrouping(raw: unknown): Promise<Grouping> {
     const g = normalizeGrouping(raw);
+    const keep = !!raw && typeof raw === 'object' && !('sorted' in raw) && this.grouping.sorted;
+    if (keep) g.sorted = this.grouping.sorted;
     await this.store.saveGrouping(this.projectId, g);
     this.grouping = g;
     this.groupingError = undefined;
@@ -317,11 +329,29 @@ export class Workspace {
     this.base = buildBase(ordered);
     console.log(`[strata] linked ${this.base.nodes.length} nodes, ${this.base.edges.length} edges in ${Date.now() - started}ms`);
     this.reclassify();
+    this.sorter.request(this.sortHost());
+  }
+
+  /** Sorts the project's leftovers with Claude again, whatever the last sort covered. False when sorting is off. */
+  sortAgain(): boolean {
+    if (!this.sorter.available) return false;
+    this.sorter.request(this.sortHost(), true);
+    return true;
+  }
+
+  private sortHost(): SortHost {
+    return {
+      busy: () => this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
+      graph: () => classifyGraph(this.base, { ...this.grouping, sorted: undefined }),
+      grouping: () => this.grouping,
+      save: (sorted: SortedGrouping) => this.setGrouping({ ...this.grouping, sorted }).then(() => undefined),
+    };
   }
 
   private reclassify() {
     const started = Date.now();
     this.graph = classifyGraph(this.base, this.grouping);
+    this.sortedPlaced = this.graph.nodes.filter((n) => n.layer?.source === 'model' || n.domain?.source === 'model').length;
     this.graphVersion++;
     console.log(`[strata] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
     for (const fn of this.graphListeners) fn();

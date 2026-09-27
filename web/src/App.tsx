@@ -501,6 +501,7 @@ export function App() {
           onRemove={ws.remove}
           onRefresh={ws.refresh}
           onPreset={ws.applyPreset}
+          onSortAgain={ws.sortAgain}
         />
         {graph && tree && (selected || contract) && (
           <Detail

@@ -1,7 +1,7 @@
 // Floating sidebar: repository import, the Code / By-function toggle, the
 // project's layers, and an outline of whichever hierarchy the map is showing.
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
 import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
@@ -31,6 +31,7 @@ interface Props {
   onRemove(id: string): Promise<void>;
   onRefresh(id: string): Promise<void>;
   onPreset(preset: LayerPreset): Promise<void>;
+  onSortAgain(): Promise<void>;
 }
 
 export function Sidebar(p: Props) {
@@ -139,7 +140,7 @@ const LAYERS_OPEN = 'strata.layersOpen';
  * The project's own layers: how much code each holds, the preset they started from, and where to
  * edit them. Folded by default so the outline keeps its room; the map's legend has the colours.
  */
-function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; workspace: Workspace }) {
+function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { graph: Graph; workspace: Workspace }) {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(() => {
     try {
@@ -185,6 +186,7 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
     return (
       <section className="section">
         {heading}
+        <Sorting workspace={workspace} onSortAgain={onSortAgain} />
         {problems}
       </section>
     );
@@ -192,6 +194,7 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
   return (
     <section className="section">
       {heading}
+      <Sorting workspace={workspace} onSortAgain={onSortAgain} />
       {canEdit(workspace) && (
         <div className="setting layer-choice">
           <span className="setting-name small">preset</span>
@@ -215,6 +218,49 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
       )}
       {problems}
     </section>
+  );
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** What the model's sort of the project did, or why there isn't one. Sits under the layers heading, folded or not. */
+function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain(): Promise<void> }) {
+  const [error, setError] = useState<string | null>(null);
+  const s = workspace.sorting;
+  if (!s || s.status === 'idle') return null;
+  const by = s.by ?? 'The model';
+  const again = canEdit(workspace) && s.available && s.status !== 'running' && (
+    <>
+      {' '}
+      <button className="link" title={`Ask ${by} to sort the leftovers again`} onClick={() => onSortAgain().then(() => setError(null), (err: Error) => setError(err.message))}>
+        sort again
+      </button>
+    </>
+  );
+  if (s.status === 'error') {
+    return (
+      <>
+        <Problem text={`${by} couldn't sort this project. ${s.error ?? ''}`} />
+        <div className="layer-file sorting">{again}</div>
+      </>
+    );
+  }
+  let text: ReactNode;
+  if (s.status === 'off') {
+    text = "Sorting is unavailable: the indexer has no Anthropic API key (ANTHROPIC_API_KEY), so code the classifier can't place stays Unlayered and Unsorted.";
+  } else if (s.status === 'running') {
+    text = <span className="busy">{by} is sorting the code the classifier couldn't place…</span>;
+  } else {
+    const domains = [s.renamed && `renamed ${plural(s.renamed, 'domain')}`, s.merged && `merged ${s.merged}`, s.added && `added ${s.added}`].filter(Boolean);
+    const placed = s.placed ? `placed ${plural(s.placed, 'file or symbol', 'files and symbols')} the classifier couldn't` : 'found nothing the classifier left unplaced';
+    text = `${by} ${placed}${domains.length ? `, ${domains.join(', ')}` : ''}.${s.placed ? ' Each says why in its details.' : ''}`;
+  }
+  return (
+    <div className="layer-file sorting">
+      {text}
+      {again}
+      {error && <Problem text={error} />}
+    </div>
   );
 }
 

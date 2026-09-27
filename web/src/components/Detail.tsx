@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   describeFact,
+  modelLabel,
   UNLAYERED,
   type ActivityState,
   type EdgeEvidence,
@@ -232,11 +233,15 @@ const SOURCE: Record<PlacementSource, string> = {
   seed: 'seed',
   propagated: 'neighbours',
   cohesion: 'file',
+  model: 'inferred by a model',
   fallback: 'no signal',
 };
 
+/** What decided a placement; a model's guess says which model, so it reads as inferred rather than found in the code. */
+const decidedBy = (p: Placement) => (p.source === 'model' && p.inferredBy ? `inferred by ${modelLabel(p.inferredBy)}` : SOURCE[p.source]);
+
 const explain = (p: Placement) =>
-  [p.evidence[0]?.detail, ...p.evidence.slice(1).map((e) => `also ${e.detail}`), `${SOURCE[p.source]} · ${p.confidence.toFixed(2)}`].filter(Boolean).join(' · ');
+  [p.evidence[0]?.detail, ...p.evidence.slice(1).map((e) => `also ${e.detail}`), `${decidedBy(p)} · ${p.confidence.toFixed(2)}`].filter(Boolean).join(' · ');
 
 /** "Why is this here?": the winning evidence for its layer and domain, and what the detectors saw. */
 function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; layer: Placement; domain: Placement }) {

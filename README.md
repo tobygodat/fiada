@@ -70,6 +70,17 @@ The grouping lives in `.strata/projects/default/strata.grouping.json`. Edit it t
 
 Domains (the features that cut across layers and repos) come from the classification design's seed-and-propagate strategy (`indexer/src/classify/propagate.ts`). Routes (`GET /items/{id}`), ORM entities (`class Item`), page routes, and files in structural folders (`routes/items.py`, `components/Items/`) seed a domain when two or more files agree on it. Everything else takes the domain of the code it's connected to through calls, HTTP requests, renders and imports. A close split goes to **Shared**, and so does code that three or more features use directly. Code with no path to any seed joins the majority of its file, and anything left over is **Unsorted**. Domain pins in the grouping file act as seeds too, so they pull their unclaimed neighbours along. The older `feature-tokens` strategy is still available; strategies are swappable in `indexer/src/classify/index.ts`.
 
+### Sorted on import
+
+With `ANTHROPIC_API_KEY` set, a fresh import doesn't stop at the classifier. Once every repository is indexed, the indexer asks Claude (`indexer/src/classify/model-sort.ts`, off the request path) to finish the job in two steps:
+
+1. **Domains.** Claude sees each domain the classifier found (its files, what seeded it, its biggest symbols) and an outline of what's left over. It gives each a plain product name, merges domains that are one feature ("Shares" and "Sharing"), and adds the few domains the leftovers need ("Platform").
+2. **Leftovers.** Every file with code in Unlayered or Unsorted goes to Claude in batches, with its imports, detected facts, symbols, and the domains and layers of the code around it. Claude picks one of the project's layers and a domain, with a one-line reason.
+
+The result is saved in the grouping as `sorted`, through the same `ProjectStore`, and the map redraws when it lands. It only fills gaps: code the classifier placed keeps its place, and your renames, rules and pins win over it, so you adjust from a sorted map exactly as before. Each placement Claude made shows its reason in the detail panel, marked as inferred. A new repository or commit sorts again; the sidebar's **sort again** does it on demand (`POST /api/grouping/sort`). Delete `sorted` from the grouping to drop it. Without a key, imports keep the classifier's result and the sidebar says sorting is unavailable.
+
+`npm run index -- <repos> --sort` runs the same sort from the command line and prints how much was left unsorted before and after.
+
 ## Storage
 
 Everything a project keeps (its repositories and its grouping) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
@@ -163,6 +174,8 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+| `ANTHROPIC_API_KEY` | unset | lets the indexer sort each import with Claude; see [Sorted on import](#sorted-on-import) |
+| `STRATA_LLM_MODEL` | `claude-opus-5` | the model it sorts with |
 | `STRATA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
 | `STRATA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
 | `STRATA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
@@ -198,6 +211,7 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `STRATA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
 | `STRATA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `STRATA_GITHUB_TOKEN` | only to import private repos. Reads need no key, so anyone with the map's URL can read their code |
+| `ANTHROPIC_API_KEY` | to sort each import with Claude; without it the map keeps the classifier's result |
 
 In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `STRATA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
 
