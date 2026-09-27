@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,8 +7,10 @@ import { test } from 'node:test';
 import type { AgentEvent } from '@strata/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
-import { sweep } from './hook.ts';
-import { clientId, StrataMcp } from './mcp.ts';
+import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { firstLine, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
+import { clientId, nowLines, StrataMcp } from './mcp.ts';
 import { hooksBlock, mergeHooks } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
@@ -164,7 +166,8 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   assert.equal(out[0].result.protocolVersion, '2025-03-26');
   assert.ok(out[0].result.capabilities.tools);
   await fresh.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.deepEqual(out[1].result.tools.map((t: any) => t.name), ['report_task', 'flag_changes']);
+  assert.deepEqual(out[1].result.tools.map((t: any) => t.name), ['status', 'flag_changes']);
+  assert.deepEqual(out[1].result.tools[0].inputSchema.required, ['now']);
 
   await fresh.handle({
     jsonrpc: '2.0',
@@ -196,6 +199,76 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   await fresh.handle({ jsonrpc: '2.0', id: 5, method: 'nope' });
   assert.equal(out[4].error.code, -32601);
   assert.equal(clientId('Cursor-VSCode'), 'cursor');
+
+  // status: the line alone, or the plan first and then the line said with it.
+  sent.length = 0;
+  await fresh.handle({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'status', arguments: { now: 'Reading app/models.py for the Item fields.' } } });
+  assert.equal(out[5].result.content[0].text, 'Shown in Strata.');
+  assert.deepEqual(sent[0].map((e) => [e.type, e.type === 'status' ? e.text : '']), [['status', 'Reading app/models.py for the Item fields.']]);
+  await fresh.handle({
+    jsonrpc: '2.0',
+    id: 7,
+    method: 'tools/call',
+    params: { name: 'status', arguments: { now: 'Adding tags to Item.', task: 'Add tags', steps: [{ text: 'Model', status: 'active' }] } },
+  });
+  assert.deepEqual(sent[1].map((e) => e.type), ['task', 'status']);
+  await fresh.handle({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'status', arguments: { now: 'Added tags; tests pass.', done: true } } });
+  assert.deepEqual(sent[2].map((e) => [e.type, e.type === 'state' ? e.state : '']), [['task', ''], ['status', ''], ['state', 'waiting']]);
+  await fresh.handle({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'status', arguments: { task: 'No line' } } });
+  assert.equal(out[8].result.isError, true);
+  assert.equal(sent.length, 3);
+});
+
+test('a status keeps two short lines', () => {
+  assert.equal(nowLines('  Reading the routes.  \n\n  Then   the model. \nAnd more.'), 'Reading the routes.\nThen the model.');
+  assert.equal(nowLines('x'.repeat(200))!.length, 160);
+  assert.equal(nowLines(' \n '), null);
+  assert.equal(nowLines(42), null);
+  assert.equal(firstLine('\n  Add paging to items  \n\n```\npasted\n```'), 'Add paging to items');
+});
+
+/** Runs the hook as Claude Code does, with a payload on stdin; resolves to what it printed. */
+function runHook(payload: object, env: Record<string, string>): Promise<string> {
+  const bin = fileURLToPath(new URL('../bin/strata-hook.mjs', import.meta.url));
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [bin], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'inherit'] });
+    let text = '';
+    child.stdout.on('data', (c) => (text += c));
+    child.on('error', reject);
+    child.on('close', () => resolve(text));
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+test('the hook briefs the agent on its status line at the start and with each prompt, only when Strata answers', async () => {
+  const dir = await repo({ 'a.py': 'x = 1\n' });
+  const got: any[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      got.push(...JSON.parse(body));
+      res.setHeader('content-type', 'application/json');
+      res.end('{"files":[]}');
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const base = { session_id: 'hook-test', cwd: dir, transcript_path: '/dev/null' };
+    const start = JSON.parse(await runHook({ ...base, hook_event_name: 'SessionStart', source: 'startup' }, { STRATA_URL: url }));
+    assert.deepEqual(start, { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: STATUS_BRIEF } });
+    const prompt = JSON.parse(await runHook({ ...base, hook_event_name: 'UserPromptSubmit', prompt: 'Add paging\nto the items list' }, { STRATA_URL: url }));
+    assert.deepEqual(prompt, { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: STATUS_NUDGE } });
+    assert.deepEqual(got.map((e) => e.type), ['session', 'prompt']);
+    assert.equal(got[1].text, 'Add paging');
+    // Other events print nothing.
+    assert.equal(await runHook({ ...base, hook_event_name: 'Stop' }, { STRATA_URL: url }), '');
+  } finally {
+    server.close();
+  }
+  // Nobody listening: nothing for the agent to act on.
+  assert.equal(await runHook({ session_id: 'hook-test-2', cwd: dir, hook_event_name: 'SessionStart' }, { STRATA_URL: 'http://127.0.0.1:9' }), '');
 });
 
 test('the processes above this one, nearest first, and when one started', async () => {

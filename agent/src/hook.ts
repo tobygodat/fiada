@@ -8,13 +8,15 @@
 // Commands, for other agents and scripts:
 //   strata-hook changed <file>... [--kind added|modified|deleted]
 //   strata-hook task "<task>" [--step "<step text>"]
+//   strata-hook status "<what it's doing now>"
 //   strata-hook sweep     report whatever changed in the working tree since the last call
 //   strata-hook done      the agent finished its turn
 //   strata-hook codex '<json>'   Codex's `notify` program (it appends the JSON)
 // Options: --client <name> (default "cli"), --session <id>, --cwd <dir>
 //
-// It always exits 0 and prints nothing an agent would read, so a missing or
-// broken Strata never gets in the agent's way.
+// It always exits 0, so a missing or broken Strata never gets in the agent's
+// way. The one thing it prints for the agent is the status brief on Claude
+// Code's SessionStart and UserPromptSubmit, and only when Strata answered.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +26,14 @@ import { checkout, describe, real, type Checkout } from './git.ts';
 import { changedSince, compare, forget, load, save, take } from './snapshot.ts';
 
 type Payload = Record<string, any>;
-type Out = { events: AgentEventBody[]; stdout?: string };
+/** `context` is added to the agent's context, once Strata has answered: Claude Code reads it from these hooks' output. */
+type Out = { events: AgentEventBody[]; stdout?: string; context?: { event: 'SessionStart' | 'UserPromptSubmit'; text: string } };
+
+/** What the agent is told once a session starts, so its entry in the queue always says what it's doing. */
+export const STATUS_BRIEF = `The user is watching this session on Strata, a live map of the codebase. Keep them posted: whenever you start something new or change what you're doing, call the Strata status tool (mcp__strata__status) with \`now\` set to one or two short, plain lines on what you're doing and why, naming the file, function or command. For example: "Reading app/api/routes/items.py to find where an item is created." Call it before your first step and at each change of step, not only at milestones; don't repeat a line that still holds. If that tool isn't available, ignore this.`;
+
+/** The reminder with each prompt: short, since the brief came at the start. */
+export const STATUS_NUDGE = `Strata: call mcp__strata__status with one or two short lines on what you're doing now, before you start on this and whenever that changes.`;
 
 /** Claude Code tools that write the file named in their input. */
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -34,6 +43,8 @@ const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch'
 const TODO_STATUS: Record<string, StepStatus | 'removed'> = { pending: 'pending', in_progress: 'active', completed: 'done', deleted: 'removed' };
 
 const oneLine = (s: unknown, max = 300) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+/** The first line with anything on it: a prompt's opening says what it asks, before any pasted text. */
+export const firstLine = (s: unknown, max = 300) => oneLine(String(s ?? '').split(/\r?\n/).find((l) => l.trim()) ?? '', max);
 
 /**
  * What changed in the working tree since the last call, plus `explicit`
@@ -138,11 +149,11 @@ async function fromClaude(p: Payload): Promise<{ agent: AgentRef; out: Out }> {
     case 'SessionStart':
       await remember(key, co);
       events.push({ type: 'session', phase: 'start' });
-      break;
+      return { agent, out: { events, context: { event: 'SessionStart', text: STATUS_BRIEF } } };
     case 'UserPromptSubmit':
       await remember(key, co);
-      events.push({ type: 'prompt', text: oneLine(p.prompt) });
-      break;
+      events.push({ type: 'prompt', text: firstLine(p.prompt) });
+      return { agent, out: { events, context: { event: 'UserPromptSubmit', text: STATUS_NUDGE } } };
     case 'PostToolUse':
       events.push({ type: 'state', state: 'working' }, ...(await claudeToolUse(p, key, co)));
       break;
@@ -168,7 +179,7 @@ async function fromCursor(p: Payload): Promise<{ agent: AgentRef; out: Out }> {
   switch (p.hook_event_name) {
     case 'beforeSubmitPrompt':
       await remember(key, co);
-      events.push({ type: 'prompt', text: oneLine(p.prompt) }, { type: 'state', state: 'working' });
+      events.push({ type: 'prompt', text: firstLine(p.prompt) }, { type: 'state', state: 'working' });
       stdout = JSON.stringify({ continue: true });
       break;
     case 'afterFileEdit':
@@ -231,12 +242,16 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
     }
     case 'task':
       return { agent, out: { events: [{ type: 'task', task: rest.join(' ') || undefined, step: opts.step || undefined, state: opts.done ? 'waiting' : 'working' }] } };
+    case 'status': {
+      const text = rest.join(' ').trim();
+      return text ? { agent, out: { events: [{ type: 'status', text }] } } : null;
+    }
     case 'sweep':
       return { agent, out: { events: changes(await sweep(key, co)) } };
     case 'done':
       return { agent, out: { events: [...changes(await sweep(key, co)), { type: 'state', state: 'waiting' }] } };
     default:
-      process.stderr.write(`strata-hook: unknown command "${cmd}". Commands: changed, task, sweep, done, codex.\n`);
+      process.stderr.write(`strata-hook: unknown command "${cmd}". Commands: changed, task, status, sweep, done, codex.\n`);
       return null;
   }
 }
@@ -262,8 +277,10 @@ async function main() {
   }
   if (!result) return;
   const { agent, out } = result;
-  await send(out.events.map((e): AgentEvent => ({ ...e, agent })));
+  const heard = await send(out.events.map((e): AgentEvent => ({ ...e, agent })));
   if (out.stdout) process.stdout.write(out.stdout);
+  // Only when Strata is up: otherwise the agent would be asked to report to nobody.
+  if (out.context && heard) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: out.context.event, additionalContext: out.context.text } }));
 }
 
 // Imported by the tests for `sweep`; run when started as the hook.
