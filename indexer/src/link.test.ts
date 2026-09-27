@@ -181,6 +181,53 @@ test('Go: packages, gin groups passed into register functions, GORM entities', a
   assert.equal(http.detail, 'GET /api/articles/:slug');
 });
 
+test('Go: method-first registrations, one route per listed method', async () => {
+  const g = await graphOf({
+    api: {
+      'go.mod': 'module github.com/acme/api\n\ngo 1.22\n',
+      'main.go':
+        'package main\n\nimport (\n\t"net/http"\n\n\t"github.com/go-chi/chi/v5"\n\t"github.com/labstack/echo/v4"\n)\n\n' +
+        'func main() {\n\tr := chi.NewRouter()\n\tr.Method(http.MethodGet, "/chi", h)\n\tr.MethodFunc("POST", "/chi", h2)\n\tr.Handle("/any", h3)\n' +
+        '\te := echo.New()\n\te.Add("PUT", "/echo", h)\n\te.Match([]string{"GET", http.MethodPost}, "/match", h2)\n\tq := url.Values{}\n\tq.Add("next", "/home")\n}\n\n' +
+        'func h(w http.ResponseWriter, r *http.Request)  {}\nfunc h2(w http.ResponseWriter, r *http.Request) {}\nfunc h3(w http.ResponseWriter, r *http.Request) {}\n',
+    },
+  });
+  assert.deepEqual(node(g, 'api/main.go#h').routes, ['GET /chi', 'PUT /echo']);
+  assert.deepEqual(node(g, 'api/main.go#h2').routes, ['POST /chi', 'GET /match', 'POST /match']);
+  assert.deepEqual(node(g, 'api/main.go#h3').routes, ['* /any']);
+  assert.equal(node(g, 'api/main.go#main').routes, undefined, 'q.Add("next", "/home") is not a route');
+});
+
+test('a router mounted under two prefixes serves both paths', async () => {
+  const main =
+    'from fastapi import FastAPI\nfrom app.api.routes import items\n\napp = FastAPI()\n' +
+    'app.include_router(items.router, prefix="/api/v1")\napp.include_router(items.router, prefix="/api/v2")\n';
+  const g = await graphOf({
+    api: { ...FASTAPI, 'app/main.py': main },
+    web: { 'src/c.ts': 'export const f = () => fetch("/api/v2/items/42");\n' },
+  });
+  assert.deepEqual(node(g, 'api/app/api/routes/items.py#read_item').routes, ['GET /api/v1/items/{id}', 'GET /api/v2/items/{id}']);
+  const e = edge(g, 'web/src/c.ts#f', 'api/app/api/routes/items.py#read_item', 'http');
+  assert.equal(e.basis, 'evidenced');
+  assert.equal(e.detail, 'GET /api/v2/items/{id}');
+  assert.ok(e.evidence!.some((x) => x.code === 'app.include_router(items.router, prefix="/api/v2")'));
+});
+
+test('Go: TableName() names the table wherever the method sits in the package', async () => {
+  const g = await graphOf({
+    api: {
+      'go.mod': 'module github.com/acme/api\n\ngo 1.22\n',
+      'models/tables.go': 'package models\n\nfunc (User) TableName() string { return "accounts" }\n\nfunc (Team) TableName() string { return "teams" }\n\ntype Team struct {\n\tName string\n}\n',
+      'models/user.go': 'package models\n\ntype User struct {\n\tID   uint\n\tName string\n}\n',
+      'other/user.go': 'package other\n\ntype User struct {\n\tName string\n}\n',
+    },
+  });
+  const table = (id: string) => node(g, id).facts?.find((f) => f.type === 'table')?.value;
+  assert.equal(table('api/models/user.go#User'), 'User', 'declared in another file');
+  assert.equal(table('api/models/tables.go#Team'), 'Team', 'declared after the method');
+  assert.equal(table('api/other/user.go#User'), undefined, 'a struct of the same name in another package');
+});
+
 test('SQLAlchemy: tables, relationships and foreign keys between entities', async () => {
   const g = await graphOf({
     db: {

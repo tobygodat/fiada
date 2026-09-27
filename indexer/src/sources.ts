@@ -7,6 +7,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { RepoInfo } from '@strata/shared';
 import type { PackageManifest, ParsedFile, ParsedRepo, TsConfigPaths } from './model.ts';
+import { linkGoTableNames } from './parse/go.ts';
 import { langOf, parseFile } from './parse/index.ts';
 
 const exec = promisify(execFile);
@@ -160,6 +161,8 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
       console.warn(`[strata] failed to parse ${info.id}/${rel}:`, (err as Error).message);
     }
   }
+
+  linkGoTableNames(files);
 
   // A directory is a Python import root if it holds a top-level package.
   const pyRoots = new Set<string>(['']);

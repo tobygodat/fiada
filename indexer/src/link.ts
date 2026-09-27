@@ -80,6 +80,8 @@ const SOURCE_OF: Record<RefKind, EdgeEvidenceSource> = { call: 'call', new: 'cal
 const VERB_OF: Record<RefKind, string> = { call: 'calls', new: 'creates', jsx: 'renders', type: 'uses type', ref: 'uses' };
 const RANK: Record<EdgeKind, number> = { http: 6, calls: 5, renders: 4, type: 3, references: 2, imports: 1 };
 const MAX_EVIDENCE = 6;
+/** Distinct mount chains kept per router; a router mounted in more places than this is shared plumbing. */
+const MAX_PREFIXES = 8;
 
 /** How one piece of code supports an edge. */
 interface Support {
@@ -536,21 +538,34 @@ export function link(repos: ParsedRepo[]): LinkResult {
     });
   }
 
-  const prefixCache = new Map<string, { path: string; evidence: EdgeEvidence[] } | null>();
-  /** Everything above a router: "" for an application root, null when the chain doesn't reach one. */
-  const fullPrefix = (key: string, seen = new Set<string>()): { path: string; evidence: EdgeEvidence[] } | null => {
-    if (prefixCache.has(key)) return prefixCache.get(key)!;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    let out: { path: string; evidence: EdgeEvidence[] } | null = roots.has(key) ? { path: '', evidence: [] } : null;
-    for (const m of out ? [] : (mountsOf.get(key) ?? [])) {
-      const parent = fullPrefix(m.parent, seen);
-      const p = parent && resolveParts(m.e, m.prefix);
-      if (!parent || !p) continue;
-      const note = p.text ? `mounted under ${p.text}` : 'mounted here';
-      out = { path: joinUrl(parent.path, p.text), evidence: [...parent.evidence, ev(m.e, 'mount', m.line, note), ...p.evidence] };
-      break;
+  type Prefix = { path: string; evidence: EdgeEvidence[] };
+  const prefixCache = new Map<string, Prefix[]>();
+  /**
+   * Every path above a router: [""] for an application root, one entry per
+   * distinct mount chain that reaches a root (a router mounted at /api/v1 and
+   * /api/v2 serves both), [] when no chain does.
+   */
+  const fullPrefixes = (key: string, stack = new Set<string>()): Prefix[] => {
+    const cached = prefixCache.get(key);
+    if (cached) return cached;
+    if (roots.has(key)) {
+      prefixCache.set(key, [{ path: '', evidence: [] }]);
+      return prefixCache.get(key)!;
     }
+    if (stack.has(key)) return [];
+    stack.add(key);
+    const out: Prefix[] = [];
+    for (const m of mountsOf.get(key) ?? []) {
+      const p = resolveParts(m.e, m.prefix);
+      if (!p) continue;
+      const note = p.text ? `mounted under ${p.text}` : 'mounted here';
+      for (const parent of fullPrefixes(m.parent, stack)) {
+        const path = joinUrl(parent.path, p.text);
+        if (out.length >= MAX_PREFIXES || out.some((o) => o.path === path)) continue;
+        out.push({ path, evidence: [...parent.evidence, ev(m.e, 'mount', m.line, note), ...p.evidence] });
+      }
+    }
+    stack.delete(key);
     prefixCache.set(key, out);
     return out;
   };
@@ -571,9 +586,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
         }
         const evidence = [ev(e, 'route', r.line, `declares ${r.method === '*' ? 'ANY' : r.method} ${r.path || '/'}`)];
         if (r.prefixLine) evidence.push(ev(e, 'mount', r.prefixLine, "router's own prefix"));
-        const pre = r.router ? fullPrefix(routerKey(e, i, r.router)) : null;
-        if (pre) evidence.push(...pre.evidence);
-        addRoute(e, node, r.method, r.path, evidence, pre ? joinUrl(pre.path, r.path) : undefined);
+        const pres = r.router ? fullPrefixes(routerKey(e, i, r.router)) : [];
+        if (!pres.length) addRoute(e, node, r.method, r.path, evidence);
+        for (const pre of pres) addRoute(e, node, r.method, r.path, [...evidence, ...pre.evidence], joinUrl(pre.path, r.path));
       }
     });
     // Next.js route handlers: app/**/route.ts exporting GET/POST/…; their path is their folder.

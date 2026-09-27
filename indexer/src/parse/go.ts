@@ -16,6 +16,22 @@ const ROOT_CTOR = /^(gin\.(Default|New)|echo\.New|chi\.NewRouter|chi\.NewMux|htt
 /** Parameter types that carry a router into a registration function. */
 const ROUTER_TYPE = /(gin\.(Engine|RouterGroup|IRouter|IRoutes)|echo\.(Echo|Group)|chi\.(Router|Mux)|http\.ServeMux|fiber\.(App|Router)|mux\.Router|httprouter\.Router)\b/;
 const HTTP_CLIENT: Record<string, string> = { Get: 'GET', Post: 'POST', Head: 'HEAD', PostForm: 'POST' };
+/** Registrations that may take the HTTP method before the path. chi's Handle/HandleFunc and net/http's don't; gin's and httprouter's Handle do. */
+const VERB_FIRST = new Set(['Handle', 'Handler', 'HandlerFunc', 'Method', 'MethodFunc', 'Add', 'Match']);
+const isMethod = (s: string) => /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|CONNECT|TRACE)$/i.test(s);
+
+/** `"GET"`, `http.MethodGet`, `[]string{"GET", http.MethodPost}` → the methods; null for anything else. */
+function methodsOf(n: SyntaxNode): string[] | null {
+  const lit = stringValue(n);
+  if (lit != null) return isMethod(lit) ? [lit.toUpperCase()] : null;
+  const named = n.type === 'selector_expression' && n.text.match(/^http\.Method(\w+)$/);
+  if (named) return [named[1].toUpperCase()];
+  if (n.type === 'composite_literal') {
+    const items = (n.childForFieldName('body')?.namedChildren ?? []).map((c) => methodsOf(c.type === 'literal_element' ? (c.namedChildren[0] ?? c) : c));
+    return items.length && items.every(Boolean) ? items.flat() as string[] : null;
+  }
+  return null;
+}
 
 const exportedName = (s: string) => /^[A-Z]/.test(s);
 
@@ -231,28 +247,34 @@ function httpFromCall(call: SyntaxNode, operand: SyntaxNode, field: string, out:
     return;
   }
   if (!(field in ROUTE_METHOD) || argv.length < 2) return;
-  let method = ROUTE_METHOD[field];
+  const last = argv[argv.length - 1];
+  // A handler is never a string: `q.Add("next", "/home")` and `c.Get("key", "/x")` aren't routes.
+  if (stringValue(last) != null) return;
+  let methods = [ROUTE_METHOD[field]];
   let pathArg = argv[0];
-  // gin/httprouter: r.Handle("GET", "/path", h)
-  if (field === 'Handle' && argv.length >= 3 && stringValue(argv[0]) && /^[A-Z]+$/.test(stringValue(argv[0])!)) {
-    method = stringValue(argv[0])!;
+  // Method first: gin/httprouter r.Handle("GET", "/x", h), chi r.Method(http.MethodGet, "/x", h),
+  // echo/fiber e.Add("GET", "/x", h), echo e.Match([]string{"GET", "POST"}, "/x", h).
+  const first = stringValue(argv[0]);
+  if (VERB_FIRST.has(field) && argv.length >= 3 && (first != null ? isMethod(first) : stringValue(argv[1]) != null)) {
+    methods = methodsOf(argv[0]) ?? ['*'];
     pathArg = argv[1];
   }
   let path = stringValue(pathArg);
   if (path == null) return;
   // Go 1.22 patterns: "GET /items/{id}"
   const pattern = path.match(/^([A-Z]+)\s+(\/.*)$/);
-  if (pattern) [method, path] = [pattern[1], pattern[2]];
+  if (pattern) [methods, path] = [[pattern[1]], pattern[2]];
   if (!path.startsWith('/') && path !== '') return;
-  // gorilla/mux: r.HandleFunc("/x", h).Methods("GET")
+  // gorilla/mux: r.HandleFunc("/x", h).Methods("GET", "POST")
   const chained = call.parent?.type === 'selector_expression' && call.parent.childForFieldName('field')?.text === 'Methods' ? call.parent.parent : null;
-  const m = chained && stringValue(chained.childForFieldName('arguments')?.namedChildren[0] ?? null);
-  if (m) method = m.toUpperCase();
-  const route: RouteDecl = { method, path, line: line(call) };
-  if (operand.type === 'identifier') route.router = operand.text === 'http' ? 'http' : routerName(call, operand.text);
-  const last = argv[argv.length - 1];
-  if (last.type === 'identifier' || last.type === 'selector_expression') route.handler = last.text;
-  out.routes.push(route);
+  const listed = chained?.childForFieldName('arguments')?.namedChildren.flatMap((a) => methodsOf(a) ?? []);
+  if (listed?.length) methods = listed;
+  for (const method of new Set(methods)) {
+    const route: RouteDecl = { method, path, line: line(call) };
+    if (operand.type === 'identifier') route.router = operand.text === 'http' ? 'http' : routerName(call, operand.text);
+    if (last.type === 'identifier' || last.type === 'selector_expression') route.handler = last.text;
+    out.routes.push(route);
+  }
 }
 
 /** Struct fields: embedded types become bases, gorm tags mark mapped columns and relationships. */
@@ -332,11 +354,8 @@ export function extractGo(root: SyntaxNode, file: ParsedFile) {
           const ret = n.childForFieldName('body')?.descendantsOfType('return_statement')[0];
           const lit = ret?.descendantsOfType(['interpreted_string_literal', 'raw_string_literal'])[0];
           const t = lit && stringValue(lit);
-          if (t && recvType) {
-            const owner = file.symbols.find((x) => x.name === recvType);
-            if (owner) owner.tableName = t;
-            else extra = { ...extra, tableName: t };
-          }
+          // The struct may be declared later or in another file of the package; linkGoTableNames moves it there.
+          if (t && recvType) extra = { ...extra, tableName: t };
         }
         push(recvType ? `${recvType}.${name}` : name, 'function', n, s, extra);
         break;
@@ -390,4 +409,28 @@ export function extractGo(root: SyntaxNode, file: ParsedFile) {
     }
   }
   file.fileRefs = fileRefs.list();
+}
+
+/**
+ * Give each GORM struct the table its `TableName()` method returns. Methods
+ * can sit anywhere in the package (before the struct, or in another file), so
+ * this runs once every file of a repository is parsed. A package is a folder.
+ */
+export function linkGoTableNames(files: ParsedFile[]) {
+  const dirOf = (f: ParsedFile) => f.path.slice(0, Math.max(0, f.path.lastIndexOf('/')));
+  const structs = new Map<string, ParsedSymbol>(); // "<dir>::<name>"
+  for (const f of files) {
+    if (f.lang !== 'go') continue;
+    for (const s of f.symbols) if (s.kind === 'class') structs.set(`${dirOf(f)}::${s.name}`, s);
+  }
+  for (const f of files) {
+    if (f.lang !== 'go') continue;
+    for (const s of f.symbols) {
+      if (!s.tableName || !s.receiver || s.name !== `${s.receiver}.TableName`) continue;
+      const owner = structs.get(`${dirOf(f)}::${s.receiver}`);
+      if (!owner) continue;
+      owner.tableName = s.tableName;
+      delete s.tableName;
+    }
+  }
 }
