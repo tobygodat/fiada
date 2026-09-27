@@ -1,10 +1,11 @@
-// The task window: a floating panel at the top right with each coding agent's
-// current task, its plan, and the files it has changed. Clicking a file takes
-// the map to it, where the detail panel shows the diff. While the detail panel
-// is open the window folds to one line above it.
+// The task window: a floating panel at the top right with, for each coding
+// agent, a line or two on what it's doing right now, its task and plan folded
+// under that, and the files it has changed. Clicking a file takes the map to
+// it, where the detail panel shows the diff. While the detail panel is open
+// the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
-import type { ActivityState, AgentActivity, AgentFile, AgentStep } from '@fiada/shared';
+import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
 import './agent.css';
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
 
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
 const STATE_LABEL = { working: 'working', waiting: 'waiting for you', ended: 'session ended' } as const;
+/** Said for a status line the agent didn't write itself. */
+const DERIVED = { plan: 'from the plan', prompt: 'from your prompt' } as const;
 const MAX_STEPS = 6;
 
 const COLLAPSED_KEY = 'strata.queueCollapsed';
@@ -102,24 +105,46 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
 }
 
 /**
- * One line for the folded window: the active step, which already says what the agent is doing,
- * else its state in words and the task.
+ * One line for the folded window: while it works, the status line, which already says what the
+ * agent is doing; else its state in words and the task.
  */
 function currentLine(a: AgentActivity): { state: string | null; text: string } {
-  const active = a.state === 'working' ? a.steps.find((s) => s.status === 'active') : undefined;
-  if (active) return { state: null, text: active.activeText ?? active.text };
-  return { state: STATE_LABEL[a.state], text: a.task ?? a.prompt ?? '' };
+  const now = a.now?.text.split('\n')[0];
+  if (a.state === 'working' && now) return { state: null, text: now };
+  return { state: STATE_LABEL[a.state], text: now ?? a.task ?? a.prompt ?? '' };
+}
+
+/** Where the plan is, in words: "step 2 of 4", "4 steps done". */
+function planWords(steps: AgentStep[]): string {
+  const active = steps.findIndex((s) => s.status === 'active');
+  if (active >= 0) return `step ${active + 1} of ${steps.length}`;
+  const done = steps.filter((s) => s.status === 'done').length;
+  if (done === steps.length) return `${steps.length} step${steps.length === 1 ? '' : 's'} done`;
+  return `${done} of ${steps.length} done`;
 }
 
 function StateDot({ a }: { a: AgentActivity }) {
   return <span className={`queue-dot ${a.state}`} aria-hidden />;
 }
 
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg className={`chev${open ? ' open' : ''}`} viewBox="0 0 18 18" aria-hidden>
+      <path d="M7 4.5 11.5 9 7 13.5" />
+    </svg>
+  );
+}
+
 function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: string): void; onClear?(): void }) {
   const [showFiles, setShowFiles] = useState(false);
-  const title = a.task ?? a.prompt;
+  const [showPlan, setShowPlan] = useState(false);
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const f of a.files) counts[f.kind]++;
+  // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
+  const asked = a.task ?? a.prompt;
+  const now: AgentNow | null = a.now ?? (asked ? { text: asked, from: a.task ? 'agent' : 'prompt', at: a.updatedAt } : null);
+  const context = now?.from === 'prompt' ? null : (a.task ?? (a.prompt ? `asked: ${a.prompt}` : null));
+  const from = now && now.from !== 'agent' ? DERIVED[now.from] : null;
   return (
     <div className="queue-card">
       <div className="queue-card-head">
@@ -127,23 +152,37 @@ function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: st
         <span className="queue-name">{a.name}</span>
         <span className={`queue-state ${a.state}`}>{STATE_LABEL[a.state]}</span>
       </div>
-      {title && (
-        <div className="queue-task" title={a.prompt && a.task ? `Asked: ${a.prompt}` : title}>
-          {title}
+      {now && (
+        <p key={now.text} className={`queue-now${from ? ' derived' : ''}`} title={`${now.text}\n${from ?? 'said'} ${ago(now.at)}`} aria-live="polite">
+          {now.text}
+        </p>
+      )}
+      {(from || context) && (
+        <div className="queue-task" title={a.prompt && a.task ? `Asked: ${a.prompt}` : undefined}>
+          {from}
+          {from && context ? ' · ' : ''}
+          {context}
         </div>
       )}
       {a.note && <div className="queue-note">{a.note}</div>}
-      {!!a.steps.length && <Steps steps={a.steps} />}
+      {!!a.steps.length && (
+        <div className="queue-fold">
+          <button className="queue-fold-toggle" onClick={() => setShowPlan((s) => !s)} aria-expanded={showPlan}>
+            <Chevron open={showPlan} />
+            <span className="queue-fold-words">plan</span>
+            <span className="queue-fold-count">{planWords(a.steps)}</span>
+          </button>
+          {showPlan && <Steps steps={a.steps} />}
+        </div>
+      )}
       {!!a.files.length && (
-        <div className="queue-files">
-          <button className="queue-files-toggle" onClick={() => setShowFiles((s) => !s)} aria-expanded={showFiles}>
-            <svg className={`chev${showFiles ? ' open' : ''}`} viewBox="0 0 18 18" aria-hidden>
-              <path d="M7 4.5 11.5 9 7 13.5" />
-            </svg>
-            <span className="queue-files-words">
+        <div className="queue-fold">
+          <button className="queue-fold-toggle" onClick={() => setShowFiles((s) => !s)} aria-expanded={showFiles}>
+            <Chevron open={showFiles} />
+            <span className="queue-fold-words">
               {a.files.length} file{a.files.length === 1 ? '' : 's'} changed
             </span>
-            <span className="queue-files-counts">
+            <span className="queue-fold-count">
               {(['added', 'modified', 'deleted'] as const).map((k) =>
                 counts[k] ? (
                   <span key={k} className={`chg ${k}`}>

@@ -12,7 +12,7 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 
 ## What it does
 
-- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; Claude names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
+- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; an OpenAI model names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
 - **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash.
 - **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
 - **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
@@ -42,7 +42,7 @@ Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the bo
 
 Optional, in a `.env` at the repo root (`.env.example` lists them):
 
-- `ANTHROPIC_API_KEY` turns on the AI sorting and the generated summaries. Without it, Fiada still sorts by rules and writes plain one-line summaries.
+- `OPENAI_API_KEY` turns on the AI sorting and the generated summaries. Without it, Fiada still sorts by rules and writes plain one-line summaries.
 - `MONGODB_URI` saves projects to MongoDB Atlas instead of `.fiada/` on disk. See [MongoDB Atlas](#mongodb-atlas).
 
 ## Connect a Claude Code session
@@ -123,18 +123,18 @@ Domains (the features that cut across layers and repos) come from the classifica
 
 ### Sorted on import
 
-With `ANTHROPIC_API_KEY` set, a fresh import doesn't stop at the classifier. Once every repository is indexed, the indexer asks Claude (`indexer/src/classify/model-sort.ts`, off the request path) to finish the job in two steps:
+With `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set, a fresh import doesn't stop at the classifier. Once every repository is indexed, the indexer asks the model (OpenAI or Claude, through `indexer/src/llm.ts`; the steps are in `indexer/src/classify/model-sort.ts`, off the request path) to finish the job in two steps:
 
-1. **Domains.** Claude sees each domain the classifier found (its files, what seeded it, its biggest symbols) and an outline of what's left over. It gives each a plain product name, merges domains that are one feature ("Shares" and "Sharing"), and adds the few domains the leftovers need ("Platform").
-2. **Leftovers.** Every file with code in Unlayered or Unsorted goes to Claude in batches, with its imports, detected facts, symbols, and the domains and layers of the code around it. Claude picks one of the project's layers and a domain, with a one-line reason.
+1. **Domains.** The model sees each domain the classifier found (its files, what seeded it, its biggest symbols) and an outline of what's left over. It gives each a plain product name, merges domains that are one feature ("Shares" and "Sharing"), and adds the few domains the leftovers need ("Platform").
+2. **Leftovers.** Every file with code in Unlayered or Unsorted goes to the model in batches, with its imports, detected facts, symbols, and the domains and layers of the code around it. It picks one of the project's layers and a domain, with a one-line reason.
 
-The result is saved in the grouping as `sorted`, through the same `ProjectStore`, and the map redraws when it lands. It only fills gaps: code the classifier placed keeps its place, and your renames, rules and pins win over it, so you adjust from a sorted map exactly as before. Each placement Claude made shows its reason in the detail panel, marked as inferred. A new repository or commit sorts again; the sidebar's **sort again** does it on demand (`POST /api/grouping/sort`). Delete `sorted` from the grouping to drop it. Without a key, imports keep the classifier's result and the sidebar says sorting is unavailable.
+The result is saved in the grouping as `sorted`, through the same `ProjectStore`, and the map redraws when it lands. It only fills gaps: code the classifier placed keeps its place, and your renames, rules and pins win over it, so you adjust from a sorted map exactly as before. Each placement the model made shows its reason in the detail panel, marked as inferred by OpenAI or Claude. A new repository or commit sorts again; the sidebar's **sort again** does it on demand (`POST /api/grouping/sort`). Delete `sorted` from the grouping to drop it. Without a key, imports keep the classifier's result and the sidebar says sorting is unavailable.
 
 `npm run index -- <repos> --sort` runs the same sort from the command line and prints how much was left unsorted before and after.
 
 ## Node summaries
 
-The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `ANTHROPIC_API_KEY` set on the indexer, Claude writes one or two sentences per node from its code and neighbours, through the same client the sort uses (`indexer/src/llm.ts`), marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
+The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `OPENAI_API_KEY` set on the indexer, the model writes one or two sentences per node from its code and neighbours, through the same client the sort uses (`indexer/src/llm.ts`), marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
 
 Generated summaries are written in batches, off the request path: after each import or re-index, files first, then folders (deepest first, each reading its children's summaries), domains and their layers, then repositories; a symbol's whole file is written in one request when one of its symbols is first selected. Each summary is cached under a hash of what the model read and saved through the `ProjectStore`, so a restart costs nothing and a re-index rewrites only what changed and what contains it. `npm run index -- <repo> --summaries` prints sample lines and how many requests a fresh import would make, without calling a model: the FastAPI template takes 11 requests for 197 summaries of files, folders, groups and the repository (about 29,000 input tokens), and outline 70 requests for 2,566 (about 430,000); symbols cost one request per file, only as files are opened. The code lives in `indexer/src/summaries/`.
 
@@ -235,8 +235,9 @@ Fiada used to be called Strata. Every `FIADA_*` variable is also read under its 
 | `FIADA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `FIADA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
 | `FIADA_UPLOAD_MB` | `50` | most megabytes of source one folder upload may carry (20,000 files at most) |
-| `ANTHROPIC_API_KEY` | unset | lets the indexer sort each import with Claude and write [node summaries](#node-summaries); see [Sorted on import](#sorted-on-import) |
-| `FIADA_LLM_MODEL` | `claude-opus-5` | the model it sorts and summarises with |
+| `OPENAI_API_KEY` | unset | lets the indexer sort each import with OpenAI and write [node summaries](#node-summaries); see [Sorted on import](#sorted-on-import) |
+| `ANTHROPIC_API_KEY` | unset | the same with Claude; with both keys set, OpenAI answers unless `FIADA_LLM_MODEL` names a Claude model |
+| `FIADA_LLM_MODEL` | `gpt-5.5`, or `claude-opus-5` for Claude | the model it sorts and summarises with; without one, OpenAI falls back to `gpt-5`, then `gpt-4.1`, when the key can't use `gpt-5.5` |
 | `FIADA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
 | `FIADA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
 | `FIADA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
@@ -272,7 +273,7 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `FIADA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
 | `FIADA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
-| `ANTHROPIC_API_KEY` | to sort each import with Claude and write node summaries; without it the map keeps the classifier's result and one-line summaries |
+| `OPENAI_API_KEY` | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
 
 In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `FIADA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every deploy loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
 

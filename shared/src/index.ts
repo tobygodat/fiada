@@ -216,17 +216,17 @@ export interface SortedPlacement {
   layerReason?: string;
 }
 
-/** "Claude" for a Claude model id, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
-export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : model);
+/** "Claude" for a Claude model id, "OpenAI" for an OpenAI one, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
+export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : /^(gpt|chatgpt|o\d)/i.test(model) ? 'OpenAI' : model);
 
-/** Whether the indexer can sort a project with Claude, and how the last sort went. */
+/** Whether the indexer can sort a project with a model, and how the last sort went. */
 export interface SortingState {
   /** The indexer has a model to sort with (an API key for one). */
   available: boolean;
   /** Where to set a key, when sorting is off (llm.ts KEY_HINT). */
   keyHint?: string;
   status: 'off' | 'idle' | 'running' | 'done' | 'error';
-  /** Who sorts, for people: "Claude". */
+  /** Who sorts, for people: "OpenAI" or "Claude". */
   by?: string;
   /** The model the current sort was made with. */
   model?: string;
@@ -488,6 +488,8 @@ export type AgentEventBody =
   | { type: 'prompt'; text: string }
   /** The agent's own account of its task. `steps` replaces the plan when present; `step` marks one step active. */
   | { type: 'task'; task?: string; steps?: AgentStep[]; step?: string; state?: AgentState; note?: string }
+  /** The agent's own one or two lines on what it is doing right now. */
+  | { type: 'status'; text: string }
   /** One step added or updated, by id (Claude Code's TaskCreate / TaskUpdate). */
   | { type: 'step'; id: string; text?: string; activeText?: string; status?: StepStatus | 'removed' }
   | { type: 'changes'; files: FileChange[] }
@@ -529,10 +531,25 @@ export interface AgentActivity {
   /** First line of the user's latest prompt. */
   prompt?: string;
   note?: string;
+  /** What it's doing right now: the headline of its entry. */
+  now?: AgentNow;
   steps: AgentStep[];
   files: AgentFile[];
   startedAt: string;
   updatedAt: string;
+}
+
+/**
+ * The agent's status line. `agent` is its own words (the MCP `status` tool);
+ * when it hasn't said, or its plan moved on since, the line is derived from
+ * the active step of its plan, else from the user's prompt.
+ */
+export interface AgentNow {
+  /** One or two short lines, joined by "\n". */
+  text: string;
+  from: 'agent' | 'plan' | 'prompt';
+  /** ISO time the line was said or the step started. */
+  at: string;
 }
 
 /** A node the overlay marks, directly changed or standing in for a deleted one. */

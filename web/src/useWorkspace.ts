@@ -17,7 +17,7 @@ export interface WorkspaceHandle {
   refresh(id: string): Promise<void>;
   /** Starts the project's layers over from a preset. */
   applyPreset(preset: LayerPreset): Promise<void>;
-  /** Asks Claude to sort the project's leftovers again. */
+  /** Asks the model to sort the project's leftovers again. */
   sortAgain(): Promise<void>;
   /** Checks with the indexer now instead of at the next poll (it said the graph changed). */
   reload(): Promise<void>;

@@ -47,7 +47,7 @@ export class Sorter {
     return !!this.llm;
   }
 
-  /** "Claude (claude-opus-5)", for logs. */
+  /** "OpenAI (gpt-5.5)" or "Claude (claude-opus-5)", for logs. */
   get describe(): string {
     return this.llm ? `${this.llm.label} (${this.llm.model})` : 'nothing';
   }
@@ -108,7 +108,7 @@ export class Sorter {
     const llm = this.llm!;
     console.log(`[fiada] sorting ${graph.repos.map((r) => r.id).join(', ')} with ${this.describe}`);
     try {
-      const sorted = await sortProject(graph, host.grouping(), (req) => llm.json(req), { model: llm.model, by: llm.label, log: (l) => console.log(l) });
+      const sorted = await sortProject(graph, host.grouping(), (req) => llm.json(req), { get model() { return llm.model; }, by: llm.label, log: (l) => console.log(l) });
       await host.save(sorted);
       this.failed = undefined;
       this.status = 'done';

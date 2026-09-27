@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { ActivityState, AgentRef } from '@fiada/shared';
-import { AgentHub, remoteKey, sameProcess, touches } from './agents.ts';
+import { AgentHub, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
 
@@ -73,6 +73,53 @@ test('a reporter without a session joins the one sharing its nearest parent proc
   // Both run under process 50: that says nothing about which one.
   assert.equal(sameProcess([303, 50], [a, b]), null);
   assert.equal(sameProcess(undefined, [a, b]), null);
+});
+
+test('the status line is the newest of the agent\'s words, its active step and the prompt', () => {
+  const steps = [
+    { text: 'Read the routes', status: 'done' as const },
+    { text: 'Add the field', activeText: 'Adding the field', status: 'active' as const },
+  ];
+  const said = { text: 'Adding created_at to Item.\nThen the migration.', at: 2000 };
+  const prompt = { text: 'Add created_at', at: 500 };
+  assert.deepEqual(statusLine(said, steps, 1000, prompt), { text: said.text, from: 'agent', at: new Date(2000).toISOString() });
+  // Said with the step it started: its words win the tie.
+  assert.equal(statusLine(said, steps, 2000, prompt)?.from, 'agent');
+  // The plan moved to another step after the agent last said anything.
+  assert.deepEqual(statusLine(said, steps, 3000, prompt), { text: 'Adding the field', from: 'plan', at: new Date(3000).toISOString() });
+  // No active step: the agent's words stand however old.
+  assert.equal(statusLine(said, [{ text: 'x', status: 'done' }], 3000, prompt)?.from, 'agent');
+  // A step left active from an earlier turn is older than the new prompt.
+  assert.deepEqual(statusLine(undefined, steps, 100, prompt), { text: 'Add created_at', from: 'prompt', at: new Date(500).toISOString() });
+  assert.equal(statusLine(undefined, [], 0, undefined), undefined);
+});
+
+test('an agent\'s status line follows what it says, its plan and each new prompt', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const at = (s: number) => new Date(Date.UTC(2026, 8, 27, 12, 0, s)).toISOString();
+  const now = () => hub.state().agents[0].now;
+
+  await hub.ingest([{ agent, type: 'prompt', text: 'Add item search', at: at(0) }]);
+  assert.deepEqual(now(), { text: 'Add item search', from: 'prompt', at: at(0) });
+  // A plan from the todo list: its active step, until the agent says something itself.
+  await hub.ingest([{ agent, type: 'task', steps: [{ text: 'Add searchItems', activeText: 'Adding searchItems', status: 'active' }, { text: 'Test it', status: 'pending' }], at: at(1) }]);
+  assert.deepEqual(now(), { text: 'Adding searchItems', from: 'plan', at: at(1) });
+  await hub.ingest([{ agent, type: 'status', text: 'Reading src/api.ts to see how listItems builds its URL.', at: at(2) }]);
+  assert.deepEqual(now(), { text: 'Reading src/api.ts to see how listItems builds its URL.', from: 'agent', at: at(2) });
+  // Ticking the same step again leaves the agent's line; moving to the next step replaces it.
+  await hub.ingest([{ agent, type: 'task', steps: [{ text: 'Add searchItems', activeText: 'Adding searchItems', status: 'active' }, { text: 'Test it', status: 'pending' }], at: at(3) }]);
+  assert.equal(now()?.from, 'agent');
+  await hub.ingest([{ agent, type: 'task', steps: [{ text: 'Add searchItems', status: 'done' }, { text: 'Test it', status: 'active' }], at: at(4) }]);
+  assert.deepEqual(now(), { text: 'Test it', from: 'plan', at: at(4) });
+  await hub.ingest([{ agent, type: 'status', text: 'Running the tests.', at: at(5) }, { agent, type: 'state', state: 'waiting', at: at(6) }]);
+  assert.equal(now()?.text, 'Running the tests.');
+  // A new prompt: last turn's line is dropped.
+  await hub.ingest([{ agent, type: 'prompt', text: 'Now add paging', at: at(7) }]);
+  assert.deepEqual(now(), { text: 'Now add paging', from: 'prompt', at: at(7) });
+  await hub.ingest([{ agent, type: 'task', steps: [{ text: 'Add a page parameter', status: 'active' }], at: at(8) }]);
+  assert.deepEqual(now(), { text: 'Add a page parameter', from: 'plan', at: at(8) });
 });
 
 test('line ranges touch a symbol; pure removals only inside it', () => {
