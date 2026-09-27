@@ -39,3 +39,22 @@ test('a rejected save leaves added and removed repos as they were', async () => 
   assert.deepEqual(ws.state().repos.map((r) => r.id), ['kept']);
   assert.deepEqual(flaky.saved().map((r) => r.id), ['kept']);
 });
+
+test('a hosted indexer neither imports nor reads local folders', async () => {
+  const flaky = flakyStore([{ id: 'laptop', name: 'laptop', source: process.cwd(), kind: 'local' }]);
+  const ws = new Workspace(flaky.store, 'default', { localPaths: false, keyRequired: true });
+  await ws.init();
+  await settled(ws);
+
+  // Saved by an indexer on someone's machine: kept in the project, but not read here.
+  const [saved] = ws.state().repos;
+  assert.equal(saved.status, 'error');
+  assert.match(saved.error ?? '', /git repositories only/);
+  assert.equal(await ws.readSource('laptop', 'package.json'), null);
+
+  await assert.rejects(ws.add('/etc'), /git repositories only/);
+  await assert.rejects(ws.add('~/secrets'), /git repositories only/);
+  assert.deepEqual(flaky.saved().map((r) => r.id), ['laptop']);
+  assert.ok(!ws.state().suggestions.some((s) => s.startsWith('/')), 'no local suggestion');
+  assert.deepEqual(ws.state().access, { localPaths: false, keyRequired: true });
+});
