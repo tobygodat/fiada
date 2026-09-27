@@ -7,6 +7,7 @@ import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
+import type { ThemeChoice } from '../useTheme.ts';
 import { Chevron } from './Icon.tsx';
 
 interface Props {
@@ -18,11 +19,13 @@ interface Props {
   view: View;
   mode: ExpandMode;
   colorBy: ColorBy;
+  theme: ThemeChoice;
   pal: Palette;
   selected: string | null;
   onView(v: View): void;
   onMode(m: ExpandMode): void;
   onColorBy(c: ColorBy): void;
+  onTheme(t: ThemeChoice): void;
   onSelect(id: string): void;
   onAdd(source: string): Promise<void>;
   onRemove(id: string): Promise<void>;
@@ -82,6 +85,19 @@ export function Sidebar(p: Props) {
               ['zoom', 'on zoom'],
             ]}
             onChange={p.onMode}
+          />
+        </div>
+        <div className="setting">
+          <span className="setting-name small">theme</span>
+          <Choice
+            label="theme"
+            value={p.theme}
+            options={[
+              ['system', 'system', "Follow the system's light or dark setting"],
+              ['dark', 'dark'],
+              ['light', 'light'],
+            ]}
+            onChange={p.onTheme}
           />
         </div>
       </section>

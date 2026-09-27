@@ -23,6 +23,7 @@ import {
 import type { MapRenderer, Scene } from './render/renderer.ts';
 import { palette, type ColorBy } from './theme.ts';
 import { useAgents } from './useAgents.ts';
+import { useTheme } from './useTheme.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
 // What the floating panels cover, from the window's edge: the 16px inset plus
@@ -72,6 +73,7 @@ type CameraIntent = { focus: string; detail: boolean; from?: string | null } | {
 export function App() {
   const ws = useWorkspace();
   const agents = useAgents();
+  const [theme, setTheme] = useTheme();
   const graph = ws.graph;
   const [view, setView] = useState<View>('code');
   const [mode, setModeState] = useState<ExpandMode>(readMode);
@@ -485,9 +487,11 @@ export function App() {
           view={view}
           mode={mode}
           colorBy={colorBy}
+          theme={theme}
           pal={pal}
           selected={selected}
           onView={setView}
+          onTheme={setTheme}
           onMode={setMode}
           onColorBy={setColorBy}
           onSelect={select}
