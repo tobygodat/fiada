@@ -22,7 +22,9 @@ import { FIADA_HOME, Workspace } from './workspace.ts';
 const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.FIADA_API_KEY || undefined;
-const allowedOrigin = originMatcher(process.env.FIADA_ALLOWED_ORIGINS);
+// The map's own domains are always allowed, so the hosted map works without editing the host's variables.
+const MAP_ORIGINS = 'https://fiada.tech,https://www.fiada.tech,https://hackgt13.vercel.app';
+const allowedOrigin = originMatcher([MAP_ORIGINS, process.env.FIADA_ALLOWED_ORIGINS].filter(Boolean).join(','));
 
 const store = await createStore(FIADA_HOME);
 const ws = new Workspace(
