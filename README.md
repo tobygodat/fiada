@@ -12,7 +12,7 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 
 ## What it does
 
-- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; a model (OpenAI or Claude) names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
+- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; an OpenAI model names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
 - **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash.
 - **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
 - **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
@@ -42,7 +42,7 @@ Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the bo
 
 Optional, in a `.env` at the repo root (`.env.example` lists them):
 
-- `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`) turns on the AI sorting and the generated summaries. Without it, Strata still sorts by rules and writes plain one-line summaries.
+- `OPENAI_API_KEY` turns on the AI sorting and the generated summaries. Without it, Strata still sorts by rules and writes plain one-line summaries.
 - `MONGODB_URI` saves projects to MongoDB Atlas instead of `.strata/` on disk. See [MongoDB Atlas](#mongodb-atlas).
 
 ## Connect a Claude Code session
@@ -134,7 +134,7 @@ The result is saved in the grouping as `sorted`, through the same `ProjectStore`
 
 ## Node summaries
 
-The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set on the indexer, the model writes one or two sentences per node from its code and neighbours, through the same client the sort uses (`indexer/src/llm.ts`), marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
+The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `OPENAI_API_KEY` set on the indexer, the model writes one or two sentences per node from its code and neighbours, through the same client the sort uses (`indexer/src/llm.ts`), marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
 
 Generated summaries are written in batches, off the request path: after each import or re-index, files first, then folders (deepest first, each reading its children's summaries), domains and their layers, then repositories; a symbol's whole file is written in one request when one of its symbols is first selected. Each summary is cached under a hash of what the model read and saved through the `ProjectStore`, so a restart costs nothing and a re-index rewrites only what changed and what contains it. `npm run index -- <repo> --summaries` prints sample lines and how many requests a fresh import would make, without calling a model: the FastAPI template takes 11 requests for 197 summaries of files, folders, groups and the repository (about 29,000 input tokens), and outline 70 requests for 2,566 (about 430,000); symbols cost one request per file, only as files are opened. The code lives in `indexer/src/summaries/`.
 
@@ -271,7 +271,7 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `STRATA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
 | `STRATA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `STRATA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
-| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
+| `OPENAI_API_KEY` | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
 
 In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `STRATA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every deploy loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
 
