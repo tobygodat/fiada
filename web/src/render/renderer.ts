@@ -578,11 +578,6 @@ export class MapRenderer {
       }
     }
 
-    if (scene.activity?.size) {
-      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10));
-      this.lastFont = '';
-    }
-
     // ── edge tags ──
     this.font('mono-medium', 11);
     for (const t of tagQueue) {
@@ -602,6 +597,13 @@ export class MapRenderer {
       this.drawnTags.push({ ...r, key: t.g.key });
     }
     ctx.globalAlpha = 1;
+
+    // ── agent badges, last so they can keep clear of every link, tag and tab ──
+    if (scene.activity?.size) {
+      const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox };
+      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10), taken);
+      this.lastFont = '';
+    }
   }
 
   /** How much of the web to draw: a preset name, or individual settings over the current ones. */
