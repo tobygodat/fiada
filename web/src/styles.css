@@ -123,7 +123,7 @@ a { color: inherit; }
 .map-tip {
   position: absolute; left: 0; top: 0; display: none; pointer-events: none; z-index: 3; max-width: 420px;
   padding: var(--space-xs) var(--space-8); border: 1px solid var(--hairline-strong); border-radius: var(--radius); background: var(--ground-raised);
-  font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--text);
+  font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -131,9 +131,9 @@ a { color: inherit; }
 .tag {
   display: inline-block; min-width: 20px; padding: 0 var(--space-xs);
   border: 1px solid var(--hairline-strong); border-radius: var(--radius-sm); background: var(--ground-raised);
-  font-size: var(--size-fine); line-height: 20px; text-align: center; color: var(--text); font-variant-numeric: tabular-nums;
+  font-size: var(--size-fine); line-height: 20px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums;
 }
-.tag.sel { background: var(--selection); border-color: var(--text); }
+.tag.sel { background: var(--selection); border-color: var(--text); color: var(--text); }
 .tag.static { margin-right: var(--space-8); }
 
 /* Words beside their marks, no box. */
