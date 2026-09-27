@@ -1,15 +1,66 @@
 # Strata
 
-A codebase map for working at the middle altitude: above file-by-file reading, below a one-paragraph architecture summary. One graph spans several repositories; opening a circle takes you down a level of abstraction, from systems to modules to files to symbols.
+A map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working.
 
-This is the first scaffold of the prototype. It covers the graph view, the floating sidebar with the **Code · read-only** / **By function** toggle, importing real repositories, per-project layers, and the agent overlay: coding agents report their task and the files they change, and the map shows it live. Search, edge filtering and domain editing come later.
+Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Strata sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
 
-## Run it
+**Try it:** https://hackgt13.vercel.app (hosted, read-only) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
+
+Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
+
+![The map: two repositories, opened into their modules](docs/screenshots/map.png)
+
+## What it does
+
+- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; a language model names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason. [pending: Automatic sorting on repo import]
+- **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash. [pending: Short summary for every node]
+- **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
+- **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
+- **Two views of the same code.** **Code** is the structure as it is on disk. **By function** regroups the same functions by feature, then layer, so a feature that spans a React page, a generated client, a FastAPI route and a table reads as one circle.
+
+| Following an HTTP contract to the code behind it | An agent at work: rings, counts, task and plan |
+| --- | --- |
+| ![Contract panel: 23 HTTP requests from the frontend to the backend, with the request line and the route it matched](docs/screenshots/contract.png) | ![Two Claude Code sessions on the FastAPI template, with rings on the files they changed](docs/screenshots/agent.png) |
+
+![A selected function with its code in the detail panel](docs/screenshots/symbol.png)
+
+## Run it locally
+
+Needs Node 20.19 or later and git.
 
 ```sh
+git clone https://github.com/tobygodat/hackgt13 && cd hackgt13
 npm install
-npm run dev          # indexer on :4178, web on http://localhost:5178
+npm run dev          # indexer on :4178, map on http://localhost:5178
 ```
+
+Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the box under **repositories**, and press **import**. Then:
+
+1. Click a circle to see what it is; click it again to open it.
+2. Under **view**, switch to **by function** and open the **Items** domain.
+3. Click the **HTTP** tag between Client and API to read the contract, and click either end of an interaction to jump to its code.
+
+Optional, in a `.env` at the repo root (`.env.example` lists them):
+
+- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` turns on the AI sorting and the generated summaries. Without one, Strata still sorts by rules and writes plain one-line summaries. [pending: Automatic sorting on repo import]
+- `MONGODB_URI` saves projects to MongoDB Atlas instead of `.strata/` on disk. See [MongoDB Atlas](#mongodb-atlas).
+
+## Connect a Claude Code session
+
+Import the repository you'll work in by its local path (so edits re-index in place), then:
+
+```sh
+npm run agent:setup -- --write /path/to/your/repo
+cd /path/to/your/repo && claude
+```
+
+`--write` adds Strata's hooks to that repo's `.claude/settings.local.json` and registers the Strata MCP server with `claude mcp add`. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
+
+## Hosted demo
+
+The map is at https://hackgt13.vercel.app, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Anyone can browse it; adding repositories needs the project's key. [Deploy](#deploy) explains the split.
+
+## Using the map
 
 Open http://localhost:5178 and add a repository in the sidebar. Anything git can clone works (`org/repo`, `github.com/org/repo`, an https or ssh URL), and so does an absolute path to a local checkout, which is read in place. Add several and they share one map; imports, calls and HTTP requests that cross repositories become dashed edges.
 
