@@ -1,8 +1,8 @@
-# Strata
+# Fiada
 
 A map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working.
 
-Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Strata sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
+Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Fiada sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
 
 **Try it:** https://hackgt13.vercel.app (hosted, read-only) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
 
@@ -42,8 +42,8 @@ Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the bo
 
 Optional, in a `.env` at the repo root (`.env.example` lists them):
 
-- `OPENAI_API_KEY` turns on the AI sorting and the generated summaries. Without it, Strata still sorts by rules and writes plain one-line summaries.
-- `MONGODB_URI` saves projects to MongoDB Atlas instead of `.strata/` on disk. See [MongoDB Atlas](#mongodb-atlas).
+- `OPENAI_API_KEY` turns on the AI sorting and the generated summaries. Without it, Fiada still sorts by rules and writes plain one-line summaries.
+- `MONGODB_URI` saves projects to MongoDB Atlas instead of `.fiada/` on disk. See [MongoDB Atlas](#mongodb-atlas).
 
 ## Connect a Claude Code session
 
@@ -54,7 +54,7 @@ npm run agent:setup -- --write /path/to/your/repo
 cd /path/to/your/repo && claude
 ```
 
-`--write` adds Strata's hooks to that repo's `.claude/settings.local.json` and registers the Strata MCP server with `claude mcp add`. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
+`--write` adds Fiada's hooks to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
 
 ## Hosted demo
 
@@ -117,7 +117,7 @@ A new project starts from a preset, which is just data you then own:
 | `by-repo` | one layer per repository |
 | `empty` | none; everything starts Unlayered |
 
-The grouping lives in `.strata/projects/default/strata.grouping.json`. Edit it to rename layers, add matchers, or add `rules` (bulk moves by path, symbol name or current layer) and `pins` (single files or symbols); edits apply live, and the sidebar shows an error if the file doesn't validate. The sidebar also switches presets, and the detail panel shows why each file and symbol landed where it did.
+The grouping lives in `.fiada/projects/default/fiada.grouping.json`. Edit it to rename layers, add matchers, or add `rules` (bulk moves by path, symbol name or current layer) and `pins` (single files or symbols); edits apply live, and the sidebar shows an error if the file doesn't validate. The sidebar also switches presets, and the detail panel shows why each file and symbol landed where it did.
 
 Domains (the features that cut across layers and repos) come from the classification design's seed-and-propagate strategy (`indexer/src/classify/propagate.ts`). Routes (`GET /items/{id}`), ORM entities (`class Item`), page routes, and files in structural folders (`routes/items.py`, `components/Items/`) seed a domain when two or more files agree on it. Everything else takes the domain of the code it's connected to through calls, HTTP requests, renders and imports. A close split goes to **Shared**, and so does code that three or more features use directly. Code with no path to any seed joins the majority of its file, and anything left over is **Unsorted**. Domain pins in the grouping file act as seeds too, so they pull their unclaimed neighbours along. The older `feature-tokens` strategy is still available; strategies are swappable in `indexer/src/classify/index.ts`.
 
@@ -140,7 +140,7 @@ Generated summaries are written in batches, off the request path: after each imp
 
 ## Storage
 
-Everything a project keeps (its repositories, its grouping and its generated summaries) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
+Everything a project keeps (its repositories, its grouping and its generated summaries) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.fiada/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
 
 ### MongoDB Atlas
 
@@ -151,9 +151,9 @@ With Atlas, each project is one document in the `projects` collection, keyed by 
 3. Under **Connect > Drivers**, copy the connection string, put your user's password in it, and save it as `MONGODB_URI=...` in a `.env` file at the repo root (gitignored; `.env.example` lists the variables).
 4. `npm run dev`. The indexer logs `saving projects to MongoDB at …`, never the password.
 
-If Atlas can't be reached or read at startup, the indexer says why and saves under `.strata/` for that run, so the map still works offline. Clones and parsed code stay on local disk either way.
+If Atlas can't be reached or read at startup, the indexer says why and saves under `.fiada/` for that run, so the map still works offline. Clones and parsed code stay on local disk either way.
 
-Two indexers can serve one project. Saving the repo list never touches the grouping and vice versa, and each carries a revision: if another indexer saved after this one loaded, the save is refused with a message to restart instead of silently undoing the other's change. Grouping edits made elsewhere don't apply live the way edits to `strata.grouping.json` do; restart to pick them up. MongoDB field names can't contain dots and symbol ids do, so `.`, `$` and `%` in keys are percent-escaped in the database and restored on load.
+Two indexers can serve one project. Saving the repo list never touches the grouping and vice versa, and each carries a revision: if another indexer saved after this one loaded, the save is refused with a message to restart instead of silently undoing the other's change. Grouping edits made elsewhere don't apply live the way edits to `fiada.grouping.json` do; restart to pick them up. MongoDB field names can't contain dots and symbol ids do, so `.`, `$` and `%` in keys are percent-escaped in the database and restored on load.
 
 To see classification results without the UI:
 
@@ -165,14 +165,14 @@ npm run index -- ../some-repo --grouping my.grouping.json --layers
 
 ## Watching a coding agent
 
-Strata can follow a coding agent (Claude Code, Cursor, Codex, or anything that speaks MCP) while it works on a repository you've imported. A small window at the top right lists each agent's task and plan, with the step it's on, and the map marks what it touches: a ring just outside anything it added (ink), changed (ochre) or deleted (dashed brick), and a short pulse as each change lands. Those colours only ever mean a change on the map; in the window, a green dot means the agent is working and an ochre one means it's waiting for you. A closed circle shows a count of the changes inside it (`+2 ~3 −1`: files in the Code view, symbols By function) on whichever side of it is clear of links and tags, so you can see where an agent is working without opening anything. Click a changed file in the window, or any ringed circle, and the detail panel shows the diff (for a symbol, just the hunks that touch it).
+Fiada can follow a coding agent (Claude Code, Cursor, Codex, or anything that speaks MCP) while it works on a repository you've imported. A small window at the top right lists each agent's task and plan, with the step it's on, and the map marks what it touches: a ring just outside anything it added (ink), changed (ochre) or deleted (dashed brick), and a short pulse as each change lands. Those colours only ever mean a change on the map; in the window, a green dot means the agent is working and an ochre one means it's waiting for you. A closed circle shows a count of the changes inside it (`+2 ~3 −1`: files in the Code view, symbols By function) on whichever side of it is clear of links and tags, so you can see where an agent is working without opening anything. Click a changed file in the window, or any ringed circle, and the detail panel shows the diff (for a symbol, just the hunks that touch it).
 
 There are two ways in, and they work best together:
 
-- **Hooks** (deterministic). The agent's own tool hooks run `agent/bin/strata-hook.mjs` after every edit, so changes show up even when the agent never mentions them. The hook asks git about the agent's working tree: edited files come with their changed lines and a diff against HEAD, and after a shell command it compares the tree with the last call, so files removed with `rm` or `git mv`, generated files and reverts are caught too. Changes already in the tree when the agent started, or made by you between prompts, aren't put on the agent. Claude Code's plan (`TodoWrite`, or `TaskCreate`/`TaskUpdate`) becomes the step list, and your prompt is the task until the agent names its own.
-- **MCP** (the agent's own words). `agent/bin/strata-mcp.mjs` is a stdio MCP server with two tools: `report_task` (the task, the plan as steps marked `pending`, `active` or `done`, the step it's on, a note) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
+- **Hooks** (deterministic). The agent's own tool hooks run `agent/bin/fiada-hook.mjs` after every edit, so changes show up even when the agent never mentions them. The hook asks git about the agent's working tree: edited files come with their changed lines and a diff against HEAD, and after a shell command it compares the tree with the last call, so files removed with `rm` or `git mv`, generated files and reverts are caught too. Changes already in the tree when the agent started, or made by you between prompts, aren't put on the agent. Claude Code's plan (`TodoWrite`, or `TaskCreate`/`TaskUpdate`) becomes the step list, and your prompt is the task until the agent names its own.
+- **MCP** (the agent's own words). `agent/bin/fiada-mcp.mjs` is a stdio MCP server with two tools: `report_task` (the task, the plan as steps marked `pending`, `active` or `done`, the step it's on, a note) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
 
-Both post to the indexer's `/api/agent/events`. A file maps to the graph by path when its repository was imported from a local directory, or by `origin` remote (then folder name) when the agent works in another checkout of an imported repository. When the agent edits a repository Strata reads in place, the indexer re-parses just the changed files and relinks (about 10 ms on the FastAPI template), so new files and symbols appear on the map, and comparing each file's symbols with HEAD says which functions were added, changed or deleted. The map fetches the new graph without moving the camera. Agent activity isn't stored anywhere; dismissing an agent in the window clears its marks.
+Both post to the indexer's `/api/agent/events`. A file maps to the graph by path when its repository was imported from a local directory, or by `origin` remote (then folder name) when the agent works in another checkout of an imported repository. When the agent edits a repository Fiada reads in place, the indexer re-parses just the changed files and relinks (about 10 ms on the FastAPI template), so new files and symbols appear on the map, and comparing each file's symbols with HEAD says which functions were added, changed or deleted. The map fetches the new graph without moving the camera. Agent activity isn't stored anywhere; dismissing an agent in the window clears its marks.
 
 Each session is its own card, even when two run in the same checkout. The MCP server finds its session from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets for the servers it starts; for other clients, from the parent process it shares with that session's hooks. A file that only turned up when one session compared the working tree goes to whichever session's own tool wrote it.
 
@@ -186,7 +186,7 @@ npm run agent:setup -- --write /path/to/your/project  # or writes them for you
 `--write` merges the hooks into `/path/to/your/project/.claude/settings.local.json` (your own, git-ignored settings; other hooks there are kept) and registers the MCP server for that project with `claude mcp add`. To do it by hand, add the server:
 
 ```sh
-claude mcp add strata -- node /path/to/hackgt13/agent/bin/strata-mcp.mjs
+claude mcp add fiada -- node /path/to/hackgt13/agent/bin/fiada-mcp.mjs
 ```
 
 and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared with your team) or `~/.claude/settings.json` (every project):
@@ -194,16 +194,16 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }],
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate",
-        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
       }
     ],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }]
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }]
   }
 }
 ```
@@ -212,38 +212,40 @@ Then run `npm run dev`, import the repository you're working in by its local pat
 
 ### Other agents
 
-- **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "strata": { "command": "node", "args": ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
-- **Codex CLI**: add the MCP server under `[mcp_servers.strata]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"]`), and set `notify = ["node", "/path/to/hackgt13/agent/bin/strata-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes (the first one counts what changed since Codex started).
-- **Anything else**, scripts included: `strata-hook changed <file>… [--kind added|modified|deleted]`, `strata-hook task "Add tags" --step "Add the model"`, `strata-hook sweep` (whatever changed in the working tree since the last call) and `strata-hook done`, with `--client <name>` to name the agent.
+- **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "fiada": { "command": "node", "args": ["/path/to/hackgt13/agent/bin/fiada-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
+- **Codex CLI**: add the MCP server under `[mcp_servers.fiada]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/hackgt13/agent/bin/fiada-mcp.mjs"]`), and set `notify = ["node", "/path/to/hackgt13/agent/bin/fiada-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes (the first one counts what changed since Codex started).
+- **Anything else**, scripts included: `fiada-hook changed <file>… [--kind added|modified|deleted]`, `fiada-hook task "Add tags" --step "Add the model"`, `fiada-hook sweep` (whatever changed in the working tree since the last call) and `fiada-hook done`, with `--client <name>` to name the agent.
 
-The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end. Set `STRATA_HOOK_LOG` to a file to record every payload the hook receives.
+The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end. Set `FIADA_HOOK_LOG` to a file to record every payload the hook receives.
 
 ## Configuration
 
+Fiada used to be called Strata. Every `FIADA_*` variable is also read under its old `STRATA_*` name (the old name wins if both are set), a checkout that already has a `.strata/` folder keeps using it, and the MongoDB database is still called `strata` by default, so existing deployments keep working unchanged.
+
 | Variable | Default | |
 | --- | --- | --- |
-| `PORT` | `4178` | indexer port (the web dev server proxies `/api` to it; set `STRATA_INDEXER_PORT` for the proxy if you change it) |
+| `PORT` | `4178` | indexer port (the web dev server proxies `/api` to it; set `FIADA_INDEXER_PORT` for the proxy if you change it) |
 | `HOST` | `127.0.0.1` | address the indexer listens on (`0.0.0.0` in the container, and by default on Railway, Render and Fly) |
-| `STRATA_HOME` | `.strata/` | where clones and project files live |
-| `STRATA_PROJECT` | `default` | which project the indexer serves |
-| `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.strata/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
-| `STRATA_MONGODB_DB` | `strata` | database that holds the `projects` collection |
-| `STRATA_SUMMARIES` | on | `off` writes no generated [node summaries](#node-summaries) even with a key set; the lines stay |
-| `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
-| `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
-| `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
-| `STRATA_UPLOAD_MB` | `50` | most megabytes of source one folder upload may carry (20,000 files at most) |
+| `FIADA_HOME` | `.fiada/` (or `.strata/` if that exists) | where clones and project files live |
+| `FIADA_PROJECT` | `default` | which project the indexer serves |
+| `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.fiada/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
+| `FIADA_MONGODB_DB` | `strata` | database that holds the `projects` collection |
+| `FIADA_SUMMARIES` | on | `off` writes no generated [node summaries](#node-summaries) even with a key set; the lines stay |
+| `FIADA_INCLUDE_TESTS` | off | set to `1` to index test files |
+| `FIADA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
+| `FIADA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+| `FIADA_UPLOAD_MB` | `50` | most megabytes of source one folder upload may carry (20,000 files at most) |
 | `OPENAI_API_KEY` | unset | lets the indexer sort each import with OpenAI and write [node summaries](#node-summaries); see [Sorted on import](#sorted-on-import) |
-| `ANTHROPIC_API_KEY` | unset | the same with Claude; with both keys set, OpenAI answers unless `STRATA_LLM_MODEL` names a Claude model |
-| `STRATA_LLM_MODEL` | `gpt-5.5`, or `claude-opus-5` for Claude | the model it sorts and summarises with; without one, OpenAI falls back to `gpt-5`, then `gpt-4.1`, when the key can't use `gpt-5.5` |
-| `STRATA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
-| `STRATA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
-| `STRATA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
+| `ANTHROPIC_API_KEY` | unset | the same with Claude; with both keys set, OpenAI answers unless `FIADA_LLM_MODEL` names a Claude model |
+| `FIADA_LLM_MODEL` | `gpt-5.5`, or `claude-opus-5` for Claude | the model it sorts and summarises with; without one, OpenAI falls back to `gpt-5`, then `gpt-4.1`, when the key can't use `gpt-5.5` |
+| `FIADA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
+| `FIADA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
+| `FIADA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
 | `VITE_API_URL` | unset | build time, web: the indexer's URL when the map is served apart from it; unset, the map calls its own origin |
-| `STRATA_URL` | `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
-| `STRATA_API_KEY` (agent) | unset | the hook and MCP server send it to a hosted indexer that has one |
-| `STRATA_AGENT_STATE` | `$TMPDIR/strata-agent` | where the hook keeps each session's last view of the working tree |
-| `STRATA_HOOK_LOG` | unset | append every payload the hook receives to this file, one JSON object per line |
+| `FIADA_URL` | `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
+| `FIADA_API_KEY` (agent) | unset | the hook and MCP server send it to a hosted indexer that has one |
+| `FIADA_AGENT_STATE` | `$TMPDIR/fiada-agent` | where the hook keeps each session's last view of the working tree |
+| `FIADA_HOOK_LOG` | unset | append every payload the hook receives to this file, one JSON object per line |
 
 The indexer also reads a `.env` file at the repo root; variables already set in your shell win.
 
@@ -267,17 +269,17 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | --- | --- |
 | `PORT` | `4178` |
 | `MONGODB_URI` | the Atlas connection string, as in `.env` |
-| `STRATA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
-| `STRATA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
-| `STRATA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
-| `STRATA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
+| `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
+| `FIADA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
+| `FIADA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
+| `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
 | `OPENAI_API_KEY` | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
 
-In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `STRATA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every deploy loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
+In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `FIADA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every deploy loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
 
 Check it: `curl https://<indexer>/api/workspace` should answer with `"access":{"localPaths":false,"keyRequired":true}`.
 
-On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly secrets set MONGODB_URI=… STRATA_API_KEY=…` and the rest. Render's free instances sleep when idle and take a while to wake, which a demo will notice.
+On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly secrets set MONGODB_URI=… FIADA_API_KEY=…` and the rest. Render's free instances sleep when idle and take a while to wake, which a demo will notice.
 
 ### 2. The map (Vercel)
 
@@ -293,11 +295,11 @@ Vite writes it into the bundle at build time, so **redeploy** after setting it (
 
 ### 3. Using it
 
-- Open `https://hackgt13.vercel.app/?key=<STRATA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
+- Open `https://hackgt13.vercel.app/?key=<FIADA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
 - Everyone else gets the plain URL: the same map, read-only, without the import box, the layer presets or the dismiss buttons.
-- To show a coding agent on the hosted map, start it with `STRATA_URL=https://<indexer>` and `STRATA_API_KEY=<key>` in its environment. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
+- To show a coding agent on the hosted map, start it with `FIADA_URL=https://<indexer>` and `FIADA_API_KEY=<key>` in its environment. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
 
-To try the split locally: `docker build -t strata-indexer . && docker run -p 4178:4178 -e STRATA_ALLOWED_ORIGINS=http://localhost:5199 -e STRATA_API_KEY=dev strata-indexer`, then `VITE_API_URL=http://localhost:4178 npm run build && npm exec -w @strata/web -- vite preview --port 5199`.
+To try the split locally: `docker build -t fiada-indexer . && docker run -p 4178:4178 -e FIADA_ALLOWED_ORIGINS=http://localhost:5199 -e FIADA_API_KEY=dev fiada-indexer`, then `VITE_API_URL=http://localhost:4178 npm run build && npm exec -w @fiada/web -- vite preview --port 5199`.
 
 ## Tests
 
@@ -306,7 +308,7 @@ npm test             # indexer: route matching, layer matchers, rules and pins, 
                      #          agent changes mapped to files and symbols with incremental re-indexing
                      # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
                      # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools
-STRATA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test   # also runs the MongoDB store tests
+FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test   # also runs the MongoDB store tests
 npm run typecheck
 ```
 
@@ -315,5 +317,5 @@ To measure how smoothly the map zooms and pans on a real graph (headless Chromiu
 ```sh
 npm run build
 npm run index -- vercel/next.js --out "$PWD/next.graph.json"
-npm run bench -w @strata/web -- "$PWD/next.graph.json"   # needs npx playwright install chromium, or CHROMIUM_PATH
+npm run bench -w @fiada/web -- "$PWD/next.graph.json"   # needs npx playwright install chromium, or CHROMIUM_PATH
 ```

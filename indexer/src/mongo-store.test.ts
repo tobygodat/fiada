@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { MongoClient } from 'mongodb';
-import type { Grouping } from '@strata/shared';
+import type { Grouping } from '@fiada/shared';
 import { decodeKeys, encodeKeys, MongoProjectStore, ProjectConflictError, redact, unquote } from './mongo-store.ts';
 import { createStore, FileProjectStore, type SavedRepo } from './store.ts';
 
@@ -29,11 +29,11 @@ test('field names with dots and dollars survive a round trip', () => {
 
 test('connection strings are logged without credentials', () => {
   assert.equal(redact('mongodb+srv://toby:s3cret@cluster0.ab12c.mongodb.net/?retryWrites=true&w=majority'), 'mongodb+srv://cluster0.ab12c.mongodb.net');
-  assert.equal(redact('mongodb://127.0.0.1:27017/strata'), 'mongodb://127.0.0.1:27017');
+  assert.equal(redact('mongodb://127.0.0.1:27017/fiada'), 'mongodb://127.0.0.1:27017');
 });
 
 test('connection strings pasted with their .env quotes still work', () => {
-  const uri = 'mongodb+srv://toby:s3cret@strata.ab12c.mongodb.net/?appName=strata';
+  const uri = 'mongodb+srv://toby:s3cret@fiada.ab12c.mongodb.net/?appName=fiada';
   assert.equal(unquote(` "${uri}" `), uri);
   assert.equal(unquote(`${uri}"`), uri);
   assert.equal(unquote(`'${uri}'`), uri);
@@ -42,7 +42,7 @@ test('connection strings pasted with their .env quotes still work', () => {
 });
 
 test('createStore uses files when MONGODB_URI is unset or MongoDB is unusable', async (t) => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-store-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
   const previous = process.env.MONGODB_URI;
   try {
     delete process.env.MONGODB_URI;
@@ -59,12 +59,12 @@ test('createStore uses files when MONGODB_URI is unset or MongoDB is unusable', 
   }
 });
 
-// These need a MongoDB to talk to, e.g. STRATA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017
-const mongoUri = process.env.STRATA_TEST_MONGODB_URI;
-const needsMongo = { skip: !mongoUri && 'set STRATA_TEST_MONGODB_URI to run' };
+// These need a MongoDB to talk to, e.g. FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017
+const mongoUri = process.env.FIADA_TEST_MONGODB_URI;
+const needsMongo = { skip: !mongoUri && 'set FIADA_TEST_MONGODB_URI to run' };
 
 async function withDb(name: string, run: (open: () => Promise<MongoProjectStore>, raw: MongoClient) => Promise<void>) {
-  const dbName = `strata_test_${name}_${process.pid}`;
+  const dbName = `fiada_test_${name}_${process.pid}`;
   const raw = new MongoClient(mongoUri!);
   const opened: MongoProjectStore[] = [];
   try {
@@ -97,7 +97,7 @@ test('mongo store keeps repos and grouping in one document per project', needsMo
     await store.saveRepos('default', []);
     assert.deepEqual(await store.loadGrouping('default'), grouping);
 
-    const docs = await raw.db(`strata_test_roundtrip_${process.pid}`).collection('projects').find().sort({ _id: 1 }).toArray();
+    const docs = await raw.db(`fiada_test_roundtrip_${process.pid}`).collection('projects').find().sort({ _id: 1 }).toArray();
     assert.deepEqual(docs.map((d) => d._id), ['default', 'demo']);
     assert.equal(docs[0].reposRev, 2);
     assert.equal(docs[0].groupingRev, 1);

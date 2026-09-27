@@ -8,7 +8,7 @@
 // routes, utils, get, create…), and treat a word that recurs in several files,
 // but not in most of them, as a domain.
 
-import { UNSORTED_DOMAIN, type GraphNode, type Placement } from '@strata/shared';
+import { UNSORTED_DOMAIN, type GraphNode, type Placement } from '@fiada/shared';
 import type { Assignments, DomainStrategy } from './types.ts';
 
 export const GENERIC = new Set(

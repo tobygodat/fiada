@@ -152,7 +152,7 @@
 .agent-diff-head b { font-weight: var(--weight-regular); color: var(--text); }
 .agent-change .agent-note { font-family: var(--font-serif); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 
-/* Quoted code keeps its columns: the one monospace in Strata. */
+/* Quoted code keeps its columns: the one monospace in Fiada. */
 .agent-change .code.diff { font-family: var(--font-code); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--text); padding: var(--space-xs) 0; }
 .code.diff > div { display: flex; white-space: pre; padding-right: var(--space-sm); }
 .code.diff .gut { flex: none; width: 24px; text-align: center; color: var(--muted); user-select: none; }

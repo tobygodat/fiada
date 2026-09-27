@@ -25,7 +25,7 @@ import {
   type SortedDomain,
   type SortedGrouping,
   type SortedPlacement,
-} from '@strata/shared';
+} from '@fiada/shared';
 import type { JsonRequest } from '../llm.ts';
 import { leftoverFiles, type LeftoverFile } from './leftovers.ts';
 
@@ -43,7 +43,7 @@ export interface SortOptions {
   log?: (line: string) => void;
 }
 
-const INSTRUCTIONS = `You sort code for Strata, a map of software repositories. The map groups every function, class and component two ways: by layer, its role in the request flow, from the project's own list of layers; and by domain, the product feature it serves ("Documents", "Billing", "Sign-in").
+const INSTRUCTIONS = `You sort code for Fiada, a map of software repositories. The map groups every function, class and component two ways: by layer, its role in the request flow, from the project's own list of layers; and by domain, the product feature it serves ("Documents", "Billing", "Sign-in").
 
 A deterministic classifier has already placed most of the code, from routes, ORM entities, folder names and the call graph. You finish what it couldn't, so the person opening the map starts from a sorted project and adjusts it from there. They will read your reasons next to the code, so each reason is one plain line a developer can check against the code: cite the path, an import, what calls it or what it does. Don't restate the name of the layer or domain you chose.`;
 
@@ -173,7 +173,7 @@ Then new_domains: the few domains the leftover code needs that none of the above
     new_domains: [],
   };
   if (renameable.length || leftovers.length) {
-    log(`[strata] sort: naming ${renameable.length} domains with ${opts.model}`);
+    log(`[fiada] sort: naming ${renameable.length} domains with ${opts.model}`);
     domainAnswer = (await ask({
       label: 'domains',
       system: [INSTRUCTIONS],
@@ -319,7 +319,7 @@ Answer every file, by its ref.`;
       refs.set(`F${first + i}`, lf);
       return describeFile(lf, `F${first + i}`);
     });
-    log(`[strata] sort: placing ${batch.length} files (${n} of ${of})`);
+    log(`[fiada] sort: placing ${batch.length} files (${n} of ${of})`);
     const answer = (await ask({ label: `leftovers ${n}/${of}`, system: [INSTRUCTIONS, context], prompt: `${ask2}\n\n${lines.join('\n\n')}`, schema })) as {
       files?: { ref: string; layer: string; layer_reason: string; domain: string; reason: string; symbols?: { name: string; domain: string; reason: string }[] }[];
     };
@@ -353,7 +353,7 @@ Answer every file, by its ref.`;
   const missed = (await pool(batches.map((b, i) => [b, i + 1] as const), opts.concurrency ?? 4, ([b, n]) => run(b, n, batches.length))).flat();
   // Files an answer skipped get one more try on their own.
   if (missed.length) {
-    log(`[strata] sort: asking again about ${missed.length} files the answers skipped`);
+    log(`[fiada] sort: asking again about ${missed.length} files the answers skipped`);
     for (let i = 0; i < missed.length; i += batchSize) await run(missed.slice(i, i + batchSize), 1, 1);
   }
 

@@ -24,11 +24,11 @@ test('llmFromEnv: OpenAI first, Claude when it is the only key or the model asks
   assert.equal(claude.model, 'claude-opus-5');
 
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b' })!.label, 'OpenAI');
-  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', STRATA_LLM_MODEL: 'claude-sonnet-5' })!.model, 'claude-sonnet-5');
-  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', STRATA_LLM_MODEL: 'gpt-4.1' })!.model, 'gpt-4.1');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'claude-sonnet-5' })!.model, 'claude-sonnet-5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_LLM_MODEL: 'gpt-4.1' })!.model, 'gpt-4.1');
   // A Claude model left in .env doesn't break an OpenAI-only setup, nor the other way round.
-  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', STRATA_LLM_MODEL: 'claude-opus-5' })!.model, 'gpt-5.5');
-  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b', STRATA_LLM_MODEL: 'gpt-5' })!.model, 'claude-opus-5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_LLM_MODEL: 'claude-opus-5' })!.model, 'gpt-5.5');
+  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'gpt-5' })!.model, 'claude-opus-5');
 });
 
 // ── OpenAI, with a mocked transport ──────────────────────────────────
@@ -99,13 +99,13 @@ test("openaiLLM: without a model, moves down the defaults when the key can't use
   assert.equal(llm.model, 'gpt-5');
   await llm.json(req);
   assert.deepEqual(t.calls.map((c) => c.body.model), ['gpt-5.5', 'gpt-5', 'gpt-5']);
-  assert.deepEqual(lines, ['[strata] OpenAI has no gpt-5.5 for this key; using gpt-5']);
+  assert.deepEqual(lines, ['[fiada] OpenAI has no gpt-5.5 for this key; using gpt-5']);
 
   // A model someone chose is used or reported, never swapped.
   const chosen = transport(apiError(404, 'model_not_found'));
   const err = await openaiLLM('k', 'gpt-9', { post: chosen.post, ...quiet }).json(req).catch((e) => e);
   assert.equal(chosen.calls.length, 1);
-  assert.equal(describeLLMError(err), "The OpenAI API key can't use gpt-9. Set STRATA_LLM_MODEL to a model it has.");
+  assert.equal(describeLLMError(err), "The OpenAI API key can't use gpt-9. Set FIADA_LLM_MODEL to a model it has.");
 });
 
 test('openaiLLM: refusals, cut-off answers and unreachable API read plainly', async () => {

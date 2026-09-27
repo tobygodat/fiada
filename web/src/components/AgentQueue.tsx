@@ -5,7 +5,7 @@
 // the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
-import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@strata/shared';
+import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
 import './agent.css';
 
 interface Props {

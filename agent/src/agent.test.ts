@@ -4,20 +4,20 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { AgentEvent } from '@strata/shared';
+import type { AgentEvent } from '@fiada/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { firstLine, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
-import { clientId, nowLines, StrataMcp } from './mcp.ts';
+import { clientId, nowLines, FiadaMcp } from './mcp.ts';
 import { hooksBlock, mergeHooks } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 async function repo(files: Record<string, string>) {
-  const dir = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'strata-agent-')));
+  const dir = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-agent-')));
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 'test@example.com');
   git(dir, 'config', 'user.name', 'test');
@@ -156,9 +156,9 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
     sent.push(events);
     return { files: [{ path: 'app/models.py', repo: 'r', node: 'r/app/models.py', kind: 'modified', symbols: 1 }] };
   };
-  process.env.STRATA_CWD = dir;
-  const fresh = new StrataMcp((m) => out.push(m), post);
-  delete process.env.STRATA_CWD;
+  process.env.FIADA_CWD = dir;
+  const fresh = new FiadaMcp((m) => out.push(m), post);
+  delete process.env.FIADA_CWD;
   const outer = process.env.CLAUDE_CODE_SESSION_ID;
   process.env.CLAUDE_CODE_SESSION_ID = 'sess-1';
 
@@ -203,7 +203,7 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   // status: the line alone, or the plan first and then the line said with it.
   sent.length = 0;
   await fresh.handle({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'status', arguments: { now: 'Reading app/models.py for the Item fields.' } } });
-  assert.equal(out[5].result.content[0].text, 'Shown in Strata.');
+  assert.equal(out[5].result.content[0].text, 'Shown in Fiada.');
   assert.deepEqual(sent[0].map((e) => [e.type, e.type === 'status' ? e.text : '']), [['status', 'Reading app/models.py for the Item fields.']]);
   await fresh.handle({
     jsonrpc: '2.0',
@@ -229,7 +229,7 @@ test('a status keeps two short lines', () => {
 
 /** Runs the hook as Claude Code does, with a payload on stdin; resolves to what it printed. */
 function runHook(payload: object, env: Record<string, string>): Promise<string> {
-  const bin = fileURLToPath(new URL('../bin/strata-hook.mjs', import.meta.url));
+  const bin = fileURLToPath(new URL('../bin/fiada-hook.mjs', import.meta.url));
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [bin], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'inherit'] });
     let text = '';
@@ -240,7 +240,7 @@ function runHook(payload: object, env: Record<string, string>): Promise<string> 
   });
 }
 
-test('the hook briefs the agent on its status line at the start and with each prompt, only when Strata answers', async () => {
+test('the hook briefs the agent on its status line at the start and with each prompt, only when Fiada answers', async () => {
   const dir = await repo({ 'a.py': 'x = 1\n' });
   const got: any[] = [];
   const server = http.createServer((req, res) => {
@@ -256,19 +256,19 @@ test('the hook briefs the agent on its status line at the start and with each pr
   const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   try {
     const base = { session_id: 'hook-test', cwd: dir, transcript_path: '/dev/null' };
-    const start = JSON.parse(await runHook({ ...base, hook_event_name: 'SessionStart', source: 'startup' }, { STRATA_URL: url }));
+    const start = JSON.parse(await runHook({ ...base, hook_event_name: 'SessionStart', source: 'startup' }, { FIADA_URL: url }));
     assert.deepEqual(start, { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: STATUS_BRIEF } });
-    const prompt = JSON.parse(await runHook({ ...base, hook_event_name: 'UserPromptSubmit', prompt: 'Add paging\nto the items list' }, { STRATA_URL: url }));
+    const prompt = JSON.parse(await runHook({ ...base, hook_event_name: 'UserPromptSubmit', prompt: 'Add paging\nto the items list' }, { FIADA_URL: url }));
     assert.deepEqual(prompt, { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: STATUS_NUDGE } });
     assert.deepEqual(got.map((e) => e.type), ['session', 'prompt']);
     assert.equal(got[1].text, 'Add paging');
     // Other events print nothing.
-    assert.equal(await runHook({ ...base, hook_event_name: 'Stop' }, { STRATA_URL: url }), '');
+    assert.equal(await runHook({ ...base, hook_event_name: 'Stop' }, { FIADA_URL: url }), '');
   } finally {
     server.close();
   }
   // Nobody listening: nothing for the agent to act on.
-  assert.equal(await runHook({ session_id: 'hook-test-2', cwd: dir, hook_event_name: 'SessionStart' }, { STRATA_URL: 'http://127.0.0.1:9' }), '');
+  assert.equal(await runHook({ session_id: 'hook-test-2', cwd: dir, hook_event_name: 'SessionStart' }, { FIADA_URL: 'http://127.0.0.1:9' }), '');
 });
 
 test('the processes above this one, nearest first, and when one started', async () => {
@@ -283,11 +283,11 @@ test('the processes above this one, nearest first, and when one started', async 
 test('setup merges hooks without disturbing others and replaces its own', () => {
   const mine = { type: 'command' as const, command: 'echo other' };
   const settings = { model: 'x', hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [mine] }] } };
-  const once = mergeHooks(settings, hooksBlock('node /x/strata-hook.mjs'));
-  const twice = mergeHooks(once, hooksBlock('node /y/strata-hook.mjs'));
+  const once = mergeHooks(settings, hooksBlock('node /x/fiada-hook.mjs'));
+  const twice = mergeHooks(once, hooksBlock('node /y/fiada-hook.mjs'));
   assert.equal(twice.model, 'x');
   assert.equal(twice.hooks.PostToolUse.length, 2);
   assert.deepEqual(twice.hooks.PostToolUse[0].hooks, [mine]);
-  assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/strata-hook.mjs');
+  assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/fiada-hook.mjs');
   assert.equal(twice.hooks.Stop.length, 1);
 });

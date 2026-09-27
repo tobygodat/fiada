@@ -13,7 +13,7 @@ import {
   type LayerDef,
   type LayerMatcher,
   type Placement,
-} from '@strata/shared';
+} from '@fiada/shared';
 import { PRESETS } from './presets.ts';
 import { normalizeSorted } from './sorted.ts';
 import { globMatch } from './glob.ts';

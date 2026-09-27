@@ -37,15 +37,15 @@ const providerOf = (model: string) => (/^claude/i.test(model) ? 'anthropic' : /^
 
 /**
  * OpenAI when OPENAI_API_KEY is set, else Claude when ANTHROPIC_API_KEY is;
- * null without either. STRATA_LLM_MODEL picks the model, and a Claude model
+ * null without either. FIADA_LLM_MODEL picks the model, and a Claude model
  * there picks Claude when both keys are set. A model of the other provider's
- * is ignored, so a leftover STRATA_LLM_MODEL=claude-… doesn't break an
+ * is ignored, so a leftover FIADA_LLM_MODEL=claude-… doesn't break an
  * OpenAI key.
  */
 export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LLM | null {
   const openai = unquote(env.OPENAI_API_KEY);
   const anthropic = unquote(env.ANTHROPIC_API_KEY);
-  const model = env.STRATA_LLM_MODEL?.trim() || undefined;
+  const model = env.FIADA_LLM_MODEL?.trim() || undefined;
   const wants = model && providerOf(model);
   if (openai && !(wants === 'anthropic' && anthropic)) return openaiLLM(openai, wants === 'anthropic' ? undefined : model);
   if (anthropic) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL);
@@ -228,7 +228,7 @@ export function openaiLLM(apiKey: string, model?: string, opts: { post?: Post; r
           // Requests in flight together can all miss; the first to come back moves everyone on.
           if (current === tried) {
             current = tried + 1;
-            log(`[strata] OpenAI has no ${model} for this key; using ${candidates[current]}`);
+            log(`[fiada] OpenAI has no ${model} for this key; using ${candidates[current]}`);
           }
           continue;
         }
@@ -249,7 +249,7 @@ export function describeLLMError(err: unknown): string {
   if (err instanceof OpenAIError) {
     if (err.status === undefined) return "Couldn't reach the OpenAI API.";
     if (err.status === 401) return 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.';
-    if (err.code === 'model_not_found' || err.status === 404) return `The OpenAI API key can't use ${err.model ?? 'this model'}. Set STRATA_LLM_MODEL to a model it has.`;
+    if (err.code === 'model_not_found' || err.status === 404) return `The OpenAI API key can't use ${err.model ?? 'this model'}. Set FIADA_LLM_MODEL to a model it has.`;
     if (err.code === 'insufficient_quota') return "The OpenAI API key's account is out of credit. Add some under Billing on platform.openai.com.";
     if (err.status === 403) return `The OpenAI API refused this key: ${err.message}`.slice(0, 300);
     if (err.status === 429) return 'The OpenAI API is rate limiting this key. Try again in a minute.';

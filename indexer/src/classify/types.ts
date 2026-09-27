@@ -7,7 +7,7 @@
 // hard-codes a layer. Layer and domain strategies are separate, swappable
 // functions; the user's rules and pins are applied on top of whatever they return.
 
-import type { GraphEdge, GraphNode, Grouping, Placement } from '@strata/shared';
+import type { GraphEdge, GraphNode, Grouping, Placement } from '@fiada/shared';
 
 export interface ClassifyInput {
   /** Files and symbols (other node kinds are ignored). Symbols' parent is their file. */

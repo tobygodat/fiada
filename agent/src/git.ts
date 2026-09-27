@@ -1,13 +1,13 @@
 // What git says about the agent's working tree: which checkout a path is in,
 // what changed in a file compared to HEAD, and the tree's dirty files.
 // Everything here runs in the agent's own checkout, which can be a different
-// clone or worktree from the one Strata indexed.
+// clone or worktree from the one Fiada indexed.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { ChangeKind, FileChange, LineRange } from '@strata/shared';
+import type { ChangeKind, FileChange, LineRange } from '@fiada/shared';
 
 const exec = promisify(execFile);
 

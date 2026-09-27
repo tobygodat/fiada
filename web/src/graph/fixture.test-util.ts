@@ -1,7 +1,7 @@
 // A small two-repository graph for the map's unit tests: a web app whose
 // page calls an API client that requests a backend route, which reads a model.
 
-import type { Graph, GraphEdge, GraphNode } from '@strata/shared';
+import type { Graph, GraphEdge, GraphNode } from '@fiada/shared';
 
 export function fixtureGraph(): Graph {
   const nodes: GraphNode[] = [];

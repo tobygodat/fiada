@@ -2,7 +2,7 @@
 // anything is cloning or indexing, and refetches the graph when it changes.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Graph, LayerPreset, Workspace } from '@strata/shared';
+import type { Graph, LayerPreset, Workspace } from '@fiada/shared';
 import { api } from './api.ts';
 
 export interface WorkspaceHandle {

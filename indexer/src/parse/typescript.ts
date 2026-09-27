@@ -1,6 +1,6 @@
 // TypeScript / TSX / JavaScript fact extraction.
 
-import type { SymbolKind } from '@strata/shared';
+import type { SymbolKind } from '@fiada/shared';
 import type { ClientDecl, HttpRequest, ImportSpec, MountDecl, PageDecl, ParsedFile, ParsedSymbol, RouteDecl, RouterDecl, UrlPart } from '../model.ts';
 import { RefSet } from './refs.ts';
 import { HTTP_VERBS, line, requestUrl, stringValue, urlParts, type SyntaxNode } from './treesitter.ts';

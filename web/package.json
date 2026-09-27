@@ -1,5 +1,5 @@
 {
-  "name": "@strata/web",
+  "name": "@fiada/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "bench": "node bench/zoom.mjs"
   },
   "dependencies": {
-    "@strata/shared": "*",
+    "@fiada/shared": "*",
     "d3-hierarchy": "^3.1.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

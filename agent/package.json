@@ -1,19 +1,19 @@
 {
-  "name": "@strata/agent",
+  "name": "@fiada/agent",
   "private": true,
   "version": "0.1.0",
-  "description": "Tells Strata what a coding agent is doing: a stdio MCP server and a tool-hook CLI.",
+  "description": "Tells Fiada what a coding agent is doing: a stdio MCP server and a tool-hook CLI.",
   "type": "module",
   "bin": {
-    "strata-hook": "bin/strata-hook.mjs",
-    "strata-mcp": "bin/strata-mcp.mjs"
+    "fiada-hook": "bin/fiada-hook.mjs",
+    "fiada-mcp": "bin/fiada-mcp.mjs"
   },
   "scripts": {
-    "setup": "node bin/strata-setup.mjs",
+    "setup": "node bin/fiada-setup.mjs",
     "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
-    "@strata/shared": "*",
+    "@fiada/shared": "*",
     "tsx": "^4.20.6"
   },
   "devDependencies": {

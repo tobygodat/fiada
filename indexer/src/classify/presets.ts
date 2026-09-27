@@ -2,7 +2,7 @@
 // the project's grouping file on first run; after that the project owns it
 // and can rename, delete, add and re-target layers freely.
 
-import type { Grouping, LayerDef, LayerMatcher, LayerPreset, RepoInfo } from '@strata/shared';
+import type { Grouping, LayerDef, LayerMatcher, LayerPreset, RepoInfo } from '@fiada/shared';
 
 // Priority bands: facts 300 > imports 200 > file names 120 > frontend-only folders 110 > folders 100 > repos 50.
 // Inside a band, a small offset settles common ties (a file importing both

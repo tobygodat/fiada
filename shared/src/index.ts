@@ -156,7 +156,7 @@ export interface GroupingRule {
 
 /**
  * Everything the user owns about how one project is grouped. Persisted per
- * project (strata.grouping.json), seeded from a preset on first run.
+ * project (fiada.grouping.json), seeded from a preset on first run.
  */
 export interface Grouping {
   schema: 1;
@@ -414,7 +414,7 @@ export interface UploadPolicy {
 //
 // Coding agents (Claude Code, Cursor, Codex, anything that speaks MCP) report
 // what they're working on and which files they change. Events come from the
-// agent's MCP server (`@strata/agent`, when the agent calls its tools) and
+// agent's MCP server (`@fiada/agent`, when the agent calls its tools) and
 // from its tool hooks (deterministically, after every edit). The indexer maps
 // changed files to graph nodes and pushes the result to the map.
 

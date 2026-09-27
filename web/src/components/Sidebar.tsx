@@ -2,7 +2,7 @@
 // project's layers, and an outline of whichever hierarchy the map is showing.
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
-import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
+import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@fiada/shared';
 import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
@@ -10,6 +10,7 @@ import type { ColorBy, Palette } from '../theme.ts';
 import { canPickDirectory, collect, fromFileList, pack, pickDirectory, type Folder } from '../upload/folder.ts';
 import type { ThemeChoice } from '../useTheme.ts';
 import { Chevron } from './Icon.tsx';
+import { Mark, Wordmark } from './Logo.tsx';
 
 interface Props {
   workspace: Workspace | null;
@@ -41,15 +42,15 @@ export function Sidebar(p: Props) {
   const [collapsed, setCollapsed] = useState(false);
   if (collapsed) {
     return (
-      <button className="panel sidebar-pill" onClick={() => setCollapsed(false)} title="Show sidebar">
-        strata <Chevron dir="right" />
+      <button className="panel sidebar-pill" onClick={() => setCollapsed(false)} title="Show sidebar" aria-label="Show sidebar">
+        <Mark /> <Chevron dir="right" />
       </button>
     );
   }
   return (
     <aside className="panel sidebar">
       <header className="sidebar-head">
-        <span className="brand">strata</span>
+        <span className="brand"><Wordmark height={20} /></span>
         <span className="muted small">codebase cartography</span>
         <button className="icon-btn" onClick={() => setCollapsed(true)} title="Hide sidebar" aria-label="Hide sidebar">
           <Chevron dir="left" />

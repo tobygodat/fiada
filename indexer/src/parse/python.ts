@@ -1,6 +1,6 @@
 // Python fact extraction.
 
-import type { SymbolKind } from '@strata/shared';
+import type { SymbolKind } from '@fiada/shared';
 import type { ConstDecl, HttpRequest, ImportSpec, MountDecl, OrmRef, ParsedFile, RouteDecl, RouterDecl } from '../model.ts';
 import { RefSet } from './refs.ts';
 import { HTTP_VERBS, line, requestUrl, stringValue, urlParts, type SyntaxNode } from './treesitter.ts';

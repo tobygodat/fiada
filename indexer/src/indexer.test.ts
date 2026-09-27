@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { UNLAYERED, type GraphNode, type Grouping, type RepoInfo } from '@strata/shared';
+import { UNLAYERED, type GraphNode, type Grouping, type RepoInfo } from '@fiada/shared';
 import { buildGraph } from './build.ts';
 import { classify, defaultGrouping, GroupingError, normalizeGrouping, seedAndPropagate } from './classify/index.ts';
 import { projectMatchers } from './classify/layers.ts';
@@ -15,7 +15,7 @@ import { FileProjectStore } from './store.ts';
 import { parseSource } from './workspace.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-'));
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
@@ -174,7 +174,7 @@ test('groupings are validated before use', () => {
 });
 
 test('file store round-trips a project and ignores its own writes', async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-store-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
   const store = new FileProjectStore(dir);
   assert.equal(await store.loadGrouping('p1'), null);
   let changes = 0;

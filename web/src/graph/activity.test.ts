@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@strata/shared';
+import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
 import { describeMarks, rollupActivity } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree, buildFunctionTree } from './tree.ts';

@@ -2,7 +2,7 @@
 //
 //   npm run build
 //   npm run index -- vercel/next.js --out "$PWD/next.graph.json"
-//   npm run bench -w @strata/web -- "$PWD/next.graph.json"
+//   npm run bench -w @fiada/web -- "$PWD/next.graph.json"
 //
 // Needs a Chromium for Playwright (npx playwright install chromium), or set
 // CHROMIUM_PATH to one that's already installed.
@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const [graphFile, ...rest] = process.argv.slice(2);
 if (!graphFile) {
-  console.error('usage: npm run bench -w @strata/web -- <graph.json> [--frames 80]');
+  console.error('usage: npm run bench -w @fiada/web -- <graph.json> [--frames 80]');
   process.exit(1);
 }
 const opt = (name, d) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : d);

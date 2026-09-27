@@ -1,4 +1,4 @@
-// strata-hook: tells Strata what an agent did, from the agent's own tool
+// fiada-hook: tells Fiada what an agent did, from the agent's own tool
 // hooks, so the map is right even when the agent never calls the MCP tools.
 //
 // With no arguments it reads a hook payload on stdin and works out who sent it:
@@ -6,34 +6,35 @@
 //   Cursor       beforeSubmitPrompt, afterFileEdit, stop
 //
 // Commands, for other agents and scripts:
-//   strata-hook changed <file>... [--kind added|modified|deleted]
-//   strata-hook task "<task>" [--step "<step text>"]
-//   strata-hook status "<what it's doing now>"
-//   strata-hook sweep     report whatever changed in the working tree since the last call
-//   strata-hook done      the agent finished its turn
-//   strata-hook codex '<json>'   Codex's `notify` program (it appends the JSON)
+//   fiada-hook changed <file>... [--kind added|modified|deleted]
+//   fiada-hook task "<task>" [--step "<step text>"]
+//   fiada-hook status "<what it's doing now>"
+//   fiada-hook sweep     report whatever changed in the working tree since the last call
+//   fiada-hook done      the agent finished its turn
+//   fiada-hook codex '<json>'   Codex's `notify` program (it appends the JSON)
 // Options: --client <name> (default "cli"), --session <id>, --cwd <dir>
 //
-// It always exits 0, so a missing or broken Strata never gets in the agent's
+// It always exits 0, so a missing or broken Fiada never gets in the agent's
 // way. The one thing it prints for the agent is the status brief on Claude
-// Code's SessionStart and UserPromptSubmit, and only when Strata answered.
+// Code's SessionStart and UserPromptSubmit, and only when Fiada answered.
 
+import './env.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@strata/shared';
+import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@fiada/shared';
 import { send, startedAt, whoAndWhere } from './client.ts';
 import { checkout, describe, real, type Checkout } from './git.ts';
 import { changedSince, compare, forget, load, save, take } from './snapshot.ts';
 
 type Payload = Record<string, any>;
-/** `context` is added to the agent's context, once Strata has answered: Claude Code reads it from these hooks' output. */
+/** `context` is added to the agent's context, once Fiada has answered: Claude Code reads it from these hooks' output. */
 type Out = { events: AgentEventBody[]; stdout?: string; context?: { event: 'SessionStart' | 'UserPromptSubmit'; text: string } };
 
 /** What the agent is told once a session starts, so its entry in the queue always says what it's doing. */
-export const STATUS_BRIEF = `The user is watching this session on Strata, a live map of the codebase. Keep them posted: whenever you start something new or change what you're doing, call the Strata status tool (mcp__strata__status) with \`now\` set to one or two short, plain lines on what you're doing and why, naming the file, function or command. For example: "Reading app/api/routes/items.py to find where an item is created." Call it before your first step and at each change of step, not only at milestones; don't repeat a line that still holds. If that tool isn't available, ignore this.`;
+export const STATUS_BRIEF = `The user is watching this session on Fiada, a live map of the codebase. Keep them posted: whenever you start something new or change what you're doing, call the Fiada status tool (mcp__fiada__status) with \`now\` set to one or two short, plain lines on what you're doing and why, naming the file, function or command. For example: "Reading app/api/routes/items.py to find where an item is created." Call it before your first step and at each change of step, not only at milestones; don't repeat a line that still holds. If that tool isn't available, ignore this.`;
 
 /** The reminder with each prompt: short, since the brief came at the start. */
-export const STATUS_NUDGE = `Strata: call mcp__strata__status with one or two short lines on what you're doing now, before you start on this and whenever that changes.`;
+export const STATUS_NUDGE = `Fiada: call mcp__fiada__status with one or two short lines on what you're doing now, before you start on this and whenever that changes.`;
 
 /** Claude Code tools that write the file named in their input. */
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -231,7 +232,7 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
   }
 
   const { opts, rest } = parseArgs(more);
-  const client = opts.client || process.env.STRATA_AGENT || 'cli';
+  const client = opts.client || process.env.FIADA_AGENT || 'cli';
   const { agent, co } = await whoAndWhere(client, opts.cwd || process.cwd(), opts.session);
   const key = `${client}:${opts.session ?? agent.cwd}`;
   const cwd = opts.cwd || process.cwd();
@@ -251,7 +252,7 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
     case 'done':
       return { agent, out: { events: [...changes(await sweep(key, co)), { type: 'state', state: 'waiting' }] } };
     default:
-      process.stderr.write(`strata-hook: unknown command "${cmd}". Commands: changed, task, status, sweep, done, codex.\n`);
+      process.stderr.write(`fiada-hook: unknown command "${cmd}". Commands: changed, task, status, sweep, done, codex.\n`);
       return null;
   }
 }
@@ -271,7 +272,7 @@ async function main() {
     const raw = await readStdin();
     if (!raw.trim()) return;
     // Every payload, one per line, for seeing what an agent actually sends.
-    if (process.env.STRATA_HOOK_LOG) await fs.appendFile(process.env.STRATA_HOOK_LOG, `${raw.replace(/\n/g, ' ')}\n`).catch(() => undefined);
+    if (process.env.FIADA_HOOK_LOG) await fs.appendFile(process.env.FIADA_HOOK_LOG, `${raw.replace(/\n/g, ' ')}\n`).catch(() => undefined);
     const p = JSON.parse(raw) as Payload;
     result = p.conversation_id != null || Array.isArray(p.workspace_roots) ? await fromCursor(p) : await fromClaude(p);
   }
@@ -279,15 +280,15 @@ async function main() {
   const { agent, out } = result;
   const heard = await send(out.events.map((e): AgentEvent => ({ ...e, agent })));
   if (out.stdout) process.stdout.write(out.stdout);
-  // Only when Strata is up: otherwise the agent would be asked to report to nobody.
+  // Only when Fiada is up: otherwise the agent would be asked to report to nobody.
   if (out.context && heard) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: out.context.event, additionalContext: out.context.text } }));
 }
 
 // Imported by the tests for `sweep`; run when started as the hook.
-if (process.argv[1] && /strata-hook(\.mjs)?$|hook\.ts$/.test(process.argv[1])) {
+if (process.argv[1] && /(fiada|strata)-hook(\.mjs)?$|hook\.ts$/.test(process.argv[1])) {
   main()
     .catch((err) => {
-      if (process.env.STRATA_DEBUG) process.stderr.write(`strata-hook: ${(err as Error).stack}\n`);
+      if (process.env.FIADA_DEBUG) process.stderr.write(`fiada-hook: ${(err as Error).stack}\n`);
     })
     .finally(() => process.exit(0));
 }

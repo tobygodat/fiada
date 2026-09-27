@@ -3,7 +3,7 @@
 // model would read about it changes.
 
 import { createHash } from 'node:crypto';
-import type { GraphNode } from '@strata/shared';
+import type { GraphNode } from '@fiada/shared';
 import { declaration, fileDoc } from './docs.ts';
 import { descendants, fileNeighbours, groupMembers, list, symbolNeighbours, type GraphIndex } from './describe.ts';
 

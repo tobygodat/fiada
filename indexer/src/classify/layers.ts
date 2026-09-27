@@ -9,7 +9,7 @@
 // Symbols inherit their file's layer unless one of their own facts matches a
 // fact matcher: a schema class in a routes file, a fetch helper in a component file.
 
-import { describeFact, UNLAYERED, type Fact, type LayerDef, type LayerMatcher, type Placement, type PlacementSource } from '@strata/shared';
+import { describeFact, UNLAYERED, type Fact, type LayerDef, type LayerMatcher, type Placement, type PlacementSource } from '@fiada/shared';
 import { globMatch } from './glob.ts';
 import type { Assignments, ClassifyInput, LayerStrategy } from './types.ts';
 
@@ -19,7 +19,7 @@ function regex(src: string): RegExp | null {
     try {
       regexes.set(src, new RegExp(src));
     } catch {
-      console.warn(`[strata] ignoring invalid regex in a layer matcher: ${src}`);
+      console.warn(`[fiada] ignoring invalid regex in a layer matcher: ${src}`);
       regexes.set(src, null);
     }
   }

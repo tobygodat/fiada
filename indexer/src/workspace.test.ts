@@ -25,7 +25,7 @@ async function settled(ws: Workspace) {
 }
 
 test('a rejected save leaves added and removed repos as they were', async () => {
-  const missing = '/nonexistent/strata-test-repo';
+  const missing = '/nonexistent/fiada-test-repo';
   const flaky = flakyStore([{ id: 'kept', name: 'kept', source: missing, kind: 'local' }]);
   const ws = new Workspace(flaky.store, 'default');
   await ws.init();

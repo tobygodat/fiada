@@ -3,8 +3,8 @@
 # tree-sitter (WASM) and serves the graph; the map itself is a static build
 # that lives elsewhere (Vercel) and calls this through VITE_API_URL.
 #
-#   docker build -t strata-indexer .
-#   docker run -p 4178:4178 -e MONGODB_URI=… -e STRATA_ALLOWED_ORIGINS=https://hackgt13.vercel.app strata-indexer
+#   docker build -t fiada-indexer .
+#   docker run -p 4178:4178 -e MONGODB_URI=… -e FIADA_ALLOWED_ORIGINS=https://hackgt13.vercel.app fiada-indexer
 
 FROM node:22-bookworm-slim
 
@@ -36,7 +36,7 @@ USER node
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=4178 \
-    STRATA_HOME=/data
+    FIADA_HOME=/data
 EXPOSE 4178
 
 CMD ["node", "--import", "tsx", "indexer/src/server.ts"]

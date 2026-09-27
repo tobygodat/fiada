@@ -1,7 +1,7 @@
 // Facts the parsers extract from one file. Everything downstream (linking,
 // classification, graph assembly) works from these, never from raw syntax.
 
-import type { RepoInfo, SymbolKind } from '@strata/shared';
+import type { RepoInfo, SymbolKind } from '@fiada/shared';
 
 export type Lang = 'typescript' | 'tsx' | 'javascript' | 'python' | 'go';
 

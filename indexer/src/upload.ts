@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
-import type { UploadPolicy } from '@strata/shared';
+import type { UploadPolicy } from '@fiada/shared';
 import { SOURCE_EXTENSIONS } from './parse/index.ts';
 import { IGNORED_DIR, MANIFEST } from './sources.ts';
 
@@ -21,7 +21,7 @@ const MB = 1 << 20;
 const SOURCE = `^(?!.*\\.d\\.ts$)(?!.*\\.min\\.js$).*(?:${SOURCE_EXTENSIONS.map((e) => e.replace('.', '\\.')).join('|')})$`;
 
 export const UPLOAD: UploadPolicy = {
-  maxBytes: Math.max(1, Number(process.env.STRATA_UPLOAD_MB) || 50) * MB,
+  maxBytes: Math.max(1, Number(process.env.FIADA_UPLOAD_MB) || 50) * MB,
   maxFiles: 20_000,
   files: `${SOURCE}|${MANIFEST.source}`,
   skipDirs: [...IGNORED_DIR],

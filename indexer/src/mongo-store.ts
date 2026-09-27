@@ -19,7 +19,7 @@
 // list after indexing doesn't make other indexers stale.
 
 import { MongoClient, type Collection } from 'mongodb';
-import type { Grouping } from '@strata/shared';
+import type { Grouping } from '@fiada/shared';
 import type { ProjectStore, SavedRepo, StoredSummary } from './store.ts';
 
 interface ProjectDoc {
@@ -41,7 +41,7 @@ type Field = 'repos' | 'grouping';
 /** Another indexer saved this part of the project after this one loaded it. */
 export class ProjectConflictError extends Error {
   constructor(projectId: string, field: Field) {
-    super(`Project "${projectId}" ${field} were saved by another Strata indexer after this one loaded them. Restart this indexer to pick up those changes.`);
+    super(`Project "${projectId}" ${field} were saved by another Fiada indexer after this one loaded them. Restart this indexer to pick up those changes.`);
     this.name = 'ProjectConflictError';
   }
 }
@@ -70,7 +70,7 @@ export class MongoProjectStore implements ProjectStore {
    * IP or a user without read access fails here, at startup, not mid-run.
    */
   static async connect(uri: string, dbName = 'strata'): Promise<MongoProjectStore> {
-    const client = new MongoClient(uri, { appName: 'strata', serverSelectionTimeoutMS: 8000 });
+    const client = new MongoClient(uri, { appName: 'fiada', serverSelectionTimeoutMS: 8000 });
     try {
       await client.connect();
       const projects = client.db(dbName).collection<ProjectDoc>('projects');

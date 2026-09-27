@@ -8,7 +8,7 @@
 // whether the link is proven by those lines or guessed by a heuristic.
 
 import path from 'node:path';
-import type { EdgeBasis, EdgeEvidence, EdgeEvidenceSource, EdgeKind, GraphEdge } from '@strata/shared';
+import type { EdgeBasis, EdgeEvidence, EdgeEvidenceSource, EdgeKind, GraphEdge } from '@fiada/shared';
 import type { ImportSpec, MountDecl, ParsedFile, ParsedRepo, Ref, RefKind, RouteDecl, UrlPart } from './model.ts';
 import { isTable, tableNames } from './orm.ts';
 

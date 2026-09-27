@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@strata/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@fiada/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
 import { sortProject, type Ask } from './classify/model-sort.ts';
 import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';

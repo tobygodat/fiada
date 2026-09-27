@@ -6,14 +6,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { Graph, GraphEdge, RepoInfo } from '@strata/shared';
+import type { Graph, GraphEdge, RepoInfo } from '@fiada/shared';
 import { buildGraph } from './build.ts';
 import { defaultGrouping } from './classify/index.ts';
 import { matchRequest, segments } from './link.ts';
 import { loadRepo } from './sources.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-link-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-link-'));
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);

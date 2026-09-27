@@ -8,7 +8,7 @@
 // - repositories: warm greys with no hue, told apart by name and place.
 // The values live only in theme/tokens.css; this module hands them to the canvas.
 
-import { UNLAYERED } from '@strata/shared';
+import { UNLAYERED } from '@fiada/shared';
 import { layerColor, repoColor } from './theme/tokens.ts';
 
 export type ColorBy = 'repo' | 'layer';

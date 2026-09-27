@@ -1,12 +1,12 @@
-/* Strata's interface on the Toby Godat design system (DESIGN.md at the repo root).
+/* Fiada's interface on the Toby Godat design system (DESIGN.md at the repo root).
    Every colour, type size, gap and radius is a token from theme/tokens.css: warm paper,
    Literata, one green that means "here", rules and words instead of boxes. */
 
 :root {
-  /* Strata's own layout: panel widths. App.tsx keeps the map clear of them (SIDEBAR, DETAIL). */
-  --strata-sidebar: 312px;
-  --strata-detail: 372px;
-  --strata-topbar: 48px;
+  /* Fiada's own layout: panel widths. App.tsx keeps the map clear of them (SIDEBAR, DETAIL). */
+  --fiada-sidebar: 312px;
+  --fiada-detail: 372px;
+  --fiada-topbar: 48px;
 }
 
 * { box-sizing: border-box; }
@@ -94,7 +94,7 @@ a { color: inherit; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
 .dot.small { width: 7px; height: 7px; }
 
-.app { position: fixed; inset: 0; display: grid; grid-template-rows: var(--strata-topbar) 1fr; background: var(--ground); }
+.app { position: fixed; inset: 0; display: grid; grid-template-rows: var(--fiada-topbar) 1fr; background: var(--ground); }
 .main { position: relative; min-height: 0; overflow: hidden; }
 
 /* ── top bar: back, the breadcrumb, the altitude you're at ── */
@@ -138,19 +138,19 @@ a { color: inherit; }
 
 /* Words beside their marks, no box. */
 .legend {
-  position: absolute; right: var(--space-md); bottom: var(--space-sm); z-index: 1; max-width: calc(100% - var(--strata-sidebar) - 3 * var(--space-md));
+  position: absolute; right: var(--space-md); bottom: var(--space-sm); z-index: 1; max-width: calc(100% - var(--fiada-sidebar) - 3 * var(--space-md));
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-xs) var(--space-md);
   font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); pointer-events: none;
 }
 /* With the detail panel open, the legend keeps to the map between the panels. */
-.legend.beside-detail { right: calc(var(--strata-detail) + 2 * var(--space-md)); max-width: calc(100% - var(--strata-sidebar) - var(--strata-detail) - 4 * var(--space-md)); }
+.legend.beside-detail { right: calc(var(--fiada-detail) + 2 * var(--space-md)); max-width: calc(100% - var(--fiada-sidebar) - var(--fiada-detail) - 4 * var(--space-md)); }
 .swatch-line { width: 18px; border-top: 1.5px solid var(--muted); }
 .swatch-line.dashed { border-top-style: dashed; }
 .swatch-line.dotted { border-top-style: dotted; border-top-width: 2px; }
 
 .empty {
   /* Centred in the map beside the sidebar. The rise animation owns transform, so this uses translate. */
-  position: absolute; top: 45%; left: calc(50% + var(--strata-sidebar) / 2); translate: -50% -50%;
+  position: absolute; top: 45%; left: calc(50% + var(--fiada-sidebar) / 2); translate: -50% -50%;
   width: min(var(--measure), 60vw); pointer-events: none; animation: rise 0.6s ease-out both;
 }
 .empty-title {
@@ -165,7 +165,7 @@ a { color: inherit; }
   position: absolute; z-index: 4; display: flex; flex-direction: column; overflow: hidden;
   background: var(--ground-raised); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
 }
-.sidebar { left: var(--space-md); top: var(--space-md); width: var(--strata-sidebar); max-height: calc(100% - 2 * var(--space-md)); overflow-y: auto; }
+.sidebar { left: var(--space-md); top: var(--space-md); width: var(--fiada-sidebar); max-height: calc(100% - 2 * var(--space-md)); overflow-y: auto; }
 .sidebar > * { flex: none; }
 .sidebar-pill {
   left: var(--space-md); top: var(--space-md); flex-direction: row; align-items: center; gap: var(--space-xs);
@@ -175,6 +175,7 @@ a { color: inherit; }
 .sidebar-head { display: flex; align-items: baseline; gap: var(--space-8); padding: var(--space-sm) var(--space-8) var(--space-sm) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .sidebar-head .icon-btn { margin-left: auto; align-self: center; }
 .brand { font-size: var(--size-title); line-height: var(--leading-tight); letter-spacing: var(--tracking-title); font-weight: var(--weight-bold); }
+.brand svg, .sidebar-pill .logo-mark { display: block; }
 .section { padding: var(--space-sm) var(--space-md) var(--space-md); border-bottom: 1px solid var(--hairline); }
 
 /* Settings under the view choice: a label, then words to pick from. */
@@ -248,7 +249,7 @@ a { color: inherit; }
 .outline-row.group .outline-name { font-weight: var(--weight-bold); }
 
 /* ── detail: the selected circle, or the contract behind a link ── */
-.detail { right: var(--space-md); top: var(--space-md); width: var(--strata-detail); max-height: calc(100% - 64px); overflow: auto; animation: rise 0.25s ease-out both; }
+.detail { right: var(--space-md); top: var(--space-md); width: var(--fiada-detail); max-height: calc(100% - 64px); overflow: auto; animation: rise 0.25s ease-out both; }
 .detail-head { padding: var(--space-sm) var(--space-md) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .kicker { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 .kicker .dot { margin-right: var(--space-8); vertical-align: 1px; }

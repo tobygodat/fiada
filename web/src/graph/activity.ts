@@ -2,7 +2,7 @@
 // themselves, how many changes sit under each node, so a closed circle can say
 // what's inside it, and where an agent is working right now.
 
-import type { AgentActivity, AgentFile, ChangeKind, GraphNode, NodeChange } from '@strata/shared';
+import type { AgentActivity, AgentFile, ChangeKind, GraphNode, NodeChange } from '@fiada/shared';
 import { locate, type Tree } from './tree.ts';
 
 export interface Marks {

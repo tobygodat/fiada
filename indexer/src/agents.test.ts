@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { ActivityState, AgentRef } from '@strata/shared';
+import type { ActivityState, AgentRef } from '@fiada/shared';
 import { AgentHub, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
@@ -31,7 +31,7 @@ export function getItem(id: string) {
 `;
 
 async function localRepo(extra: Record<string, string> = {}) {
-  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'strata-agents-')));
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-agents-')));
   const files = { 'src/api.ts': API, 'src/old.ts': 'export function legacy() {\n  return 1;\n}\n', ...extra };
   for (const [p, text] of Object.entries(files)) {
     await fs.mkdir(path.dirname(path.join(dir, p)), { recursive: true });

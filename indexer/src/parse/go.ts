@@ -1,7 +1,7 @@
 // Go fact extraction: imports, top-level funcs, methods, types, constants,
 // and the routers of gin, echo, chi, fiber, gorilla/mux and net/http.
 
-import type { SymbolKind } from '@strata/shared';
+import type { SymbolKind } from '@fiada/shared';
 import type { HttpRequest, ImportSpec, MountDecl, OrmRef, ParsedFile, ParsedSymbol, RouteDecl, RouterDecl } from '../model.ts';
 import { RefSet } from './refs.ts';
 import { fieldChildren, line, requestUrl, stringValue, urlParts, type SyntaxNode } from './treesitter.ts';

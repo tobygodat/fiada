@@ -6,7 +6,7 @@
 // model read (items.ts) and persisted through the ProjectStore, so a restart
 // or re-index only rewrites what changed.
 
-import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode, type NodeSummary } from '@strata/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode, type NodeSummary } from '@fiada/shared';
 import type { ProjectStore, StoredSummary } from '../store.ts';
 import { describe, indexGraph, parseGroupId, type GraphIndex } from './describe.ts';
 import { fileDoc, symbolDoc } from './docs.ts';
@@ -360,7 +360,7 @@ export class Summaries {
   }
 
   private log(message: string) {
-    (this.o.log ?? ((m) => console.log(`[strata] ${m}`)))(message);
+    (this.o.log ?? ((m) => console.log(`[fiada] ${m}`)))(message);
   }
 }
 

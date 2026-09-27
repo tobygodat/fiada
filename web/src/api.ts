@@ -1,4 +1,4 @@
-import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@strata/shared';
+import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
 import { apiBase } from './apiBase.ts';
 
 /**

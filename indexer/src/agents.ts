@@ -26,7 +26,7 @@ import type {
   GraphNode,
   LineRange,
   NodeChange,
-} from '@strata/shared';
+} from '@fiada/shared';
 import { fileId, symbolIds } from './link.ts';
 import { parseFile } from './parse/index.ts';
 import type { Workspace } from './workspace.ts';
@@ -343,7 +343,7 @@ export class AgentHub {
     return { path: shown, repo: where.repo, node, kind, symbols: node ? this.symbolsOf(file, ix).length : undefined };
   }
 
-  /** Which imported repository a changed file belongs to, and whether Strata reads that very directory. */
+  /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
   private async resolve(ref: AgentRef, f: FileChange): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
     for (const r of this.ws.repos) {
@@ -531,7 +531,7 @@ export class AgentHub {
       return out;
     }
     // Once a local file is re-indexed the graph has the new version, so the new-side
-    // lines apply; until then, and for clones Strata doesn't re-index, it has HEAD's.
+    // lines apply; until then, and for clones Fiada doesn't re-index, it has HEAD's.
     const newSide = f.live && f.fresh ? f.lines : f.oldLines;
     for (const s of now) {
       const rawName = s.id.slice(s.id.indexOf('#') + 1).replace(/~\d+$/, '');

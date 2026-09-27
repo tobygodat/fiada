@@ -2,7 +2,7 @@
 // the hunks of it that touch the selected symbol.
 
 import { useEffect, useState } from 'react';
-import type { ChangeKind } from '@strata/shared';
+import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
 import { diffRows, hunksFor } from './diff.ts';
 import './agent.css';
