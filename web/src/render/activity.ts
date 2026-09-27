@@ -9,6 +9,10 @@
 import { changeCount, type Marks, type TreeActivity } from '../graph/activity.ts';
 import type { TNode } from '../graph/tree.ts';
 import { BG, CHANGE, MONO } from '../theme.ts';
+import { token } from '../theme/tokens.ts';
+
+/** The map's paper: the gap round a ring and a badge's fill are cut from it. */
+const paper = () => token('--ground') || BG;
 
 /** How long a change keeps pulsing. */
 export const PULSE_MS = 8000;
@@ -75,7 +79,7 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     if (m.self) {
       const color = CHANGE[m.self];
       ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = BG;
+      ctx.strokeStyle = paper();
       ctx.lineWidth = g.gap;
       ctx.beginPath();
       ctx.arc(d.x, d.y, g.gapR, 0, Math.PI * 2);
@@ -381,7 +385,7 @@ export function drawBadges(
       ctx.fill();
       return;
     }
-    ctx.fillStyle = BG;
+    ctx.fillStyle = paper();
     ctx.strokeStyle = main;
     ctx.globalAlpha = 0.9;
     ctx.lineWidth = 1;
