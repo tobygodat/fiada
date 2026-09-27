@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { MongoClient } from 'mongodb';
 import type { Grouping } from '@strata/shared';
-import { decodeKeys, encodeKeys, MongoProjectStore, ProjectConflictError, redact } from './mongo-store.ts';
+import { decodeKeys, encodeKeys, MongoProjectStore, ProjectConflictError, redact, unquote } from './mongo-store.ts';
 import { createStore, FileProjectStore, type SavedRepo } from './store.ts';
 
 const repos: SavedRepo[] = [{ id: 'web', name: 'web', source: 'https://github.com/org/web', kind: 'git' }];
@@ -30,6 +30,15 @@ test('field names with dots and dollars survive a round trip', () => {
 test('connection strings are logged without credentials', () => {
   assert.equal(redact('mongodb+srv://toby:s3cret@cluster0.ab12c.mongodb.net/?retryWrites=true&w=majority'), 'mongodb+srv://cluster0.ab12c.mongodb.net');
   assert.equal(redact('mongodb://127.0.0.1:27017/strata'), 'mongodb://127.0.0.1:27017');
+});
+
+test('connection strings pasted with their .env quotes still work', () => {
+  const uri = 'mongodb+srv://toby:s3cret@strata.ab12c.mongodb.net/?appName=strata';
+  assert.equal(unquote(` "${uri}" `), uri);
+  assert.equal(unquote(`${uri}"`), uri);
+  assert.equal(unquote(`'${uri}'`), uri);
+  assert.equal(unquote(uri), uri);
+  assert.equal(unquote(undefined), '');
 });
 
 test('createStore uses files when MONGODB_URI is unset or MongoDB is unusable', async (t) => {

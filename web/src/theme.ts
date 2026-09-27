@@ -1,4 +1,4 @@
-// Type from the prototype, and the map's colours from the design tokens.
+// The map's colours, from the design tokens.
 //
 // Colour carries three meanings, and they never share a hue (DESIGN.md, "The
 // map's three palettes"; theme/tokens.test.ts checks it):
@@ -10,29 +10,30 @@
 import { UNLAYERED, type ChangeKind } from '@strata/shared';
 import { changeColor, layerColor, repoColor } from './theme/tokens.ts';
 
-export const INK = '#e6e3da';
-export const BG = '#0c0d10';
-export const MINT = 'oklch(85% 0.17 150)';
-export const AMBER = 'oklch(82% 0.16 80)';
-export const DANGER = 'oklch(72% 0.15 25)';
+/**
+ * Stand-ins for the agent overlay (render/activity.ts) until it reads the
+ * tokens itself: BG only ever backs up token('--ground'), which a browser
+ * always has. Nothing new may use them. Colours live in theme/tokens.css.
+ * @deprecated use token('--ground') and fonts() from theme/tokens.ts
+ */
+export const BG = '';
+/** @deprecated see BG */
 export const MONO = "'Geist Mono', ui-monospace, monospace";
-export const SANS = "'Geist', system-ui, sans-serif";
 
 /**
  * What a coding agent did to a file or symbol: the rings and badges on the
  * map and the +/~/− marks in the task queue. These colours mean a change and
- * nothing else. The values are the design tokens --added, --modified and
- * --deleted (theme/tokens.css); the literals only stand in outside a browser.
+ * nothing else: the design tokens --added, --modified and --deleted.
  */
 export const CHANGE: Readonly<Record<ChangeKind, string>> = {
   get added() {
-    return changeColor('added') || MINT;
+    return changeColor('added');
   },
   get modified() {
-    return changeColor('modified') || AMBER;
+    return changeColor('modified');
   },
   get deleted() {
-    return changeColor('deleted') || DANGER;
+    return changeColor('deleted');
   },
 };
 

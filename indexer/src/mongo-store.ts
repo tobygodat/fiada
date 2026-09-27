@@ -145,6 +145,15 @@ export class MongoProjectStore implements ProjectStore {
   }
 }
 
+/**
+ * A connection string as pasted into a host's settings: trimmed, without the
+ * quotes a .env line wraps it in, which the driver would read as part of the
+ * host name (querySrv EBADNAME).
+ */
+export function unquote(value: string | undefined): string {
+  return (value ?? '').trim().replace(/^["']+|["']+$/g, '').trim();
+}
+
 /** Scheme and hosts of a connection string: no user, password or options. */
 export function redact(uri: string): string {
   const m = /^([a-z+]+:\/\/)(?:[^@/]*@)?([^/?]*)/i.exec(uri);

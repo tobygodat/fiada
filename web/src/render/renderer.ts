@@ -13,7 +13,8 @@ import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/ca
 import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import { countKind, crossRepo, direction, kindCounts, meetingPoint, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
-import { BG, INK, MONO, SANS, type ColorBy, type Palette } from '../theme.ts';
+import { MONO, type ColorBy, type Palette } from '../theme.ts';
+import { fonts, onThemeChange, token } from '../theme/tokens.ts';
 import { type BadgeCache, drawBadges, drawRings } from './activity.ts';
 import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
@@ -22,6 +23,29 @@ const MAX_TAGS = 40;
 const LABEL_MIN_R = 16;
 /** Below this radius a closed circle is labelled only if its whole name fits. */
 const LABEL_FULL_R = 34;
+
+/**
+ * Literata's sizes (DESIGN.md, Type): fine, small, body, title, display. A
+ * label takes the largest one its circle has room for, and 13px is the
+ * least: a small circle keeps its name only if the name (or its short form)
+ * fits inside at 13px. Nothing shrinks below that to squeeze in; a name that
+ * doesn't fit is left to the tooltip.
+ */
+export const TYPE = [13, 15, 17, 20, 24] as const;
+export const typeSize = (px: number) => TYPE.reduce<number>((s, t) => (t <= px ? t : s), TYPE[0]);
+/** Container names are 600, leaves and everything else 400. */
+type Weight = 400 | 600;
+
+/** The inks the map draws with, read from the design tokens once a frame. */
+const inks = () => ({
+  ground: token('--ground'),
+  raised: token('--ground-raised'),
+  text: token('--text'),
+  muted: token('--muted'),
+  strong: token('--hairline-strong'),
+  selection: token('--selection'),
+  accent: token('--accent'),
+});
 
 export interface Scene {
   tree: Tree;
@@ -134,6 +158,8 @@ export class MapRenderer {
 
   private measure = document.createElement('canvas').getContext('2d')!;
   private lastFont = '';
+  private serif = fonts().serif || 'Literata, Georgia, serif';
+  private offTheme: () => void;
   private colors = new Map<string, string>();
   private widths = new Map<string, number>();
   private counts = new WeakMap<TNode, string | null>();
@@ -158,9 +184,18 @@ export class MapRenderer {
     host.addEventListener('pointerup', this.onUp);
     host.addEventListener('pointercancel', this.onCancel);
     host.addEventListener('pointerleave', this.onLeave);
-    // Labels are measured in the web fonts; re-measure once they arrive.
-    document.fonts?.ready.then(() => {
+    // Labels are measured in Literata; re-measure once it arrives. The canvas
+    // alone doesn't make the browser fetch a web font, so ask for both weights.
+    const remeasure = () => {
       this.widths.clear();
+      this.lastFont = '';
+      this.request();
+    };
+    document.fonts?.ready.then(remeasure);
+    if (document.fonts) Promise.all([400, 600].map((wt) => document.fonts.load(`${wt} 15px ${this.serif}`))).then(remeasure, () => {});
+    // The palettes are tokens, so a theme switch is a repaint.
+    this.offTheme = onThemeChange(() => {
+      this.colors.clear();
       this.request();
     });
   }
@@ -168,6 +203,7 @@ export class MapRenderer {
   destroy() {
     cancelAnimationFrame(this.raf);
     this.ro.disconnect();
+    this.offTheme();
     this.host.removeEventListener('wheel', this.onWheel);
     this.host.removeEventListener('pointerdown', this.onDown);
     this.host.removeEventListener('pointermove', this.onMove);
@@ -312,49 +348,64 @@ export class MapRenderer {
   }
 
   /** Sets the drawing font, skipping the (costly) assignment when it hasn't changed. */
-  private font(family: 'mono' | 'mono-medium' | 'sans-bold', size: number) {
-    const f = family === 'mono' ? `400 ${size}px ${MONO}` : family === 'mono-medium' ? `500 ${size}px ${MONO}` : `600 ${size}px ${SANS}`;
+  private font(weight: Weight, size: number) {
+    const f = `${weight} ${size}px ${this.serif}`;
     if (f !== this.lastFont) this.ctx.font = this.lastFont = f;
   }
 
-  /** Text width at `size` px, measured once per string at 100px. */
-  private textWidth(text: string, family: 'mono' | 'sans-bold', size: number) {
-    const key = `${family}|${text}`;
+  /**
+   * Text width, measured once per string and size. Literata changes its
+   * shapes with size (the optical-size axis), so a width at one size doesn't
+   * scale to another; there are only five sizes to measure at.
+   */
+  private textWidth(text: string, weight: Weight, size: number) {
+    const key = `${weight}|${size}|${text}`;
     let w = this.widths.get(key);
     if (w == null) {
       // A separate context, so measuring never changes the font being drawn with.
-      this.measure.font = family === 'mono' ? `400 100px ${MONO}` : `600 100px ${SANS}`;
+      this.measure.font = `${weight} ${size}px ${this.serif}`;
       w = this.measure.measureText(text).width;
       this.widths.set(key, w);
     }
-    return (w * size) / 100;
+    return w;
   }
 
-  private fit(text: string, family: 'mono' | 'sans-bold', size: number, max: number) {
-    if (this.textWidth(text, family, size) <= max) return text;
+  /** Badge text is activity.ts's own font (the agent overlay's to restyle). */
+  private badgeWidth(text: string) {
+    const key = `badge|${text}`;
+    let w = this.widths.get(key);
+    if (w == null) {
+      this.measure.font = `500 10px ${MONO}`;
+      this.widths.set(key, (w = this.measure.measureText(text).width));
+    }
+    return w;
+  }
+
+  private fit(text: string, weight: Weight, size: number, max: number) {
+    if (this.textWidth(text, weight, size) <= max) return text;
     let lo = 0;
     let hi = text.length;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (this.textWidth(text.slice(0, mid) + '…', family, size) <= max) lo = mid;
+      if (this.textWidth(text.slice(0, mid) + '…', weight, size) <= max) lo = mid;
       else hi = mid - 1;
     }
     return lo ? text.slice(0, lo) + '…' : '';
   }
 
   /** Up to two lines, word-wrapped, the second ellipsised. */
-  private wrap2(text: string, family: 'sans-bold', size: number, max: number): string[] {
-    if (this.textWidth(text, family, size) <= max) return [text];
+  private wrap2(text: string, weight: Weight, size: number, max: number): string[] {
+    if (this.textWidth(text, weight, size) <= max) return [text];
     const words = text.split(/(?<=[\s._/-])/);
     let line = '';
     let i = 0;
     for (; i < words.length; i++) {
       const next = line + words[i];
-      if (line && this.textWidth(next, family, size) > max) break;
+      if (line && this.textWidth(next, weight, size) > max) break;
       line = next;
     }
-    if (i >= words.length) return [this.fit(line, family, size, max)];
-    return [this.fit(line.trimEnd(), family, size, max), this.fit(words.slice(i).join(''), family, size, max)];
+    if (i >= words.length) return [this.fit(line, weight, size, max)];
+    return [this.fit(line.trimEnd(), weight, size, max), this.fit(words.slice(i).join(''), weight, size, max)];
   }
 
   private subtitle(n: TNode): string | null {
@@ -375,8 +426,14 @@ export class MapRenderer {
 
   private draw(lt: number) {
     const { ctx, w, h } = this;
+    const ink = inks();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // The map's paper: flat, no gradient.
     ctx.clearRect(0, 0, w, h);
+    if (ink.ground) {
+      ctx.fillStyle = ink.ground;
+      ctx.fillRect(0, 0, w, h);
+    }
     this.drawnNodes = [];
     this.drawnEdges = [];
     this.drawnTags = [];
@@ -459,14 +516,14 @@ export class MapRenderer {
       const n = g.items.length;
       // Every interaction behind it was guessed: dotted, and a little fainter.
       const guess = g.inferred === n;
-      const A0 = tree.nodes.get(g.a)!;
-      const stroke = isSel ? INK : this.nodeColor(A0, 1);
+      // Links are --muted, --text when selected or pointed at; their ends' colours stay on the circles.
+      const stroke = isSel || isHover ? ink.text : ink.muted;
       const cross = crossRepo(g);
-      let op = role === 'rest' ? (inFocus ? this.policy.restFade : cross ? 0.7 : 0.55) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.9;
+      let op = role === 'rest' ? (inFocus ? this.policy.restFade : cross ? 0.75 : 0.6) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.85;
       if (guess && !isSel) op *= 0.8;
-      if (isHover) op = Math.max(op, 0.9);
+      if (isHover && !isSel) op = Math.max(op, 0.75);
       // Width follows the log of the number of interactions, relative to the heaviest on screen.
-      const sw = 1.2 + 6.8 * (Math.log(n) / Math.log(Math.max(2, heaviest))) + (isHover ? 1 : 0);
+      const sw = 1 + 4.5 * (Math.log(n) / Math.log(Math.max(2, heaviest))) + (isSel ? 0.5 : 0);
       ctx.globalAlpha = op;
       ctx.strokeStyle = stroke;
       ctx.lineWidth = sw;
@@ -501,14 +558,19 @@ export class MapRenderer {
       const isOpen = vis.open.has(n.id);
       const leaf = n.kind === 'symbol' || (n.kind === 'file' && !n.children.length);
       const sel = n.id === sv;
+      const hovered = n.id === hoverId;
       // Fade in circles that are new in this layout.
       ctx.globalAlpha = anim && !anim.from.has(n.id) ? lt : 1;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = this.nodeColor(n, isOpen ? 0.035 : leaf ? 0.5 : 0.12);
-      ctx.fill();
-      ctx.lineWidth = sel ? 2 : n.id === hoverId ? 1.6 : 1;
-      ctx.strokeStyle = sel || n.id === hoverId ? INK : this.nodeColor(n, isOpen ? 0.35 : 0.65);
+      // A closed circle is its colour at 12% (a leaf at 30%) inside a rim of the colour itself. An open
+      // one is a place you're in, drawn as its rim alone. Selected: an ink rim over the selection fill.
+      if (!isOpen) {
+        ctx.fillStyle = sel ? ink.selection : this.nodeColor(n, leaf ? 0.3 : 0.12);
+        ctx.fill();
+      }
+      ctx.lineWidth = sel ? 2 : hovered ? 1.5 : 1;
+      ctx.strokeStyle = sel || hovered ? ink.text : this.nodeColor(n, isOpen ? 0.45 : 0.85);
       ctx.stroke();
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen });
     }
@@ -516,6 +578,7 @@ export class MapRenderer {
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now());
 
     // ── labels ──
+    ctx.globalAlpha = 1;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const hoverTab = this.hover?.type === 'tab' ? this.hover.id : null;
@@ -523,91 +586,99 @@ export class MapRenderer {
       const { n, x, y, r } = d;
       const big = n.kind === 'repo' || n.kind === 'domain';
       if (d.open) {
-        const fam = big ? 'sans-bold' : 'mono';
-        const size = big ? 13 : 11;
+        // An open circle's name sits in a gap cut from its rim, then "−" to close it (click mode).
+        // Pointing at it turns the words green, as a pointed-at word does.
+        const size = big ? 17 : 15;
         const collapse = scene.mode === 'click';
-        const name = this.fit(n.name, fam, size, 300);
-        const tw = this.textWidth(name, fam, size) + (collapse ? 16 : 0);
-        const bh = big ? 22 : 18;
-        const bw = tw + 16;
-        const bx = x - bw / 2;
-        const by = y - r - bh / 2;
+        const name = this.fit(n.name, 600, size, 300);
+        const nw = this.textWidth(name, 600, size);
+        const mw = collapse ? 6 + this.textWidth('−', 400, size) : 0;
+        const bh = Math.round(size * 1.3) + 4;
+        const bw = Math.round(nw + mw + 16);
+        const bx = Math.round(x - bw / 2);
+        const by = Math.round(y - r - bh / 2);
         if (by + bh < 0 || by > h || bx + bw < 0 || bx > w) continue;
-        ctx.fillStyle = BG;
-        ctx.strokeStyle = n.id === hoverTab ? INK : this.nodeColor(n, 0.45);
-        ctx.lineWidth = 1;
-        roundRect(ctx, bx, by, bw, bh, bh / 2);
-        ctx.fill();
-        ctx.stroke();
-        this.font(big ? 'sans-bold' : 'mono', size);
-        ctx.fillStyle = big ? INK : 'rgba(230,227,218,0.72)';
-        ctx.fillText(name, x - (collapse ? 8 : 0), by + bh / 2 + 0.5);
+        const hot = n.id === hoverTab;
+        ctx.fillStyle = ink.ground;
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.textAlign = 'left';
+        this.font(600, size);
+        ctx.fillStyle = hot ? ink.accent : ink.text;
+        ctx.fillText(name, bx + 8, by + bh / 2 + 0.5);
         if (collapse) {
-          ctx.fillStyle = n.id === hoverTab ? INK : 'rgba(230,227,218,0.45)';
-          ctx.fillText('−', x + tw / 2 - 4, by + bh / 2 + 0.5);
+          this.font(400, size);
+          ctx.fillStyle = hot ? ink.accent : ink.muted;
+          ctx.fillText('−', bx + 8 + nw + 6, by + bh / 2 + 0.5);
         }
+        ctx.textAlign = 'center';
         this.drawnTabs.push({ id: n.id, x: bx, y: by, w: bw, h: bh });
       } else if (r > LABEL_MIN_R) {
-        // Whole pixel sizes, so the glyph cache is reused from frame to frame while zooming.
-        const size = Math.round(Math.max(10, Math.min(big ? 26 : 20, r * (big ? 0.24 : 0.2))));
+        // Containers' names in 600, leaves' in 400, at the largest size of the scale the circle has room for.
+        // Small circles get 13px, and the fitting below decides whether the name is drawn at all.
+        const weight: Weight = n.children.length ? 600 : 400;
+        const size = typeSize(r * (big ? 0.24 : 0.2));
         const max = r * 1.8;
-        const lines = big ? this.wrap2(n.name, 'sans-bold', size, max) : [this.fit(n.name, 'mono', size, max)];
+        const lines = big ? this.wrap2(n.name, weight, size, max) : [this.fit(n.name, weight, size, max)];
         if (!big && r < LABEL_FULL_R && lines[0] !== n.name) {
           // A small circle with a clipped name ("lin…") says nothing. Try a file without its extension, or
           // the last part of a folder path ("react-email" for "packages/react-email"); else leave it to the tooltip.
           const short = n.kind === 'file' ? n.name.replace(/\.[^.]+$/, '') : n.name.slice(n.name.lastIndexOf('/') + 1);
-          if (!short || short === n.name || this.textWidth(short, 'mono', size) > max) continue;
+          if (!short || short === n.name || this.textWidth(short, weight, size) > max) continue;
           lines[0] = short;
         }
-        const sub = (big && r > 48) || (!big && r > 44) ? this.subtitle(n) : null;
-        const subSize = Math.max(10, Math.round(size * 0.5));
-        const lh = size * 1.1;
+        if (!lines[0]) continue;
+        const subSize = size >= 20 ? 15 : 13;
+        // The counts under the name, whole or just their first part ("284 symbols"), never clipped.
+        let sub = (big && r > 48) || (!big && r > 44) ? this.subtitle(n) : null;
+        if (sub && this.textWidth(sub, 400, subSize) > max) sub = sub.split(' · ')[0];
+        if (sub && this.textWidth(sub, 400, subSize) > max) sub = null;
+        const lh = Math.round(size * 1.3);
         const total = lines.length * lh + (sub ? subSize * 1.5 : 0);
         let cy = y - total / 2 + lh / 2;
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = INK;
-        this.font(big ? 'sans-bold' : 'mono', size);
+        ctx.fillStyle = n.id === hoverId ? ink.accent : ink.text;
+        this.font(weight, size);
         for (const line of lines) {
           ctx.fillText(line, x, cy);
           cy += lh;
         }
         if (sub) {
-          ctx.globalAlpha = 0.55;
-          this.font('mono', subSize);
-          ctx.fillText(this.fit(sub, 'mono', subSize, max), x, cy - lh / 2 + subSize * 0.9);
+          ctx.fillStyle = ink.muted;
+          this.font(400, subSize);
+          ctx.fillText(sub, x, cy - lh / 2 + subSize * 0.8);
         }
-        ctx.globalAlpha = 1;
       }
     }
 
     // ── edge tags ──
     // Mid-curve, or the nearest point along it that isn't off screen, under a
     // panel or on top of another tag. The selected and hovered links go first.
-    this.font('mono-medium', 11);
+    // Each is fine Literata in a small box on the raised ground; selected, it
+    // takes the selection fill.
+    this.font(400, 13);
     const first = (t: (typeof tagQueue)[number]) => (t.isSel ? 0 : t.g.key === hoverKey ? 1 : 2);
     tagQueue.sort((p, q) => first(p) - first(q));
     for (const t of tagQueue) {
       const isHover = t.g.key === hoverKey;
       const label = t.g.tag;
-      const tw = Math.max(20, this.textWidth(label, 'mono', 11) + 12);
-      const box = (p: { x: number; y: number }) => ({ x: p.x - tw / 2, y: p.y - 10, w: tw, h: 20 });
+      const tw = Math.round(Math.max(22, this.textWidth(label, 400, 13) + 14));
+      const box = (p: { x: number; y: number }) => ({ x: Math.round(p.x - tw / 2), y: Math.round(p.y - 11), w: tw, h: 22 });
       const clear = (p: { x: number; y: number }) => {
         const b = box(p);
         return !this.drawnTags.some((o) => b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
       };
-      const half = { w: tw / 2, h: 10 };
+      const half = { w: tw / 2, h: 11 };
       const at = tagPoint(...t.pts, tagBox, half, clear) ?? (t.isSel || isHover ? tagPoint(...t.pts, tagBox, half) : null);
       if (!at) continue;
       const r = box(at);
       ctx.globalAlpha = t.isSel || !anyEdgeSel ? 1 : 0.3;
-      ctx.fillStyle = t.isSel ? INK : BG;
-      ctx.strokeStyle = t.isSel || isHover ? INK : 'rgba(230,227,218,0.3)';
+      ctx.fillStyle = t.isSel ? ink.selection : ink.raised;
+      ctx.strokeStyle = t.isSel || isHover ? ink.text : ink.strong;
       ctx.lineWidth = 1;
-      roundRect(ctx, r.x, r.y, r.w, r.h, 10);
+      roundRect(ctx, r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = t.isSel ? BG : 'rgba(230,227,218,0.85)';
-      ctx.fillText(label, at.x, at.y + 0.5);
+      ctx.fillStyle = t.isSel || isHover ? ink.text : ink.muted;
+      ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 0.5);
       this.drawnTags.push({ ...r, key: t.g.key });
     }
     ctx.globalAlpha = 1;
@@ -615,7 +686,7 @@ export class MapRenderer {
     // ── agent badges, last so they can keep clear of every link, tag and tab ──
     if (scene.activity?.size) {
       const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
-      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10), taken, this.badgeCache);
+      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.badgeWidth(s), taken, this.badgeCache);
       this.lastFont = '';
     }
   }
@@ -843,7 +914,7 @@ export class MapRenderer {
     }
     const n = scene.tree.nodes.get(hit.id);
     if (!n) return '';
-    if (hit.type === 'tab') return `Close ${n.name}`;
+    if (hit.type === 'tab') return `close ${n.name}`;
     const sub = this.subtitle(n);
     const kind = KIND[n.kind] ?? n.kind;
     let action = '';
