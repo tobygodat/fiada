@@ -112,7 +112,7 @@ const SOURCE: Record<PlacementSource, string> = {
   path: 'path',
   repo: 'repository',
   graph: 'neighbours',
-  seed: 'name',
+  seed: 'seed',
   propagated: 'neighbours',
   cohesion: 'file',
   fallback: 'no signal',
