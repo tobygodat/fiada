@@ -150,46 +150,53 @@ function segmentHits(x1: number, y1: number, x2: number, y2: number, b: Rect, pa
 
 type Edge = Taken['edges'][number];
 
+/** How far a straight piece may stray from the curve it stands for. */
+const STRAY = 0.5;
+/** Pieces longer than this are split anyway, so each one lands in few cells. */
+const PIECE = 96;
+
 /**
- * How many straight pieces stand in for a link, and how far a piece can stray
- * from the curve. A piece spanning 1/n of a quadratic strays from it by at most
- * |P0 − 2P1 + P2| / 4n², so a bent link gets enough pieces to keep that under
- * half a pixel, and a long one enough to keep pieces about a cell long.
+ * The part of a link inside `region` as straight pieces, each with how far it
+ * can stray from the curve. The quadratic is halved (de Casteljau) until a
+ * piece strays under half a pixel (a quadratic's chord strays at most
+ * |P0 − 2P1 + P2| / 4) and is short; halves whose control points, grown by
+ * `grow`, miss the region are dropped. So a link that runs a million pixels off
+ * screen at high zoom costs only the few pieces near what's on screen.
  */
-function pieces(e: Edge): { n: number; stray: number } {
-  const [x1, y1, cx, cy, x2, y2] = e.pts;
-  const bend = Math.hypot(x1 - 2 * cx + x2, y1 - 2 * cy + y2);
-  const len = Math.hypot(cx - x1, cy - y1) + Math.hypot(x2 - cx, y2 - cy);
-  const n = Math.min(64, Math.max(2, Math.ceil(Math.sqrt(bend / 2)), Math.ceil(len / 48)));
-  return { n, stray: bend / (4 * n * n) };
+function sample(e: Edge, region: Rect, grow: number, each: (x1: number, y1: number, x2: number, y2: number, stray: number) => void) {
+  const rx0 = region.x - grow;
+  const ry0 = region.y - grow;
+  const rx1 = region.x + region.w + grow;
+  const ry1 = region.y + region.h + grow;
+  const split = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, depth: number) => {
+    // The curve lies inside its control points' box.
+    if (Math.max(x0, x1, x2) < rx0 || Math.min(x0, x1, x2) > rx1 || Math.max(y0, y1, y2) < ry0 || Math.min(y0, y1, y2) > ry1) return;
+    const stray = Math.hypot(x0 - 2 * x1 + x2, y0 - 2 * y1 + y2) / 4;
+    if (depth >= 40 || (stray <= STRAY && Math.hypot(x2 - x0, y2 - y0) <= PIECE)) return each(x0, y0, x2, y2, stray);
+    const ax = (x0 + x1) / 2;
+    const ay = (y0 + y1) / 2;
+    const bx = (x1 + x2) / 2;
+    const by = (y1 + y2) / 2;
+    const mx = (ax + bx) / 2;
+    const my = (ay + by) / 2;
+    split(x0, y0, ax, ay, mx, my, depth + 1);
+    split(mx, my, bx, by, x2, y2, depth + 1);
+  };
+  const [x0, y0, cx, cy, x2, y2] = e.pts;
+  split(x0, y0, cx, cy, x2, y2, 0);
 }
 
-/** Room left round a link: half its width, a little air, and however far its pieces stray from it. */
-const edgePad = (e: Edge, stray: number) => e.w / 2 + 2 + stray;
-
-/** A link as short straight pieces (see `pieces`). */
-function sample(e: Edge, n: number, each: (x1: number, y1: number, x2: number, y2: number) => boolean | void) {
-  const [x1, y1, cx, cy, x2, y2] = e.pts;
-  let px = x1;
-  let py = y1;
-  for (let i = 1; i <= n; i++) {
-    const t = i / n;
-    const u = 1 - t;
-    const x = u * u * x1 + 2 * u * t * cx + t * t * x2;
-    const y = u * u * y1 + 2 * u * t * cy + t * t * y2;
-    if (each(px, py, x, y)) return;
-    px = x;
-    py = y;
-  }
-}
+/** Room left round a link: half its width and a little air. */
+const edgePad = (e: Edge) => e.w / 2 + 2;
 
 /** Whether a drawn link passes through the box, with its width and a little air around it. */
 export function curveHits(e: Edge, box: Rect): boolean {
-  const { n, stray } = pieces(e);
-  const pad = edgePad(e, stray);
+  const pad = edgePad(e);
   if (e.maxX < box.x - pad || e.minX > box.x + box.w + pad || e.maxY < box.y - pad || e.minY > box.y + box.h + pad) return false;
   let hit = false;
-  sample(e, n, (ax, ay, bx, by) => (hit = segmentHits(ax, ay, bx, by, box, pad)));
+  sample(e, box, pad + STRAY, (ax, ay, bx, by, stray) => {
+    hit ||= segmentHits(ax, ay, bx, by, box, pad + stray);
+  });
   return hit;
 }
 
@@ -225,17 +232,27 @@ export class BadgeSpace {
     this.hiX = Math.ceil(taken.view.w / CELL) + 4;
     this.hiY = Math.ceil(taken.view.h / CELL) + 4;
     // The farthest a badge reaches from its circle: past the ring by its longer side, whichever way it grows.
+    // Everything a badge can reach, as one box too, to cut links down to the part that matters.
+    const reach = { x: Infinity, y: Infinity, w: 0, h: 0 };
+    let x1 = -Infinity;
+    let y1 = -Infinity;
     for (const { d, w, h } of badges) {
-      const reach = ringGeometry(d.r).outer + 2 + Math.max(w, h);
-      const [cx0, cx1, cy0, cy1] = this.span(d.x - reach, d.y - reach, d.x + reach, d.y + reach);
+      const r = ringGeometry(d.r).outer + 2 + Math.max(w, h);
+      const [cx0, cx1, cy0, cy1] = this.span(d.x - r, d.y - r, d.x + r, d.y + r);
       for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) this.near.add(key(cx, cy));
+      reach.x = Math.min(reach.x, d.x - r);
+      reach.y = Math.min(reach.y, d.y - r);
+      x1 = Math.max(x1, d.x + r);
+      y1 = Math.max(y1, d.y + r);
     }
+    reach.w = x1 - reach.x;
+    reach.h = y1 - reach.y;
     for (const e of taken.edges) {
       const link = { hit: 0 };
-      const { n, stray } = pieces(e);
-      const pad = edgePad(e, stray);
-      sample(e, n, (x1, y1, x2, y2) => {
-        this.add({ k: 'seg', link, x1, y1, x2, y2, pad, seen: 0 }, Math.min(x1, x2) - pad, Math.min(y1, y2) - pad, Math.max(x1, x2) + pad, Math.max(y1, y2) + pad);
+      const base = edgePad(e);
+      sample(e, reach, base + STRAY, (ax, ay, bx, by, stray) => {
+        const pad = base + stray;
+        this.add({ k: 'seg', link, x1: ax, y1: ay, x2: bx, y2: by, pad, seen: 0 }, Math.min(ax, bx) - pad, Math.min(ay, by) - pad, Math.max(ax, bx) + pad, Math.max(ay, by) + pad);
       });
     }
     for (const r of taken.rects) this.add({ k: 'rect', r, seen: 0 }, r.x, r.y, r.x + r.w, r.y + r.h);

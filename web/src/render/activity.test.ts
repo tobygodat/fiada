@@ -166,3 +166,30 @@ test('a short, strongly bent link is followed closely enough that nothing on it 
       }
   assert.ok(checked > 100);
 });
+
+test('a link running far off screen at high zoom only blocks the spots it really crosses', () => {
+  const d = circle('a', 500, 500, 30);
+  // Leaves the circle up and to the right, bending away over a million pixels.
+  const a = -Math.PI / 4;
+  const x0 = d.x + Math.cos(a) * d.r;
+  const y0 = d.y + Math.sin(a) * d.r;
+  const pts = [x0, y0, x0 + 5e5, y0 - 5e5, x0 + 1e6, y0];
+  const e = { pts, w: 2, minX: x0, minY: y0 - 5e5, maxX: x0 + 1e6, maxY: y0 };
+  // The truth near the circle, from the first 300px of the curve.
+  const touches = (b: Rect) => {
+    for (let i = 0; i <= 40000; i++) {
+      const t = (i / 40000) * 3e-4;
+      const u = 1 - t;
+      const x = u * u * pts[0] + 2 * u * t * pts[2] + t * t * pts[4];
+      const y = u * u * pts[1] + 2 * u * t * pts[3] + t * t * pts[5];
+      const dx = Math.max(b.x - x, 0, x - (b.x + b.w));
+      const dy = Math.max(b.y - y, 0, y - (b.y + b.h));
+      if (Math.hypot(dx, dy) <= e.w / 2) return true;
+    }
+    return false;
+  };
+  assert.equal(touches(place(d, { edges: [], rects: [] })), true, 'the usual spot is on the link');
+  const box = place(d, { edges: [e], rects: [] });
+  assert.equal(touches(box), false, 'the badge went somewhere clear');
+  assert.equal(curveHits(e, box), false);
+});
