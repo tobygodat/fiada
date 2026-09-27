@@ -3,7 +3,7 @@
 //   npm run index -- ../some-repo org/other-repo --layers
 //   npm run index -- ../some-repo --grouping my.grouping.json --layers
 //   npm run index -- ../some-repo --preset by-repo --out graph.json
-//   npm run index -- org/repo --sort --save-grouping sorted.grouping.json   (needs ANTHROPIC_API_KEY)
+//   npm run index -- org/repo --sort --save-grouping sorted.grouping.json   (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)
 //   npm run index -- org/repo --summaries    (lines, and what generating summaries would cost; calls no model)
 
 import './env.ts';
@@ -78,7 +78,7 @@ if (flag('--sort')) {
   const unsorted = classifyGraph(base, { ...grouping, sorted: undefined });
   console.log(`classifier alone: ${describeStats(sortStats(unsorted))}`);
   const st = Date.now();
-  grouping.sorted = await sortProject(unsorted, grouping, (req) => llm.json(req), { model: llm.model, by: llm.label, log: (l) => console.error(l) });
+  grouping.sorted = await sortProject(unsorted, grouping, (req) => llm.json(req), { get model() { return llm.model; }, by: llm.label, log: (l) => console.error(l) });
   graph = classifyGraph(base, grouping);
   console.log(`with ${llm.label} (${llm.model}, ${((Date.now() - st) / 1000).toFixed(0)}s): ${describeStats(sortStats(graph))}\n`);
   for (const d of grouping.sorted.domains) {

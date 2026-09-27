@@ -131,7 +131,7 @@ app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, repl
   return { grouping: await ws.applyPreset(preset) };
 });
 
-// Sorts the project's leftovers with Claude again. Answers at once; the map picks the result up when it lands.
+// Sorts the project's leftovers with the model again. Answers at once; the map picks the result up when it lands.
 app.post('/api/grouping/sort', async (_req, reply) => {
   if (!ws.sortAgain()) return reply.code(409).send({ error: `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
   return reply.code(202).send(ws.state());
