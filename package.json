@@ -1,0 +1,26 @@
+{
+  "name": "strata",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Codebase cartography: one map from repositories down to symbols.",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "indexer",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @strata/web\"",
+    "build": "npm run build -w @strata/web",
+    "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web",
+    "test": "npm test -w @strata/indexer",
+    "index": "npm run index -w @strata/indexer --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "~5.9.3"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
