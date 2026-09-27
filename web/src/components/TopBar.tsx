@@ -1,11 +1,14 @@
 // Back, the breadcrumb of the focused path, and the altitude indicator.
 
 import { useEffect, useState, type RefObject } from 'react';
+import type { Camera } from '../graph/camera.ts';
 import type { TNode, View } from '../graph/tree.ts';
 import type { MapRenderer } from '../render/renderer.ts';
 
 interface Props {
   crumbs: TNode[];
+  /** Zoom mode: the breadcrumb for wherever the camera is, in place of `crumbs`. */
+  crumbsAt: ((cam: Camera) => TNode[]) | null;
   view: View;
   /** Depth of the deepest open level on screen, -1 at the top. */
   altitude: number;
@@ -23,8 +26,9 @@ const ALTITUDES: Record<View, string[]> = {
   function: ['Domains', 'Layers', 'Symbols'],
 };
 
-export function TopBar({ crumbs, view, altitude, renderer, fitK, busy, canGoBack, onBack, onCrumb }: Props) {
+export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK, busy, canGoBack, onBack, onCrumb }: Props) {
   const alts = ALTITUDES[view];
+  const crumbs = useCameraCrumbs(renderer, crumbsAt) ?? given;
   const idx = Math.max(0, Math.min(alts.length - 1, altitude));
   return (
     <div className="topbar">
@@ -61,6 +65,23 @@ export function TopBar({ crumbs, view, altitude, renderer, fitK, busy, canGoBack
       </div>
     </div>
   );
+}
+
+/** The breadcrumb `crumbsAt` gives for the camera, updated as it moves but re-rendering only when it changes. */
+function useCameraCrumbs(renderer: RefObject<MapRenderer | null>, crumbsAt: ((cam: Camera) => TNode[]) | null) {
+  const [crumbs, setCrumbs] = useState<TNode[] | null>(null);
+  useEffect(() => {
+    const r = renderer.current;
+    if (!r || !crumbsAt) return setCrumbs(null);
+    const key = (c: TNode[]) => c.at(-1)?.id ?? 'root';
+    const update = () => {
+      const next = crumbsAt(r.camera);
+      setCrumbs((cur) => (cur && key(cur) === key(next) ? cur : next));
+    };
+    update();
+    return r.subscribe(update);
+  }, [renderer, crumbsAt]);
+  return crumbs;
 }
 
 /** Zoom readout that follows the camera without re-rendering the rest of the app. */

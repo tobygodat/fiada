@@ -72,7 +72,7 @@ export function App() {
   const graph = ws.graph;
   const [view, setView] = useState<View>('code');
   const [mode, setModeState] = useState<ExpandMode>(readMode);
-  const [colorBy, setColorBy] = useState<ColorBy>('repo');
+  const [colorBy, setColorBy] = useState<ColorBy>('layer');
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [focus, setFocus] = useState('root');
@@ -236,7 +236,7 @@ export function App() {
       setSelectedEdge(null);
       if (!id || !tree) return setSelected(null);
       const at = locate(tree, graphIndex, id);
-      if (!at) return;
+      if (!at || at === 'root') return;
       remember();
       setSelected(at);
       // Coming from a selection (a dependency or contract end in the detail panel): keep it in view too.
@@ -254,6 +254,8 @@ export function App() {
       const n = tree.nodes.get(id);
       if (!n) return;
       setSelectedEdge(null);
+      // Between the top-level circles is empty space, not "the workspace".
+      if (id === 'root') return setSelected(null);
       if (mode === 'zoom') return select(id);
       const action = clickAction(n, selected, open);
       if (action === 'none') return;
@@ -346,7 +348,7 @@ export function App() {
     const viewChanged = !!prev && prev.view !== tree.view;
     if (viewChanged && selected) {
       const at = locate(tree, graphIndex, selected);
-      if (at) {
+      if (at && at !== 'root') {
         setSelected(at);
         setFocus(at);
         if (mode === 'click') {
@@ -362,7 +364,8 @@ export function App() {
         return;
       }
     }
-    if (selected && !tree.nodes.has(selected)) setSelected(null);
+    if (selected && (viewChanged || !tree.nodes.has(selected))) setSelected(null);
+    if (viewChanged) setSelectedEdge(null);
     // A rebuilt graph with the same repositories (an agent's edit was re-indexed) leaves the camera where you put it.
     const reposChanged = !prev || prev.root.children.map((c) => c.id).join('\n') !== tree.root.children.map((c) => c.id).join('\n');
     if (viewChanged || !prev || (focus === 'root' && reposChanged) || !tree.nodes.has(focus)) {
@@ -405,10 +408,30 @@ export function App() {
     return root && size.w ? frame(root, viewport(false), 0.46).k : 1;
   }, [L, size.w, viewport]);
 
+  // Zoom mode has no "opened" place: the breadcrumb follows the camera, to the
+  // innermost open circle under the middle of the free area.
+  const detailOpen = !!(selected || contract);
+  const crumbsAt = useMemo(() => {
+    if (mode !== 'zoom' || !tree || !zoomVis) return null;
+    return (cam: Camera) => {
+      const f = freeArea(viewport(detailOpen));
+      const x = (f.cx - cam.tx) / cam.k;
+      const y = (f.cy - cam.ty) / cam.k;
+      let here = tree.root;
+      for (const id of zoomVis.open) {
+        const n = tree.nodes.get(id);
+        const c = L.get(id);
+        if (n && c && n.depth > here.depth && (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r ** 2) here = n;
+      }
+      return ancestors(tree, here.id);
+    };
+  }, [mode, tree, zoomVis, L, viewport, detailOpen]);
+
   return (
     <div className="app">
       <TopBar
         crumbs={tree ? ancestors(tree, focus) : []}
+        crumbsAt={crumbsAt}
         view={view}
         altitude={altitude}
         renderer={renderer}
@@ -474,6 +497,7 @@ export function App() {
             graphIndex={graphIndex}
             tree={tree}
             pal={pal}
+            colorBy={colorBy}
             selected={selected}
             contract={contract}
             activity={agents.state}

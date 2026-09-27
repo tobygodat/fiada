@@ -13,8 +13,9 @@ const contract = (a: string, b: string, n: number, kind: EdgeKind = 'calls'): Co
   b,
   items: Array.from({ length: n }, (): GraphEdge => ({ from: a, to: b, kind })),
   kinds: new Set([kind]),
-  cross: false,
+  cross: 0,
   inferred: 0,
+  forward: n,
   tag: '',
 });
 
@@ -31,7 +32,8 @@ test('at rest only the few strongest contracts are drawn', () => {
     contract('e', 'f', 1),
     contract('f', 'g', 1),
   ];
-  const rest = restEdges(all, visible);
+  const everything = { ...EDGE_POLICIES.key, perContainer: Infinity };
+  const rest = restEdges(all, visible, everything);
   assert.ok(rest.size <= REST_EDGES);
   assert.ok(rest.has('a|b') && rest.has('a|c') && rest.has('a|d'));
   // A request outranks a plain call of the same size.
@@ -43,10 +45,27 @@ test('at rest only the few strongest contracts are drawn', () => {
   assert.ok(!restEdges(all, new Set(['a', 'c'])).has('a|b'));
   // Even spread, everything but single links fits up to the cap.
   const even = ids.slice(1).map((x) => contract('a', x, 4));
-  assert.equal(restEdges(even, visible).size, REST_EDGES);
+  assert.equal(restEdges(even, visible, everything).size, REST_EDGES);
   // The other presets: every link, or none until you point at a circle.
   assert.equal(restEdges(all, visible, EDGE_POLICIES.all).size, all.length);
   assert.equal(restEdges(all, visible, EDGE_POLICIES.none).size, 0);
+});
+
+test('every open circle gets its own few links, and a small one is not starved', () => {
+  const visible = new Set('abcdefxy'.split(''));
+  // a..f sit inside a big open repo; x and y in a small one with one request between them.
+  const big = [contract('a', 'b', 900), contract('a', 'c', 700), contract('b', 'c', 500), contract('c', 'd', 400), contract('d', 'e', 300), contract('e', 'f', 200), contract('a', 'f', 100)];
+  const small = contract('x', 'y', 3, 'http');
+  const home = (g: Contract) => (g.a === 'x' ? 'small' : 'big');
+  const rest = restEdges([...big, small], visible, EDGE_POLICIES.key, home);
+  assert.ok(rest.has('x|y'), "the small repo's only link survives");
+  const inBig = [...rest].filter((k) => k !== 'x|y');
+  assert.equal(inBig.length, EDGE_POLICIES.key.perContainer);
+  assert.deepEqual(inBig.sort(), ['a|b', 'a|c', 'b|c']);
+  // Many open circles: each one's strongest link comes before any one's second, up to the overall cap.
+  const many = 'pqrstuvw'.split('').map((p) => contract(`${p}1`, `${p}2`, 10));
+  const each = restEdges(many, new Set(many.flatMap((g) => [g.a, g.b])), EDGE_POLICIES.key, (g) => g.a[0]);
+  assert.equal(each.size, EDGE_POLICIES.key.restMax);
 });
 
 test('edges bend around circles in their way', () => {

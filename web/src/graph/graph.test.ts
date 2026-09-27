@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { GraphNode } from '@strata/shared';
+import type { EdgeKind, GraphNode } from '@strata/shared';
 import { directZoom, enclose, frame, freeArea, smoothZoom, zoomAt, type Camera } from './camera.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { closedRadius, layoutExpanded, type Circle } from './layout.ts';
 import { buildCodeTree, buildFunctionTree, locate, type Tree } from './tree.ts';
-import { aggregateEdges, clickAction, expandedNodes, indexEdges, withCollapsed, withPathOpen, type Visible } from './view.ts';
+import { aggregateEdges, clickAction, contractLabel, crossRepo, direction, expandedNodes, indexEdges, meetingPoint, withCollapsed, withPathOpen, type Visible } from './view.ts';
 
 const graph = fixtureGraph();
 const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
@@ -80,10 +80,12 @@ test('edges reattach to the inner component that is responsible', () => {
   const closed = aggregateEdges(ix, expandedNodes(code, new Set()));
   assert.equal(closed.length, 1);
   assert.equal(closed[0].key, 'api|web');
-  assert.ok(closed[0].cross);
+  assert.equal(closed[0].cross, 2);
   assert.equal(closed[0].items.length, 2);
   assert.equal(closed[0].inferred, 1);
-  assert.equal(closed[0].tag, 'A');
+  // Both requests run from web to api, and the tag says what they are.
+  assert.deepEqual(direction(closed[0]), ['web', 'api', false]);
+  assert.equal(closed[0].tag, 'HTTP · 2');
 
   const open = withPathOpen(code, withPathOpen(code, new Set(), 'web/src/client/api.ts', true), 'api/app/routes/items.py', true);
   const opened = aggregateEdges(ix, expandedNodes(code, open));
@@ -92,6 +94,51 @@ test('edges reattach to the inner component that is responsible', () => {
   // Opened up, the guessed request is a contract of its own, drawn as inferred; the proven one isn't.
   assert.equal(http.inferred, http.items.length);
   assert.equal(opened.find((c) => c.key === 'api/app/routes/items.py#read_items|web/src/client/api.ts#ItemsService')?.inferred, 0);
+});
+
+test('a link is cross-repo only when the interactions behind it are', () => {
+  // Domains and layers belong to no one repository, so this can't come from the ends drawn:
+  // with the UI layer open and Client closed, useItems → Client stays inside web.
+  const layered = fixtureGraph();
+  layered.layers.push({ id: 'client', name: 'Client' }, { id: 'api', name: 'API' });
+  for (const n of layered.nodes) {
+    const layer = n.id.startsWith('web/src/client') ? 'client' : n.repo === 'api' ? 'api' : null;
+    if (layer && n.layer) n.layer = { ...n.layer, id: layer };
+  }
+  const fn = buildFunctionTree(layered);
+  const index = new Map<string, GraphNode>(layered.nodes.map((n) => [n.id, n]));
+  const ix = indexEdges(fn, index, layered.edges);
+  const repoOf = (id: string) => index.get(id)?.repo;
+  let mixedEnds = 0;
+  for (const id of [...fn.nodes.keys()]) {
+    for (const vis of [expandedNodes(fn, withPathOpen(fn, new Set(), id, true)), expandedNodes(fn, withPathOpen(fn, new Set(), id, false))]) {
+      for (const c of aggregateEdges(ix, vis)) {
+        const cross = c.items.filter((e) => repoOf(e.from) !== repoOf(e.to)).length;
+        assert.equal(c.cross, cross, `${c.key} with ${id} open`);
+        assert.equal(crossRepo(c), cross * 2 >= c.items.length && cross > 0);
+        if (!cross && fn.nodes.get(c.a)!.repo !== fn.nodes.get(c.b)!.repo) mixedEnds++;
+      }
+    }
+  }
+  assert.ok(mixedEnds > 0, 'some same-repo links run between a symbol and a layer');
+});
+
+test('link labels say what the link is', () => {
+  const e = (kind: EdgeKind, basis?: 'inferred') => ({ from: 'a', to: 'b', kind, basis });
+  const label = (items: ReturnType<typeof e>[]) => contractLabel({ items, inferred: items.filter((x) => x.basis).length });
+  assert.equal(label([e('calls')]), '1 call');
+  assert.equal(label([e('calls'), e('calls'), e('imports')]), '2 calls +1');
+  assert.equal(label([e('http', 'inferred')]), 'HTTP · 1?');
+  assert.equal(label([e('type'), e('type')]), '2 types');
+  // No one kind makes up two thirds: name the leading ones.
+  assert.equal(label([e('calls'), e('calls'), e('type'), e('type')]), '4 calls & types');
+  assert.equal(label([e('calls'), e('calls'), e('type'), e('type'), e('http')]), '5 calls, types…');
+});
+
+test('a link sits in the innermost circle holding both ends', () => {
+  assert.equal(meetingPoint(code, 'web/src/pages/items.tsx', 'web/src/client/api.ts'), 'web/src');
+  assert.equal(meetingPoint(code, 'web/src/pages', 'api/app'), 'root');
+  assert.equal(meetingPoint(code, 'web/src/pages/items.tsx#ItemsPage', 'web/src/pages'), 'web/src/pages');
 });
 
 test('by-function tree keeps symbol ids, so edges resolve the same way', () => {

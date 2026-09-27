@@ -19,8 +19,8 @@ import {
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
-import type { Contract } from '../graph/view.ts';
-import type { Palette } from '../theme.ts';
+import { direction, type Contract } from '../graph/view.ts';
+import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
   root: 'Workspace',
@@ -46,6 +46,7 @@ interface Props {
   graphIndex: Map<string, GraphNode>;
   tree: Tree;
   pal: Palette;
+  colorBy: ColorBy;
   selected: string | null;
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
@@ -62,11 +63,11 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, n, activity, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   const repo = g?.kind === 'repo' ? graph.repos.find((r) => r.id === g.id) : null;
-  const color = n.repo ? pal.repo(n.repo) : n.layer ? pal.layer(n.layer) : pal.neutral();
+  const color = colorBy === 'layer' ? (n.layer ? pal.layer(n.layer) : pal.neutral()) : n.repo ? pal.repo(n.repo) : pal.neutral();
   const path = g?.kind === 'symbol' ? `${g.path}${g.lines ? `:${g.lines[0]}` : ''}` : (g?.path ?? (n.kind === 'layer' ? `${tree.nodes.get(n.parent!)?.name} · ${n.name}` : ''));
 
   return (
@@ -286,6 +287,11 @@ function DepList({ title, items, graphIndex, self, onSelect }: { title: string; 
       <div className="block-title">
         {title} {items.length ? <span className="muted">· {items.length}</span> : null}
       </div>
+      {!items.length && (
+        <div className="muted small" title="The indexer links imports, calls, renders, type uses and HTTP requests it can match to a route. Anything else won't show here.">
+          none found
+        </div>
+      )}
       {items.slice(0, 40).map((d) => {
         const other = graphIndex.get(d.id);
         const crossRepo = other && self.repo && other.repo !== self.repo;
@@ -349,8 +355,10 @@ function summary(n: TNode): string {
 }
 
 function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSelect }: Props & { contract: Contract }) {
-  const A = tree.nodes.get(c.a)!;
-  const B = tree.nodes.get(c.b)!;
+  const [from, to, both] = direction(c);
+  const A = tree.nodes.get(from)!;
+  const B = tree.nodes.get(to)!;
+  const unproven = c.items.filter((e) => !hasEvidence(e)).length;
   const http = c.items.filter((e) => e.kind === 'http');
   const types = c.items.filter((e) => e.kind === 'type');
   const code = c.items.filter((e) => e.kind !== 'http' && e.kind !== 'type');
@@ -370,13 +378,15 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
       <div className="detail-head">
         <div className="kicker">
           <span className="tag sel static">{c.tag}</span>
-          Contract · {plural(c.items.length, 'interaction')}
-          {c.cross ? ' · cross-repo' : ''}
+          Contract
+          {c.cross === c.items.length ? ' · cross-repo' : c.cross ? ` · ${c.cross} cross-repo` : ''}
           {c.inferred ? <span className="guess">{c.inferred === c.items.length ? 'inferred' : `${c.inferred} inferred`}</span> : null}
         </div>
         <div className="contract-ends">
           <button onClick={() => onSelect(A.id)}>{A.name}</button>
-          <span className="muted">⇄</span>
+          <span className="muted" title={both ? 'Interactions run both ways' : undefined}>
+            {both ? '⇄' : '→'}
+          </span>
           <button onClick={() => onSelect(B.id)}>{B.name}</button>
         </div>
       </div>
@@ -386,6 +396,13 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
         <span className="block-title">Response</span>
         <span>{response}</span>
       </div>
+      {unproven > 0 && (
+        <div className="detail-block no-evidence">
+          {unproven === c.items.length
+            ? 'No evidence found. The indexer recorded this link without the lines of code behind it, so treat it as unverified.'
+            : `No evidence found for ${unproven} of these ${c.items.length} interactions; they are marked below.`}
+        </div>
+      )}
       <div className="detail-block">
         <div className="block-title">Interactions</div>
         {c.items.slice(0, 80).map((e, i) => (
@@ -398,6 +415,7 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
             tree={tree}
             open={c.items.length === 1}
             mark={c.inferred > 0 && c.inferred < c.items.length}
+            markUnproven={unproven > 0 && unproven < c.items.length}
             activity={activity}
             onSelect={onSelect}
           />
@@ -421,13 +439,25 @@ const EVIDENCE_LABEL: Record<EdgeEvidenceSource, string> = {
   orm: 'orm',
 };
 
+const hasEvidence = (e: GraphEdge) => !!(e.reason || e.evidence?.length);
+
 /** One underlying edge: its two ends, and on demand how the indexer knows about it. */
-function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; open: boolean; mark: boolean; activity?: ActivityState | null; onSelect(id: string): void }) {
+function Interaction(p: {
+  e: GraphEdge;
+  graph: Graph;
+  graphIndex: Map<string, GraphNode>;
+  tree: Tree;
+  open: boolean;
+  mark: boolean;
+  markUnproven: boolean;
+  activity?: ActivityState | null;
+  onSelect(id: string): void;
+}) {
   const { e, graph, graphIndex, tree, open, onSelect } = p;
   const [shown, setShown] = useState(open);
   const [line, setLine] = useState<number | null>(null);
   const guess = p.mark && e.basis === 'inferred';
-  const why = !!(e.reason || e.evidence?.length);
+  const why = hasEvidence(e);
   return (
     <div className="interaction-wrap">
       <div className="interaction" title={`${e.from} → ${e.to}`}>
@@ -444,10 +474,16 @@ function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, Gr
           {e.detail && <span className="muted"> · {e.detail}</span>}
         </span>
         {guess && <span className="guess">inferred</span>}
-        {why && (
+        {why ? (
           <button className="link why" onClick={() => setShown((v) => !v)} aria-expanded={shown}>
             {shown ? 'hide' : 'why'}
           </button>
+        ) : (
+          p.markUnproven && (
+            <span className="guess" title="The indexer recorded this interaction without the code behind it">
+              no evidence
+            </span>
+          )
         )}
       </div>
       {shown && why && (
