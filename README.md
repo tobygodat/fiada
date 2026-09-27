@@ -155,7 +155,7 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 | Variable | Default | |
 | --- | --- | --- |
 | `PORT` | `4178` | indexer port (the web dev server proxies `/api` to it; set `STRATA_INDEXER_PORT` for the proxy if you change it) |
-| `HOST` | `127.0.0.1` | address the indexer listens on (`0.0.0.0` in the container) |
+| `HOST` | `127.0.0.1` | address the indexer listens on (`0.0.0.0` in the container, and by default on Railway, Render and Fly) |
 | `STRATA_HOME` | `.strata/` | where clones and project files live |
 | `STRATA_PROJECT` | `default` | which project the indexer serves |
 | `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.strata/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
@@ -188,7 +188,7 @@ browser ── https://hackgt13.vercel.app ──────── static map (
 
 ### 1. The indexer (Railway, for example)
 
-New project, **Deploy from GitHub repo**, pick this repository; Railway builds the root `Dockerfile`. Then set the service's variables and, under **Networking**, generate a public domain on port 4178.
+New project, **Deploy from GitHub repo**, pick this repository; Railway builds the root `Dockerfile`. Railway may offer a service for every package in the workspace: keep only `@strata/indexer` (the map is on Vercel and the agent runs beside your editor), and clear its custom start command so the `Dockerfile`'s runs. Then set the service's variables and, under **Networking**, generate a public domain on port 4178.
 
 | Variable | Value |
 | --- | --- |

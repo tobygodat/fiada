@@ -27,6 +27,19 @@ export function isLoopback(host: string): boolean {
   return host === 'localhost' || host === '::1' || /^127\./.test(host);
 }
 
+/** Variables that hosting platforms set in every container they run. */
+const PLATFORMS = ['RAILWAY_PROJECT_ID', 'RENDER', 'FLY_APP_NAME'];
+
+/**
+ * Where to listen when HOST isn't set: loopback on your own machine, every
+ * interface on a hosting platform, whose proxy can't reach loopback. The
+ * Dockerfile sets HOST itself; this covers a platform that builds the
+ * indexer some other way.
+ */
+export function defaultHost(env: NodeJS.ProcessEnv = process.env): string {
+  return PLATFORMS.some((name) => env[name]) ? '0.0.0.0' : '127.0.0.1';
+}
+
 /**
  * Whether local folders can be imported. Importing a path reads that
  * directory, which only makes sense for an indexer on your own machine, so

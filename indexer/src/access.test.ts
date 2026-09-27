@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowLocalPaths, hasKey, originMatcher } from './access.ts';
+import { allowLocalPaths, defaultHost, hasKey, originMatcher } from './access.ts';
 
 test('allowed origins: exact entries, preview wildcards, and none by default', () => {
   const allowed = originMatcher('https://hackgt13.vercel.app, https://hackgt13-*-toby-godats-projects.vercel.app/');
@@ -16,6 +16,13 @@ test('allowed origins: exact entries, preview wildcards, and none by default', (
   assert.equal(originMatcher(undefined)('https://hackgt13.vercel.app'), false);
   assert.equal(originMatcher('')('https://hackgt13.vercel.app'), false);
   assert.equal(originMatcher('*')('https://anything.example'), true);
+});
+
+test('listens on loopback locally and on every interface on a hosting platform', () => {
+  assert.equal(defaultHost({}), '127.0.0.1');
+  assert.equal(defaultHost({ RAILWAY_PROJECT_ID: 'b7c1' }), '0.0.0.0');
+  assert.equal(defaultHost({ RENDER: 'true' }), '0.0.0.0');
+  assert.equal(defaultHost({ FLY_APP_NAME: 'strata' }), '0.0.0.0');
 });
 
 test('local folders only on loopback unless STRATA_ALLOW_LOCAL says otherwise', () => {

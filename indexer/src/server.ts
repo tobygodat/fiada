@@ -1,6 +1,7 @@
 // HTTP API the map talks to. Binds to localhost by default: importing a local
 // path reads that directory, so on your own machine it's a single-user tool.
-// Bound anywhere else (HOST=0.0.0.0 in the container), local paths are off,
+// Bound anywhere else (HOST=0.0.0.0 in the container, and by default on
+// Railway, Render and Fly), local paths are off,
 // browsers on STRATA_ALLOWED_ORIGINS may call it, and with STRATA_API_KEY set
 // only requests carrying the key can change anything.
 
@@ -8,14 +9,14 @@ import './env.ts';
 import type { OutgoingHttpHeaders } from 'node:http';
 import Fastify from 'fastify';
 import type { AgentEvent, LayerPreset } from '@strata/shared';
-import { allowLocalPaths, hasKey, isLoopback, originMatcher, READS } from './access.ts';
+import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS } from './access.ts';
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
-const HOST = process.env.HOST ?? '127.0.0.1';
+const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.STRATA_API_KEY || undefined;
 const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
 
