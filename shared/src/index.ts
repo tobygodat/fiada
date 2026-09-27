@@ -320,15 +320,24 @@ export interface GraphEdge {
 
 export type RepoStatus = 'queued' | 'cloning' | 'indexing' | 'ready' | 'error';
 
+/** Where a repository's files come from: cloned, read in place, or uploaded from the map. */
+export type RepoKind = 'git' | 'local' | 'upload';
+
 export interface RepoInfo {
   id: string;
   name: string;
-  /** What the user typed: a git URL or an absolute local path. */
+  /** What the user typed (a git URL or an absolute local path), or an uploaded folder's name. */
   source: string;
-  kind: 'git' | 'local';
+  kind: RepoKind;
   status: RepoStatus;
   error?: string;
   commit?: string;
+  /** An uploaded folder's `origin` remote, from its .git metadata, with any credentials removed. */
+  remote?: string;
+  /** The branch an uploaded folder had checked out. */
+  branch?: string;
+  /** When the folder was last uploaded. */
+  uploadedAt?: string;
   indexedAt?: string;
   fileCount?: number;
   symbolCount?: number;
@@ -377,6 +386,24 @@ export interface Workspace {
     /** Changes (imports, grouping, agent events) need the indexer's access key. */
     keyRequired: boolean;
   };
+  /** How to upload a folder: what to send and how much. Absent from indexers that predate uploads. */
+  upload?: UploadPolicy;
+}
+
+/**
+ * What a folder upload may carry. The map sends only the files the indexer
+ * reads, so an upload is the folder's source, never its build output,
+ * dependencies or git history.
+ */
+export interface UploadPolicy {
+  /** Most bytes of files in one upload, before compression. */
+  maxBytes: number;
+  /** Most files in one upload. */
+  maxFiles: number;
+  /** Regular expression (source) over a folder-relative path: the files worth sending. .gitignore files go too. */
+  files: string;
+  /** Folder names never sent, wherever they are. */
+  skipDirs: string[];
 }
 
 // ── Agent activity ──

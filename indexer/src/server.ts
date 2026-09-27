@@ -15,6 +15,7 @@ import { GroupingError, PRESETS } from './classify/index.ts';
 import { KEY_HINT } from './llm.ts';
 import { Sorter } from './sorter.ts';
 import { checkProjectId, createStore } from './store.ts';
+import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
@@ -63,6 +64,32 @@ app.post<{ Body: { source?: string } }>('/api/repos', async (req, reply) => {
   }
   return reply.code(202).send(ws.state());
 });
+
+// A folder uploaded from the map, as a gzipped tar (see upload.ts). Uploading
+// the same folder again replaces it; ?replace=<id> says which one to replace.
+const UPLOAD_LIMIT = archiveLimit(UPLOAD);
+app.addContentTypeParser(['application/gzip', 'application/x-gzip'], { parseAs: 'buffer', bodyLimit: UPLOAD_LIMIT }, (_req, body, done) => done(null, body));
+
+app.post<{ Querystring: { name?: string; replace?: string } }>(
+  '/api/repos/upload',
+  {
+    bodyLimit: UPLOAD_LIMIT,
+    errorHandler: (err, _req, reply) => {
+      if ((err as { code?: string }).code === 'FST_ERR_CTP_BODY_TOO_LARGE') return reply.code(413).send({ error: tooBig(UPLOAD).message });
+      reply.send(err);
+    },
+  },
+  async (req, reply) => {
+    if (!Buffer.isBuffer(req.body)) return reply.code(415).send({ error: 'Send the folder as a gzipped tar (content-type: application/gzip) with ?name=<folder name>.' });
+    try {
+      await ws.upload(req.query.name ?? '', req.body, req.query.replace || undefined);
+    } catch (err) {
+      if (err instanceof UploadError) return reply.code(err.status).send({ error: err.message });
+      throw err;
+    }
+    return reply.code(202).send(ws.state());
+  },
+);
 
 app.delete<{ Params: { id: string } }>('/api/repos/:id', async (req) => {
   await ws.remove(req.params.id);

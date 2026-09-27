@@ -191,13 +191,14 @@ a { color: inherit; }
 .repo-row + .repo-row { border-top: 1px solid var(--hairline); }
 .repo-row > .dot { margin-top: 8px; }
 .repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-meta { display: flex; align-items: baseline; gap: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); font-variant-numeric: tabular-nums; }
+.repo-meta { position: relative; display: flex; align-items: baseline; gap: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); font-variant-numeric: tabular-nums; }
 .repo-meta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-meta .link { flex: none; display: none; }
+/* Out of sight until the row is pointed at or tabbed into, but never out of the tab order. */
+.repo-meta .link { flex: none; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .repo-meta .link:first-of-type { margin-left: auto; }
-.repo-row:hover .repo-meta .link, .repo-row:focus-within .repo-meta .link { display: inline; }
+.repo-row:hover .repo-meta .link, .repo-row:focus-within .repo-meta .link { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 @media (hover: none) {
-  .repo-meta .link { display: inline; }
+  .repo-meta .link { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 }
 .repo-error { margin-top: 2px; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
 
@@ -215,7 +216,7 @@ a { color: inherit; }
 }
 .import button:hover:not(:disabled) { color: var(--accent); }
 .import button:disabled { border-color: var(--faint); color: var(--faint); cursor: default; }
-.suggestions { margin-top: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
+.suggestions, .upload-line { margin-top: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
 
 /* Layers: a section that folds from its heading. */
 .section-title.fold { display: flex; align-items: center; gap: var(--space-xs); width: 100%; transition: color var(--quick) var(--ease); }

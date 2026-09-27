@@ -24,7 +24,7 @@ export const DEFAULT_LOAD: LoadOptions = {
   maxFileBytes: 400_000,
 };
 
-const IGNORED_DIR = new Set([
+export const IGNORED_DIR = new Set([
   'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.svelte-kit', '.turbo', '.cache',
   'coverage', 'vendor', '__pycache__', '.venv', 'venv', 'env', 'site-packages', 'target', '.mypy_cache',
   '.pytest_cache', '.tox', 'bower_components', '.idea', '.vscode',
@@ -36,7 +36,7 @@ export const TEST_PATH =
 const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
 
 /** Files that change how every other file resolves; a change to one means reloading the repo. */
-const MANIFEST = /(^|\/)(package\.json|[tj]sconfig(\..+)?\.json|go\.mod|pyproject\.toml|requirements.*\.txt|setup\.py|__init__\.py)$/;
+export const MANIFEST = /(^|\/)(package\.json|[tj]sconfig(\..+)?\.json|go\.mod|pyproject\.toml|requirements.*\.txt|setup\.py|__init__\.py)$/;
 
 async function listFiles(root: string): Promise<string[]> {
   try {

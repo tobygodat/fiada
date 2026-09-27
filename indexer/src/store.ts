@@ -9,16 +9,21 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import type { Grouping } from '@strata/shared';
+import type { Grouping, RepoKind } from '@strata/shared';
 import { MongoProjectStore, redact, unquote } from './mongo-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
 export interface SavedRepo {
   id: string;
   name: string;
-  /** Clone URL or absolute local path. */
+  /** Clone URL, absolute local path, or an uploaded folder's name. */
   source: string;
-  kind: 'git' | 'local';
+  kind: RepoKind;
+  /** An upload's origin remote, branch, short HEAD and time, from what it sent. */
+  remote?: string;
+  branch?: string;
+  commit?: string;
+  uploadedAt?: string;
 }
 
 export interface ProjectStore {

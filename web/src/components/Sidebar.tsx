@@ -1,12 +1,13 @@
 // Floating sidebar: repository import, the Code / By-function toggle, the
 // project's layers, and an outline of whichever hierarchy the map is showing.
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
 import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
+import { canPickDirectory, collect, fromFileList, pack, pickDirectory, type Folder } from '../upload/folder.ts';
 import type { ThemeChoice } from '../useTheme.ts';
 import { Chevron } from './Icon.tsx';
 
@@ -28,6 +29,8 @@ interface Props {
   onTheme(t: ThemeChoice): void;
   onSelect(id: string): void;
   onAdd(source: string): Promise<void>;
+  /** A packed folder; `replace` names the uploaded repository it updates. */
+  onUpload(name: string, archive: Blob, replace?: string): Promise<void>;
   onRemove(id: string): Promise<void>;
   onRefresh(id: string): Promise<void>;
   onPreset(preset: LayerPreset): Promise<void>;
@@ -272,10 +275,80 @@ const STATUS: Record<RepoInfo['status'], string> = {
   error: "couldn't index it",
 };
 
-function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
+const size = (bytes: number) => (bytes < 1 << 20 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1 << 20)).toFixed(1)} MB`);
+
+/** How an uploaded repository's row describes where it came from. */
+function uploadedFrom(r: RepoInfo): string {
+  const at = r.uploadedAt ? new Date(r.uploadedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
+  const rev = [r.branch, r.commit].filter(Boolean).join(' @ ');
+  return [`Uploaded folder ${r.source}`, rev, r.remote, at && `uploaded ${at}`].filter(Boolean).join(' · ');
+}
+
+/**
+ * Picking a folder on this computer and sending its source: through the File
+ * System Access API where the browser has it (Chrome, Edge), which lets the
+ * walk skip node_modules without listing it, else an <input webkitdirectory>.
+ */
+function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'], onError: (message: string | null) => void) {
+  const [progress, setProgress] = useState<string | null>(null);
+  const replace = useRef<string | undefined>(undefined);
+  const input = useRef<HTMLInputElement | null>(null);
+  const policy = workspace?.upload;
+
+  const send = async (folder: Folder) => {
+    if (!policy) return;
+    onError(null);
+    setProgress(`reading ${folder.name}…`);
+    try {
+      const picked = await collect(folder, policy, (files, bytes) => setProgress(`reading ${folder.name}… ${files.toLocaleString()} files, ${size(bytes)}`));
+      const archive = await pack(picked);
+      setProgress(`uploading ${picked.name}… ${picked.sources.toLocaleString()} files, ${size(archive.size)}`);
+      await onUpload(picked.name, archive, replace.current);
+    } catch (err) {
+      onError((err as Error).message);
+    } finally {
+      setProgress(null);
+    }
+  };
+
+  const start = async (replacing?: string) => {
+    replace.current = replacing;
+    if (!canPickDirectory()) return input.current?.click();
+    try {
+      const folder = await pickDirectory();
+      if (folder) await send(folder);
+    } catch (err) {
+      onError((err as Error).message);
+    }
+  };
+
+  const picked = (e: ChangeEvent<HTMLInputElement>) => {
+    const folder = fromFileList(e.target.files ?? []);
+    e.target.value = '';
+    if (folder) send(folder);
+  };
+
+  const field = (
+    <input
+      type="file"
+      hidden
+      ref={(el) => {
+        input.current = el;
+        if (el) el.webkitdirectory = true;
+      }}
+      onChange={picked}
+      aria-label="Folder to upload"
+      data-testid="folder-input"
+    />
+  );
+  return { available: !!policy, progress, start, field };
+}
+
+function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }: Props) {
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const folder = useFolderUpload(workspace, onUpload, setError);
   const add = async (source: string) => {
     if (!source.trim()) return;
     setPending(true);
@@ -304,8 +377,9 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
         <div className="repo-list">
           {repos.map((r) => {
             const working = r.status === 'queued' || r.status === 'cloning' || r.status === 'indexing';
+            const uploaded = r.kind === 'upload';
             return (
-              <div key={r.id} className="repo-row" title={r.source}>
+              <div key={r.id} className="repo-row" title={uploaded ? uploadedFrom(r) : r.source}>
                 <span className="dot" style={{ background: pal.repo(r.id) }} />
                 <div className="repo-main">
                   <div className="repo-name">{r.name}</div>
@@ -313,15 +387,24 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
                     {r.status === 'ready' ? (
                       <span>
                         {r.fileCount} files · {r.symbolCount} symbols{r.truncated ? ` · ${r.truncated} skipped` : ''}
+                        {uploaded ? ' · uploaded' : ''}
                       </span>
                     ) : (
                       <span className={r.status === 'error' ? 'err-lead' : working ? 'busy' : ''}>{STATUS[r.status]}</span>
                     )}
                     {editable && (
                       <>
-                        <button className="link" title="Pull and re-index" disabled={working} onClick={() => onRefresh(r.id).catch((err: Error) => setError(err.message))}>
-                          refresh
-                        </button>
+                        {uploaded ? (
+                          folder.available && (
+                            <button className="link" title="Pick this folder again to update it" disabled={working || !!folder.progress} onClick={() => folder.start(r.id)}>
+                              upload again
+                            </button>
+                          )
+                        ) : (
+                          <button className="link" title="Pull and re-index" disabled={working} onClick={() => onRefresh(r.id).catch((err: Error) => setError(err.message))}>
+                            refresh
+                          </button>
+                        )}
                         <button className="link danger" title="Remove from this project" onClick={() => onRemove(r.id).catch((err: Error) => setError(err.message))}>
                           remove
                         </button>
@@ -348,6 +431,26 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
             {pending ? 'importing…' : 'import'}
           </button>
         </form>
+      )}
+      {editable && folder.available && (
+        <div className="upload-line" aria-live="polite">
+          {folder.progress ? (
+            <span className="busy">{folder.progress}</span>
+          ) : (
+            <>
+              or{' '}
+              <button
+                className="link"
+                onClick={() => folder.start()}
+                title={`Pick a folder on this computer, like a checkout of a private repository. Only its source is sent (up to ${Math.round(workspace!.upload!.maxBytes / (1 << 20))} MB): what .gitignore ignores, dependencies and git history stay behind.`}
+              >
+                upload a folder
+              </button>
+              , private repositories too
+            </>
+          )}
+          {folder.field}
+        </div>
       )}
       {error && <Problem text={error} />}
       {!!suggestions.length && (
