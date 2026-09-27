@@ -9,6 +9,12 @@ export const API_BASE = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
+/** Said when nothing answers at the indexer's address. */
+const UNREACHABLE = API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with npm run dev.";
+
+/** Said when /api on the page's own host is a plain 404: a deployed build without VITE_API_URL. */
+const NOT_SET_UP = 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in the README).';
+
 const KEY_ITEM = 'strata.key';
 
 /**
@@ -47,9 +53,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body) headers['content-type'] = 'application/json';
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   if (accessKey && init?.method && init.method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
-  const res = await fetch(apiUrl(path), { ...init, headers });
+  const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
+    throw new Error(UNREACHABLE);
+  });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // The indexer's own errors carry a message. A bare 404 is some other server answering for /api:
+    // the static host itself when no VITE_API_URL was built in.
+    if (body.error) throw new Error(body.error);
+    if (res.status === 404) throw new Error(API_BASE ? UNREACHABLE : NOT_SET_UP);
+    throw new Error(`The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
+  }
   return body as T;
 }
 
