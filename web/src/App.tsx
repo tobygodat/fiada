@@ -455,7 +455,7 @@ export function App() {
 function Legend({ colorBy, pal, layers, mode }: { colorBy: ColorBy; pal: ReturnType<typeof palette>; layers: { id: string; name: string }[]; mode: ExpandMode }) {
   return (
     <div className="legend">
-      <span>{mode === 'click' ? 'click a circle for details, again to open it · scroll to zoom' : 'scroll to zoom and open circles'}</span>
+      <span>{mode === 'click' ? 'point at a circle for its links · click for details, again to open it · scroll to zoom' : 'point at a circle for its links · scroll to zoom and open circles'}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo
       </span>
