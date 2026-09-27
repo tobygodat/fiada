@@ -232,6 +232,7 @@ a { color: inherit; }
 .layer-row.muted .grow { color: var(--muted); }
 .count { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 .layer-file { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.sorting { margin: var(--space-8) 0; }
 
 /* The outline: a dense tree. Hover turns the name green; the selected row takes the selection. */
 .sidebar > .outline-section { flex: 1 0 240px; }

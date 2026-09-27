@@ -17,6 +17,8 @@ export interface WorkspaceHandle {
   refresh(id: string): Promise<void>;
   /** Starts the project's layers over from a preset. */
   applyPreset(preset: LayerPreset): Promise<void>;
+  /** Asks Claude to sort the project's leftovers again. */
+  sortAgain(): Promise<void>;
   /** Checks with the indexer now instead of at the next poll (it said the graph changed). */
   reload(): Promise<void>;
 }
@@ -38,7 +40,8 @@ export function useWorkspace(): WorkspaceHandle {
         version.current = next.graphVersion;
         setGraph(await api.graph());
       }
-      timer.current = window.setTimeout(() => sync(), next.busy ? 800 : 5000);
+      // Quick while repositories index or Claude sorts, so the result shows as soon as it lands.
+      timer.current = window.setTimeout(() => sync(), next.busy || next.sorting?.status === 'running' ? 800 : 5000);
     } catch (err) {
       setOffline((err as Error).message);
       timer.current = window.setTimeout(() => sync(), 2000);
@@ -62,6 +65,7 @@ export function useWorkspace(): WorkspaceHandle {
       await api.applyPreset(preset);
       await sync();
     },
+    sortAgain: async () => sync(await api.sortAgain()),
     reload: () => sync(),
   };
 }
