@@ -1,7 +1,7 @@
 // TypeScript / TSX / JavaScript fact extraction.
 
 import type { SymbolKind } from '@strata/shared';
-import type { HttpRequest, ImportSpec, MountDecl, PageDecl, ParsedFile, ParsedSymbol, RouteDecl, RouterDecl } from '../model.ts';
+import type { ClientDecl, HttpRequest, ImportSpec, MountDecl, PageDecl, ParsedFile, ParsedSymbol, RouteDecl, RouterDecl, UrlPart } from '../model.ts';
 import { RefSet } from './refs.ts';
 import { HTTP_VERBS, line, requestUrl, stringValue, urlParts, type SyntaxNode } from './treesitter.ts';
 
@@ -131,16 +131,25 @@ function mountFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   if (fn.type !== 'member_expression') return;
   const obj = fn.childForFieldName('object');
   const method = fn.childForFieldName('property')?.text;
-  if (obj?.type !== 'identifier' || !ROUTER_OBJECT.test(obj.text)) return;
+  if (obj?.type !== 'identifier') return;
   const argv = call.childForFieldName('arguments')?.namedChildren ?? [];
   const isRouterRef = (n: SyntaxNode | undefined) => n && (n.type === 'identifier' || n.type === 'member_expression' || isRequire(n));
   const childText = (n: SyntaxNode) => (isRequire(n) ? `require:${stringValue(n.childForFieldName('arguments')?.namedChildren[0] ?? null)}` : n.text);
   if (method === 'use' || method === 'route') {
-    const prefix = argv.length >= 2 ? urlParts(argv[0], true) : [];
-    const child = argv[argv.length - 1];
+    let prefix = argv.length >= 2 ? urlParts(argv[0], true) : [];
+    let child = argv[argv.length - 1];
+    // Koa: `app.use(mount("/api", api))` (koa-mount) and `router.use("/", items.routes())` (koa-router).
+    const koa = koaChild(child);
+    if (koa) {
+      if (koa.prefix.length) prefix = [...(prefix ?? []), ...koa.prefix];
+      child = koa.child;
+    }
+    if (!koa && !ROUTER_OBJECT.test(obj.text)) return;
     if (prefix && isRouterRef(child) && !(argv.length === 1 && method === 'route')) {
       out.mounts.push({ parent: obj.text, child: childText(child), prefix, line: line(call) });
     }
+  } else if (!ROUTER_OBJECT.test(obj.text)) {
+    return;
   } else if (method === 'register' && isRouterRef(argv[0])) {
     let prefix: MountDecl['prefix'] = [];
     for (const pair of argv[1]?.type === 'object' ? argv[1].namedChildren : []) {
@@ -153,6 +162,25 @@ function mountFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
 }
 
 const isRequire = (n: SyntaxNode) => n.type === 'call_expression' && n.childForFieldName('function')?.text === 'require';
+
+/** `items.routes()` / `items.middleware()` → items; `mount("/api", api)` → api under /api; `mount(routes)` → routes. */
+function koaChild(n: SyntaxNode | undefined): { child: SyntaxNode; prefix: MountDecl['prefix'] } | null {
+  if (n?.type !== 'call_expression') return null;
+  const fn = n.childForFieldName('function');
+  const argv = n.childForFieldName('arguments')?.namedChildren ?? [];
+  if (fn?.type === 'member_expression' && !argv.length && /^(routes|middleware)$/.test(fn.childForFieldName('property')?.text ?? '')) {
+    const obj = fn.childForFieldName('object');
+    return obj ? { child: obj, prefix: [] } : null;
+  }
+  if (fn?.type === 'identifier' && fn.text === 'mount' && argv.length >= 1 && argv.length <= 2) {
+    const prefix = argv.length === 2 ? urlParts(argv[0], true) : [];
+    const inner = argv[argv.length - 1];
+    if (!prefix) return null;
+    const nested = koaChild(inner);
+    return { child: nested?.child ?? inner, prefix: [...prefix, ...(nested?.prefix ?? [])] };
+  }
+  return null;
+}
 
 function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   const args = call.childForFieldName('arguments');
@@ -175,8 +203,12 @@ function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   const handlerLike = argv.length >= 2 && (FUNCTION_LIKE.has(last.type) || last.type === 'identifier' || last.type === 'member_expression');
   const routerName = obj?.type === 'identifier' ? obj.text : undefined;
   const routerish = obj != null && ROUTER_OBJECT.test(obj.text.split('.').pop() ?? '');
-  if (first?.startsWith('/') && handlerLike && (routerish || FUNCTION_LIKE.has(last.type)) && !CLIENT_VERB[verb]) {
-    const route: RouteDecl = { method: verb === 'all' ? '*' : verb.toUpperCase(), path: first, line: line(call) };
+  // koa-router takes paths without a leading slash: `router.post("documents.list", …)` serves /documents.list.
+  // Only on objects named like a router, so `r.get("session", cb)` on a Redis client isn't a route.
+  const bare = obj != null && /[rR]outer$/.test(obj.text) && first != null && /^[\w$:{}*-][\w$:.{}*/-]*$/.test(first) ? `/${first}` : null;
+  const path = first?.startsWith('/') ? first : bare;
+  if (path && handlerLike && (routerish || FUNCTION_LIKE.has(last.type)) && !CLIENT_VERB[verb]) {
+    const route: RouteDecl = { method: verb === 'all' ? '*' : verb.toUpperCase(), path, line: line(call) };
     if (routerName) route.router = routerName;
     if (last.type === 'identifier' || last.type === 'member_expression') route.handler = last.text;
     out.routes.push(route);
@@ -184,15 +216,99 @@ function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   }
   const method = CLIENT_VERB[verb] ?? (HTTP_VERBS.has(verb) ? verb.toUpperCase() : (methodFromOptions(argv[1]) ?? 'GET'));
   // client.get("/items") or client.get({ url: "/items" }) as generated SDKs do.
-  const url = requestUrl(argv[0]) ?? (argv[0].type === 'object' ? urlFromOptions(argv[0]) : null);
-  if (url) out.requests.push({ method, ...url, line: line(call) });
+  const urlNode = argv[0].type === 'object' ? urlOption(argv[0]) : argv[0];
+  const url = requestUrl(urlNode);
+  if (!url) return;
+  const req: HttpRequest = { method, ...url, line: line(call) };
+  // An absolute URL replaces the client's base URL (axios, ky, fetch wrappers), so only relative ones go through it.
+  if (obj?.type === 'identifier' && !url.base && !/^[`'"]?([a-z][a-z0-9+.-]*:)?\/\//i.test(urlNode?.text ?? '')) req.via = obj.text;
+  out.requests.push(req);
 }
 
-function urlFromOptions(opts: SyntaxNode): { path: string; base?: string } | null {
+/** Property names a client keeps its base URL in. */
+const BASE_PROP = /^(base_?ur[li]|base_?path|api_?(base|root|url)|prefix_?url)$/i;
+
+/** `"/api"`, `` `${API}/v1` ``, and the fallback in `options.baseUrl || "/api"`. */
+function baseValue(n: SyntaxNode | null): UrlPart[] | null {
+  if (!n) return null;
+  if (n.type === 'binary_expression' && /^(\|\||\?\?)$/.test(n.childForFieldName('operator')?.text ?? '')) {
+    return baseValue(n.childForFieldName('right')) ?? baseValue(n.childForFieldName('left'));
+  }
+  if (n.type === 'parenthesized_expression') return baseValue(n.namedChildren[0] ?? null);
+  // Anything else that isn't a plain string, name or concatenation (a call, a conditional) we can't read.
+  return /^(string|template_string|identifier|member_expression|binary_expression)$/.test(n.type) ? urlParts(n, true) : null;
+}
+
+/** A class that prefixes its requests: `baseUrl = "/api"` as a field, or `this.baseUrl = … "/api"` in a method. */
+function classBaseUrl(cls: SyntaxNode): { parts: UrlPart[]; line: number } | undefined {
+  const body = cls.childForFieldName('body');
+  if (!body) return undefined;
+  for (const f of body.namedChildren) {
+    if (f.type !== 'public_field_definition' && f.type !== 'field_definition') continue;
+    const name = (f.childForFieldName('name') ?? f.childForFieldName('property'))?.text;
+    const parts = name && BASE_PROP.test(name) ? baseValue(f.childForFieldName('value')) : null;
+    if (parts) return { parts, line: line(f) };
+  }
+  for (const a of body.descendantsOfType('assignment_expression')) {
+    const left = a.childForFieldName('left');
+    if (left?.type !== 'member_expression' || left.childForFieldName('object')?.type !== 'this') continue;
+    if (!BASE_PROP.test(left.childForFieldName('property')?.text ?? '')) continue;
+    const parts = baseValue(a.childForFieldName('right'));
+    if (parts) return { parts, line: line(a) };
+  }
+  return undefined;
+}
+
+/**
+ * The base URL a constructor or factory call passes in: `{ baseURL: "/api" }` or a leading "/api" string.
+ * `null` when the arguments set nothing we can see, `'unknown'` when they may set one we can't read.
+ */
+function baseArgument(args: SyntaxNode[]): UrlPart[] | null | 'unknown' {
+  const first = args[0];
+  if (!first) return null;
+  if (first.type === 'object') {
+    for (const pair of first.namedChildren) {
+      if (pair.type === 'spread_element') return 'unknown';
+      if (pair.type !== 'pair' && pair.type !== 'shorthand_property_identifier') continue;
+      const key = (pair.type === 'pair' ? pair.childForFieldName('key')?.text : pair.text)?.replace(/['"]/g, '') ?? '';
+      if (!BASE_PROP.test(key) && !/^prefix$/i.test(key)) continue;
+      return (pair.type === 'pair' && baseValue(pair.childForFieldName('value'))) || 'unknown';
+    }
+    return null;
+  }
+  const parts = baseValue(first);
+  const lead = parts?.[0];
+  if (lead && 'lit' in lead && /^(\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(lead.lit)) return parts;
+  return 'unknown';
+}
+
+/**
+ * `new ApiClient()` (its class's base URL applies), `new ApiClient({ baseUrl: "/v2" })`,
+ * `axios.create({ baseURL: "/api" })`, `ky.create({ prefixUrl: "/api" })`.
+ */
+function clientFrom(name: string, value: SyntaxNode, at: number): ClientDecl | null {
+  const args = value.childForFieldName('arguments')?.namedChildren ?? [];
+  if (value.type === 'new_expression') {
+    const ctor = value.childForFieldName('constructor');
+    if (ctor?.type !== 'identifier' || !isPascal(ctor.text)) return null;
+    const base = baseArgument(args);
+    // Arguments that may override the class's base URL, and that we can't read, leave the client unknown.
+    if (base === 'unknown') return null;
+    return base ? { name, base, line: at } : { name, ctor: ctor.text, line: at };
+  }
+  if (value.type !== 'call_expression') return null;
+  const fn = value.childForFieldName('function');
+  if (fn?.type !== 'member_expression' || !/^(create|extend)$/.test(fn.childForFieldName('property')?.text ?? '')) return null;
+  const base = baseArgument(args);
+  return base && base !== 'unknown' ? { name, base, line: at } : null;
+}
+
+/** The `url` or `path` value in `client.get({ url: "/items" })`, as generated SDKs call it. */
+function urlOption(opts: SyntaxNode): SyntaxNode | null {
   for (const pair of opts.namedChildren) {
     if (pair.type !== 'pair') continue;
     const key = pair.childForFieldName('key')?.text.replace(/['"]/g, '');
-    if (key === 'url' || key === 'path') return requestUrl(pair.childForFieldName('value'));
+    if (key === 'url' || key === 'path') return pair.childForFieldName('value');
   }
   return null;
 }
@@ -366,10 +482,28 @@ function paramsOf(fn: SyntaxNode): string[] | undefined {
   if (!params) return undefined;
   const names = params.namedChildren.map((p) => {
     if (p.type === 'identifier') return p.text;
-    const pat = p.childForFieldName('pattern');
+    const pat = p.childForFieldName('pattern') ?? (p.type === 'assignment_pattern' ? p.childForFieldName('left') : null);
     return pat?.type === 'identifier' ? pat.text : '';
   });
   return names.length ? names : undefined;
+}
+
+/** Types of a parameter that is itself an application (`app: Koa`) or a router (`router: Router`). */
+const APP_TYPE = /^(Koa|Express|Application|FastifyInstance|Hono)\b/;
+const ROUTER_TYPE = /^(Router|KoaRouter|IRouter)\b/;
+
+/** `function init(app: Koa = new Koa())`: a parameter that holds an app or router, named by position like bindParams does. */
+function paramRouters(fn: SyntaxNode): RouterDecl[] {
+  const out: RouterDecl[] = [];
+  const params = fn.childForFieldName('parameters')?.namedChildren ?? [];
+  params.forEach((p, i) => {
+    const type = p.childForFieldName('type')?.text.replace(/^:\s*/, '') ?? '';
+    const value = p.childForFieldName('value') ?? (p.type === 'assignment_pattern' ? p.childForFieldName('right') : null);
+    const ctor = value?.type === 'new_expression' ? value.childForFieldName('constructor')?.text : value?.type === 'call_expression' ? value.childForFieldName('function')?.text : undefined;
+    if ((ctor && ROOT_CTOR.test(ctor)) || APP_TYPE.test(type)) out.push({ name: `#${i}`, root: true, line: line(p) });
+    else if ((ctor && SUB_CTOR.test(ctor)) || ROUTER_TYPE.test(type)) out.push({ name: `#${i}`, root: false, line: line(p) });
+  });
+  return out;
 }
 
 /** Routes and mounts on a router passed in as a parameter refer to it by position. */
@@ -394,8 +528,10 @@ export function extractTs(root: SyntaxNode, file: ParsedFile) {
     const lines: [number, number] = [line(decl), decl.endPosition.row + 1];
     const named = (name: string, kind: SymbolKind, body: SyntaxNode, extra: Partial<ParsedSymbol> = {}) => {
       const s = scan(body, name);
-      const params = FUNCTION_LIKE.has(body.type) || body.type === 'function_declaration' ? paramsOf(body) : undefined;
+      const isFn = FUNCTION_LIKE.has(body.type) || body.type === 'function_declaration';
+      const params = isFn ? paramsOf(body) : undefined;
       bindParams(s, params);
+      if (isFn) s.routers.push(...paramRouters(body));
       if (kind === 'function' && s.jsx && isPascal(name)) kind = 'component';
       addSymbol({ name, kind, exported, isDefault, lines, refs: s.refs.list(), jsx: s.jsx, params, ...extras(s), ...extra });
     };
@@ -418,7 +554,8 @@ export function extractTs(root: SyntaxNode, file: ParsedFile) {
         const bases = heritage
           ? heritage.descendantsOfType(['identifier', 'type_identifier', 'member_expression']).map((b) => b.text)
           : [];
-        named(name, 'class', decl, { bases: bases.length ? bases : undefined });
+        const clientBase = classBaseUrl(decl);
+        named(name, 'class', decl, { bases: bases.length ? bases : undefined, clientBase });
         return;
       }
       case 'interface_declaration': {
@@ -451,6 +588,8 @@ export function extractTs(root: SyntaxNode, file: ParsedFile) {
           // Module-level string constants, for resolving URL bases and mount prefixes.
           const str = value && (vt === 'string' || vt === 'template_string') ? stringValue(value) : null;
           if (str != null && !str.includes('{}')) file.constants.push({ name, value: str, line: line(d) });
+          const client = value && clientFrom(name, value, line(d));
+          if (client) (file.clients ??= []).push(client);
           let kind: SymbolKind | null = null;
           if (FUNCTION_LIKE.has(vt)) kind = 'function';
           else if (vt === 'class') kind = 'class';
@@ -462,6 +601,7 @@ export function extractTs(root: SyntaxNode, file: ParsedFile) {
           const s = scan(d, name);
           const params = value && FUNCTION_LIKE.has(vt) ? paramsOf(value) : undefined;
           bindParams(s, params);
+          if (value && FUNCTION_LIKE.has(vt)) s.routers.push(...paramRouters(value));
           if (s.jsx && isPascal(name)) kind = 'component';
           addSymbol({
             name,
