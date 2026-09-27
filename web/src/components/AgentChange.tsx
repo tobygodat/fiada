@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@strata/shared';
 import { api, type AgentDiff } from '../api.ts';
+import { diffRows, hunksFor } from './diff.ts';
+import './agent.css';
 
 interface Props {
   /** File or symbol id; the diff is the file's. */
@@ -17,29 +19,7 @@ interface Props {
 
 const MAX_LINES = 500;
 
-/** Hunks of a unified diff whose new side overlaps `lines`; all of them when none does. */
-export function hunksFor(diff: string, lines?: [number, number]): string[] {
-  const out = diff.split('\n');
-  const start = out.findIndex((l) => l.startsWith('@@'));
-  if (start < 0) return out;
-  const hunks: string[][] = [];
-  for (const l of out.slice(start)) {
-    if (l.startsWith('@@')) hunks.push([l]);
-    else hunks[hunks.length - 1].push(l);
-  }
-  const last = hunks[hunks.length - 1];
-  if (last[last.length - 1] === '') last.pop();
-  if (!lines) return hunks.flat();
-  const [a, b] = lines;
-  const hit = hunks.filter((h) => {
-    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
-    if (!m) return true;
-    const s = Number(m[1]);
-    const e = s + Math.max(1, m[2] == null ? 1 : Number(m[2])) - 1;
-    return s <= b && e >= a;
-  });
-  return (hit.length ? hit : hunks).flat();
-}
+const VERB = { added: 'added', modified: 'changed', deleted: 'deleted' } as const;
 
 const ago = (iso: string) => {
   const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
@@ -66,29 +46,36 @@ export function AgentChange({ node, lines, rev, kind }: Props) {
   const list = mine ?? [];
   return (
     <div className="detail-block agent-change">
-      <div className="block-title row gap">
-        <span className={`chg ${kind}`}>●</span>
-        <span>{kind === 'added' ? 'Added by an agent' : kind === 'deleted' ? 'Deleted by an agent' : 'Changed by an agent'}</span>
-      </div>
-      {!mine && <div className="muted small">Loading the diff…</div>}
-      {mine && !list.length && <div className="muted small">No diff recorded for this change.</div>}
+      <div className="block-title">{VERB[kind]} by an agent</div>
+      {!mine && <div className="agent-note">loading the diff…</div>}
+      {mine && !list.length && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d) => {
-        const shown = d.diff ? hunksFor(d.diff, lines) : [];
+        const shown = d.diff ? diffRows(hunksFor(d.diff, lines)) : [];
         return (
           <div key={d.agent} className="agent-diff">
-            <div className="mono small muted agent-diff-head">
-              {d.name} · {d.kind}
-              {d.additions ? <span className="chg added"> +{d.additions}</span> : null}
-              {d.deletions ? <span className="chg deleted"> −{d.deletions}</span> : null} · {ago(d.at)}
+            <div className="agent-diff-head">
+              <span className={`swatch-ring ${d.kind}`} aria-hidden />
+              <span>
+                <b>{d.name}</b> {VERB[d.kind]} this file
+                {d.additions || d.deletions ? ` · ${[d.additions ? `+${d.additions}` : '', d.deletions ? `−${d.deletions}` : ''].filter(Boolean).join(' ')}` : ''} · {ago(d.at)}
+              </span>
             </div>
             {!!shown.length && (
               <pre className="code diff">
-                {shown.slice(0, MAX_LINES).map((l, i) => (
-                  <div key={i} className={l.startsWith('@@') ? 'hunk' : l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : ''}>
-                    {l || ' '}
-                  </div>
-                ))}
-                {shown.length > MAX_LINES && <div className="muted">… {shown.length - MAX_LINES} more lines</div>}
+                {shown.slice(0, MAX_LINES).map((r, i) =>
+                  r.t === 'hunk' ? (
+                    <div key={i} className="hunk">
+                      <span className="hunk-at">line {r.line}</span>
+                      {r.context && <span>{r.context}</span>}
+                    </div>
+                  ) : (
+                    <div key={i} className={r.t}>
+                      <span className="gut">{r.sign}</span>
+                      <span>{r.text || ' '}</span>
+                    </div>
+                  ),
+                )}
+                {shown.length > MAX_LINES && <div className="more">and {shown.length - MAX_LINES} more lines</div>}
               </pre>
             )}
           </div>

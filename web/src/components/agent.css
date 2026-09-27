@@ -1,0 +1,154 @@
+/* The agent overlay's chrome: the task window at the top right, folded or open, and the
+   agent's diff in the detail panel. The map's rings and badges are drawn in render/activity.ts.
+   Colours, type and spacing come from theme/tokens.css only (DESIGN.md). */
+
+/* ── Change marks: +, ~ and − in the colours the map rings use ── */
+.chg { font-variant-numeric: tabular-nums; }
+.chg.added { color: var(--added); }
+.chg.modified { color: var(--modified); }
+.chg.deleted { color: var(--deleted); }
+
+/* A ring outside a circle, with a gap of paper between, as on the map. */
+.swatch-ring {
+  display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%;
+  border: 1.5px solid; padding: 1.5px; background: color-mix(in srgb, var(--muted) 45%, transparent) content-box;
+}
+.swatch-ring.added { border-color: var(--added); }
+.swatch-ring.modified { border-color: var(--modified); }
+.swatch-ring.deleted { border-color: var(--deleted); border-style: dashed; }
+.swatch-ring.working { border-color: var(--working); }
+
+/* ── The window: a floating panel over the map ── */
+.queue {
+  position: absolute; z-index: 4; top: var(--space-md); right: var(--space-md); width: 340px; max-height: calc(100% - 72px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--ground-raised); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
+  color: var(--text); font-family: var(--font-serif); font-size: var(--size-small); line-height: var(--leading);
+  font-kerning: normal; font-variant-ligatures: common-ligatures;
+  animation: queue-rise var(--fast) var(--ease) both;
+}
+/* Opened on purpose over the detail panel: on top of it. */
+.queue.over { z-index: 6; }
+@keyframes queue-rise { from { opacity: 0; transform: translateY(var(--distance-base)); } to { opacity: 1; transform: none; } }
+
+.queue button { font: inherit; color: inherit; text-align: left; }
+.queue :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+
+.queue-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm) var(--space-md) var(--space-8); }
+.queue-title { margin: 0; font-size: var(--size-heading); font-weight: var(--weight-bold); line-height: var(--leading-tight); }
+.queue-title::before { content: '// '; color: var(--accent); }
+
+/* An action is a word, underlined in the green; it turns green under the pointer. */
+.queue-act {
+  flex: none; color: var(--muted); font-size: var(--size-fine); line-height: var(--leading-fine);
+  text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px;
+}
+.queue-act:hover, button:hover > .queue-act { color: var(--accent); }
+
+.queue-list { overflow: auto; }
+
+/* ── One agent: a list row between hairlines ── */
+.queue-card { padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--hairline); }
+.queue-card-head { display: flex; align-items: baseline; gap: var(--space-8); min-width: 0; }
+.queue-name { font-weight: var(--weight-bold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-state { flex: none; margin-left: auto; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.queue-state.working { color: var(--working); }
+.queue-state.waiting { color: var(--warning); }
+
+/* The agent's state as a mark beside its words: a green ring sending out a slow ripple while it
+   works, a hollow ochre ring while it waits for you, a muted one once the session has ended. */
+.queue-dot {
+  position: relative; flex: none; align-self: center; width: 9px; height: 9px; margin: 0 4.5px; border-radius: 50%;
+  border: 1.5px solid var(--muted);
+}
+.queue-dot.working { border-color: var(--working); }
+.queue-dot.working::after {
+  content: ''; position: absolute; inset: -1.5px; border-radius: 50%; border: 1.5px solid var(--working);
+  animation: queue-ripple 2s ease-out infinite;
+}
+.queue-dot.waiting { border-color: var(--warning); }
+@keyframes queue-ripple { from { transform: scale(1); opacity: 0.8; } to { transform: scale(2.4); opacity: 0; } }
+
+.queue-task {
+  margin-top: var(--space-xs); text-wrap: pretty;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.queue-note { margin-top: var(--space-8); padding-left: var(--space-sm); border-left: 2px solid var(--hairline-strong); color: var(--muted); text-wrap: pretty; }
+
+/* The plan: finished steps muted, the current one in ink with the green breathing beside it. */
+.queue-steps { list-style: none; margin: var(--space-8) 0 0; padding: 0; }
+.step { display: flex; gap: var(--space-8); align-items: flex-start; color: var(--muted); }
+.step.active { color: var(--text); }
+.step-icon { flex: none; width: 18px; height: 18px; margin-top: 3px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.step.active .step-icon { stroke: var(--working); animation: queue-breathe 2s ease-in-out infinite; }
+.step-more { padding-left: 26px; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+@keyframes queue-breathe { 50% { opacity: 0.35; } }
+
+/* Changed files: a line that opens the list, then one row per file. */
+.queue-files { margin-top: var(--space-8); }
+.queue-files-toggle { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 28px; color: var(--muted); }
+.queue-files-toggle:hover .queue-files-words { color: var(--accent); }
+.chev { flex: none; width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--quick) var(--ease); }
+.chev.open { transform: rotate(90deg); }
+.queue-files-counts { display: flex; gap: var(--space-8); margin-left: auto; font-size: var(--size-fine); }
+
+.queue-file-list { display: flex; flex-direction: column; margin: var(--space-xs) 0 0 26px; }
+.queue-file {
+  display: flex; align-items: baseline; gap: var(--space-8); width: 100%; min-width: 0; padding: 2px 0;
+  font-size: var(--size-fine); line-height: var(--leading-fine);
+}
+.queue-file .chg:first-child { flex: none; width: 10px; text-align: center; }
+.queue-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-file-dir { margin-left: var(--space-8); color: var(--muted); }
+.queue-file:hover:not(:disabled) .queue-file-base { color: var(--accent); }
+.queue-file:disabled { cursor: default; }
+.queue-file:disabled .queue-file-base { color: var(--muted); }
+.queue-file-stat { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.queue-meta { display: flex; align-items: baseline; gap: var(--space-8); margin-top: var(--space-8); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.queue-meta-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-meta .queue-act { margin-left: auto; }
+
+/* What the marks on the map mean: words beside their marks, no box. */
+.queue-key {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-md);
+  padding: var(--space-8) var(--space-md) var(--space-sm); border-top: 1px solid var(--hairline);
+  font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted);
+}
+.queue-key > span { display: flex; align-items: center; gap: var(--space-8); }
+
+/* ── Folded: one line at the top of the right column, not a pill ── */
+.queue-folded {
+  flex-direction: row; align-items: center; gap: var(--space-8);
+  height: 44px; padding: 0 var(--space-md); cursor: pointer;
+}
+.queue-folded-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-folded-line .queue-state { margin: 0; font-size: inherit; }
+.queue-folded-more { flex: none; font-size: var(--size-fine); color: var(--muted); }
+/* The detail panel starts below the folded line. */
+.main:has(.queue-folded) .detail { top: calc(var(--space-md) + 44px + var(--space-8)); max-height: calc(100% - 44px - 72px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-dot.working::after, .step.active .step-icon { animation: none; }
+}
+
+/* ── The agent's diff in the detail panel ── */
+.agent-diff + .agent-diff { margin-top: var(--space-md); }
+.agent-diff-head { margin-bottom: var(--space-8); font-family: var(--font-serif); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.agent-diff-head .swatch-ring { width: 11px; height: 11px; margin-right: var(--space-8); vertical-align: -1px; }
+.agent-diff-head b { font-weight: var(--weight-regular); color: var(--text); }
+.agent-change .agent-note { font-family: var(--font-serif); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+
+/* Quoted code keeps its columns: the one monospace in Strata. */
+.agent-change .code.diff { font-family: var(--font-code); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--text); padding: var(--space-xs) 0; }
+.code.diff > div { display: flex; white-space: pre; padding-right: var(--space-sm); }
+.code.diff .gut { flex: none; width: 24px; text-align: center; color: var(--muted); user-select: none; }
+.code.diff .add { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.code.diff .add .gut { color: var(--text); }
+.code.diff .del { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--muted); }
+.code.diff .del .gut { color: var(--danger); }
+/* Where a hunk starts, in words, with the code it sits in. */
+.code.diff .hunk { gap: var(--space-8); padding: var(--space-8) var(--space-sm) var(--space-xs) 24px; color: var(--muted); }
+.code.diff .hunk:first-child { padding-top: var(--space-xs); }
+.code.diff .hunk-at { font-family: var(--font-serif); }
+.code.diff .more { padding-left: 24px; font-family: var(--font-serif); color: var(--muted); }

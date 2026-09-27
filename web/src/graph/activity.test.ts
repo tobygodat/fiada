@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { GraphNode, NodeChange } from '@strata/shared';
-import { rollupActivity } from './activity.ts';
+import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@strata/shared';
+import { describeMarks, rollupActivity } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree, buildFunctionTree } from './tree.ts';
 
@@ -35,6 +35,49 @@ test('By function view counts symbols under their layer and domain', () => {
   const domain = a.get('domain:items');
   assert.equal(domain?.modified, 1);
   assert.equal(domain?.added, 0);
+});
+
+const file = (path: string, at: string, symbols: AgentFile['symbols'] = []): AgentFile => ({ repo: 'web', path, node: `web/${path}`, kind: 'modified', symbols, at, diff: true });
+const agent = (state: AgentActivity['state'], files: AgentFile[]): AgentActivity => ({
+  id: `a-${state}`,
+  client: 'claude-code',
+  name: 'Claude Code',
+  where: 'web',
+  cwd: '/w',
+  state,
+  steps: [],
+  files,
+  startedAt: '2026-09-27T10:00:00Z',
+  updatedAt: '2026-09-27T10:00:30Z',
+});
+
+test('a working agent is here: at the file it changed last, and inside every circle round it', () => {
+  const tree = buildCodeTree(graph);
+  const a = rollupActivity(tree, graphIndex, nodes, [
+    agent('working', [file('src/pages/tags.tsx', '2026-09-27T10:00:10Z'), file('src/pages/items.tsx', '2026-09-27T10:00:20Z')]),
+  ]);
+  assert.equal(a.get('web/src/pages/items.tsx')?.here, 'self');
+  assert.equal(a.get('web/src/pages')?.here, 'inside');
+  assert.equal(a.get('web')?.here, 'inside');
+  assert.equal(a.get('root')?.here ?? null, null, 'not on the workspace');
+  assert.equal(a.get('api/app/routes')?.here, null, 'not where it only changed things earlier');
+  assert.match(describeMarks(a.get('web/src/pages/items.tsx')!, 'code'), /working here/);
+});
+
+test('an agent that waits, or has ended, is nowhere', () => {
+  const tree = buildCodeTree(graph);
+  for (const state of ['waiting', 'ended'] as const) {
+    const a = rollupActivity(tree, graphIndex, nodes, [agent(state, [file('src/pages/items.tsx', '2026-09-27T10:00:20Z')])]);
+    assert.equal(a.get('web/src/pages/items.tsx')?.here, null, state);
+  }
+});
+
+test('By function: the agent is at the symbols it changed in that file', () => {
+  const tree = buildFunctionTree(graph);
+  const sym = { id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' as const };
+  const a = rollupActivity(tree, graphIndex, nodes, [agent('working', [file('src/pages/items.tsx', '2026-09-27T10:00:20Z', [sym])])]);
+  assert.equal(a.get(sym.id)?.here, 'self');
+  assert.equal(a.get('domain:items')?.here, 'inside');
 });
 
 const pick = (m: ReturnType<ReturnType<typeof rollupActivity>['get']>) => m && { self: m.self, added: m.added, modified: m.modified, deleted: m.deleted, at: m.at };
