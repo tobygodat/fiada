@@ -4,17 +4,21 @@
 // without re-cloning and keeps the project's layers.
 
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Graph, Grouping, LayerPreset, RepoInfo, Workspace as WorkspaceState } from '@strata/shared';
+import type { Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@strata/shared';
+import { remoteKey } from './agents.ts';
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
 import type { ParsedRepo } from './model.ts';
+import { Sorter, type SortHost } from './sorter.ts';
 import { loadRepo, reloadFiles } from './sources.ts';
-import type { ProjectStore } from './store.ts';
+import type { ProjectStore, SavedRepo } from './store.ts';
+import { folderName, unpackUpload, UPLOAD } from './upload.ts';
 
 const exec = promisify(execFile);
 
@@ -30,6 +34,12 @@ export interface RepoSource {
 }
 
 const LOCAL_OFF = 'This indexer is hosted, so it imports git repositories only (org/repo or a git URL), not local folders.';
+
+/** An uploaded folder whose files this indexer no longer has: a hosted container's disk starts empty on every deploy. */
+const UPLOAD_GONE = "This indexer's copy of the folder is gone (a hosted indexer's disk is reset on each deploy). Upload the folder again.";
+
+/** Where uploads unpack before they replace anything, beside the clones so the swap is a rename. */
+const UPLOAD_TMP = '.upload-';
 
 /**
  * Accepts what people paste: "org/repo", "github.com/org/repo",
@@ -53,6 +63,13 @@ export async function parseSource(input: string, allowLocal = true): Promise<Rep
   const name = url.split(/[/:]/).pop()!.replace(/\.git$/, '');
   if (!name) throw new Error(`Can't tell the repository name from ${input}`);
   return { kind: 'git', location: url, name };
+}
+
+/** What the project keeps of a repository; an upload also keeps what its .git said, which only the upload knew. */
+function saved({ id, name, source, kind, remote, branch, commit, uploadedAt }: RepoInfo): SavedRepo {
+  if (kind !== 'upload') return { id, name, source, kind };
+  const extra = Object.entries({ remote, branch, commit, uploadedAt }).filter(([, v]) => v !== undefined);
+  return { id, name, source, kind, ...Object.fromEntries(extra) };
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'repo';
@@ -83,12 +100,16 @@ export class Workspace {
   private groupingError?: string;
   private queue: Promise<unknown> = Promise.resolve();
   private graphListeners = new Set<() => void>();
+  /** Files and symbols Claude's sort placed in the current graph. */
+  private sortedPlaced = 0;
 
   constructor(
     private store: ProjectStore,
     readonly projectId = 'default',
     /** What clients may do: import local folders (off for an indexer others can reach), change things without the key. */
     readonly access: WorkspaceState['access'] = { localPaths: true, keyRequired: false },
+    /** Sorts the classifier's leftovers with Claude once repositories are imported. Off unless given one with a key. */
+    readonly sorter: Sorter = new Sorter(),
   ) {}
 
   /** Whether local folders can be imported and read. */
@@ -98,12 +119,20 @@ export class Workspace {
 
   async init() {
     await fs.mkdir(CLONES, { recursive: true });
+    // Uploads a previous run didn't finish unpacking.
+    for (const name of await fs.readdir(CLONES)) {
+      if (name.startsWith(UPLOAD_TMP)) await fs.rm(path.join(CLONES, name), { recursive: true, force: true });
+    }
     await this.loadGrouping(true);
     this.store.watchGrouping?.(this.projectId, () => {
       this.loadGrouping(false).then(() => this.reclassify(), (err) => console.error('[strata]', err));
     });
     const saved = (await this.store.loadRepos(this.projectId)) ?? [];
-    this.repos = saved.map(({ id, name, source, kind }) => ({ id, name, source, kind, status: 'queued' as const }));
+    this.repos = saved.map(({ id, name, source, kind, remote, branch, commit, uploadedAt }) =>
+      kind === 'upload'
+        ? { id, name, source, kind, remote, branch, commit, uploadedAt, status: 'queued' as const }
+        : { id, name, source, kind, status: 'queued' as const },
+    );
     for (const r of this.repos) this.enqueue(r.id, false);
   }
 
@@ -114,7 +143,9 @@ export class Workspace {
       graphVersion: this.graphVersion,
       suggestions: [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
       project: { id: this.projectId, groupingLocation: this.store.describe(this.projectId), groupingError: this.groupingError },
+      sorting: this.sorter.state(this.grouping, this.sortedPlaced),
       access: this.access,
+      upload: UPLOAD,
     };
   }
 
@@ -176,9 +207,15 @@ export class Workspace {
     return this.grouping;
   }
 
-  /** Replaces the project's grouping. Throws GroupingError when it doesn't validate. */
+  /**
+   * Replaces the project's grouping. Throws GroupingError when it doesn't
+   * validate. A grouping sent without `sorted` keeps Claude's sort (send
+   * `"sorted": null` to drop it), so a client that never saw it can't erase it.
+   */
   async setGrouping(raw: unknown): Promise<Grouping> {
     const g = normalizeGrouping(raw);
+    const keep = !!raw && typeof raw === 'object' && !('sorted' in raw) && this.grouping.sorted;
+    if (keep) g.sorted = this.grouping.sorted;
     await this.store.saveGrouping(this.projectId, g);
     this.grouping = g;
     this.groupingError = undefined;
@@ -236,6 +273,70 @@ export class Workspace {
     return info;
   }
 
+  /**
+   * Adds a folder uploaded from the map (a gzipped tar, see upload.ts), or
+   * replaces one uploaded before: the one `replace` names, else the upload
+   * with the same `origin` remote, else the one with the same folder name.
+   * The archive is unpacked beside the clones before anything changes, so a
+   * bad upload leaves the project as it was; the swap and the indexing wait
+   * their turn in the queue like any other import.
+   */
+  async upload(rawName: string, archive: Buffer, replace?: string): Promise<RepoInfo> {
+    const name = folderName(rawName);
+    const tmp = path.join(CLONES, `${UPLOAD_TMP}${randomUUID()}`);
+    let unpacked;
+    try {
+      unpacked = await unpackUpload(archive, tmp);
+      // Its own repository, so git lists its files (honouring its .gitignore) rather than whatever encloses STRATA_HOME.
+      await git(['-C', tmp, 'init', '-q'], 30_000);
+    } catch (err) {
+      await fs.rm(tmp, { recursive: true, force: true });
+      throw err;
+    }
+    const { remote, branch, head } = unpacked.git;
+    const uploads = this.repos.filter((r) => r.kind === 'upload');
+    const existing =
+      uploads.find((r) => r.id === replace) ??
+      (remote ? uploads.find((r) => r.remote && remoteKey(r.remote) === remoteKey(remote)) : undefined) ??
+      uploads.find((r) => r.name === name && !(remote && r.remote));
+    const fields = { name, source: name, remote, branch, commit: head?.slice(0, 7), uploadedAt: new Date().toISOString() };
+    let info: RepoInfo;
+    const before = existing && { ...existing };
+    if (existing) {
+      info = Object.assign(existing, fields, { status: 'queued' as const, error: undefined });
+    } else {
+      let id = slug(name);
+      for (let n = 2; this.repos.some((r) => r.id === id); n++) id = `${slug(name)}-${n}`;
+      info = { id, kind: 'upload', status: 'queued', ...fields };
+      this.repos.push(info);
+    }
+    try {
+      await this.save();
+    } catch (err) {
+      if (before) Object.assign(existing!, before);
+      else this.repos = this.repos.filter((r) => r !== info);
+      await fs.rm(tmp, { recursive: true, force: true });
+      throw err;
+    }
+    console.log(`[strata] received ${name}: ${unpacked.files} files, ${(unpacked.bytes / 1024).toFixed(0)} KB${remote ? ` from ${remote}` : ''}`);
+    this.queue = this.queue
+      .then(async () => {
+        if (!this.repos.includes(info)) return fs.rm(tmp, { recursive: true, force: true });
+        const dir = path.join(CLONES, info.id);
+        try {
+          await fs.rm(dir, { recursive: true, force: true });
+          await fs.rename(tmp, dir);
+        } catch (err) {
+          await fs.rm(tmp, { recursive: true, force: true });
+          Object.assign(info, { status: 'error', error: `Couldn't store the upload: ${(err as Error).message}` });
+          return;
+        }
+        await this.process(info.id, false);
+      })
+      .catch((err) => console.error('[strata]', err));
+    return info;
+  }
+
   async remove(id: string) {
     const repo = this.repos.find((r) => r.id === id);
     if (!repo) return;
@@ -250,7 +351,7 @@ export class Workspace {
       throw err;
     }
     this.parsed.delete(id);
-    if (repo.kind === 'git') await fs.rm(path.join(CLONES, id), { recursive: true, force: true });
+    if (repo.kind !== 'local') await fs.rm(path.join(CLONES, id), { recursive: true, force: true });
     this.rebuild();
   }
 
@@ -277,6 +378,7 @@ export class Workspace {
     try {
       // A local folder saved to this project by an indexer on someone's machine.
       if (repo.kind === 'local' && !this.allowLocal) throw new Error(LOCAL_OFF);
+      if (repo.kind === 'upload' && !(await fs.stat(path.join(dir, '.git')).then(() => true, () => false))) throw new Error(UPLOAD_GONE);
       if (repo.kind === 'git') {
         const cloned = await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
         if (!cloned) {
@@ -290,7 +392,8 @@ export class Workspace {
         }
       }
       repo.status = 'indexing';
-      repo.commit = await git(['-C', dir, 'rev-parse', '--short', 'HEAD'], 10_000).then((r) => r.stdout.trim(), () => undefined);
+      // An upload has no history here; its commit is the one its .git named.
+      if (repo.kind !== 'upload') repo.commit = await git(['-C', dir, 'rev-parse', '--short', 'HEAD'], 10_000).then((r) => r.stdout.trim(), () => undefined);
       const started = Date.now();
       const parsed = await loadRepo(repo, dir);
       if (!this.repos.includes(repo)) return;
@@ -317,20 +420,35 @@ export class Workspace {
     this.base = buildBase(ordered);
     console.log(`[strata] linked ${this.base.nodes.length} nodes, ${this.base.edges.length} edges in ${Date.now() - started}ms`);
     this.reclassify();
+    this.sorter.request(this.sortHost());
+  }
+
+  /** Sorts the project's leftovers with Claude again, whatever the last sort covered. False when sorting is off. */
+  sortAgain(): boolean {
+    if (!this.sorter.available) return false;
+    this.sorter.request(this.sortHost(), true);
+    return true;
+  }
+
+  private sortHost(): SortHost {
+    return {
+      busy: () => this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
+      graph: () => classifyGraph(this.base, { ...this.grouping, sorted: undefined }),
+      grouping: () => this.grouping,
+      save: (sorted: SortedGrouping) => this.setGrouping({ ...this.grouping, sorted }).then(() => undefined),
+    };
   }
 
   private reclassify() {
     const started = Date.now();
     this.graph = classifyGraph(this.base, this.grouping);
+    this.sortedPlaced = this.graph.nodes.filter((n) => n.layer?.source === 'model' || n.domain?.source === 'model').length;
     this.graphVersion++;
     console.log(`[strata] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
     for (const fn of this.graphListeners) fn();
   }
 
   private async save() {
-    await this.store.saveRepos(
-      this.projectId,
-      this.repos.map(({ id, name, source, kind }) => ({ id, name, source, kind })),
-    );
+    await this.store.saveRepos(this.projectId, this.repos.map(saved));
   }
 }

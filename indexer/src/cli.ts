@@ -3,6 +3,7 @@
 //   npm run index -- ../some-repo org/other-repo --layers
 //   npm run index -- ../some-repo --grouping my.grouping.json --layers
 //   npm run index -- ../some-repo --preset by-repo --out graph.json
+//   npm run index -- org/repo --sort --save-grouping sorted.grouping.json   (needs ANTHROPIC_API_KEY)
 
 import './env.ts';
 import { execFile } from 'node:child_process';
@@ -10,8 +11,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GraphNode, LayerPreset, RepoInfo } from '@strata/shared';
-import { buildGraph } from './build.ts';
-import { defaultGrouping, normalizeGrouping, PRESETS } from './classify/index.ts';
+import { buildBase, classifyGraph } from './build.ts';
+import { defaultGrouping, describeStats, normalizeGrouping, PRESETS, sortStats } from './classify/index.ts';
+import { sortProject } from './classify/model-sort.ts';
+import { KEY_HINT, llmFromEnv } from './llm.ts';
 import type { ParsedRepo } from './model.ts';
 import { loadRepo } from './sources.ts';
 import { parseSource, STRATA_HOME } from './workspace.ts';
@@ -19,7 +22,7 @@ import { parseSource, STRATA_HOME } from './workspace.ts';
 const exec = promisify(execFile);
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
-const VALUED = ['--out', '--grouping', '--preset'];
+const VALUED = ['--out', '--grouping', '--preset', '--save-grouping'];
 const opt = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const out = opt('--out');
 const sources = args.filter((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1]));
@@ -27,7 +30,7 @@ const preset = (opt('--preset') ?? 'roles') as LayerPreset;
 
 if (!sources.length || !PRESETS.includes(preset)) {
   console.error(
-    'usage: npm run index -- <path | git url | org/repo>... [--preset roles|by-repo|empty] [--grouping file.json] [--layers] [--domains] [--out graph.json]',
+    'usage: npm run index -- <path | git url | org/repo>... [--preset roles|by-repo|empty] [--grouping file.json] [--sort] [--save-grouping file.json] [--layers] [--domains] [--out graph.json]',
   );
   process.exit(1);
 }
@@ -57,8 +60,36 @@ const grouping = groupingFile
   : defaultGrouping(preset, repos.map((r) => r.info));
 
 const t = Date.now();
-const graph = buildGraph(repos, grouping);
+const base = buildBase(repos);
+let graph = classifyGraph(base, grouping);
 console.error(`linked and classified in ${Date.now() - t}ms\n`);
+
+// --sort: Claude places what the classifier left, as the server does after an import.
+if (flag('--sort')) {
+  const llm = llmFromEnv();
+  if (!llm) {
+    console.error(`--sort needs ${KEY_HINT} (in the environment or .env)`);
+    process.exit(1);
+  }
+  const unsorted = classifyGraph(base, { ...grouping, sorted: undefined });
+  console.log(`classifier alone: ${describeStats(sortStats(unsorted))}`);
+  const st = Date.now();
+  grouping.sorted = await sortProject(unsorted, grouping, (req) => llm.json(req), { model: llm.model, by: llm.label, log: (l) => console.error(l) });
+  graph = classifyGraph(base, grouping);
+  console.log(`with ${llm.label} (${llm.model}, ${((Date.now() - st) / 1000).toFixed(0)}s): ${describeStats(sortStats(graph))}\n`);
+  for (const d of grouping.sorted.domains) {
+    const what = d.mergeInto ? `merged into ${d.mergeInto}` : d.added ? 'added' : d.from ? `renamed from "${d.from}"` : 'kept';
+    console.log(`  domain ${d.id.padEnd(22)} "${d.name}" ${what}${d.reason ? ` · ${d.reason}` : ''}`);
+  }
+  console.log();
+  const save = opt('--save-grouping');
+  if (save) {
+    await fs.writeFile(save, JSON.stringify(grouping, null, 2) + '\n');
+    console.error(`wrote ${save}`);
+  }
+} else {
+  console.log(`sorted: ${describeStats(sortStats(graph))}`);
+}
 
 const count = <T,>(xs: T[], key: (x: T) => string) => {
   const m = new Map<string, number>();

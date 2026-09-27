@@ -115,6 +115,7 @@ export type PlacementSource =
   | 'seed'
   | 'propagated'
   | 'cohesion'
+  | 'model'
   | 'fallback';
 
 export interface Evidence {
@@ -134,6 +135,8 @@ export interface Placement {
   source: PlacementSource;
   /** Winning evidence first, then runners-up. */
   evidence: Evidence[];
+  /** Who decided it ("Claude"), when a model sorted it rather than a signal in the code (source "model"). */
+  inferredBy?: string;
 }
 
 /** Bulk moves, stored as rules so code added later follows them. Later rules win. */
@@ -165,6 +168,77 @@ export interface Grouping {
   rules: GroupingRule[];
   /** Single-node moves keyed by file or symbol id. */
   pins: Record<string, { layer?: string; domain?: string }>;
+  /** Claude's sort of this project, made when its repositories were imported. The user's names, rules and pins win over it. */
+  sorted?: SortedGrouping;
+}
+
+/**
+ * What Claude decided when the project's repositories were imported: better
+ * names for the domains the classifier found, which of them are one feature,
+ * and a layer and domain, with a reason, for everything the classifier left
+ * Unlayered or Unsorted. It only fills gaps: code the classifier placed keeps
+ * its place, and the user's own names, rules and pins win over all of it.
+ */
+export interface SortedGrouping {
+  /** The model that sorted, e.g. "claude-opus-5". */
+  model: string;
+  /** Who sorted, for people: the model client's label ("Claude"). */
+  by?: string;
+  /** ISO time. */
+  at: string;
+  /** Repository id → commit it sorted (empty when unknown); a new repository or commit sorts again. */
+  repos: Record<string, string>;
+  /** One entry per domain Claude named, merged or added. */
+  domains: SortedDomain[];
+  /** File or symbol id → where Claude put it. A file's entry covers its symbols that have none of their own. */
+  placements: Record<string, SortedPlacement>;
+}
+
+export interface SortedDomain {
+  id: string;
+  name: string;
+  /** The classifier's name for it, when Claude renamed it. */
+  from?: string;
+  /** The domain this one is the same feature as; its code moves there. */
+  mergeInto?: string;
+  /** True for a domain Claude added for leftovers (the classifier had no such domain). */
+  added?: boolean;
+  /** One line: why this name, merge or new domain. */
+  reason?: string;
+}
+
+export interface SortedPlacement {
+  layer?: string;
+  domain?: string;
+  /** One line, shown with the node: why it goes in that domain (or layer, when only a layer was decided). */
+  reason: string;
+  /** Why that layer, when Claude gave it its own reason. */
+  layerReason?: string;
+}
+
+/** "Claude" for a Claude model id, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
+export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : model);
+
+/** Whether the indexer can sort a project with Claude, and how the last sort went. */
+export interface SortingState {
+  /** The indexer has a model to sort with (an API key for one). */
+  available: boolean;
+  /** Where to set a key, when sorting is off (llm.ts KEY_HINT). */
+  keyHint?: string;
+  status: 'off' | 'idle' | 'running' | 'done' | 'error';
+  /** Who sorts, for people: "Claude". */
+  by?: string;
+  /** The model the current sort was made with. */
+  model?: string;
+  /** When the current sort was made (ISO). */
+  at?: string;
+  /** Files and symbols Claude placed. */
+  placed?: number;
+  /** Domains Claude merged into another, renamed, or added. */
+  merged?: number;
+  renamed?: number;
+  added?: number;
+  error?: string;
 }
 
 export interface GraphNode {
@@ -250,15 +324,24 @@ export interface GraphEdge {
 
 export type RepoStatus = 'queued' | 'cloning' | 'indexing' | 'ready' | 'error';
 
+/** Where a repository's files come from: cloned, read in place, or uploaded from the map. */
+export type RepoKind = 'git' | 'local' | 'upload';
+
 export interface RepoInfo {
   id: string;
   name: string;
-  /** What the user typed: a git URL or an absolute local path. */
+  /** What the user typed (a git URL or an absolute local path), or an uploaded folder's name. */
   source: string;
-  kind: 'git' | 'local';
+  kind: RepoKind;
   status: RepoStatus;
   error?: string;
   commit?: string;
+  /** An uploaded folder's `origin` remote, from its .git metadata, with any credentials removed. */
+  remote?: string;
+  /** The branch an uploaded folder had checked out. */
+  branch?: string;
+  /** When the folder was last uploaded. */
+  uploadedAt?: string;
   indexedAt?: string;
   fileCount?: number;
   symbolCount?: number;
@@ -298,6 +381,8 @@ export interface Workspace {
     /** Set when the stored grouping failed to validate; the last good one is still in use. */
     groupingError?: string;
   };
+  /** Sorting the project's leftovers with Claude. */
+  sorting: SortingState;
   /** What this indexer lets clients do. */
   access: {
     /** Local folders can be imported (only on an indexer bound to your own machine, by default). */
@@ -305,6 +390,24 @@ export interface Workspace {
     /** Changes (imports, grouping, agent events) need the indexer's access key. */
     keyRequired: boolean;
   };
+  /** How to upload a folder: what to send and how much. Absent from indexers that predate uploads. */
+  upload?: UploadPolicy;
+}
+
+/**
+ * What a folder upload may carry. The map sends only the files the indexer
+ * reads, so an upload is the folder's source, never its build output,
+ * dependencies or git history.
+ */
+export interface UploadPolicy {
+  /** Most bytes of files in one upload, before compression. */
+  maxBytes: number;
+  /** Most files in one upload. */
+  maxFiles: number;
+  /** Regular expression (source) over a folder-relative path: the files worth sending. .gitignore files go too. */
+  files: string;
+  /** Folder names never sent, wherever they are. */
+  skipDirs: string[];
 }
 
 // ── Agent activity ──

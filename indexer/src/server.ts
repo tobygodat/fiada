@@ -12,7 +12,10 @@ import type { AgentEvent, LayerPreset } from '@strata/shared';
 import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS } from './access.ts';
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
+import { KEY_HINT } from './llm.ts';
+import { Sorter } from './sorter.ts';
 import { checkProjectId, createStore } from './store.ts';
+import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
 import { LocalWatcher } from './watch.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
@@ -21,10 +24,12 @@ const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.STRATA_API_KEY || undefined;
 const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
 
-const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'), {
-  localPaths: allowLocalPaths(HOST),
-  keyRequired: !!KEY,
-});
+const ws = new Workspace(
+  await createStore(STRATA_HOME),
+  checkProjectId(process.env.STRATA_PROJECT ?? 'default'),
+  { localPaths: allowLocalPaths(HOST), keyRequired: !!KEY },
+  Sorter.fromEnv(),
+);
 await ws.init();
 const agents = new AgentHub(ws);
 // Hand edits in local repositories, re-indexed and marked on the map as they're saved.
@@ -63,6 +68,32 @@ app.post<{ Body: { source?: string } }>('/api/repos', async (req, reply) => {
   return reply.code(202).send(ws.state());
 });
 
+// A folder uploaded from the map, as a gzipped tar (see upload.ts). Uploading
+// the same folder again replaces it; ?replace=<id> says which one to replace.
+const UPLOAD_LIMIT = archiveLimit(UPLOAD);
+app.addContentTypeParser(['application/gzip', 'application/x-gzip'], { parseAs: 'buffer', bodyLimit: UPLOAD_LIMIT }, (_req, body, done) => done(null, body));
+
+app.post<{ Querystring: { name?: string; replace?: string } }>(
+  '/api/repos/upload',
+  {
+    bodyLimit: UPLOAD_LIMIT,
+    errorHandler: (err, _req, reply) => {
+      if ((err as { code?: string }).code === 'FST_ERR_CTP_BODY_TOO_LARGE') return reply.code(413).send({ error: tooBig(UPLOAD).message });
+      reply.send(err);
+    },
+  },
+  async (req, reply) => {
+    if (!Buffer.isBuffer(req.body)) return reply.code(415).send({ error: 'Send the folder as a gzipped tar (content-type: application/gzip) with ?name=<folder name>.' });
+    try {
+      await ws.upload(req.query.name ?? '', req.body, req.query.replace || undefined);
+    } catch (err) {
+      if (err instanceof UploadError) return reply.code(err.status).send({ error: err.message });
+      throw err;
+    }
+    return reply.code(202).send(ws.state());
+  },
+);
+
 app.delete<{ Params: { id: string } }>('/api/repos/:id', async (req) => {
   await ws.remove(req.params.id);
   return ws.state();
@@ -88,6 +119,12 @@ app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, repl
   const preset = req.body?.preset as LayerPreset;
   if (!PRESETS.includes(preset)) return reply.code(400).send({ error: `preset must be one of ${PRESETS.join(', ')}` });
   return { grouping: await ws.applyPreset(preset) };
+});
+
+// Sorts the project's leftovers with Claude again. Answers at once; the map picks the result up when it lands.
+app.post('/api/grouping/sort', async (_req, reply) => {
+  if (!ws.sortAgain()) return reply.code(409).send({ error: `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
+  return reply.code(202).send(ws.state());
 });
 
 app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async (req, reply) => {
@@ -144,5 +181,6 @@ await app.listen({ port: PORT, host: HOST });
 console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);
 if (!ws.allowLocal) console.log('[strata] local folders are off: this indexer imports git repositories only');
 if (process.env.STRATA_ALLOWED_ORIGINS) console.log(`[strata] browsers may call the API from ${process.env.STRATA_ALLOWED_ORIGINS}`);
+console.log(ws.sorter.available ? `[strata] sorting imports with ${ws.sorter.describe}` : `[strata] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
 if (KEY) console.log('[strata] changes need the access key (STRATA_API_KEY)');
 else if (!isLoopback(HOST)) console.warn('[strata] no STRATA_API_KEY: anyone who can reach this indexer can change its project');

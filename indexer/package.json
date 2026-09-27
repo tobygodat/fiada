@@ -10,6 +10,7 @@
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@strata/agent": "*",
     "@strata/shared": "*",
     "chokidar": "^5.0.0",

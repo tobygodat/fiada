@@ -11,10 +11,14 @@ export interface WorkspaceHandle {
   /** Why the indexer can't be reached; null while it answers. */
   offline: string | null;
   add(source: string): Promise<void>;
+  /** Sends a packed folder; `replace` names the upload it updates. */
+  upload(name: string, archive: Blob, replace?: string): Promise<void>;
   remove(id: string): Promise<void>;
   refresh(id: string): Promise<void>;
   /** Starts the project's layers over from a preset. */
   applyPreset(preset: LayerPreset): Promise<void>;
+  /** Asks Claude to sort the project's leftovers again. */
+  sortAgain(): Promise<void>;
   /** Checks with the indexer now instead of at the next poll (it said the graph changed). */
   reload(): Promise<void>;
 }
@@ -36,7 +40,8 @@ export function useWorkspace(): WorkspaceHandle {
         version.current = next.graphVersion;
         setGraph(await api.graph());
       }
-      timer.current = window.setTimeout(() => sync(), next.busy ? 800 : 5000);
+      // Quick while repositories index or Claude sorts, so the result shows as soon as it lands.
+      timer.current = window.setTimeout(() => sync(), next.busy || next.sorting?.status === 'running' ? 800 : 5000);
     } catch (err) {
       setOffline((err as Error).message);
       timer.current = window.setTimeout(() => sync(), 2000);
@@ -53,12 +58,14 @@ export function useWorkspace(): WorkspaceHandle {
     graph,
     offline,
     add: async (source) => sync(await api.addRepo(source)),
+    upload: async (name, archive, replace) => sync(await api.uploadRepo(name, archive, replace)),
     remove: async (id) => sync(await api.removeRepo(id)),
     refresh: async (id) => sync(await api.refreshRepo(id)),
     applyPreset: async (preset) => {
       await api.applyPreset(preset);
       await sync();
     },
+    sortAgain: async () => sync(await api.sortAgain()),
     reload: () => sync(),
   };
 }

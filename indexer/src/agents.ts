@@ -327,7 +327,7 @@ export class AgentHub {
       if (co.remote) {
         const want = remoteKey(co.remote);
         for (const r of this.ws.repos) {
-          const theirs = r.kind === 'git' ? r.source : this.ws.allowLocal ? await this.localRemote(r.source) : null;
+          const theirs = r.kind === 'git' ? r.source : r.kind === 'upload' ? (r.remote ?? null) : this.ws.allowLocal ? await this.localRemote(r.source) : null;
           if (theirs && remoteKey(theirs) === want) return { abs, repo: r.id, rel, live: false };
         }
       }
