@@ -133,9 +133,29 @@ function Problem({ text }: { text: string }) {
 
 const PRESET_LABEL: Record<LayerPreset, string> = { roles: 'roles', 'by-repo': 'by repo', empty: 'empty' };
 
-/** The project's own layers: how much code each holds, the preset they started from, and where to edit them. */
+const LAYERS_OPEN = 'strata.layersOpen';
+
+/**
+ * The project's own layers: how much code each holds, the preset they started from, and where to
+ * edit them. Folded by default so the outline keeps its room; the map's legend has the colours.
+ */
 function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; workspace: Workspace }) {
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(LAYERS_OPEN) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const fold = () => {
+    setOpen(!open);
+    try {
+      localStorage.setItem(LAYERS_OPEN, open ? '0' : '1');
+    } catch {
+      // private mode: remembered for this tab only
+    }
+  };
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const n of graph.nodes) if (n.kind === 'symbol' && n.layer) m.set(n.layer.id, (m.get(n.layer.id) ?? 0) + 1);
@@ -149,9 +169,29 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
   };
   const file = workspace.project.groupingLocation;
   const rows = [...graph.layers, ...(counts.get(UNLAYERED) ? [{ id: UNLAYERED, name: 'Unlayered' }] : [])];
+  const problems = (
+    <>
+      {workspace.project.groupingError && <Problem text={`Grouping not applied: ${workspace.project.groupingError}`} />}
+      {error && <Problem text={error} />}
+    </>
+  );
+  const heading = (
+    <button className="section-title fold" onClick={fold} aria-expanded={open}>
+      layers <span className="muted num">· {graph.layers.length}</span>
+      <Chevron dir={open ? 'down' : 'right'} size={16} />
+    </button>
+  );
+  if (!open) {
+    return (
+      <section className="section">
+        {heading}
+        {problems}
+      </section>
+    );
+  }
   return (
     <section className="section">
-      <div className="section-title">layers</div>
+      {heading}
       {canEdit(workspace) && (
         <div className="setting layer-choice">
           <span className="setting-name small">preset</span>
@@ -173,8 +213,7 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
           Rename layers and add rules in {file.split(/[\\/]/).pop()}; edits apply live.
         </div>
       )}
-      {workspace.project.groupingError && <Problem text={`Grouping not applied: ${workspace.project.groupingError}`} />}
-      {error && <Problem text={error} />}
+      {problems}
     </section>
   );
 }

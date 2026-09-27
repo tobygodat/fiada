@@ -229,7 +229,12 @@ a { color: inherit; }
 .import button:disabled { border-color: var(--faint); color: var(--faint); cursor: default; }
 .suggestions { margin-top: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
 
-/* Layers */
+/* Layers: a section that folds from its heading. */
+.section-title.fold { display: flex; align-items: center; gap: var(--space-xs); width: 100%; transition: color var(--quick) var(--ease); }
+.section:has(> .fold[aria-expanded='false']) { padding-bottom: var(--space-sm); }
+.section-title.fold[aria-expanded='false'] { margin-bottom: 0; }
+.section-title.fold .icon { margin-left: auto; color: var(--muted); }
+.section-title.fold:hover, .section-title.fold:hover .icon { color: var(--accent); }
 .layer-choice { margin-bottom: var(--space-8); }
 .layer-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--space-24); margin-bottom: var(--space-8); }
 .layer-list > .small { grid-column: 1 / -1; }
