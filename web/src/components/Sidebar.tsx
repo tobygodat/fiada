@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
+import { API_BASE, canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
@@ -122,7 +123,9 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
       <div className="section-title row">
         <span>Layers</span>
         <span className="grow" />
-        <Segmented small value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
+        {canEdit(workspace) && (
+          <Segmented small value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
+        )}
       </div>
       <div className="layer-list">
         {rows.map((l) => (
@@ -134,9 +137,11 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
         ))}
         {!rows.length && <div className="muted small">No layers yet. Everything is Unlayered.</div>}
       </div>
-      <div className="muted small layer-file" title={file}>
-        Edit <span className="mono">{file.split(/[\\/]/).pop()}</span> to rename layers or add matchers and rules; changes apply live.
-      </div>
+      {canEdit(workspace) && (
+        <div className="muted small layer-file" title={file}>
+          Edit <span className="mono">{file.split(/[\\/]/).pop()}</span> to rename layers or add matchers and rules; changes apply live.
+        </div>
+      )}
       {workspace.project.groupingError && <div className="notice err">Grouping not applied: {workspace.project.groupingError}</div>}
       {error && <div className="notice err">{error}</div>}
     </section>
@@ -173,10 +178,11 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
     add(input);
   };
   const repos = workspace?.repos ?? [];
+  const editable = canEdit(workspace);
   return (
     <section className="section">
       <div className="section-title">Repositories</div>
-      {offline && <div className="notice">Can't reach the indexer. Start it with npm run dev.</div>}
+      {offline && <div className="notice">{API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with npm run dev."}</div>}
       <div className="repo-list">
         {repos.map((r) => (
           <div key={r.id} className="repo-row" title={r.source}>
@@ -192,23 +198,34 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
               </div>
             </div>
             {(r.status === 'cloning' || r.status === 'indexing' || r.status === 'queued') && <span className="spinner" />}
-            <button className="icon-btn" title="Pull and re-index" onClick={() => onRefresh(r.id)}>
-              ↻
-            </button>
-            <button className="icon-btn" title="Remove" onClick={() => onRemove(r.id)}>
-              ×
-            </button>
+            {editable && (
+              <>
+                <button className="icon-btn" title="Pull and re-index" onClick={() => onRefresh(r.id).catch((err: Error) => setError(err.message))}>
+                  ↻
+                </button>
+                <button className="icon-btn" title="Remove" onClick={() => onRemove(r.id).catch((err: Error) => setError(err.message))}>
+                  ×
+                </button>
+              </>
+            )}
           </div>
         ))}
       </div>
-      <form className="import" onSubmit={submit}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="org/repo, git URL, or /local/path" spellCheck={false} />
-        <button type="submit" disabled={pending || !input.trim()}>
-          Add
-        </button>
-      </form>
+      {editable && (
+        <form className="import" onSubmit={submit}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={workspace?.access?.localPaths === false ? 'org/repo or git URL' : 'org/repo, git URL, or /local/path'}
+            spellCheck={false}
+          />
+          <button type="submit" disabled={pending || !input.trim()}>
+            Add
+          </button>
+        </form>
+      )}
       {error && <div className="notice err">{error}</div>}
-      {!repos.length && !!workspace?.suggestions.length && (
+      {editable && !repos.length && !!workspace?.suggestions.length && (
         <div className="suggestions">
           <span className="muted small">Try</span>
           {workspace.suggestions.map((s) => (

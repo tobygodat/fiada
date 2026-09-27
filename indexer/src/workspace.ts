@@ -29,14 +29,18 @@ export interface RepoSource {
   name: string;
 }
 
+const LOCAL_OFF = 'This indexer is hosted, so it imports git repositories only (org/repo or a git URL), not local folders.';
+
 /**
  * Accepts what people paste: "org/repo", "github.com/org/repo",
- * "https://…/repo.git", "git@host:org/repo.git", or a local directory.
+ * "https://…/repo.git", "git@host:org/repo.git", or a local directory
+ * (unless `allowLocal` is false).
  */
-export async function parseSource(input: string): Promise<RepoSource> {
+export async function parseSource(input: string, allowLocal = true): Promise<RepoSource> {
   const raw = input.trim().replace(/\/+$/, '');
-  if (!raw || raw.startsWith('-')) throw new Error('Enter a git URL, org/repo, or a local path.');
+  if (!raw || raw.startsWith('-')) throw new Error(allowLocal ? 'Enter a git URL, org/repo, or a local path.' : 'Enter a git URL or org/repo.');
   if (/^(~|\.{1,2})?\//.test(raw) || /^[A-Za-z]:[\\/]/.test(raw)) {
+    if (!allowLocal) throw new Error(LOCAL_OFF);
     const abs = path.resolve(raw.replace(/^~(?=\/)/, os.homedir()));
     const stat = await fs.stat(abs).catch(() => null);
     if (!stat?.isDirectory()) throw new Error(`No directory at ${abs}`);
@@ -83,7 +87,14 @@ export class Workspace {
   constructor(
     private store: ProjectStore,
     readonly projectId = 'default',
+    /** What clients may do: import local folders (off for an indexer others can reach), change things without the key. */
+    readonly access: WorkspaceState['access'] = { localPaths: true, keyRequired: false },
   ) {}
+
+  /** Whether local folders can be imported and read. */
+  get allowLocal(): boolean {
+    return this.access.localPaths;
+  }
 
   async init() {
     await fs.mkdir(CLONES, { recursive: true });
@@ -101,8 +112,9 @@ export class Workspace {
       repos: this.repos,
       busy: this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
       graphVersion: this.graphVersion,
-      suggestions: [PROJECT_ROOT, 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
+      suggestions: [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
       project: { id: this.projectId, groupingLocation: this.store.describe(this.projectId), groupingError: this.groupingError },
+      access: this.access,
     };
   }
 
@@ -204,7 +216,7 @@ export class Workspace {
   }
 
   async add(input: string): Promise<RepoInfo> {
-    const src = await parseSource(input);
+    const src = await parseSource(input, this.allowLocal);
     const existing = this.repos.find((r) => r.source === src.location);
     if (existing) {
       this.refresh(existing.id);
@@ -263,6 +275,8 @@ export class Workspace {
     if (!repo) return; // removed while queued
     const dir = this.checkout(repo);
     try {
+      // A local folder saved to this project by an indexer on someone's machine.
+      if (repo.kind === 'local' && !this.allowLocal) throw new Error(LOCAL_OFF);
       if (repo.kind === 'git') {
         const cloned = await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
         if (!cloned) {

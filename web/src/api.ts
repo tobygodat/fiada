@@ -1,10 +1,53 @@
 import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, Workspace } from '@strata/shared';
 
+/**
+ * Where the indexer is. Empty means this origin, which the dev server
+ * proxies to the indexer; a build for a static host (Vercel) sets
+ * VITE_API_URL to the hosted indexer.
+ */
+export const API_BASE = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
+
+export const apiUrl = (path: string) => `${API_BASE}${path}`;
+
+const KEY_ITEM = 'strata.key';
+
+/**
+ * A hosted indexer's access key, which changes need: opened once as
+ * ?key=<key> (taken out of the address bar), then remembered in this
+ * browser. ?key= with nothing forgets it.
+ */
+const accessKey: string | null = (() => {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const given = params.get('key');
+  if (given === null) {
+    try {
+      return window.localStorage.getItem(KEY_ITEM);
+    } catch {
+      return null;
+    }
+  }
+  params.delete('key');
+  const rest = params.toString();
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+  try {
+    if (given) window.localStorage.setItem(KEY_ITEM, given);
+    else window.localStorage.removeItem(KEY_ITEM);
+  } catch {
+    // storage blocked: the key lasts until the page is reloaded
+  }
+  return given || null;
+})();
+
+/** Whether this browser can change the project: the indexer needs no key, or we have it. */
+export const canEdit = (ws: Workspace | null) => !ws?.access?.keyRequired || !!accessKey;
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: init?.body ? { 'content-type': 'application/json' } : undefined,
-  });
+  const headers: Record<string, string> = {};
+  if (init?.body) headers['content-type'] = 'application/json';
+  // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
+  if (accessKey && init?.method && init.method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
+  const res = await fetch(apiUrl(path), { ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
   return body as T;
