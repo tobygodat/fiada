@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { ActivityState } from '@strata/shared';
-import { api } from './api.ts';
+import { api, apiUrl } from './api.ts';
 
 export interface AgentsHandle {
   state: ActivityState | null;
@@ -17,7 +17,7 @@ export function useAgents(): AgentsHandle {
 
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
-    const es = new EventSource('/api/agent/stream');
+    const es = new EventSource(apiUrl('/api/agent/stream'));
     es.onmessage = (e) => {
       try {
         setState(JSON.parse(e.data) as ActivityState);

@@ -298,6 +298,13 @@ export interface Workspace {
     /** Set when the stored grouping failed to validate; the last good one is still in use. */
     groupingError?: string;
   };
+  /** What this indexer lets clients do. */
+  access: {
+    /** Local folders can be imported (only on an indexer bound to your own machine, by default). */
+    localPaths: boolean;
+    /** Changes (imports, grouping, agent events) need the indexer's access key. */
+    keyRequired: boolean;
+  };
 }
 
 // ── Agent activity ──

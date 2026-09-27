@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphNode } from '@strata/shared';
+import { canEdit } from './api.ts';
 import { AgentQueue } from './components/AgentQueue.tsx';
 import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
@@ -480,7 +481,7 @@ export function App() {
             onSelect={select}
           />
         )}
-        <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={(id) => void agents.clear(id)} />
+        <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={canEdit(ws.workspace) ? (id) => void agents.clear(id) : undefined} />
         <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} agents={!!activity?.size} />
       </div>
     </div>

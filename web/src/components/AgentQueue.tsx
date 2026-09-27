@@ -10,7 +10,8 @@ interface Props {
   /** The detail panel is open below: show the one-line pill unless it's opened on purpose. */
   compact: boolean;
   onSelect(nodeId: string): void;
-  onClear(agentId: string): void;
+  /** Dismisses an agent; absent when this browser can't change the project. */
+  onClear?(agentId: string): void;
 }
 
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
@@ -70,7 +71,7 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
       </div>
       <div className="queue-list">
         {agents.map((a) => (
-          <AgentCard key={a.id} a={a} onSelect={onSelect} onClear={() => onClear(a.id)} />
+          <AgentCard key={a.id} a={a} onSelect={onSelect} onClear={onClear && (() => onClear(a.id))} />
         ))}
       </div>
     </aside>
@@ -87,7 +88,7 @@ function StateDot({ a }: { a: AgentActivity }) {
   return <span className={`queue-dot ${a.state}`} title={STATE_LABEL[a.state]} />;
 }
 
-function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: string): void; onClear(): void }) {
+function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: string): void; onClear?(): void }) {
   const [showFiles, setShowFiles] = useState(false);
   const title = a.task ?? a.prompt;
   const counts = { added: 0, modified: 0, deleted: 0 };
@@ -102,9 +103,11 @@ function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: st
         </span>
         <span className="grow" />
         <span className="queue-state">{STATE_LABEL[a.state]}</span>
-        <button className="icon-btn" onClick={onClear} title="Dismiss this agent and clear its changes from the map">
-          ×
-        </button>
+        {onClear && (
+          <button className="icon-btn" onClick={onClear} title="Dismiss this agent and clear its changes from the map">
+            ×
+          </button>
+        )}
       </div>
       {title && (
         <div className="queue-task" title={a.prompt && a.task ? `Asked: ${a.prompt}` : title}>

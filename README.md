@@ -155,6 +155,7 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 | Variable | Default | |
 | --- | --- | --- |
 | `PORT` | `4178` | indexer port (the web dev server proxies `/api` to it; set `STRATA_INDEXER_PORT` for the proxy if you change it) |
+| `HOST` | `127.0.0.1` | address the indexer listens on (`0.0.0.0` in the container) |
 | `STRATA_HOME` | `.strata/` | where clones and project files live |
 | `STRATA_PROJECT` | `default` | which project the indexer serves |
 | `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.strata/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
@@ -162,15 +163,67 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+| `STRATA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
+| `STRATA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
+| `STRATA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
+| `VITE_API_URL` | unset | build time, web: the indexer's URL when the map is served apart from it; unset, the map calls its own origin |
 | `STRATA_URL` | `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
+| `STRATA_API_KEY` (agent) | unset | the hook and MCP server send it to a hosted indexer that has one |
 | `STRATA_AGENT_STATE` | `$TMPDIR/strata-agent` | where the hook keeps each session's last view of the working tree |
 | `STRATA_HOOK_LOG` | unset | append every payload the hook receives to this file, one JSON object per line |
 
 The indexer also reads a `.env` file at the repo root; variables already set in your shell win.
 
-The indexer binds to 127.0.0.1: importing a local path reads that directory, so it's a single-user development tool.
+The indexer binds to 127.0.0.1 by default: importing a local path reads that directory, so on your own machine it's a single-user tool. [Deploy](#deploy) covers running it where others can reach it.
 
-`vercel.json` builds only the web app (`web/dist`) for preview deployments. The indexer clones repositories and runs a long-lived server, so a Vercel preview shows the UI without an indexer behind it.
+## Deploy
+
+The map is a static build; the indexer is a long-running server that clones repositories to disk, parses them with tree-sitter, keeps the graph in memory and streams agent activity. So they live apart: **the map on Vercel, the indexer in a container** on a host that runs one (Railway, Fly.io or Render; the `Dockerfile` at the root works on each). Vercel's functions are short-lived and stateless, with no git and nowhere to keep clones, so the indexer can't run there.
+
+```
+browser ── https://hackgt13.vercel.app ──────── static map (web/dist)
+   └────── VITE_API_URL ── https://<indexer> ── indexer container ── MongoDB Atlas (repos, layers)
+                                                     └── /data: clones
+```
+
+### 1. The indexer (Railway, for example)
+
+New project, **Deploy from GitHub repo**, pick this repository; Railway builds the root `Dockerfile`. Then set the service's variables and, under **Networking**, generate a public domain on port 4178.
+
+| Variable | Value |
+| --- | --- |
+| `PORT` | `4178` |
+| `MONGODB_URI` | the Atlas connection string, as in `.env` |
+| `STRATA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
+| `STRATA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
+| `STRATA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
+| `STRATA_GITHUB_TOKEN` | only to import private repos. Reads need no key, so anyone with the map's URL can read their code |
+
+In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `STRATA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
+
+Check it: `curl https://<indexer>/api/workspace` should answer with `"access":{"localPaths":false,"keyRequired":true}`.
+
+On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly secrets set MONGODB_URI=… STRATA_API_KEY=…` and the rest. Render's free instances sleep when idle and take a while to wake, which a demo will notice.
+
+### 2. The map (Vercel)
+
+`vercel.json` already has the build: install the web workspace, `npm run build`, serve `web/dist`. The one setting to add is in **Settings > Environment Variables**:
+
+| Variable | Value | Environments |
+| --- | --- | --- |
+| `VITE_API_URL` | `https://<indexer>` (the domain from step 1, no trailing path) | Production and Preview |
+
+Vite writes it into the bundle at build time, so **redeploy** after setting it (Deployments > … > Redeploy, or push). Without it, the deployed map calls `/api` on Vercel, gets 404s and says it can't reach the indexer.
+
+`https://hackgt13.vercel.app` is the production domain, which Vercel's default Standard Protection leaves public; preview and per-deployment URLs ask for a Vercel login. Open the production URL in a private window before sharing it.
+
+### 3. Using it
+
+- Open `https://hackgt13.vercel.app/?key=<STRATA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
+- Everyone else gets the plain URL: the same map, read-only, without the import box, the layer presets or the dismiss buttons.
+- To show a coding agent on the hosted map, start it with `STRATA_URL=https://<indexer>` and `STRATA_API_KEY=<key>` in its environment. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
+
+To try the split locally: `docker build -t strata-indexer . && docker run -p 4178:4178 -e STRATA_ALLOWED_ORIGINS=http://localhost:5199 -e STRATA_API_KEY=dev strata-indexer`, then `VITE_API_URL=http://localhost:4178 npm run build && npm exec -w @strata/web -- vite preview --port 5199`.
 
 ## Tests
 

@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+.git
+.strata
+.env
+*.log
+*.graph.json
+graph.json
+web/bench
