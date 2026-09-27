@@ -13,7 +13,7 @@ import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/ca
 import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import { countKind, crossRepo, direction, kindCounts, meetingPoint, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
-import { MONO, type ColorBy, type Palette } from '../theme.ts';
+import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
 import { type BadgeCache, drawBadges, drawRings } from './activity.ts';
 import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
@@ -370,17 +370,6 @@ export class MapRenderer {
     return w;
   }
 
-  /** Badge text is activity.ts's own font (the agent overlay's to restyle). */
-  private badgeWidth(text: string) {
-    const key = `badge|${text}`;
-    let w = this.widths.get(key);
-    if (w == null) {
-      this.measure.font = `500 10px ${MONO}`;
-      this.widths.set(key, (w = this.measure.measureText(text).width));
-    }
-    return w;
-  }
-
   private fit(text: string, weight: Weight, size: number, max: number) {
     if (this.textWidth(text, weight, size) <= max) return text;
     let lo = 0;
@@ -686,7 +675,7 @@ export class MapRenderer {
     // ── agent badges, last so they can keep clear of every link, tag and tab ──
     if (scene.activity?.size) {
       const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
-      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.badgeWidth(s), taken, this.badgeCache);
+      drawBadges(ctx, this.drawnNodes, scene.activity, taken, this.badgeCache);
       this.lastFont = '';
     }
   }

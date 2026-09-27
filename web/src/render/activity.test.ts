@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
-import { type BadgeCache, BadgeSpace, curveHits, drawBadges, ringGeometry, type Rect, type Taken } from './activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, hereGeometry, ringGeometry, type Rect, type Taken } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
@@ -27,6 +27,16 @@ test('the change ring sits outside the circle, past a dark gap', () => {
     const g = ringGeometry(r);
     assert.ok(g.gapR - g.gap / 2 >= r + 0.5, `gap starts past the rim at r=${r}`);
     assert.ok(g.lineR - g.line / 2 >= g.gapR + g.gap / 2 - 1e-9, `line starts past the gap at r=${r}`);
+  }
+});
+
+test('the working ring sits past the change ring, or in its place when nothing changed', () => {
+  for (const r of [3, 12, 80]) {
+    const g = ringGeometry(r);
+    const past = hereGeometry(r, true);
+    assert.ok(past.gapR - past.gap / 2 >= g.outer - 1e-9, `clear of the change ring at r=${r}`);
+    assert.ok(past.lineR - past.line / 2 >= past.gapR + past.gap / 2 - 1e-9, `line past its gap at r=${r}`);
+    assert.equal(hereGeometry(r, false).lineR, g.lineR);
   }
 });
 
@@ -102,18 +112,18 @@ test('other closed circles are avoided when there is room, and a crowd of badges
 });
 
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
-  // A canvas that draws nothing.
-  const ctx = new Proxy({}, { get: () => () => {}, set: () => true }) as unknown as CanvasRenderingContext2D;
-  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0 }]]);
+  // A canvas that draws nothing and measures every character 6px wide.
+  const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
+  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};
-  drawBadges(ctx, [d], marks, (t) => t.length * 6, taken, cache);
+  drawBadges(ctx, [d], marks, taken, cache);
   const first = cache.boxes;
   assert.equal(first?.length, 1);
-  drawBadges(ctx, [{ ...d }], marks, (t) => t.length * 6, { ...taken }, cache);
+  drawBadges(ctx, [{ ...d }], marks, { ...taken }, cache);
   assert.equal(cache.boxes, first, 'same geometry: same spots, not placed again');
-  drawBadges(ctx, [{ ...d, x: 520 }], marks, (t) => t.length * 6, taken, cache);
+  drawBadges(ctx, [{ ...d, x: 520 }], marks, taken, cache);
   assert.notEqual(cache.boxes, first);
   assert.equal(cache.boxes![0].x - first![0].x, 20);
 });

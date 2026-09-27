@@ -114,7 +114,7 @@ export function App() {
   );
 
   const activity = useMemo(
-    () => (tree && agents.state && Object.keys(agents.state.nodes).length ? rollupActivity(tree, graphIndex, agents.state.nodes) : null),
+    () => (tree && agents.state && Object.keys(agents.state.nodes).length ? rollupActivity(tree, graphIndex, agents.state.nodes, agents.state.agents) : null),
     [tree, graphIndex, agents.state],
   );
 
