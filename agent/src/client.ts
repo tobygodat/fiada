@@ -11,6 +11,9 @@ const exec = promisify(execFile);
 
 export const STRATA_URL = (process.env.STRATA_URL ?? `http://127.0.0.1:${process.env.STRATA_INDEXER_PORT ?? 4178}`).replace(/\/+$/, '');
 
+/** The indexer's access key, for a hosted indexer that has one. */
+const KEY = process.env.STRATA_API_KEY;
+
 /** What the indexer made of the files in a batch. */
 export interface IngestReply {
   files?: { path: string; repo?: string; node?: string; kind: string; symbols?: number }[];
@@ -21,7 +24,7 @@ export async function send(events: AgentEvent[], timeoutMs = 1500): Promise<Inge
   try {
     const res = await fetch(`${STRATA_URL}/api/agent/events`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) },
       body: JSON.stringify(events),
       signal: AbortSignal.timeout(timeoutMs),
     });
