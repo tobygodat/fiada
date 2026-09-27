@@ -7,6 +7,8 @@ import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
+import type { ThemeChoice } from '../useTheme.ts';
+import { Chevron } from './Icon.tsx';
 
 interface Props {
   workspace: Workspace | null;
@@ -17,11 +19,13 @@ interface Props {
   view: View;
   mode: ExpandMode;
   colorBy: ColorBy;
+  theme: ThemeChoice;
   pal: Palette;
   selected: string | null;
   onView(v: View): void;
   onMode(m: ExpandMode): void;
   onColorBy(c: ColorBy): void;
+  onTheme(t: ThemeChoice): void;
   onSelect(id: string): void;
   onAdd(source: string): Promise<void>;
   onRemove(id: string): Promise<void>;
@@ -34,34 +38,35 @@ export function Sidebar(p: Props) {
   if (collapsed) {
     return (
       <button className="panel sidebar-pill" onClick={() => setCollapsed(false)} title="Show sidebar">
-        Strata <span className="muted">▸</span>
+        strata <Chevron dir="right" />
       </button>
     );
   }
   return (
     <aside className="panel sidebar">
       <header className="sidebar-head">
-        <span className="brand">Strata</span>
-        <span className="muted mono small">codebase cartography</span>
-        <button className="icon-btn" onClick={() => setCollapsed(true)} title="Hide sidebar">
-          ◂
+        <span className="brand">strata</span>
+        <span className="muted small">codebase cartography</span>
+        <button className="icon-btn" onClick={() => setCollapsed(true)} title="Hide sidebar" aria-label="Hide sidebar">
+          <Chevron dir="left" />
         </button>
       </header>
       <Repos {...p} />
       <section className="section">
-        <div className="section-title">View</div>
-        <Segmented
+        <div className="section-title">view</div>
+        <Choice
+          label="view"
           value={p.view}
           options={[
-            ['code', 'Code · read-only'],
-            ['function', 'By function'],
+            ['code', 'code', 'The code as it is: repositories, folders, files, symbols. Read-only.'],
+            ['function', 'by function', 'The same symbols grouped by domain, then by layer.'],
           ]}
           onChange={p.onView}
         />
-        <div className="row gap small muted setting">
-          <span className="mono setting-name">color</span>
-          <Segmented
-            small
+        <div className="setting">
+          <span className="setting-name small">colour by</span>
+          <Choice
+            label="colour by"
             value={p.colorBy}
             options={[
               ['repo', 'repository'],
@@ -70,16 +75,29 @@ export function Sidebar(p: Props) {
             onChange={p.onColorBy}
           />
         </div>
-        <div className="row gap small muted setting" title="On click: the first click on a circle shows its details, a second click opens it, and scrolling only zooms. On zoom: circles open as you zoom into them.">
-          <span className="mono setting-name">open</span>
-          <Segmented
-            small
+        <div className="setting" title="On click: the first click on a circle shows its details, a second click opens it, and scrolling only zooms. On zoom: circles open as you zoom into them.">
+          <span className="setting-name small">open</span>
+          <Choice
+            label="open circles"
             value={p.mode}
             options={[
               ['click', 'on click'],
               ['zoom', 'on zoom'],
             ]}
             onChange={p.onMode}
+          />
+        </div>
+        <div className="setting">
+          <span className="setting-name small">theme</span>
+          <Choice
+            label="theme"
+            value={p.theme}
+            options={[
+              ['system', 'system', "Follow the system's light or dark setting"],
+              ['dark', 'dark'],
+              ['light', 'light'],
+            ]}
+            onChange={p.onTheme}
           />
         </div>
       </section>
@@ -89,23 +107,55 @@ export function Sidebar(p: Props) {
   );
 }
 
-function Segmented<T extends string>({ value, options, onChange, small }: { value: T; options: [T, string][]; onChange(v: T): void; small?: boolean }) {
+/** One of a few, as a row of words: the chosen one is ink over a green line. */
+function Choice<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string, string?][]; onChange(v: T): void }) {
   return (
-    <div className={`segmented${small ? ' small' : ''}`}>
-      {options.map(([v, label]) => (
-        <button key={v} className={v === value ? 'on' : ''} onClick={() => onChange(v)}>
-          {label}
+    <div className="choice" role="radiogroup" aria-label={label}>
+      {options.map(([v, text, title]) => (
+        <button key={v} role="radio" aria-checked={v === value} className={v === value ? 'on' : ''} title={title} onClick={() => v !== value && onChange(v)}>
+          {text}
         </button>
       ))}
     </div>
   );
 }
 
-const PRESET_LABEL: Record<LayerPreset, string> = { roles: 'Roles', 'by-repo': 'By repo', empty: 'Empty' };
+/** A sentence about something that went wrong: its first words in brick, the rest muted. */
+function Problem({ text }: { text: string }) {
+  const m = /^(.+?[.!?:])\s+(.+)$/s.exec(text);
+  return (
+    <div className="notice" role="alert">
+      <span className="lead">{m ? m[1] : text}</span>
+      {m && <> {m[2]}</>}
+    </div>
+  );
+}
 
-/** The project's own layers: how much code each holds, the preset they started from, and where to edit them. */
+const PRESET_LABEL: Record<LayerPreset, string> = { roles: 'roles', 'by-repo': 'by repo', empty: 'empty' };
+
+const LAYERS_OPEN = 'strata.layersOpen';
+
+/**
+ * The project's own layers: how much code each holds, the preset they started from, and where to
+ * edit them. Folded by default so the outline keeps its room; the map's legend has the colours.
+ */
 function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; workspace: Workspace }) {
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(LAYERS_OPEN) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const fold = () => {
+    setOpen(!open);
+    try {
+      localStorage.setItem(LAYERS_OPEN, open ? '0' : '1');
+    } catch {
+      // private mode: remembered for this tab only
+    }
+  };
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const n of graph.nodes) if (n.kind === 'symbol' && n.layer) m.set(n.layer.id, (m.get(n.layer.id) ?? 0) + 1);
@@ -119,15 +169,35 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
   };
   const file = workspace.project.groupingLocation;
   const rows = [...graph.layers, ...(counts.get(UNLAYERED) ? [{ id: UNLAYERED, name: 'Unlayered' }] : [])];
+  const problems = (
+    <>
+      {workspace.project.groupingError && <Problem text={`Grouping not applied: ${workspace.project.groupingError}`} />}
+      {error && <Problem text={error} />}
+    </>
+  );
+  const heading = (
+    <button className="section-title fold" onClick={fold} aria-expanded={open}>
+      layers <span className="muted num">· {graph.layers.length}</span>
+      <Chevron dir={open ? 'down' : 'right'} size={16} />
+    </button>
+  );
+  if (!open) {
+    return (
+      <section className="section">
+        {heading}
+        {problems}
+      </section>
+    );
+  }
   return (
     <section className="section">
-      <div className="section-title row">
-        <span>Layers</span>
-        <span className="grow" />
-        {canEdit(workspace) && (
-          <Segmented small value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
-        )}
-      </div>
+      {heading}
+      {canEdit(workspace) && (
+        <div className="setting layer-choice">
+          <span className="setting-name small">preset</span>
+          <Choice label="layer preset" value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
+        </div>
+      )}
       <div className="layer-list">
         {rows.map((l) => (
           <div key={l.id} className={`layer-row${l.id === UNLAYERED ? ' muted' : ''}`}>
@@ -139,22 +209,21 @@ function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; wor
         {!rows.length && <div className="muted small">No layers yet. Everything is Unlayered.</div>}
       </div>
       {canEdit(workspace) && (
-        <div className="muted small layer-file" title={file}>
-          Edit <span className="mono">{file.split(/[\\/]/).pop()}</span> to rename layers or add matchers and rules; changes apply live.
+        <div className="layer-file" title={file}>
+          Rename layers and add rules in {file.split(/[\\/]/).pop()}; edits apply live.
         </div>
       )}
-      {workspace.project.groupingError && <div className="notice err">Grouping not applied: {workspace.project.groupingError}</div>}
-      {error && <div className="notice err">{error}</div>}
+      {problems}
     </section>
   );
 }
 
 const STATUS: Record<RepoInfo['status'], string> = {
-  queued: 'queued',
+  queued: 'queued…',
   cloning: 'cloning…',
   indexing: 'indexing…',
   ready: '',
-  error: 'failed',
+  error: "couldn't index it",
 };
 
 function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
@@ -180,59 +249,71 @@ function Repos({ workspace, offline, pal, onAdd, onRemove, onRefresh }: Props) {
   };
   const repos = workspace?.repos ?? [];
   const editable = canEdit(workspace);
+  const suggestions = editable && !repos.length ? (workspace?.suggestions ?? []) : [];
   return (
     <section className="section">
-      <div className="section-title">Repositories</div>
-      {offline && <div className="notice">{offline}</div>}
-      <div className="repo-list">
-        {repos.map((r) => (
-          <div key={r.id} className="repo-row" title={r.source}>
-            <span className="dot" style={{ background: pal.repo(r.id) }} />
-            <div className="repo-main">
-              <div className="repo-name">{r.name}</div>
-              <div className={`repo-meta${r.status === 'error' ? ' err' : ''}`}>
-                {r.status === 'ready'
-                  ? `${r.fileCount} files · ${r.symbolCount} symbols${r.truncated ? ` · ${r.truncated} skipped` : ''}`
-                  : r.status === 'error'
-                    ? r.error
-                    : STATUS[r.status]}
+      <div className="section-title">repositories</div>
+      {offline && <Problem text={offline} />}
+      {!!repos.length && (
+        <div className="repo-list">
+          {repos.map((r) => {
+            const working = r.status === 'queued' || r.status === 'cloning' || r.status === 'indexing';
+            return (
+              <div key={r.id} className="repo-row" title={r.source}>
+                <span className="dot" style={{ background: pal.repo(r.id) }} />
+                <div className="repo-main">
+                  <div className="repo-name">{r.name}</div>
+                  <div className="repo-meta">
+                    {r.status === 'ready' ? (
+                      <span>
+                        {r.fileCount} files · {r.symbolCount} symbols{r.truncated ? ` · ${r.truncated} skipped` : ''}
+                      </span>
+                    ) : (
+                      <span className={r.status === 'error' ? 'err-lead' : working ? 'busy' : ''}>{STATUS[r.status]}</span>
+                    )}
+                    {editable && (
+                      <>
+                        <button className="link" title="Pull and re-index" disabled={working} onClick={() => onRefresh(r.id).catch((err: Error) => setError(err.message))}>
+                          refresh
+                        </button>
+                        <button className="link danger" title="Remove from this project" onClick={() => onRemove(r.id).catch((err: Error) => setError(err.message))}>
+                          remove
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {r.status === 'error' && r.error && <div className="repo-error">{r.error}</div>}
+                </div>
               </div>
-            </div>
-            {(r.status === 'cloning' || r.status === 'indexing' || r.status === 'queued') && <span className="spinner" />}
-            {editable && (
-              <>
-                <button className="icon-btn" title="Pull and re-index" onClick={() => onRefresh(r.id).catch((err: Error) => setError(err.message))}>
-                  ↻
-                </button>
-                <button className="icon-btn" title="Remove" onClick={() => onRemove(r.id).catch((err: Error) => setError(err.message))}>
-                  ×
-                </button>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
       {editable && (
         <form className="import" onSubmit={submit}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={workspace?.access?.localPaths === false ? 'org/repo or git URL' : 'org/repo, git URL, or /local/path'}
+            placeholder={workspace?.access?.localPaths === false ? 'org/repo or git URL' : 'org/repo, URL or path'}
+            aria-label="Repository to import: org/repo, a git URL, or a local path"
             spellCheck={false}
           />
           <button type="submit" disabled={pending || !input.trim()}>
-            Add
+            {pending ? 'importing…' : 'import'}
           </button>
         </form>
       )}
-      {error && <div className="notice err">{error}</div>}
-      {editable && !repos.length && !!workspace?.suggestions.length && (
+      {error && <Problem text={error} />}
+      {!!suggestions.length && (
         <div className="suggestions">
-          <span className="muted small">Try</span>
-          {workspace.suggestions.map((s) => (
-            <button key={s} className="chip" onClick={() => add(s)} title={s}>
-              {s.startsWith('/') ? 'this checkout' : s}
-            </button>
+          try{' '}
+          {suggestions.map((s, i) => (
+            <span key={s}>
+              {i > 0 && ' · '}
+              <button className="link" onClick={() => add(s)} title={s}>
+                {s.startsWith('/') ? 'this checkout' : s}
+              </button>
+            </span>
           ))}
         </div>
       )}
@@ -273,7 +354,7 @@ function Outline({ tree, selected, pal, colorBy, onSelect }: Props & { tree: Tre
       return next;
     });
 
-  const title = tree.view === 'code' ? 'Structure' : 'Domains';
+  const title = tree.view === 'code' ? 'structure' : 'domains';
   return (
     <section className="section outline-section">
       <div className="section-title">{title}</div>
@@ -286,14 +367,20 @@ function Outline({ tree, selected, pal, colorBy, onSelect }: Props & { tree: Tre
               key={n.id}
               id={`row-${n.id}`}
               className={`outline-row${n.id === selected ? ' sel' : ''}${group ? ' group' : ''}`}
-              style={{ paddingLeft: 8 + level * 14 }}
+              style={{ paddingLeft: 8 + level * 16 }}
             >
-              <button className="chev" style={{ visibility: n.children.length ? 'visible' : 'hidden' }} onClick={() => toggle(n.id)}>
-                {expanded.has(n.id) ? '▾' : '▸'}
+              <button
+                className="chev"
+                style={{ visibility: n.children.length ? 'visible' : 'hidden' }}
+                onClick={() => toggle(n.id)}
+                aria-label={expanded.has(n.id) ? `Fold ${n.name}` : `Unfold ${n.name}`}
+                aria-expanded={expanded.has(n.id)}
+              >
+                <Chevron dir={expanded.has(n.id) ? 'down' : 'right'} size={16} />
               </button>
               <button className="outline-name" onClick={() => onSelect(n.id)}>
                 {color && <span className="dot small" style={{ background: color }} />}
-                <span className={n.kind === 'symbol' || n.kind === 'file' ? 'mono' : ''}>{n.name}</span>
+                <span>{n.name}</span>
               </button>
               <span className="count">{n.children.length ? n.symbols || n.children.length : ''}</span>
             </div>

@@ -4,6 +4,7 @@ import { useEffect, useState, type RefObject } from 'react';
 import type { Camera } from '../graph/camera.ts';
 import type { TNode, View } from '../graph/tree.ts';
 import type { MapRenderer } from '../render/renderer.ts';
+import { Chevron } from './Icon.tsx';
 
 interface Props {
   crumbs: TNode[];
@@ -22,8 +23,8 @@ interface Props {
 }
 
 const ALTITUDES: Record<View, string[]> = {
-  code: ['Systems', 'Modules', 'Files', 'Symbols'],
-  function: ['Domains', 'Layers', 'Symbols'],
+  code: ['systems', 'modules', 'files', 'symbols'],
+  function: ['domains', 'layers', 'symbols'],
 };
 
 export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK, busy, canGoBack, onBack, onCrumb }: Props) {
@@ -33,8 +34,8 @@ export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK
   return (
     <div className="topbar">
       <nav className="crumbs">
-        <button className="back" onClick={onBack} disabled={!canGoBack} title="Back (Backspace)">
-          ←
+        <button className="back" onClick={onBack} disabled={!canGoBack} title="Back (Backspace)" aria-label="Back">
+          <Chevron dir="left" />
         </button>
         <button onClick={() => onCrumb('root')} className={crumbs.length ? '' : 'here'}>
           workspace
@@ -49,12 +50,8 @@ export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK
         ))}
       </nav>
       <div className="topbar-right">
-        {busy && (
-          <span className="muted mono small row gap">
-            <span className="spinner" /> indexing
-          </span>
-        )}
-        <div className="altitudes">
+        {busy && <span className="muted small busy">indexing…</span>}
+        <div className="altitudes" title="How far down the map is open">
           {alts.map((a, i) => (
             <span key={a} className={i === idx ? 'on' : ''}>
               {a}
@@ -98,5 +95,5 @@ function Zoom({ renderer, fitK }: { renderer: RefObject<MapRenderer | null>; fit
     update();
     return r.subscribe(update);
   }, [renderer, fitK]);
-  return <span className="mono small muted zoom">{k}%</span>;
+  return <span className="num small muted zoom">{k}%</span>;
 }

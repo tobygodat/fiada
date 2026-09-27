@@ -4,18 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Strata</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2214%22 fill=%22none%22 stroke=%22%23e6e3da%22 stroke-width=%222%22/%3E%3Ccircle cx=%2216%22 cy=%229%22 r=%224%22 fill=%22%23a78bfa%22/%3E%3Ccircle cx=%2222%22 cy=%2219%22 r=%224%22 fill=%22%235eead4%22/%3E%3Ccircle cx=%2210%22 cy=%2219%22 r=%224%22 fill=%22%23fb923c%22/%3E%3C/svg%3E" />
+    <!-- Three strata on dark paper, the lowest in the one green. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231b1a19'/%3E%3Cpath d='M7 10h18M7 16h18' stroke='%23e8e5df' stroke-width='2.5' stroke-linecap='round'/%3E%3Cpath d='M7 22h18' stroke='%238fd18a' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <!-- The design system's type: Literata with its optical-size axis, and IBM Plex Mono for quoted code only. -->
     <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet" />
-    <!-- Restores the chosen theme before first paint so nothing flashes. Dark unless light was chosen.
-         Light waits for the restyle: until the map and panels draw from the tokens, only dark paper matches them. -->
+    <!-- Restores the theme before first paint so nothing flashes: the one chosen in the sidebar,
+         else the system's. useTheme.ts keeps it in step after that. -->
     <script>
-      const LIGHT_READY = false;
-      try { document.documentElement.dataset.theme = LIGHT_READY && localStorage.getItem('strata-theme') === 'light' ? 'light' : 'dark'; }
-      catch { document.documentElement.dataset.theme = 'dark'; }
+      try {
+        const saved = localStorage.getItem('strata-theme');
+        const light = saved ? saved === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+        document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      } catch { document.documentElement.dataset.theme = 'dark'; }
     </script>
   </head>
   <body>
