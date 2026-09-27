@@ -3,7 +3,7 @@
 
 import type { RepoInfo, SymbolKind } from '@strata/shared';
 
-export type Lang = 'typescript' | 'tsx' | 'javascript' | 'python';
+export type Lang = 'typescript' | 'tsx' | 'javascript' | 'python' | 'go';
 
 export interface ImportBinding {
   /** Name in the source module: an identifier, "default", or "*" for the whole module. */
@@ -32,17 +32,87 @@ export interface Ref {
   name: string;
   member?: string;
   kind: RefKind;
+  /** Line of the use that decided `kind` (the first call, else the first JSX use, …). */
+  line: number;
 }
 
 export interface RouteDecl {
   method: string; // upper-case HTTP verb, or "*" for any
   path: string; // including any router prefix we could see in the same file
   line: number;
+  /**
+   * The router object the route is declared on, as a name in the declaring
+   * scope ("router", "app", "v1"), or "#<n>" for the enclosing function's
+   * n-th parameter (Go's `func Register(r *gin.RouterGroup)`). Unset when the
+   * route has no router object (Next.js files, decorators on unknown objects).
+   */
+  router?: string;
+  /** Handler named in the declaration (`router.get("/x", getItems)`); the route is attributed to it. */
+  handler?: string;
+  /** Line of the router's own prefix (`APIRouter(prefix="/items")`), when the path includes one. */
+  prefixLine?: number;
 }
+
+/** A piece of a URL or prefix: literal text, or an expression we may resolve to a constant. */
+export type UrlPart = { lit: string } | { expr: string };
 
 export interface HttpRequest {
   method: string;
+  /** Path with interpolations as "{}", and any leading base-URL variable stripped. */
   path: string;
+  line: number;
+  /** Expression that was stripped from the front, e.g. "API_URL" in `${API_URL}/items`. */
+  base?: string;
+}
+
+/**
+ * A router created in this scope: an application root (`FastAPI()`,
+ * `express()`, `gin.Default()`) whose routes have no prefix above them, or a
+ * sub-router (`APIRouter()`, `express.Router()`).
+ */
+export interface RouterDecl {
+  name: string;
+  root: boolean;
+  line: number;
+}
+
+/**
+ * One router mounted under another: `app.include_router(items.router,
+ * prefix="/items")`, `app.use("/api", api)`, `v1 := r.Group("/api")`, or
+ * `articles.Register(v1.Group("/articles"))` where the child is a function's
+ * router parameter.
+ */
+export interface MountDecl {
+  /** Parent router name in this scope. */
+  parent: string;
+  /** Child router as written ("items.router", "api"), or a function parameter it's passed as. */
+  child: string | { fn: string; arg: number };
+  prefix: UrlPart[];
+  line: number;
+}
+
+/** A string constant, for resolving URL prefixes like `settings.API_V1_STR`. */
+export interface ConstDecl {
+  name: string;
+  value: string;
+  line: number;
+  /** Class the constant is declared in (Python class attributes). */
+  owner?: string;
+}
+
+/** A client-side page route (React Router `<Route>`, TanStack `createFileRoute`). */
+export interface PageDecl {
+  path: string;
+  /** Component rendered for the path; unset when the page is the declaring file itself. */
+  component?: string;
+  line: number;
+}
+
+/** ORM link from an entity to another: SQLAlchemy relationship() / ForeignKey, SQLModel foreign_key, GORM fields. */
+export interface OrmRef {
+  kind: 'relationship' | 'foreign-key';
+  /** Class name (relationship) or "table.column" (foreign key). */
+  target: string;
   line: number;
 }
 
@@ -59,8 +129,19 @@ export interface ParsedSymbol {
   decorators?: string[];
   routes?: RouteDecl[];
   requests?: HttpRequest[];
+  routers?: RouterDecl[];
+  mounts?: MountDecl[];
   /** Body contains JSX. */
   jsx?: boolean;
+  /** Parameter names, for routers passed in as arguments. */
+  params?: string[];
+  /** ORM table name (`__tablename__`, GORM TableName) when the class declares one. */
+  tableName?: string;
+  /** The class body declares mapped columns (Column, mapped_column, Mapped[…], gorm tags). */
+  columns?: boolean;
+  orm?: OrmRef[];
+  /** Go: the receiver type of a method (`func (m *ArticleModel) Update()` → "ArticleModel"). */
+  receiver?: string;
 }
 
 export interface ParsedFile {
@@ -71,9 +152,17 @@ export interface ParsedFile {
   symbols: ParsedSymbol[];
   /** Refs made from module-level code outside any symbol. */
   fileRefs: Ref[];
-  /** Routes and requests declared outside any symbol. */
+  /** Routes, requests, routers and mounts declared outside any symbol. */
   routes: RouteDecl[];
   requests: HttpRequest[];
+  routers: RouterDecl[];
+  mounts: MountDecl[];
+  constants: ConstDecl[];
+  pages: PageDecl[];
+  /** Go: package clause name. */
+  goPackage?: string;
+  /** Source text of the lines evidence points at, keyed by line number. */
+  code: Record<number, string>;
   /** TS/JS: names listed in `export { a, b }` without a source. */
   localExports: string[];
   /** TS/JS: local name of the default export when it is an identifier. */
@@ -100,6 +189,8 @@ export interface TsConfigPaths {
 
 export interface ParsedRepo {
   info: RepoInfo;
+  /** Go module paths from go.mod files, by the directory they're in ("" for the root). */
+  goModules?: { dir: string; module: string }[];
   /** Absolute path on disk. */
   root: string;
   files: ParsedFile[];

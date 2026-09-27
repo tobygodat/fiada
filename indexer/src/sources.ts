@@ -30,7 +30,7 @@ const IGNORED_DIR = new Set([
 ]);
 
 export const TEST_PATH =
-  /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.py$|(^|\/)conftest\.py$/;
+  /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.(py|go)$|(^|\/)conftest\.py$|(^|\/)test_helpers?\.go$/;
 
 const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
 
@@ -84,6 +84,9 @@ const FRAMEWORKS: [RegExp, string][] = [
   [/^typeorm$/, 'typeorm'], [/^mongoose$/, 'mongoose'], [/^fastapi$/, 'fastapi'], [/^flask$/, 'flask'],
   [/^django$/, 'django'], [/^sqlalchemy$/, 'sqlalchemy'], [/^sqlmodel$/, 'sqlmodel'], [/^celery$/, 'celery'],
   [/^apache-airflow$/, 'airflow'], [/^pandas$/, 'pandas'], [/^torch$/, 'torch'], [/^pydantic$/, 'pydantic'],
+  [/^github\.com\/gin-gonic\/gin$/, 'gin'], [/^github\.com\/labstack\/echo/, 'echo'], [/^github\.com\/go-chi\/chi/, 'chi'],
+  [/^github\.com\/gofiber\/fiber/, 'fiber'], [/^github\.com\/gorilla\/mux$/, 'gorilla-mux'], [/^gorm\.io\/gorm$|^github\.com\/jinzhu\/gorm$/, 'gorm'],
+  [/^entgo\.io\/ent$/, 'ent'], [/^github\.com\/jmoiron\/sqlx$/, 'sqlx'],
 ];
 
 export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions = DEFAULT_LOAD): Promise<ParsedRepo> {
@@ -92,6 +95,8 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
   const packages: PackageManifest[] = [];
   const tsconfigs = new Map<string, TsConfigPaths>();
   const pyDeps = new Set<string>();
+  const goDeps = new Set<string>();
+  const goModules: { dir: string; module: string }[] = [];
   for (const rel of all) {
     const base = rel.slice(rel.lastIndexOf('/') + 1);
     const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
@@ -110,6 +115,14 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
         Object.assign(cur.paths, co.paths ?? {});
         tsconfigs.set(dir, cur);
       } catch { /* unreadable tsconfig: skip */ }
+    } else if (base === 'go.mod') {
+      const text = (await readText(path.join(root, rel))) ?? '';
+      const mod = text.match(/^module\s+(\S+)/m)?.[1];
+      if (mod) goModules.push({ dir, module: mod.replace(/^"|"$/g, '') });
+      // require lines, in a block or one per line; indirect ones say nothing about the code.
+      for (const m of text.matchAll(/^\s*(?:require\s+)?([\w.-]+\.[\w.-]+\/[^\s]+)\s+v[^\s]+(\s*\/\/\s*indirect)?/gm)) {
+        if (!m[2]) goDeps.add(m[1]);
+      }
     } else if (base === 'pyproject.toml' || /^requirements.*\.txt$/.test(base) || base === 'setup.py') {
       const text = (await readText(path.join(root, rel))) ?? '';
       if (base.endsWith('.txt')) {
@@ -157,7 +170,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
   }
   for (const f of files) if (f.path.startsWith('src/') && f.lang === 'python') pyRoots.add('src');
 
-  const deps = new Set([...packages.flatMap((p) => p.deps), ...pyDeps]);
+  const deps = new Set([...packages.flatMap((p) => p.deps), ...pyDeps, ...goDeps]);
   const frameworks = FRAMEWORKS.filter(([re]) => [...deps].some((d) => re.test(d))).map(([, name]) => name);
   const languages: Record<string, number> = {};
   for (const f of files) {
@@ -180,6 +193,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
     pyDeps: [...pyDeps],
     tsconfigs: [...tsconfigs.values()],
     pyRoots: [...pyRoots],
+    goModules: goModules.length ? goModules : undefined,
     frameworks,
   };
 }

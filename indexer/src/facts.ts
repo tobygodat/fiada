@@ -6,10 +6,9 @@
 import type { Fact } from '@strata/shared';
 import { nextPath } from './link.ts';
 import type { ParsedFile, ParsedRepo, ParsedSymbol } from './model.ts';
+import { isTable } from './orm.ts';
 
 export const UI_FRAMEWORKS = /^(react|react-dom|next|vue|nuxt|svelte|@sveltejs\/kit|@angular\/core|react-native|solid-js|preact)$/;
-/** SQLAlchemy / Django / Flask-SQLAlchemy / Mongo / TypeORM base classes, and SQLModel's `table=True`. */
-const ORM_BASES = /(^|\.)(Base|DeclarativeBase|Model|Document|Entity|BaseEntity)$|^table=True$/;
 /** Data-shape base classes: request/response schemas, typed dicts, enums. */
 const SCHEMA_BASES = /(^|\.)(BaseModel|SQLModel|TypedDict|Schema|Enum|IntEnum|StrEnum|Protocol|NamedTuple)$/;
 const APP_PAGE = /(?:^|\/)app\/(?:(.*)\/)?(page|layout|template|loading|error|not-found|default)\.[cm]?[jt]sx?$/;
@@ -28,12 +27,14 @@ export interface FactContext {
   externalImports: string[];
   /** Routes served by the file (index 0) and each symbol (index i + 1). */
   routes: (string[] | undefined)[];
+  /** Client-side page routes rendered by the file (index 0) and each symbol (index i + 1). */
+  pages?: (string[] | undefined)[];
   test: boolean;
 }
 
 /** UI framework the file's nearest package depends on, if any. */
 function frontendOf(repo: ParsedRepo, file: ParsedFile): string | undefined {
-  if (file.lang === 'python') return undefined;
+  if (file.lang === 'python' || file.lang === 'go') return undefined;
   let best: { dir: string; fw: string } | undefined;
   for (const p of repo.packages) {
     if (p.dir !== '' && !file.path.startsWith(p.dir + '/')) continue;
@@ -44,12 +45,12 @@ function frontendOf(repo: ParsedRepo, file: ParsedFile): string | undefined {
   return best?.fw || undefined;
 }
 
-const isTable = (s: ParsedSymbol) => s.kind === 'class' && !!s.bases?.some((b) => ORM_BASES.test(b));
 const isSchema = (s: ParsedSymbol) => (s.kind === 'class' || s.kind === 'enum') && !!s.bases?.some((b) => SCHEMA_BASES.test(b));
 
-function symbolFacts(s: ParsedSymbol, routes: string[] | undefined): Fact[] {
+function symbolFacts(s: ParsedSymbol, routes: string[] | undefined, pages: string[] | undefined): Fact[] {
   const out: Fact[] = [];
   for (const r of routes ?? []) out.push({ type: 'route', value: r });
+  for (const p of pages ?? []) out.push({ type: 'pageRoute', value: p });
   if (s.kind === 'component') out.push({ type: 'returnsJSX', value: 'true' });
   if (isTable(s)) out.push({ type: 'table', value: s.name });
   for (const b of s.bases ?? []) if (/^[\w.]+$/.test(b)) out.push({ type: 'extends', value: b });
@@ -58,8 +59,8 @@ function symbolFacts(s: ParsedSymbol, routes: string[] | undefined): Fact[] {
   return out;
 }
 
-export function detectFacts({ repo, file, externalImports, routes, test }: FactContext): FileFacts {
-  const symbols = file.symbols.map((s, i) => symbolFacts(s, routes[i + 1]));
+export function detectFacts({ repo, file, externalImports, routes, pages = [], test }: FactContext): FileFacts {
+  const symbols = file.symbols.map((s, i) => symbolFacts(s, routes[i + 1], pages[i + 1]));
   const out: Fact[] = [];
   const add = (type: Fact['type'], value: string) => {
     if (!out.some((f) => f.type === type && f.value === value)) out.push({ type, value });
@@ -72,7 +73,8 @@ export function detectFacts({ repo, file, externalImports, routes, test }: FactC
 
   // Everything a symbol serves, renders, maps or requests, the file does too.
   for (const r of routes[0] ?? []) add('route', r);
-  for (const f of symbols.flat()) if (f.type === 'route' || f.type === 'table' || f.type === 'request') add(f.type, f.value);
+  for (const p of pages[0] ?? []) add('pageRoute', p);
+  for (const f of symbols.flat()) if (f.type === 'route' || f.type === 'table' || f.type === 'request' || f.type === 'pageRoute') add(f.type, f.value);
   for (const r of file.requests) add('request', `${r.method} ${r.path}`);
   if (file.jsx || file.symbols.some((s) => s.kind === 'component')) add('returnsJSX', 'true');
 

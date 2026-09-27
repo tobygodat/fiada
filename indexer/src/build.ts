@@ -18,13 +18,22 @@ export interface BaseGraph {
 }
 
 export function buildBase(repos: ParsedRepo[]): BaseGraph {
-  const { edges, routes, externalImports } = link(repos);
+  const { edges, routes, pages, externalImports } = link(repos);
 
+  // Routes show their full path when every mount above them was found.
   const routesByNode = new Map<string, string[]>();
   for (const r of routes) {
     const list = routesByNode.get(r.node) ?? [];
-    list.push(`${r.method} ${r.path}`);
+    const label = `${r.method} ${r.fullPath ?? (r.path || '/')}`;
+    const bare = (l: string) => l.replace(/(.)\/$/, '$1');
+    if (!list.some((l) => bare(l) === bare(label))) list.push(label);
     routesByNode.set(r.node, list);
+  }
+  const pagesByNode = new Map<string, string[]>();
+  for (const p of pages) {
+    const list = pagesByNode.get(p.node) ?? [];
+    if (!list.includes(p.path)) list.push(p.path);
+    pagesByNode.set(p.node, list);
   }
 
   const nodes: GraphNode[] = [];
@@ -78,6 +87,7 @@ export function buildBase(repos: ParsedRepo[]): BaseGraph {
         file: f,
         externalImports: externalImports.get(id) ?? [],
         routes: [routesByNode.get(id), ...ids.map((s) => routesByNode.get(s))],
+        pages: [pagesByNode.get(id), ...ids.map((s) => pagesByNode.get(s))],
         test: TEST_PATH.test(f.path),
       });
       nodes.push({
