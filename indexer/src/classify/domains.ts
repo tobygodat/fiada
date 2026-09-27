@@ -11,7 +11,7 @@
 import { UNSORTED_DOMAIN, type GraphNode, type Placement } from '@strata/shared';
 import type { Assignments, DomainStrategy } from './types.ts';
 
-const GENERIC = new Set(
+export const GENERIC = new Set(
   (
     'src app apps lib libs pkg packages internal cmd component components page pages route routes router routers api apis ' +
     'service services util utils helper helpers common shared core model models db database type types index main mod ' +

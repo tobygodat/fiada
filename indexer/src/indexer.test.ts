@@ -5,7 +5,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { UNLAYERED, type GraphNode, type Grouping, type RepoInfo } from '@strata/shared';
 import { buildGraph } from './build.ts';
-import { classify, defaultGrouping, GroupingError, normalizeGrouping } from './classify/index.ts';
+import { classify, defaultGrouping, GroupingError, normalizeGrouping, seedAndPropagate } from './classify/index.ts';
+import { projectMatchers } from './classify/layers.ts';
 import { globToRegExp } from './classify/glob.ts';
 import { importMatches } from './classify/layers.ts';
 import { matchRoute, segments } from './link.ts';
@@ -189,4 +190,64 @@ test('file store round-trips a project and ignores its own writes', async () => 
   stop();
   assert.equal(changes, 1, 'a hand edit is noticed');
   assert.throws(() => store.describe('../escape'));
+});
+
+test('domains: seeds from routes, entities and feature folders spread along edges', () => {
+  const route = (v: string) => [{ type: 'route' as const, value: v }];
+  const nodes: GraphNode[] = [
+    { id: 'app', kind: 'repo', name: 'app', parent: 'root', repo: 'app' },
+    file('app/api/routes/items.py'),
+    sym('app/api/routes/items.py', 'read_item', route('GET /items/{id}')),
+    sym('app/api/routes/items.py', 'read_user_items', route('GET /users/{id}/items')),
+    file('app/api/routes/users.py'),
+    sym('app/api/routes/users.py', 'read_user', route('GET /users/{id}')),
+    file('app/models.py'),
+    sym('app/models.py', 'Item', [{ type: 'table', value: 'Item' }]),
+    sym('app/models.py', 'User', [{ type: 'table', value: 'User' }]),
+    file('app/crud.py'),
+    sym('app/crud.py', 'get_item'), // only items code uses it
+    sym('app/crud.py', 'get_session'), // everything uses it
+    file('web/components/Items/ItemCard.tsx'),
+    sym('web/components/Items/ItemCard.tsx', 'ItemCard'),
+    file('web/components/ui/button.tsx'),
+    sym('web/components/ui/button.tsx', 'Button'),
+    file('web/components/Billing/Invoice.tsx'),
+    sym('web/components/Billing/Invoice.tsx', 'Invoice'),
+    file('app/api/routes/orders.py'),
+    sym('app/api/routes/orders.py', 'list_orders', route('GET /orders')),
+    file('web/components/Orders/OrderList.tsx'),
+    sym('web/components/Orders/OrderList.tsx', 'OrderList'),
+    file('web/lib/misc.ts'),
+    sym('web/lib/misc.ts', 'noop'),
+  ];
+  const e = (from: string, to: string, kind: 'calls' | 'renders' = 'calls') => ({ from, to, kind });
+  const edges = [
+    e('app/api/routes/items.py#read_item', 'app/crud.py#get_item'),
+    e('app/crud.py#get_item', 'app/models.py#Item'),
+    e('app/api/routes/items.py#read_item', 'app/crud.py#get_session'),
+    e('app/api/routes/users.py#read_user', 'app/crud.py#get_session'),
+    e('web/components/Items/ItemCard.tsx#ItemCard', 'app/crud.py#get_session'),
+    e('web/components/Orders/OrderList.tsx#OrderList', 'app/crud.py#get_session'),
+    e('web/components/Items/ItemCard.tsx#ItemCard', 'web/components/ui/button.tsx#Button', 'renders'),
+    e('web/components/Billing/Invoice.tsx#Invoice', 'web/components/ui/button.tsx#Button', 'renders'),
+  ];
+  const grouping = { ...defaultGrouping(), pins: { 'web/components/Billing/Invoice.tsx#Invoice': { domain: 'item' } } };
+  const { domains, domainList } = classify(nodes, edges, grouping, { layers: projectMatchers, domains: seedAndPropagate() });
+  const d = (id: string) => domains.get(id)?.id;
+  assert.equal(d('app/api/routes/items.py#read_item'), 'item');
+  assert.equal(d('app/api/routes/items.py#read_user_items'), 'user', 'its own route beats its module');
+  assert.equal(d('app/models.py#User'), 'user');
+  assert.equal(d('app/crud.py#get_item'), 'item');
+  assert.equal(domains.get('app/crud.py#get_item')?.source, 'propagated');
+  assert.equal(d('app/crud.py#get_session'), 'shared', 'used directly by Items, Users and Orders');
+  assert.match(domains.get('app/crud.py#get_session')!.evidence[0].detail, /^used directly by /);
+  assert.equal(d('web/components/Items/ItemCard.tsx#ItemCard'), 'item');
+  assert.equal(d('web/components/ui/button.tsx#Button'), 'item', 'the pin pulled Invoice, and with it the button, into Items');
+  assert.equal(d('web/components/Billing/Invoice.tsx#Invoice'), 'item');
+  assert.equal(d('web/lib/misc.ts#noop'), 'unsorted');
+  assert.ok(!domainList.some((x) => x.id === 'billing'), 'one file naming itself is not a domain');
+  assert.deepEqual(
+    domainList.filter((x) => x.id === 'item' || x.id === 'user').map((x) => x.name),
+    ['Items', 'Users'],
+  );
 });
