@@ -3,6 +3,13 @@
 //
 //   { _id: "default", repos: [...], reposRev: 3, grouping: {...}, groupingRev: 7, updatedAt }
 //
+// Generated node summaries go in `summaries`, one document each, keyed by
+// project and the hash of what the model read. They're derived and
+// write-once, so they need no revisions: two indexers writing the same hash
+// write the same kind of thing.
+//
+//   { _id: "default:Qm3…", project: "default", text, model, at }
+//
 // Each save touches only its own field, so saving repos never overwrites the
 // grouping. Each field also carries a revision: a save applies only on top of
 // the revision this process last loaded or saved, so two indexers serving the
@@ -13,7 +20,7 @@
 
 import { MongoClient, type Collection } from 'mongodb';
 import type { Grouping } from '@strata/shared';
-import type { ProjectStore, SavedRepo } from './store.ts';
+import type { ProjectStore, SavedRepo, StoredSummary } from './store.ts';
 
 interface ProjectDoc {
   _id: string;
@@ -22,6 +29,11 @@ interface ProjectDoc {
   grouping?: unknown;
   groupingRev?: number;
   updatedAt?: Date;
+}
+
+interface SummaryDoc extends StoredSummary {
+  _id: string;
+  project: string;
 }
 
 type Field = 'repos' | 'grouping';
@@ -49,6 +61,7 @@ export class MongoProjectStore implements ProjectStore {
   private constructor(
     private client: MongoClient,
     private projects: Collection<ProjectDoc>,
+    private summaries: Collection<SummaryDoc>,
     private where: string,
   ) {}
 
@@ -62,7 +75,8 @@ export class MongoProjectStore implements ProjectStore {
       await client.connect();
       const projects = client.db(dbName).collection<ProjectDoc>('projects');
       await projects.findOne({}, { projection: { _id: 1 } });
-      return new MongoProjectStore(client, projects, `${redact(uri)} ${dbName}.projects`);
+      const summaries = client.db(dbName).collection<SummaryDoc>('summaries');
+      return new MongoProjectStore(client, projects, summaries, `${redact(uri)} ${dbName}.projects`);
     } catch (err) {
       await client.close().catch(() => {});
       throw err;
@@ -88,6 +102,19 @@ export class MongoProjectStore implements ProjectStore {
 
   saveGrouping(projectId: string, grouping: Grouping) {
     return this.save(projectId, 'grouping', grouping);
+  }
+
+  async loadSummaries(projectId: string): Promise<Record<string, StoredSummary> | null> {
+    const docs = await this.summaries.find({ project: projectId }).toArray();
+    if (!docs.length) return null;
+    return Object.fromEntries(docs.map((d) => [d._id.slice(projectId.length + 1), { text: d.text, model: d.model, at: d.at }]));
+  }
+
+  async saveSummaries(projectId: string, entries: Record<string, StoredSummary>) {
+    const ops = Object.entries(entries).map(([hash, s]) => ({
+      replaceOne: { filter: { _id: `${projectId}:${hash}` }, replacement: { project: projectId, text: s.text, model: s.model, at: s.at }, upsert: true },
+    }));
+    if (ops.length) await this.summaries.bulkWrite(ops, { ordered: false });
   }
 
   async close() {

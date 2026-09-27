@@ -12,9 +12,10 @@ import type { AgentEvent, LayerPreset } from '@strata/shared';
 import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS } from './access.ts';
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
-import { KEY_HINT } from './llm.ts';
+import { KEY_HINT, llmFromEnv } from './llm.ts';
 import { Sorter } from './sorter.ts';
 import { checkProjectId, createStore } from './store.ts';
+import { Summaries } from './summaries/index.ts';
 import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
@@ -23,13 +24,25 @@ const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.STRATA_API_KEY || undefined;
 const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
 
+const store = await createStore(STRATA_HOME);
 const ws = new Workspace(
-  await createStore(STRATA_HOME),
+  store,
   checkProjectId(process.env.STRATA_PROJECT ?? 'default'),
   { localPaths: allowLocalPaths(HOST), keyRequired: !!KEY },
   Sorter.fromEnv(),
 );
+const llm = /^(off|0|false|no)$/i.test(process.env.STRATA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv();
+const summaries = new Summaries({
+  store,
+  projectId: ws.projectId,
+  llm,
+  read: (repo, path) => ws.readSource(repo, path).then((s) => s?.text ?? null),
+  busy: () => ws.state().busy,
+});
+await summaries.init();
+ws.onGraph(() => summaries.setGraph(ws.getGraph()));
 await ws.init();
+summaries.setGraph(ws.getGraph());
 const agents = new AgentHub(ws);
 
 const app = Fastify({ logger: { level: 'warn' } });
@@ -118,7 +131,7 @@ app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, repl
   return { grouping: await ws.applyPreset(preset) };
 });
 
-// Sorts the project's leftovers with Claude again. Answers at once; the map picks the result up when it lands.
+// Sorts the project's leftovers with the model again. Answers at once; the map picks the result up when it lands.
 app.post('/api/grouping/sort', async (_req, reply) => {
   if (!ws.sortAgain()) return reply.code(409).send({ error: `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
   return reply.code(202).send(ws.state());
@@ -130,6 +143,14 @@ app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async 
   const source = await ws.readSource(repo, path);
   if (!source) return reply.code(404).send({ error: `${repo}/${path} is not an indexed file` });
   return source;
+});
+
+// What a node does: a line from the graph straight away, and a generated summary when a model key is set.
+app.get<{ Querystring: { node?: string } }>('/api/summary', async (req, reply) => {
+  if (!req.query.node) return reply.code(400).send({ error: 'Query must be ?node=<node id>' });
+  const summary = await summaries.get(req.query.node);
+  if (!summary) return reply.code(404).send({ error: `${req.query.node} is not in the graph` });
+  return summary;
 });
 
 // ── agent activity ──
@@ -179,5 +200,6 @@ console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);
 if (!ws.allowLocal) console.log('[strata] local folders are off: this indexer imports git repositories only');
 if (process.env.STRATA_ALLOWED_ORIGINS) console.log(`[strata] browsers may call the API from ${process.env.STRATA_ALLOWED_ORIGINS}`);
 console.log(ws.sorter.available ? `[strata] sorting imports with ${ws.sorter.describe}` : `[strata] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
+console.log(llm ? `[strata] node summaries: written by ${llm.label} (${llm.model})` : `[strata] no ${KEY_HINT}: node summaries are lines from the graph`);
 if (KEY) console.log('[strata] changes need the access key (STRATA_API_KEY)');
 else if (!isLoopback(HOST)) console.warn('[strata] no STRATA_API_KEY: anyone who can reach this indexer can change its project');
