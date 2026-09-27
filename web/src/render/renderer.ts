@@ -44,7 +44,6 @@ const inks = () => ({
   selection: token('--selection'),
   accent: token('--accent'),
 });
-type Inks = ReturnType<typeof inks>;
 
 export interface Scene {
   tree: Tree;
@@ -429,8 +428,10 @@ export class MapRenderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     // The map's paper: flat, no gradient.
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = ink.ground;
-    ctx.fillRect(0, 0, w, h);
+    if (ink.ground) {
+      ctx.fillStyle = ink.ground;
+      ctx.fillRect(0, 0, w, h);
+    }
     this.drawnNodes = [];
     this.drawnEdges = [];
     this.drawnTags = [];
@@ -513,7 +514,7 @@ export class MapRenderer {
       const n = g.items.length;
       // Every interaction behind it was guessed: dotted, and a little fainter.
       const guess = g.inferred === n;
-      // Links are words' colour, not their ends': muted, and ink when selected or pointed at.
+      // Links are --muted, --text when selected or pointed at; their ends' colours stay on the circles.
       const stroke = isSel || isHover ? ink.text : ink.muted;
       const cross = crossRepo(g);
       let op = role === 'rest' ? (inFocus ? this.policy.restFade : cross ? 0.75 : 0.6) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.85;
@@ -575,6 +576,7 @@ export class MapRenderer {
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now());
 
     // ── labels ──
+    ctx.globalAlpha = 1;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const hoverTab = this.hover?.type === 'tab' ? this.hover.id : null;
