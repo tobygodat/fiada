@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { AgentEvent } from '@strata/shared';
+import { ancestors } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import { sweep } from './hook.ts';
 import { clientId, StrataMcp } from './mcp.ts';
@@ -91,6 +92,7 @@ test('a hook sweep reports edits, new files, deletions made from a shell, and re
   let out = await sweep(key, co, [path.join(dir, 'src/a.ts')]);
   assert.equal(out.length, 1);
   assert.equal(out[0].kind, 'modified');
+  assert.equal(out[0].swept, undefined);
   assert.deepEqual(out[0].lines, [[2, 2]]);
   assert.match(out[0].diff!, /\+  return 42;/);
 
@@ -103,6 +105,8 @@ test('a hook sweep reports edits, new files, deletions made from a shell, and re
   assert.equal(byPath['src/b.ts'].kind, 'deleted');
   assert.equal(byPath['src/gen.ts'].kind, 'added');
   assert.deepEqual(byPath['src/gen.ts'].lines, [[1, 2]]);
+  // Found in the tree, not named by a tool: another agent in this checkout may have made them.
+  assert.ok(byPath['src/b.ts'].swept && byPath['src/gen.ts'].swept);
 
   // Put a.ts back as it was: reported as reverted, so the map drops it.
   git(dir, 'checkout', '--', 'src/a.ts');
@@ -121,6 +125,8 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   process.env.STRATA_CWD = dir;
   const fresh = new StrataMcp((m) => out.push(m), post);
   delete process.env.STRATA_CWD;
+  const outer = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = 'sess-1';
 
   await fresh.handle({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'claude-code', version: '2' } } });
   assert.equal(out[0].result.protocolVersion, '2025-03-26');
@@ -138,6 +144,10 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   const task = sent[0][0];
   assert.equal(task.type, 'task');
   assert.equal(task.agent.client, 'claude-code');
+  // Claude Code names the session in the server's environment.
+  assert.equal(task.agent.session, 'sess-1');
+  if (outer === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+  else process.env.CLAUDE_CODE_SESSION_ID = outer;
   assert.equal(task.agent.root, dir);
 
   await fs.writeFile(path.join(dir, 'app/models.py'), 'class Item:\n    tags: list\n');
@@ -154,6 +164,13 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   await fresh.handle({ jsonrpc: '2.0', id: 5, method: 'nope' });
   assert.equal(out[4].error.code, -32601);
   assert.equal(clientId('Cursor-VSCode'), 'cursor');
+});
+
+test('the processes above this one, nearest first', async () => {
+  const procs = await ancestors(2);
+  if (process.platform === 'win32') return assert.deepEqual(procs, []);
+  assert.equal(procs[0], process.ppid);
+  assert.ok(procs.length <= 2);
 });
 
 test('setup merges hooks without disturbing others and replaces its own', () => {

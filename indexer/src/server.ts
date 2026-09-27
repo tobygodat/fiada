@@ -102,13 +102,10 @@ app.get<{ Querystring: { node?: string } }>('/api/agent/diff', async (req, reply
   return { diffs: agents.diffs(req.query.node) };
 });
 
-app.delete<{ Params: { id: string } }>('/api/agent/:id', async (req) => {
-  agents.clear(req.params.id);
-  return agents.state();
-});
-
-app.delete('/api/agent', async () => {
-  agents.clear();
+// One agent (?id=) or all of them. The id goes in the query: it holds the checkout's
+// absolute path, often longer than a path parameter may be.
+app.delete<{ Querystring: { id?: string } }>('/api/agent', async (req) => {
+  agents.clear(req.query.id || undefined);
   return agents.state();
 });
 

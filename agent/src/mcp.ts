@@ -110,7 +110,10 @@ export class StrataMcp {
   }
 
   private who(): Promise<AgentRef> {
-    return (this.agent ??= whoAndWhere(this.client, this.cwd).then((w) => w.agent));
+    // Claude Code tells the servers it starts which session they serve. Elsewhere the client
+    // starts this server itself, so its nearest ancestors are the ones its hooks share.
+    const session = this.client === 'claude-code' ? process.env.CLAUDE_CODE_SESSION_ID || undefined : undefined;
+    return (this.agent ??= whoAndWhere(this.client, this.cwd, session, 2).then((w) => w.agent));
   }
 
   async handle(msg: Json): Promise<void> {

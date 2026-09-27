@@ -322,6 +322,12 @@ export interface AgentRef {
   root?: string;
   /** URL of that checkout's `origin` remote. */
   remote?: string;
+  /**
+   * The reporting process's nearest ancestor pids, nearest first. An MCP
+   * server that isn't told its session (Claude Code tells it) shares a
+   * parent with that session's hooks, which tells the indexer which it is.
+   */
+  procs?: number[];
 }
 
 /** A 1-based inclusive line range; `[n, n - 1]` marks lines removed just before line n. */
@@ -344,6 +350,11 @@ export interface FileChange {
   symbols?: string[];
   /** The checkout the file is in, when that isn't the agent's own (an agent editing a sibling repo). */
   checkout?: { root: string; remote?: string };
+  /**
+   * Found by comparing the working tree rather than named by the tool that
+   * wrote it, so it may be another agent's change in the same checkout.
+   */
+  swept?: boolean;
 }
 
 export type StepStatus = 'pending' | 'active' | 'done';

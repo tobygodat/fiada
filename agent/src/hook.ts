@@ -42,22 +42,24 @@ const oneLine = (s: unknown, max = 300) => String(s ?? '').replace(/\s+/g, ' ').
  * records the tree and reports the explicit files.
  */
 export async function sweep(key: string, co: Checkout | null, explicit: string[] = [], told?: ChangeKind): Promise<FileChange[]> {
-  const found = new Map<string, ChangeKind | 'reverted' | undefined>();
-  for (const f of explicit) found.set(await real(f), told);
+  const found = new Map<string, { kind?: ChangeKind | 'reverted'; swept: boolean }>();
+  for (const f of explicit) found.set(await real(f), { kind: told, swept: false });
   if (co) {
     const [prev, cur] = await Promise.all([load(key, co.root), take(co)]);
     if (cur) {
-      if (prev) for (const c of compare(prev, cur)) if (!found.has(path.join(co.root, c.path))) found.set(path.join(co.root, c.path), c.kind);
+      if (prev) for (const c of compare(prev, cur)) if (!found.has(path.join(co.root, c.path))) found.set(path.join(co.root, c.path), { kind: c.kind, swept: true });
       await save(key, co.root, cur);
     }
   }
   const out: FileChange[] = [];
-  for (const [abs, kind] of found) {
+  for (const [abs, { kind, swept }] of found) {
     const inOwn = co && (abs + path.sep).startsWith(co.root + path.sep);
     const fileCo = inOwn ? co : await checkout(path.dirname(abs)).catch(() => null);
     const change = await describe(fileCo, abs, kind === 'reverted' ? undefined : kind);
     if (!change) continue;
     if (fileCo && !inOwn) change.checkout = { root: fileCo.root, remote: fileCo.remote };
+    // Another agent in the same checkout may have made it: the indexer decides.
+    if (swept) change.swept = true;
     out.push(change);
   }
   return out;

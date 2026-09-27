@@ -1,8 +1,13 @@
 // Sends events to the Strata indexer. An agent must never wait on Strata or
 // fail because it's down, so every send is short and swallows errors.
 
+import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import { promisify } from 'node:util';
 import type { AgentEvent, AgentRef } from '@strata/shared';
 import { checkout, real, type Checkout } from './git.ts';
+
+const exec = promisify(execFile);
 
 export const STRATA_URL = (process.env.STRATA_URL ?? `http://127.0.0.1:${process.env.STRATA_INDEXER_PORT ?? 4178}`).replace(/\/+$/, '');
 
@@ -26,9 +31,42 @@ export async function send(events: AgentEvent[], timeoutMs = 1500): Promise<Inge
   }
 }
 
-/** Who's working where: the agent's client name and the checkout its directory is in. */
-export async function whoAndWhere(client: string, cwd: string, session?: string): Promise<{ agent: AgentRef; co: Checkout | null }> {
+/**
+ * Who's working where: the agent's client name, the checkout its directory
+ * is in, and the processes above this one (`depth` of them), which an MCP
+ * server and the hooks of the same session have in common.
+ */
+export async function whoAndWhere(client: string, cwd: string, session?: string, depth = 3): Promise<{ agent: AgentRef; co: Checkout | null }> {
   const dir = await real(cwd);
-  const co = await checkout(dir);
-  return { agent: { client, session, cwd: dir, root: co?.root, remote: co?.remote }, co };
+  const [co, procs] = await Promise.all([checkout(dir), ancestors(depth)]);
+  return { agent: { client, session, cwd: dir, root: co?.root, remote: co?.remote, procs: procs.length ? procs : undefined }, co };
+}
+
+/** This process's nearest ancestor pids, nearest first; empty where they can't be read. */
+export async function ancestors(depth: number): Promise<number[]> {
+  const out: number[] = [];
+  for (let pid = process.ppid; pid > 1 && out.length < depth; ) {
+    out.push(pid);
+    const up = await parentOf(pid);
+    if (!up) break;
+    pid = up;
+  }
+  return out;
+}
+
+async function parentOf(pid: number): Promise<number | null> {
+  if (process.platform === 'win32') return null;
+  try {
+    // "pid (comm) state ppid …"; comm can hold spaces and parentheses.
+    const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
+    return Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]) || null;
+  } catch {
+    // No /proc (macOS): ask ps.
+  }
+  try {
+    const { stdout } = await exec('ps', ['-o', 'ppid=', '-p', String(pid)], { timeout: 1000 });
+    return Number(stdout.trim()) || null;
+  } catch {
+    return null;
+  }
 }

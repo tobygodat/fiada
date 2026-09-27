@@ -1,6 +1,6 @@
 // What coding agents are doing, as the map sees it. Events arrive from the
 // agent package (its MCP server and tool hooks); this keeps one record per
-// agent (a client in a working tree), maps the files it changed onto graph
+// agent (a client's session in a working tree), maps the files it changed onto graph
 // nodes, works out which symbols each change touched, re-indexes changed
 // files of local repositories, and pushes the result to the map.
 //
@@ -57,6 +57,8 @@ interface FileRec {
   live: boolean;
   /** Symbols before the agent's changes, from HEAD; null when there's no HEAD version to read. */
   base: SymbolLines | null;
+  /** Only ever seen in a working-tree sweep, never named by a tool: another agent may have made it. */
+  swept: boolean;
 }
 
 interface AgentRec {
@@ -76,7 +78,23 @@ export interface IngestReply {
   files: { path: string; repo?: string; node?: string; kind: string; symbols?: number }[];
 }
 
+/** A client in a working tree; the sessions of it are told apart by `agentId`. */
 export const agentKey = (ref: AgentRef) => `${ref.client}@${ref.root ?? ref.cwd}`;
+export const agentId = (ref: AgentRef) => (ref.session ? `${agentKey(ref)}#${ref.session}` : agentKey(ref));
+
+/**
+ * Which of `peers` (sessions of one client in one checkout) a reporter with
+ * no session of its own belongs to: the one whose hooks share its nearest
+ * parent process. Null when that doesn't single one out.
+ */
+export function sameProcess<T extends { ref: AgentRef }>(procs: number[] | undefined, peers: T[]): T | null {
+  for (const pid of procs ?? []) {
+    const hits = peers.filter((p) => p.ref.procs?.includes(pid));
+    if (hits.length === 1) return hits[0];
+    if (hits.length) return null;
+  }
+  return null;
+}
 
 const inside = (p: string, dir: string) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
 const posix = (p: string) => p.split(path.sep).join('/');
@@ -125,10 +143,8 @@ export class AgentHub {
       rec.updatedAt = now;
       switch (ev.type) {
         case 'session':
-          if (ev.phase === 'start') {
-            if (ev.agent.session && ev.agent.session !== rec.ref.session) Object.assign(rec, { task: undefined, prompt: undefined, note: undefined, steps: [] });
-            rec.state = 'waiting';
-          } else {
+          if (ev.phase === 'start') rec.state = 'waiting';
+          else {
             rec.state = 'ended';
             // Nothing left to review: the agent goes from the queue.
             if (!rec.files.size) this.agents.delete(rec.id);
@@ -165,20 +181,45 @@ export class AgentHub {
           rec.state = ev.state;
           break;
       }
-      rec.ref = { ...rec.ref, ...ev.agent, session: ev.agent.session ?? rec.ref.session };
+      // A session's processes are its hooks'; an MCP server matched to it keeps them.
+      const procs = ev.agent.session || !rec.ref.session ? (ev.agent.procs ?? rec.ref.procs) : rec.ref.procs;
+      rec.ref = { ...rec.ref, ...ev.agent, session: ev.agent.session ?? rec.ref.session, procs };
     }
     this.version++;
     this.push();
     return reply;
   }
 
+  /**
+   * The record for an event's agent. Each session of a client is its own
+   * agent, even in the same checkout. A reporter without a session (an MCP
+   * server) joins the session it runs beside: the one sharing its parent
+   * process, else the latest active one; failing both it gets a record of
+   * its own, which the session's hooks take over when they first report.
+   */
   private agentFor(ref: AgentRef): AgentRec {
-    const id = agentKey(ref);
-    let rec = this.agents.get(id);
-    if (!rec) {
-      rec = { id, ref, state: 'working', steps: [], files: new Map(), startedAt: Date.now(), updatedAt: Date.now() };
-      this.agents.set(id, rec);
+    const key = agentKey(ref);
+    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], files: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
+    if (ref.session) {
+      const id = agentId(ref);
+      let rec = this.agents.get(id);
+      if (!rec) {
+        const early = this.agents.get(key);
+        // Unless the early reporter's parent process is plainly not this session's.
+        const theirs = early && (!early.ref.procs?.length || !ref.procs || ref.procs.includes(early.ref.procs[0]));
+        if (early && theirs) {
+          this.agents.delete(key);
+          rec = Object.assign(early, { id });
+        } else rec = fresh(id);
+        this.agents.set(id, rec);
+      }
+      return rec;
     }
+    const peers = [...this.agents.values()].filter((r) => r.ref.session && r.state !== 'ended' && agentKey(r.ref) === key);
+    const joined = sameProcess(ref.procs, peers) ?? (peers.length ? peers.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)) : null);
+    if (joined) return joined;
+    let rec = this.agents.get(key);
+    if (!rec) this.agents.set(key, (rec = fresh(key)));
     return rec;
   }
 
@@ -216,7 +257,17 @@ export class AgentHub {
       return { path: shown, repo: where.repo, kind: 'reverted' };
     }
     const kind: ChangeKind = f.kind === 'added' || f.kind === 'deleted' ? f.kind : 'modified';
+    const swept = f.swept === true;
     let file = rec.files.get(key);
+    const others = [...this.agents.values()].filter((r) => r !== rec && r.files.has(key));
+    if (!file && swept && others.some((r) => r.state !== 'ended' && !r.files.get(key)!.swept)) {
+      // Seen in the working tree, but another live agent in it named this file itself: that agent's change.
+      return { path: shown, repo: where.repo, kind: 'elsewhere' };
+    }
+    if (!swept) {
+      // Named by this agent's own tool: an agent that only swept it up was wrong to claim it.
+      for (const r of others) if (r.files.get(key)!.swept) r.files.delete(key);
+    }
     if (!file) {
       file = {
         key,
@@ -229,9 +280,11 @@ export class AgentHub {
         fresh: false,
         live: where.live,
         base: where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : null,
+        swept,
       };
       rec.files.set(key, file);
     }
+    if (!swept) file.swept = false;
     Object.assign(file, {
       kind,
       lines: f.lines,
@@ -353,10 +406,23 @@ export class AgentHub {
   /** Diffs agents hold for one file (or the file a symbol is in). */
   diffs(nodeId: string): { agent: string; name: string; kind: ChangeKind; additions?: number; deletions?: number; diff?: string; at: string }[] {
     const key = nodeId.includes('#') ? nodeId.slice(0, nodeId.indexOf('#')) : nodeId;
+    const names = this.names();
     const out = [];
     for (const rec of this.agents.values()) {
       const f = rec.files.get(key);
-      if (f) out.push({ agent: rec.id, name: NAMES[rec.ref.client] ?? rec.ref.client, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, at: new Date(f.at).toISOString() });
+      if (f) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, at: new Date(f.at).toISOString() });
+    }
+    return out;
+  }
+
+  /** "Claude Code", with the start of the session id when two sessions of it share a checkout. */
+  private names(): Map<string, string> {
+    const count = new Map<string, number>();
+    for (const rec of this.agents.values()) count.set(agentKey(rec.ref), (count.get(agentKey(rec.ref)) ?? 0) + 1);
+    const out = new Map<string, string>();
+    for (const rec of this.agents.values()) {
+      const name = NAMES[rec.ref.client] ?? rec.ref.client;
+      out.set(rec.id, count.get(agentKey(rec.ref))! > 1 && rec.ref.session ? `${name} · ${rec.ref.session.slice(0, 4)}` : name);
     }
     return out;
   }
@@ -383,13 +449,20 @@ export class AgentHub {
     const nodes = new Set<string>();
     const symbols = new Map<string, GraphNode[]>();
     const folders = new Map<string, string>(); // `${repo}/${dir}` → folder node id, for every dir a collapsed folder covers
+    const folderPath = new Map<string, string>();
     for (const n of graph.nodes) {
       nodes.add(n.id);
       if (n.kind === 'symbol') {
         const list = symbols.get(n.parent) ?? [];
         list.push(n);
         symbols.set(n.parent, list);
-      } else if (n.kind === 'folder' && n.path) folders.set(`${n.repo}/${n.path}`, n.id);
+      } else if (n.kind === 'folder' && n.path) folderPath.set(n.id, n.path);
+    }
+    // One node stands for a chain of single-child folders ("src/main/java"): each dir in it, up to the parent's, maps to it.
+    for (const n of graph.nodes) {
+      if (n.kind !== 'folder' || !n.path) continue;
+      const stop = folderPath.get(n.parent) ?? '';
+      for (let d = n.path; d && d !== '.' && d !== stop; d = path.posix.dirname(d)) folders.set(`${n.repo}/${d}`, n.id);
     }
     return (this.indexCache = { graph, nodes, symbols, folders });
   }
@@ -445,6 +518,7 @@ export class AgentHub {
       }
     };
     const agents: AgentActivity[] = [];
+    const names = this.names();
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
       for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
@@ -474,7 +548,7 @@ export class AgentHub {
       agents.push({
         id: rec.id,
         client: rec.ref.client,
-        name: NAMES[rec.ref.client] ?? rec.ref.client,
+        name: names.get(rec.id)!,
         where: repo?.id ?? path.basename(root),
         cwd: rec.ref.cwd,
         state: rec.state,

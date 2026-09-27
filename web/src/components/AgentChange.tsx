@@ -47,28 +47,31 @@ const ago = (iso: string) => {
 };
 
 export function AgentChange({ node, lines, rev, kind }: Props) {
-  const [diffs, setDiffs] = useState<{ key: string; list: AgentDiff[] } | null>(null);
+  const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
   useEffect(() => {
     let live = true;
     api.agentDiffs(node).then(
-      (r) => live && setDiffs({ key, list: r.diffs }),
-      () => live && setDiffs({ key, list: [] }),
+      (r) => live && setDiffs({ node, list: r.diffs }),
+      () => live && setDiffs({ node, list: [] }),
     );
     return () => {
       live = false;
     };
   }, [key, node]);
 
-  const list = diffs?.list ?? [];
+  // Only this node's diffs: the last node's stay in state until the new request lands.
+  // (An older diff of this same node is fine to show while a newer one loads.)
+  const mine = diffs?.node === node ? diffs.list : null;
+  const list = mine ?? [];
   return (
     <div className="detail-block agent-change">
       <div className="block-title row gap">
         <span className={`chg ${kind}`}>●</span>
         <span>{kind === 'added' ? 'Added by an agent' : kind === 'deleted' ? 'Deleted by an agent' : 'Changed by an agent'}</span>
       </div>
-      {!diffs && <div className="muted small">Loading the diff…</div>}
-      {diffs && !list.length && <div className="muted small">No diff recorded for this change.</div>}
+      {!mine && <div className="muted small">Loading the diff…</div>}
+      {mine && !list.length && <div className="muted small">No diff recorded for this change.</div>}
       {list.map((d) => {
         const shown = d.diff ? hunksFor(d.diff, lines) : [];
         return (

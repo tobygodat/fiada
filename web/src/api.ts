@@ -37,5 +37,5 @@ export const api = {
   source: (repo: string, path: string) => call<SourceText>(`/api/source?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
   agentDiffs: (node: string) => call<{ diffs: AgentDiff[] }>(`/api/agent/diff?node=${encodeURIComponent(node)}`),
-  clearAgent: (id?: string) => call<ActivityState>(id ? `/api/agent/${encodeURIComponent(id)}` : '/api/agent', { method: 'DELETE' }),
+  clearAgent: (id?: string) => call<ActivityState>(id ? `/api/agent?id=${encodeURIComponent(id)}` : '/api/agent', { method: 'DELETE' }),
 };
