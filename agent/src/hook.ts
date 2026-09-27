@@ -36,6 +36,13 @@ const TODO_STATUS: Record<string, StepStatus | 'removed'> = { pending: 'pending'
 const oneLine = (s: unknown, max = 300) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
 /**
+ * Whether a prompt came from the harness (a background task's notification,
+ * a message relayed into a remote session) rather than from a person. It
+ * keeps the task a person gave rather than showing the envelope as one.
+ */
+export const fromHarness = (prompt: unknown) => /^\s*<(task-notification|wake|system-reminder|cross-session-message|coordinator-relay)[\s>]/.test(String(prompt ?? ''));
+
+/**
  * What changed in the working tree since the last call, plus `explicit`
  * files a tool just wrote (which may be in another checkout entirely).
  * The first call in a session has nothing to compare with, so it only
@@ -141,7 +148,7 @@ async function fromClaude(p: Payload): Promise<{ agent: AgentRef; out: Out }> {
       break;
     case 'UserPromptSubmit':
       await remember(key, co);
-      events.push({ type: 'prompt', text: oneLine(p.prompt) });
+      events.push(fromHarness(p.prompt) ? { type: 'state', state: 'working' } : { type: 'prompt', text: oneLine(p.prompt) });
       break;
     case 'PostToolUse':
       events.push({ type: 'state', state: 'working' }, ...(await claudeToolUse(p, key, co)));

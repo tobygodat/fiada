@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import type { AgentEvent } from '@strata/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
-import { sweep } from './hook.ts';
+import { fromHarness, sweep } from './hook.ts';
 import { clientId, StrataMcp } from './mcp.ts';
 import { hooksBlock, mergeHooks } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
@@ -217,4 +217,12 @@ test('setup merges hooks without disturbing others and replaces its own', () => 
   assert.deepEqual(twice.hooks.PostToolUse[0].hooks, [mine]);
   assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/strata-hook.mjs');
   assert.equal(twice.hooks.Stop.length, 1);
+});
+
+test("the harness's own prompts aren't taken for a person's task", () => {
+  assert.ok(fromHarness('<task-notification> <task-id>b1</task-id> <status>completed</status>'));
+  assert.ok(fromHarness('<wake reason="mention" current-time="2026-09-27T11:36:50Z"> <project id="p">'));
+  assert.ok(!fromHarness('Add paging to the items list'));
+  assert.ok(!fromHarness('<Button> is misaligned in the header'));
+  assert.ok(!fromHarness(undefined));
 });
