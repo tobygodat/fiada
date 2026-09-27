@@ -13,10 +13,13 @@ import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import { visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import { BG, INK, MONO, SANS, type ColorBy, type Palette } from '../theme.ts';
+import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
 const LABEL_MIN_R = 16;
+/** Below this radius a closed circle is labelled only if its whole name fits. */
+const LABEL_FULL_R = 34;
 
 export interface Scene {
   tree: Tree;
@@ -73,8 +76,13 @@ interface Rect {
   h: number;
 }
 
-const sameHit = (a: Hit | null, b: Hit | null) =>
-  a === b || (!!a && !!b && a.type === b.type && (a.type === 'edge' || a.type === 'tag' ? a.key === (b as typeof a).key : a.id === (b as { id: string }).id));
+const sameHit = (a: Hit | null, b: Hit | null): boolean => {
+  if (a === b) return true;
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'edge' || a.type === 'tag') return a.key === (b as typeof a).key;
+  // A circle that opens under the pointer is a different target: its edges stop being in focus.
+  return a.id === (b as typeof a).id && (a.type !== 'node' || a.open === (b as typeof a).open);
+};
 
 export class MapRenderer {
   private host: HTMLElement;
@@ -103,6 +111,10 @@ export class MapRenderer {
   private drag: { x: number; y: number; cam: Camera; moved: boolean; id: number } | null = null;
   private pointer: { x: number; y: number } | null = null;
   private hover: Hit | null = null;
+
+  private policy: EdgePolicy = DEFAULT_EDGE_POLICY;
+  // Per layout and set of open circles: the resting edges, and which way each edge bends.
+  private edgeCache: { L: Map<string, Circle>; vis: Visible; contracts: Contract[]; rest: Set<string>; bends: Map<string, number>; obstacles: Circle[] } | null = null;
 
   // What the last frame drew, for hit testing.
   private drawnNodes: DrawnNode[] = [];
@@ -383,62 +395,68 @@ export class MapRenderer {
     const onScreen = (s: { x: number; y: number; r: number }) => s.x + s.r > 0 && s.x - s.r < w && s.y + s.r > 0 && s.y - s.r < h;
 
     // ── edges ──
+    // At rest only the few strongest contracts are drawn. Pointing at a closed
+    // circle, or selecting one, brings in every contract that crosses its rim.
     const selKey = scene.selectedEdge;
     const anyEdgeSel = !!selKey && scene.contracts.some((c) => c.key === selKey);
+    const hoverNode = this.hover?.type === 'node' && !this.hover.open ? this.hover.id : null;
+    const fv = hoverNode ?? sv;
     const withinMemo = new Map<string, boolean>();
     const within = (id: string): boolean => {
-      if (!sv) return false;
+      if (!fv) return false;
       let hit = withinMemo.get(id);
       if (hit == null) {
         let cur: string | null = id;
-        while (cur && cur !== sv) cur = tree.nodes.get(cur)?.parent ?? null;
-        withinMemo.set(id, (hit = cur === sv));
+        while (cur && cur !== fv) cur = tree.nodes.get(cur)?.parent ?? null;
+        withinMemo.set(id, (hit = cur === fv));
       }
       return hit;
     };
+    const rest = this.restSet(scene);
     const hoverKey = this.hover?.type === 'edge' || this.hover?.type === 'tag' ? this.hover.key : null;
-    const candidates: { g: Contract; A: Circle; B: Circle; touches: boolean }[] = [];
+    const focusEdges: { g: Contract; A: Circle; B: Circle; role: 'focus' | 'sel' | 'rest' }[] = [];
+    const resting: typeof focusEdges = [];
     for (const g of scene.contracts) {
       if (!this.visIds.has(g.a) || !this.visIds.has(g.b)) continue;
+      const touches = !!fv && within(g.a) !== within(g.b);
+      const role = g.key === selKey ? 'sel' : touches ? 'focus' : rest.has(g.key) ? 'rest' : null;
+      if (!role) continue;
       const A = at(g.a);
       const B = at(g.b);
       if (!A || !B) continue;
-      if (!onScreen(toScreen(A)) && !onScreen(toScreen(B)) && !segmentOnScreen(toScreen(A), toScreen(B), w, h)) continue;
-      candidates.push({ g, A, B, touches: !!sv && (within(g.a) || within(g.b)) });
+      const sa = toScreen(A);
+      const sb = toScreen(B);
+      // A resting edge between two places off screen says nothing about what's on it.
+      if (!onScreen(sa) && !onScreen(sb) && (role === 'rest' || !segmentOnScreen(sa, sb, w, h))) continue;
+      (role === 'rest' ? resting : focusEdges).push({ g, A, B, role });
     }
-    // Heaviest contracts first (the list is sorted), but anything touching the selection always makes the cut.
-    const drawn = [...candidates.filter((c) => c.touches || c.g.key === selKey), ...candidates.filter((c) => !c.touches && c.g.key !== selKey)].slice(0, MAX_EDGES);
-    // Thin the web out as it gets denser, so a zoomed-in map doesn't turn into a hairball.
-    const density = Math.max(0.3, Math.min(1, 60 / Math.max(1, drawn.length)));
+    // Rest edges underneath, the ones in focus on top.
+    const drawn = [...resting, ...focusEdges.slice(0, MAX_EDGES)];
+    const inFocus = focusEdges.length > 0 || anyEdgeSel;
+    const heaviest = Math.max(1, ...drawn.map((e) => e.g.items.length));
     const tagQueue: { g: Contract; x: number; y: number; isSel: boolean; touches: boolean }[] = [];
     const tagBox = this.free();
     ctx.lineCap = 'round';
-    drawn.forEach(({ g, A, B, touches }, i) => {
-      const a = toScreen(A);
-      const b = toScreen(B);
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const ux = dx / d;
-      const uy = dy / d;
-      const x1 = a.x + ux * a.r;
-      const y1 = a.y + uy * a.r;
-      const x2 = b.x - ux * b.r;
-      const y2 = b.y - uy * b.r;
-      const mx = (x1 + x2) / 2 - uy * d * 0.12;
-      const my = (y1 + y2) / 2 + ux * d * 0.12;
-      const isSel = g.key === selKey;
+    drawn.forEach(({ g, A, B, role }, i) => {
+      const bend = this.bend(scene, g);
+      const c = curve(toScreen(A), toScreen(B), bend);
+      const { x1, y1, mx, my, x2, y2 } = c;
+      const isSel = role === 'sel';
       const isHover = g.key === hoverKey;
       const n = g.items.length;
+      // Every interaction behind it was guessed: dotted, and a little fainter.
+      const guess = g.inferred === n;
       const A0 = tree.nodes.get(g.a)!;
       const stroke = isSel ? INK : this.nodeColor(A0, 1);
-      let op = sv ? (touches ? 0.95 : 0.08) : anyEdgeSel ? (isSel ? 1 : 0.08) : (g.cross ? 0.6 : 0.42) * density;
+      let op = role === 'rest' ? (inFocus ? this.policy.restFade : g.cross ? 0.7 : 0.55) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.9;
+      if (guess && !isSel) op *= 0.8;
       if (isHover) op = Math.max(op, 0.9);
-      const sw = Math.min(14, 1 + (n - 1) * 0.9) + (isHover ? 1 : 0);
+      // Width follows the log of the number of interactions, relative to the heaviest on screen.
+      const sw = 1.2 + 6.8 * (Math.log(n) / Math.log(Math.max(2, heaviest))) + (isHover ? 1 : 0);
       ctx.globalAlpha = op;
       ctx.strokeStyle = stroke;
       ctx.lineWidth = sw;
-      ctx.setLineDash(g.cross ? [6, 5] : []);
+      ctx.setLineDash(guess ? [0.5, 3 + sw] : g.cross ? [6, 5] : []);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.quadraticCurveTo(mx, my, x2, y2);
@@ -452,10 +470,12 @@ export class MapRenderer {
         maxX: Math.max(x1, mx, x2),
         maxY: Math.max(y1, my, y2),
       });
-      if ((i < MAX_TAGS || isSel || touches) && d > 90) {
+      // Letter tags on what's in focus and the edge under the pointer; on the resting overview only if the policy asks.
+      const tagged = isSel || isHover || (role === 'focus' ? i - resting.length < MAX_TAGS : this.policy.restTags && !inFocus && i < MAX_TAGS);
+      if (tagged && c.gap > 36) {
         // Mid-curve, or the nearest point to it that isn't off screen or under a panel.
         const at = tagPoint(x1, y1, mx, my, x2, y2, tagBox);
-        if (at) tagQueue.push({ g, x: at.x, y: at.y, isSel, touches });
+        if (at) tagQueue.push({ g, x: at.x, y: at.y, isSel, touches: role === 'focus' });
       }
     });
     ctx.setLineDash([]);
@@ -521,6 +541,13 @@ export class MapRenderer {
         const size = Math.round(Math.max(10, Math.min(big ? 26 : 20, r * (big ? 0.24 : 0.2))));
         const max = r * 1.8;
         const lines = big ? this.wrap2(n.name, 'sans-bold', size, max) : [this.fit(n.name, 'mono', size, max)];
+        if (!big && r < LABEL_FULL_R && lines[0] !== n.name) {
+          // A small circle with a clipped name ("lin…") says nothing. Try a file without its extension, or
+          // the last part of a folder path ("react-email" for "packages/react-email"); else leave it to the tooltip.
+          const short = n.kind === 'file' ? n.name.replace(/\.[^.]+$/, '') : n.name.slice(n.name.lastIndexOf('/') + 1);
+          if (!short || short === n.name || this.textWidth(short, 'mono', size) > max) continue;
+          lines[0] = short;
+        }
         const sub = (big && r > 48) || (!big && r > 44) ? this.subtitle(n) : null;
         const subSize = Math.max(10, Math.round(size * 0.5));
         const lh = size * 1.1;
@@ -546,9 +573,10 @@ export class MapRenderer {
     this.font('mono-medium', 11);
     for (const t of tagQueue) {
       const isHover = t.g.key === hoverKey;
-      const tw = Math.max(20, this.textWidth(t.g.tag, 'mono', 11) + 12);
+      const label = t.g.inferred === t.g.items.length ? `${t.g.tag}?` : t.g.tag;
+      const tw = Math.max(20, this.textWidth(label, 'mono', 11) + 12);
       const r = { x: t.x - tw / 2, y: t.y - 10, w: tw, h: 20 };
-      ctx.globalAlpha = sv && !t.touches ? 0.15 : anyEdgeSel && !t.isSel ? 0.3 : 1;
+      ctx.globalAlpha = t.isSel || !anyEdgeSel ? 1 : 0.3;
       ctx.fillStyle = t.isSel ? INK : BG;
       ctx.strokeStyle = t.isSel || isHover ? INK : 'rgba(230,227,218,0.3)';
       ctx.lineWidth = 1;
@@ -556,10 +584,53 @@ export class MapRenderer {
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = t.isSel ? BG : 'rgba(230,227,218,0.85)';
-      ctx.fillText(t.g.tag, t.x, t.y + 0.5);
+      ctx.fillText(label, t.x, t.y + 0.5);
       this.drawnTags.push({ ...r, key: t.g.key });
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** How much of the web to draw: a preset name, or individual settings over the current ones. */
+  setEdgePolicy(p: EdgePreset | Partial<EdgePolicy>) {
+    this.policy = typeof p === 'string' ? (EDGE_POLICIES[p] ?? DEFAULT_EDGE_POLICY) : { ...this.policy, ...p };
+    this.edgeCache = null;
+    this.request();
+  }
+
+  get edgePolicy(): EdgePolicy {
+    return this.policy;
+  }
+
+  private edges(scene: Scene) {
+    const vis = this.vis!;
+    let c = this.edgeCache;
+    if (!c || c.L !== scene.L || c.vis !== vis || c.contracts !== scene.contracts) {
+      // Closed circles are what an edge shouldn't run through; open ones are regions it may cross.
+      const obstacles: Circle[] = [];
+      for (const n of vis.list) {
+        const o = scene.L.get(n.id);
+        if (o && !vis.open.has(n.id)) obstacles.push(o);
+      }
+      c = this.edgeCache = { L: scene.L, vis, contracts: scene.contracts, rest: restEdges(scene.contracts, this.visIds, this.policy), bends: new Map(), obstacles };
+    }
+    return c;
+  }
+
+  private restSet(scene: Scene): Set<string> {
+    return this.edges(scene).rest;
+  }
+
+  /** Worked out on the final layout, so an edge keeps its shape while circles animate into place. */
+  private bend(scene: Scene, g: Contract): number {
+    const c = this.edges(scene);
+    let b = c.bends.get(g.key);
+    if (b == null) {
+      const A = scene.L.get(g.a);
+      const B = scene.L.get(g.b);
+      b = A && B && this.policy.route ? bestBend(A, B, c.obstacles) : DEFAULT_BEND;
+      c.bends.set(g.key, b);
+    }
+    return b;
   }
 
   /** Where `id` was last drawn on screen, if it was. */
@@ -714,14 +785,19 @@ export class MapRenderer {
       if (!c) return '';
       const A = scene.tree.nodes.get(c.a)?.name;
       const B = scene.tree.nodes.get(c.b)?.name;
-      return `${c.tag} · ${A} ⇄ ${B} · ${c.items.length} interaction${c.items.length === 1 ? '' : 's'}`;
+      const guessed = !c.inferred ? '' : c.inferred === c.items.length ? ' · inferred' : ` · ${c.inferred} inferred`;
+      return `${c.tag} · ${A} ⇄ ${B} · ${c.items.length} interaction${c.items.length === 1 ? '' : 's'}${guessed}`;
     }
     const n = scene.tree.nodes.get(hit.id);
     if (!n) return '';
     if (hit.type === 'tab') return `Close ${n.name}`;
     const sub = this.subtitle(n);
     const kind = KIND[n.kind] ?? n.kind;
-    const action = n.children.length && !hit.open && scene.mode === 'click' ? ' · click to open' : '';
+    let action = '';
+    if (scene.mode === 'click') {
+      if (scene.selected !== n.id) action = ' · click for details';
+      else if (n.children.length && !hit.open) action = ' · click again to open';
+    }
     return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${action}`;
   }
 }

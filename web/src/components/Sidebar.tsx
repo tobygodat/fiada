@@ -68,7 +68,7 @@ export function Sidebar(p: Props) {
             onChange={p.onColorBy}
           />
         </div>
-        <div className="row gap small muted setting" title="On click: circles open when you click them and scrolling only zooms. On zoom: circles open as you zoom into them.">
+        <div className="row gap small muted setting" title="On click: the first click on a circle shows its details, a second click opens it, and scrolling only zooms. On zoom: circles open as you zoom into them.">
           <span className="mono setting-name">open</span>
           <Segmented
             small
