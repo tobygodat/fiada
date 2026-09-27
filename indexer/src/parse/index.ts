@@ -80,10 +80,12 @@ function keepEvidenceLines(file: ParsedFile, text: string) {
   };
   decls(file);
   for (const c of file.constants) add(c.line);
+  for (const c of file.clients ?? []) add(c.line);
   for (const s of file.symbols) {
     add(s.lines[0]);
     for (const r of s.refs) add(r.line);
     for (const o of s.orm ?? []) add(o.line);
+    add(s.clientBase?.line);
     decls(s);
   }
   if (!want.size) return;

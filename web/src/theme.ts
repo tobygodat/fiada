@@ -1,6 +1,7 @@
 // Palette and type from the prototype's "orbital" look.
 
 import { UNLAYERED, type ChangeKind } from '@strata/shared';
+import { changeColor } from './theme/tokens.ts';
 
 export const INK = '#e6e3da';
 export const BG = '#0c0d10';
@@ -12,11 +13,21 @@ export const SANS = "'Geist', system-ui, sans-serif";
 
 /**
  * What a coding agent did to a file or symbol: the rings and badges on the
- * map and the +/~/− marks in the task queue. These hues mean a change and
- * nothing else; an agent's own state (working, waiting) is drawn in ink.
- * styles.css repeats them as --added, --modified and --deleted.
+ * map and the +/~/− marks in the task queue. These colours mean a change and
+ * nothing else. The values are the design tokens --added, --modified and
+ * --deleted (theme/tokens.css); the literals only stand in outside a browser.
  */
-export const CHANGE: Readonly<Record<ChangeKind, string>> = { added: MINT, modified: AMBER, deleted: DANGER };
+export const CHANGE: Readonly<Record<ChangeKind, string>> = {
+  get added() {
+    return changeColor('added') || MINT;
+  },
+  get modified() {
+    return changeColor('modified') || AMBER;
+  },
+  get deleted() {
+    return changeColor('deleted') || DANGER;
+  },
+};
 
 // One hue per repository, in import order.
 const REPO_HUES = ['72% 0.14 280', '74% 0.13 190', '74% 0.14 25', '78% 0.10 95', '76% 0.13 150', '74% 0.14 330', '78% 0.12 60', '74% 0.12 230'];

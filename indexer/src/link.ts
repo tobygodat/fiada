@@ -82,6 +82,8 @@ const RANK: Record<EdgeKind, number> = { http: 6, calls: 5, renders: 4, type: 3,
 const MAX_EVIDENCE = 6;
 /** Distinct mount chains kept per router; a router mounted in more places than this is shared plumbing. */
 const MAX_PREFIXES = 8;
+/** Folders that hold server-side code. */
+const SERVER_PATH = /(^|\/)(server|backend)\//;
 
 /** How one piece of code supports an edge. */
 interface Support {
@@ -490,11 +492,29 @@ export function link(repos: ParsedRepo[]): LinkResult {
     for (const t of goFiles(e)) if (declared.has(`${t.id}::${name}`)) return `${t.id}::${name}`;
     const b = e.bindings.get(name);
     const mod = b ? resolveModule(e, b.spec) : null;
-    if (b && mod) {
-      const exported = b.imported === '*' || b.imported === 'default' ? (files.get(mod)?.file.defaultExport ?? b.imported) : b.imported;
-      return `${mod}::${exported}`;
-    }
+    if (b && mod) return exportedRouter(mod, b.imported === '*' ? 'default' : b.imported);
     return own;
+  };
+  /** The router a module exports as `name`, through `export { default } from "./documents"` and `import r from …; export default r`. */
+  const exportedRouter = (mod: string, name: string, depth = 0): string => {
+    const e = files.get(mod);
+    const local = name === 'default' ? (e?.file.defaultExport ?? name) : name;
+    const key = `${mod}::${local}`;
+    if (!e || declared.has(key) || depth > 6) return key;
+    for (const spec of e.file.imports) {
+      const n = spec.reexport ? spec.names.find((x) => x.local === name) : undefined;
+      const target = (n || spec.reexportAll) && resolveModule(e, spec);
+      if (!target) continue;
+      const k = exportedRouter(target, n ? n.imported : name, depth + 1);
+      if (declared.has(k)) return k;
+    }
+    const b = e.bindings.get(local);
+    const target = b && resolveModule(e, b.spec);
+    if (b && target) {
+      const k = exportedRouter(target, b.imported === '*' ? 'default' : b.imported, depth + 1);
+      if (declared.has(k)) return k;
+    }
+    return key;
   };
   /** "items.router" (a router inside an imported module), "api_router", or "require:./routes/items". */
   const childKey = (e: FileEntry, i: number | null, child: MountDecl['child']): string | null => {
@@ -506,7 +526,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     if (child.startsWith('require:')) {
       const spec = e.file.imports.find((s) => s.source === child.slice(8));
       const mod = spec && resolveModule(e, spec);
-      return mod ? `${mod}::${files.get(mod)?.file.defaultExport ?? '*'}` : null;
+      return mod ? exportedRouter(mod, 'default') : null;
     }
     const dot = child.indexOf('.');
     if (dot < 0) return routerKey(e, i, child);
@@ -514,7 +534,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const mod = b ? resolveModule(e, b.spec) : null;
     if (b && mod) {
       const target = b.imported === '*' ? mod : (submodule(e, b.spec, b.imported) ?? resolveName(mod, b.imported));
-      if (target && !target.includes('#')) return `${target}::${child.slice(dot + 1)}`;
+      if (target && !target.includes('#')) return exportedRouter(target, child.slice(dot + 1));
     }
     return `${e.id}::${child}`;
   };
@@ -548,11 +568,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const fullPrefixes = (key: string, stack = new Set<string>()): Prefix[] => {
     const cached = prefixCache.get(key);
     if (cached) return cached;
-    if (roots.has(key)) {
-      prefixCache.set(key, [{ path: '', evidence: [] }]);
-      return prefixCache.get(key)!;
-    }
-    if (stack.has(key)) return [];
+    // An app mounted inside another (`app.use(mount("/api", api))`) takes the outer prefix; one mounted nowhere is served at its root.
+    const own: Prefix[] = roots.has(key) ? [{ path: '', evidence: [] }] : [];
+    if (stack.has(key)) return own;
     stack.add(key);
     const out: Prefix[] = [];
     for (const m of mountsOf.get(key) ?? []) {
@@ -566,8 +584,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
       }
     }
     stack.delete(key);
-    prefixCache.set(key, out);
-    return out;
+    const result = out.length ? out : own;
+    prefixCache.set(key, result);
+    return result;
   };
 
   // ── routes ───────────────────────────────────────────────────────────
@@ -610,6 +629,37 @@ export function link(repos: ParsedRepo[]): LinkResult {
   }
 
   // ── HTTP: client requests → server routes ────────────────────────────
+  /** The base URL a client object adds: `client` imported from a module doing `export const client = new ApiClient()`. */
+  const clientBase = (e: FileEntry, name: string): { path: string; evidence: EdgeEvidence[] } | null => {
+    let owner: FileEntry | undefined = e;
+    let local = name;
+    let c = e.file.clients?.find((x) => x.name === name);
+    if (!c) {
+      const b = e.bindings.get(name);
+      const mod = b && b.imported !== '*' ? resolveModule(e, b.spec) : null;
+      owner = mod ? files.get(mod) : undefined;
+      local = b?.imported === 'default' ? (owner?.file.defaultExport ?? '') : (b?.imported ?? '');
+      c = owner?.file.clients?.find((x) => x.name === local);
+    }
+    if (!owner || !c) return null;
+    const evidence = [ev(owner, 'constant', c.line, `the HTTP client ${local} requests go through`)];
+    let parts = c.base;
+    let at: { t: FileEntry; line: number } = { t: owner, line: c.line };
+    if (!parts && c.ctor) {
+      const cls = resolveRef(owner, { name: c.ctor })?.to;
+      const t = cls ? files.get(fileOf(cls)) : undefined;
+      const sym = t?.file.symbols[t.ids.indexOf(cls!)];
+      if (!t || !sym?.clientBase) return null;
+      parts = sym.clientBase.parts;
+      at = { t, line: sym.clientBase.line };
+    }
+    const r = parts && resolveParts(at.t, parts);
+    const path = r ? basePath(r.text) : null;
+    if (path == null) return null;
+    evidence.push(ev(at.t, 'constant', at.line, `base URL "${path || '/'}"`), ...r!.evidence);
+    return { path, evidence };
+  };
+
   for (const e of files.values()) {
     const reqs = [
       ...e.file.requests.map((r) => [e.id, r] as const),
@@ -628,11 +678,18 @@ export function link(repos: ParsedRepo[]): LinkResult {
           evidence.push(c.at);
         }
       }
+      const viaBase = req.via ? clientBase(e, req.via) : null;
+      if (viaBase) reqPath = joinUrl(viaBase.path, req.path);
       const m = matchRequest(routes, req.method, segments(reqPath), baseKnown);
       if (!m) continue;
+      // Server code requesting a URL is calling some other service (`fetch(GitLabUtils.getOauthUrl(url) + "/token")`),
+      // not its own routes; only an exact full-path match links it to a route in its own repository.
+      if (!m.exact && SERVER_PATH.test(e.file.path) && files.get(m.route.file)?.repo === e.repo) continue;
       const shown = m.route.fullPath ?? m.route.path;
-      evidence.push(...m.route.evidence);
-      addEdge(from, m.route.node, 'http', explainMatch(m, req.method, reqPath, req.base && !baseKnown ? req.base : undefined, evidence), `${req.method} ${shown}`);
+      // The route's declaration, then the client's base URL, then the mounts: the cap keeps what matters most.
+      evidence.push(...m.route.evidence.slice(0, 1), ...(viaBase?.evidence ?? []), ...m.route.evidence.slice(1));
+      const through = viaBase ? `the base URL ${viaBase.path || '/'} of ${req.via}` : undefined;
+      addEdge(from, m.route.node, 'http', explainMatch(m, req.method, reqPath, req.base && !baseKnown ? req.base : undefined, evidence, through), `${req.method} ${shown}`);
     }
   }
 
@@ -814,14 +871,16 @@ export function matchRoute<R extends MatchableRoute>(routes: R[], method: string
   return matchRequest(routes, method, req)?.route ?? null;
 }
 
-function explainMatch(m: RouteMatch<RouteEntry>, method: string, reqPath: string, unknownBase: string | undefined, evidence: EdgeEvidence[]): Support {
+function explainMatch(m: RouteMatch<RouteEntry>, method: string, reqPath: string, unknownBase: string | undefined, evidence: EdgeEvidence[], through?: string): Support {
   const shown = m.route.fullPath ?? m.route.path;
   if (m.exact && !m.ties) {
     const mounts = m.route.evidence.filter((x) => x.source === 'mount' && x.note?.startsWith('mounted')).length;
+    const how = [through ? `with ${through}` : '', mounts ? `through ${mounts} router mount${mounts > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ');
     return {
       basis: 'evidenced',
-      confidence: 0.95,
-      reason: `matches the route's full path ${method} ${shown} exactly${mounts ? `, through ${mounts} router mount${mounts > 1 ? 's' : ''}` : ''}`,
+      // A client's base URL is its default; a caller could pass another one.
+      confidence: through ? 0.9 : 0.95,
+      reason: `matches the route's full path ${method} ${shown} exactly${how ? `, ${how}` : ''}`,
       evidence,
     };
   }
