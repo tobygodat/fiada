@@ -109,6 +109,17 @@ export class Workspace {
     return this.graph ?? classifyGraph(this.base, this.grouping);
   }
 
+  /**
+   * Text of one indexed file, for the map's code view. Only files the indexer
+   * parsed can be read, so nothing else in a checkout (an .env, a key) is served.
+   */
+  async readSource(repoId: string, relPath: string): Promise<{ path: string; commit?: string; text: string } | null> {
+    const parsed = this.parsed.get(repoId);
+    if (!parsed || !parsed.files.some((f) => f.path === relPath)) return null;
+    const text = await fs.readFile(path.join(parsed.root, relPath), 'utf8');
+    return { path: relPath, commit: parsed.info.commit, text };
+  }
+
   getGrouping(): Grouping {
     return this.grouping;
   }

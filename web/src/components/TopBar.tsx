@@ -1,14 +1,20 @@
-// Breadcrumb of the focused path and the altitude indicator.
+// Back, the breadcrumb of the focused path, and the altitude indicator.
 
+import { useEffect, useState, type RefObject } from 'react';
 import type { TNode, View } from '../graph/tree.ts';
+import type { MapRenderer } from '../render/renderer.ts';
 
 interface Props {
   crumbs: TNode[];
   view: View;
   /** Depth of the deepest open level on screen, -1 at the top. */
   altitude: number;
-  zoom: number;
+  renderer: RefObject<MapRenderer | null>;
+  /** Camera scale that fits the whole map: 100%. */
+  fitK: number;
   busy: boolean;
+  canGoBack: boolean;
+  onBack(): void;
   onCrumb(id: string): void;
 }
 
@@ -17,12 +23,15 @@ const ALTITUDES: Record<View, string[]> = {
   function: ['Domains', 'Layers', 'Symbols'],
 };
 
-export function TopBar({ crumbs, view, altitude, zoom, busy, onCrumb }: Props) {
+export function TopBar({ crumbs, view, altitude, renderer, fitK, busy, canGoBack, onBack, onCrumb }: Props) {
   const alts = ALTITUDES[view];
   const idx = Math.max(0, Math.min(alts.length - 1, altitude));
   return (
     <div className="topbar">
       <nav className="crumbs">
+        <button className="back" onClick={onBack} disabled={!canGoBack} title="Back (Backspace)">
+          ←
+        </button>
         <button onClick={() => onCrumb('root')} className={crumbs.length ? '' : 'here'}>
           workspace
         </button>
@@ -48,8 +57,25 @@ export function TopBar({ crumbs, view, altitude, zoom, busy, onCrumb }: Props) {
             </span>
           ))}
         </div>
-        <span className="mono small muted zoom">{Math.round(zoom * 100)}%</span>
+        <Zoom renderer={renderer} fitK={fitK} />
       </div>
     </div>
   );
+}
+
+/** Zoom readout that follows the camera without re-rendering the rest of the app. */
+function Zoom({ renderer, fitK }: { renderer: RefObject<MapRenderer | null>; fitK: number }) {
+  const [k, setK] = useState(1);
+  useEffect(() => {
+    const r = renderer.current;
+    if (!r) return;
+    let last = -1;
+    const update = () => {
+      const pct = Math.round((r.camera.k / fitK) * 100);
+      if (pct !== last) setK((last = pct));
+    };
+    update();
+    return r.subscribe(update);
+  }, [renderer, fitK]);
+  return <span className="mono small muted zoom">{k}%</span>;
 }

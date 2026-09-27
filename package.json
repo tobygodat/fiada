@@ -13,7 +13,7 @@
     "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @strata/web\"",
     "build": "npm run build -w @strata/web",
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web",
-    "test": "npm test -w @strata/indexer",
+    "test": "npm test -w @strata/indexer -w @strata/web",
     "index": "npm run index -w @strata/indexer --"
   },
   "devDependencies": {

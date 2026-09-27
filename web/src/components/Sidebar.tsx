@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
+import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 interface Props {
@@ -12,10 +13,12 @@ interface Props {
   offline: boolean;
   tree: Tree | null;
   view: View;
+  mode: ExpandMode;
   colorBy: ColorBy;
   pal: Palette;
   selected: string | null;
   onView(v: View): void;
+  onMode(m: ExpandMode): void;
   onColorBy(c: ColorBy): void;
   onSelect(id: string): void;
   onAdd(source: string): Promise<void>;
@@ -53,8 +56,8 @@ export function Sidebar(p: Props) {
           ]}
           onChange={p.onView}
         />
-        <div className="row gap small muted" style={{ marginTop: 8 }}>
-          <span className="mono">color</span>
+        <div className="row gap small muted setting">
+          <span className="mono setting-name">color</span>
           <Segmented
             small
             value={p.colorBy}
@@ -63,6 +66,18 @@ export function Sidebar(p: Props) {
               ['layer', 'layer'],
             ]}
             onChange={p.onColorBy}
+          />
+        </div>
+        <div className="row gap small muted setting" title="On click: circles open when you click them and scrolling only zooms. On zoom: circles open as you zoom into them.">
+          <span className="mono setting-name">open</span>
+          <Segmented
+            small
+            value={p.mode}
+            options={[
+              ['click', 'on click'],
+              ['zoom', 'on zoom'],
+            ]}
+            onChange={p.onMode}
           />
         </div>
       </section>

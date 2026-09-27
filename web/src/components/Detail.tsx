@@ -1,8 +1,9 @@
 // Right-hand panel: what the selected node is (including why it landed in its
 // layer and domain), what it depends on, or the contract behind an edge.
 
-import { useMemo } from 'react';
-import { describeFact, UNLAYERED, type EdgeKind, type Graph, type GraphEdge, type GraphNode, type Placement, type PlacementSource } from '@strata/shared';
+import { useEffect, useMemo, useState } from 'react';
+import { describeFact, UNLAYERED, type EdgeKind, type Graph, type GraphEdge, type GraphNode, type Placement, type PlacementSource, type RepoInfo } from '@strata/shared';
+import { api, type SourceText } from '../api.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import type { Contract } from '../graph/view.ts';
 import type { Palette } from '../theme.ts';
@@ -100,8 +101,82 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <DepList title="Uses" items={uses} graphIndex={graphIndex} self={n} onSelect={onSelect} />
         <DepList title="Used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
       </div>
+
+      {g?.path && (g.kind === 'file' || g.kind === 'symbol') && <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} />}
     </aside>
   );
+}
+
+const MAX_LINES = 400;
+const sources = new Map<string, Promise<SourceText>>();
+
+/** The node's code: a symbol's lines, or the top of a file, read from the indexer's checkout. */
+function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
+  const key = `${g.repo}|${g.path}|${repo?.commit ?? ''}`;
+  const [state, setState] = useState<{ key: string; text?: string; error?: string } | null>(null);
+  const [whole, setWhole] = useState(false);
+  useEffect(() => {
+    let live = true;
+    let p = sources.get(key);
+    if (!p) {
+      p = api.source(g.repo, g.path!);
+      sources.set(key, p);
+      p.catch(() => sources.delete(key));
+    }
+    p.then(
+      (s) => live && setState({ key, text: s.text }),
+      (err: Error) => live && setState({ key, error: err.message }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [key, g.repo, g.path]);
+  useEffect(() => setWhole(false), [g.id]);
+
+  const all = state?.key === key && state.text != null ? state.text.split('\n') : null;
+  const [a, b] = g.kind === 'symbol' && g.lines && !whole ? g.lines : [1, all?.length ?? 1];
+  const shown = all ? all.slice(a - 1, Math.min(b, a - 1 + MAX_LINES)) : [];
+  const web = repo && webUrl(repo, g.path!, g.kind === 'symbol' && g.lines ? g.lines : null);
+
+  return (
+    <div className="detail-block code-block">
+      <div className="block-title row gap">
+        <span>Code</span>
+        <span className="grow" />
+        {g.kind === 'symbol' && all && (
+          <button className="link" onClick={() => setWhole((w) => !w)}>
+            {whole ? 'just this symbol' : 'whole file'}
+          </button>
+        )}
+        {web && (
+          <a className="link" href={web} target="_blank" rel="noreferrer">
+            open on GitHub ↗
+          </a>
+        )}
+      </div>
+      {state?.key === key && state.error && <div className="muted small">Couldn't load the source: {state.error}</div>}
+      {!all && !(state?.key === key && state.error) && <div className="muted small">Loading…</div>}
+      {all && (
+        <pre className="code">
+          {shown.map((line, i) => (
+            <div key={i} className={g.kind === 'symbol' && whole && g.lines && a + i >= g.lines[0] && a + i <= g.lines[1] ? 'hl' : ''}>
+              <span className="ln">{a + i}</span>
+              {line || ' '}
+            </div>
+          ))}
+          {b - a + 1 > MAX_LINES && <div className="muted">… {b - a + 1 - MAX_LINES} more lines</div>}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/** Link to the file at the indexed commit, for repositories cloned from GitHub. */
+function webUrl(repo: RepoInfo, path: string, lines: [number, number] | null): string | null {
+  const m = /^(?:https:\/\/github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?$/.exec(repo.source);
+  if (!m) return null;
+  const at = lines ? `#L${lines[0]}-L${lines[1]}` : '';
+  return `https://github.com/${m[1]}/blob/${repo.commit ?? 'HEAD'}/${path.split('/').map(encodeURIComponent).join('/')}${at}`;
 }
 
 const SOURCE: Record<PlacementSource, string> = {
@@ -200,14 +275,23 @@ function dependencies(tree: Tree, edges: GraphEdge[], n: TNode) {
   const has = (id: string) => inside.has(id) || (n.kind === 'file' && id.startsWith(n.id + '#'));
   const uses = new Map<string, Dep>();
   const usedBy = new Map<string, Dep>();
+  // One row per node on the other side, under its strongest kind of use.
+  const keep = (m: Map<string, Dep>, id: string, kind: EdgeKind) => {
+    const cur = m.get(id);
+    if (!cur || KIND_RANK[kind] < KIND_RANK[cur.kind]) m.set(id, { id, kind });
+  };
   for (const e of edges) {
     const a = has(e.from);
     const b = has(e.to);
-    if (a && !b) uses.set(e.to, { id: e.to, kind: e.kind });
-    else if (b && !a) usedBy.set(e.from, { id: e.from, kind: e.kind });
+    if (a && !b) keep(uses, e.to, e.kind);
+    else if (b && !a) keep(usedBy, e.from, e.kind);
   }
-  return { uses: [...uses.values()], usedBy: [...usedBy.values()] };
+  // Requests first: following them is how you get from a page to its backend.
+  const order = (m: Map<string, Dep>) => [...m.values()].sort((x, y) => KIND_RANK[x.kind] - KIND_RANK[y.kind]);
+  return { uses: order(uses), usedBy: order(usedBy) };
 }
+
+const KIND_RANK: Record<EdgeKind, number> = { http: 0, calls: 1, renders: 2, references: 3, type: 4, imports: 5 };
 
 function summary(n: TNode): string {
   const repos = new Set<string>();
@@ -262,7 +346,14 @@ function ContractDetail({ tree, contract: c, onSelect }: Props & { contract: Con
           <div key={i} className="interaction" title={`${e.from} → ${e.to}`}>
             <span className="muted">{EDGE_VERB[e.kind]}</span>
             <span className="dep-name">
-              {short(e.from)} → {short(e.to)}
+              {/* Each end opens the exact file or symbol responsible, not just the circle the contract is drawn to. */}
+              <button className="end" onClick={() => onSelect(e.from)}>
+                {short(e.from)}
+              </button>{' '}
+              →{' '}
+              <button className="end" onClick={() => onSelect(e.to)}>
+                {short(e.to)}
+              </button>
               {e.detail && <span className="muted"> · {e.detail}</span>}
             </span>
           </div>
