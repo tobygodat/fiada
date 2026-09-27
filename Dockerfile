@@ -26,6 +26,8 @@ RUN npm ci --workspace @strata/indexer --omit=dev --no-audit --no-fund
 
 COPY shared shared
 COPY indexer indexer
+# The indexer reads diffs with the agent package's git helpers.
+COPY agent agent
 
 # Clones and (without MONGODB_URI) project files live here. Mount a volume on
 # /data to keep clones across deploys; with MONGODB_URI set the project is in

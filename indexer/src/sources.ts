@@ -33,7 +33,7 @@ const IGNORED_DIR = new Set([
 export const TEST_PATH =
   /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.(py|go)$|(^|\/)conftest\.py$|(^|\/)test_helpers?\.go$/;
 
-const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
+export const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
 
 /** Files that change how every other file resolves; a change to one means reloading the repo. */
 const MANIFEST = /(^|\/)(package\.json|[tj]sconfig(\..+)?\.json|go\.mod|pyproject\.toml|requirements.*\.txt|setup\.py|__init__\.py)$/;
@@ -205,7 +205,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
 }
 
 /** Which of `paths` git ignores, so a file an agent writes under .gitignore stays out as it would on a full load. */
-async function gitIgnored(root: string, paths: string[]): Promise<Set<string>> {
+export async function gitIgnored(root: string, paths: string[]): Promise<Set<string>> {
   return new Promise((resolve) => {
     const child = execFile('git', ['-C', root, 'check-ignore', '--stdin', '-z'], (_err, stdout) => resolve(new Set(String(stdout ?? '').split('\0').filter(Boolean))));
     child.stdin?.end(paths.join('\0'));

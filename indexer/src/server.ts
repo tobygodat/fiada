@@ -13,6 +13,7 @@ import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS 
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
 import { checkProjectId, createStore } from './store.ts';
+import { LocalWatcher } from './watch.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
@@ -26,6 +27,8 @@ const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.
 });
 await ws.init();
 const agents = new AgentHub(ws);
+// Hand edits in local repositories, re-indexed and marked on the map as they're saved.
+new LocalWatcher(ws, agents);
 
 const app = Fastify({ logger: { level: 'warn' } });
 

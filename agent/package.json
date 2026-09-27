@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Tells Strata what a coding agent is doing: a stdio MCP server and a tool-hook CLI.",
   "type": "module",
+  "exports": {
+    "./git": "./src/git.ts"
+  },
   "bin": {
     "strata-hook": "bin/strata-hook.mjs",
     "strata-mcp": "bin/strata-mcp.mjs"

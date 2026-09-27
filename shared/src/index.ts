@@ -317,9 +317,16 @@ export interface Workspace {
 
 export type ChangeKind = 'added' | 'modified' | 'deleted';
 
+/**
+ * The client of the record that holds hand edits: files saved in a local
+ * repository that no agent reported, which the indexer's file watcher saw.
+ * Its name is "You", it's always 'waiting', and it has no task or steps.
+ */
+export const HAND_CLIENT = 'you';
+
 /** One coding agent in one working tree. */
 export interface AgentRef {
-  /** "claude-code", "cursor", "codex", or the name an MCP client gives itself. */
+  /** "claude-code", "cursor", "codex", the name an MCP client gives itself, or HAND_CLIENT. */
   client: string;
   /** The agent's own session id, when it has one. */
   session?: string;

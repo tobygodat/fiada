@@ -26,13 +26,14 @@ import type {
   LineRange,
   NodeChange,
 } from '@strata/shared';
+import { HAND_CLIENT } from '@strata/shared';
 import { fileId, symbolIds } from './link.ts';
 import { parseFile } from './parse/index.ts';
 import type { Workspace } from './workspace.ts';
 
 const exec = promisify(execFile);
 
-const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' };
+const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent', [HAND_CLIENT]: 'You' };
 /** Symbol names/lines in HEAD's version of a file, keyed by symbol id. */
 type SymbolLines = Map<string, { name: string; lines: [number, number] }>;
 
@@ -72,6 +73,8 @@ interface AgentRec {
   files: Map<string, FileRec>;
   startedAt: number;
   updatedAt: number;
+  /** When the latest prompt arrived, else when the record started. */
+  turnAt: number;
 }
 
 export interface IngestReply {
@@ -151,6 +154,7 @@ export class AgentHub {
           }
           break;
         case 'prompt':
+          rec.turnAt = now;
           rec.prompt = ev.text || rec.prompt;
           rec.task = undefined;
           rec.note = undefined;
@@ -185,6 +189,7 @@ export class AgentHub {
       const procs = ev.agent.session || !rec.ref.session ? (ev.agent.procs ?? rec.ref.procs) : rec.ref.procs;
       rec.ref = { ...rec.ref, ...ev.agent, session: ev.agent.session ?? rec.ref.session, procs };
     }
+    this.dropEmptyHands();
     this.version++;
     this.push();
     return reply;
@@ -199,7 +204,8 @@ export class AgentHub {
    */
   private agentFor(ref: AgentRef): AgentRec {
     const key = agentKey(ref);
-    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], files: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
+    const state: AgentState = ref.client === HAND_CLIENT ? 'waiting' : 'working';
+    const fresh = (id: string): AgentRec => ({ id, ref, state, steps: [], files: new Map(), startedAt: Date.now(), updatedAt: Date.now(), turnAt: Date.now() });
     if (ref.session) {
       const id = agentId(ref);
       let rec = this.agents.get(id);
@@ -260,13 +266,17 @@ export class AgentHub {
     const swept = f.swept === true;
     let file = rec.files.get(key);
     const others = [...this.agents.values()].filter((r) => r !== rec && r.files.has(key));
-    if (!file && swept && others.some((r) => r.state !== 'ended' && !r.files.get(key)!.swept)) {
+    if (!file && swept && others.some((r) => r.ref.client !== HAND_CLIENT && r.state !== 'ended' && !r.files.get(key)!.swept)) {
       // Seen in the working tree, but another live agent in it named this file itself: that agent's change.
       return { path: shown, repo: where.repo, kind: 'elsewhere' };
     }
-    if (!swept) {
+    if (!swept && rec.ref.client !== HAND_CLIENT) {
       // Named by this agent's own tool: an agent that only swept it up was wrong to claim it.
       for (const r of others) if (r.files.get(key)!.swept) r.files.delete(key);
+    }
+    if (rec.ref.client !== HAND_CLIENT && rec.state === 'working') {
+      // The file watcher saw it first, during this agent's turn: the agent's change, not a hand edit.
+      for (const r of others) if (r.ref.client === HAND_CLIENT && r.files.get(key)!.at >= rec.turnAt) r.files.delete(key);
     }
     if (!file) {
       file = {
@@ -392,6 +402,29 @@ export class AgentHub {
     }
     this.version++;
     this.push();
+  }
+
+  /**
+   * Files saved in a local repository that no agent reported, from the file
+   * watcher: they go on one record per checkout, "You", which is always
+   * waiting and goes when nothing is left on it. Files back to HEAD come off.
+   */
+  handEdits(root: string, files: FileChange[]): Promise<IngestReply> {
+    return this.ingest([{ type: 'changes', agent: { client: HAND_CLIENT, cwd: root, root }, files }]);
+  }
+
+  /** Whether an agent (not the watcher) reported this file at `since` or later. */
+  reportedSince(repo: string, rel: string, since: number): boolean {
+    for (const rec of this.agents.values()) {
+      if (rec.ref.client === HAND_CLIENT) continue;
+      const f = rec.files.get(`${repo}/${rel}`);
+      if (f && f.at >= since) return true;
+    }
+    return false;
+  }
+
+  private dropEmptyHands() {
+    for (const rec of this.agents.values()) if (rec.ref.client === HAND_CLIENT && !rec.files.size) this.agents.delete(rec.id);
   }
 
   // ── reading ──

@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @strata/web\"",
+    "dev:self": "concurrently -k -n indexer,web -c yellow,cyan \"npm:start -w @strata/indexer\" \"npm:dev -w @strata/web\"",
     "build": "npm run build -w @strata/web",
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web && tsc -p agent",
     "test": "npm test -w @strata/indexer -w @strata/web -w @strata/agent",

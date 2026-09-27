@@ -108,6 +108,8 @@ Both post to the indexer's `/api/agent/events`. A file maps to the graph by path
 
 Each session is its own card, even when two run in the same checkout. The MCP server finds its session from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets for the servers it starts; for other clients, from the parent process it shares with that session's hooks. A file that only turned up when one session compared the working tree goes to whichever session's own tool wrote it.
 
+Your own edits show up too. The indexer watches each repository it reads in place, so a file you save in your editor is re-indexed and marked on the map within a second, on a card of its own, **You**, with its diff against HEAD like an agent's. Anything git ignores stays out, and so do editors' swap and backup files. A save an agent's hook reports is the agent's, and one the watcher saw first goes to the agent that reports it during its turn. A file saved back to what HEAD has comes off the map, and more than 200 files at once (a checkout, a pull) are re-indexed without being marked. Clones aren't watched.
+
 ### Claude Code
 
 ```sh
@@ -140,7 +142,7 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 }
 ```
 
-Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
+Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. To watch an agent work on Strata itself, run `npm run dev:self` instead: `npm run dev` restarts the indexer whenever its code changes, which clears the agents window. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
 ### Other agents
 
