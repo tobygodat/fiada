@@ -4,7 +4,7 @@ A map of your codebase that sorts itself, explains itself, and lights up where y
 
 Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Fiada sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
 
-**Try it:** https://hackgt13.vercel.app (hosted, read-only) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
+**Try it:** https://fiada.tech (hosted, read-only) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
 
 Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 
@@ -58,7 +58,7 @@ cd /path/to/your/repo && claude
 
 ## Hosted demo
 
-The map is at https://hackgt13.vercel.app, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Anyone can browse it; adding repositories needs the project's key. [Deploy](#deploy) explains the split.
+The map is at https://fiada.tech, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Anyone can browse it; adding repositories needs the project's key. [Deploy](#deploy) explains the split.
 
 ## Using the map
 
@@ -256,7 +256,7 @@ The indexer binds to 127.0.0.1 by default: importing a local path reads that dir
 The map is a static build; the indexer is a long-running server that clones repositories to disk, parses them with tree-sitter, keeps the graph in memory and streams agent activity. So they live apart: **the map on Vercel, the indexer in a container** on a host that runs one (Railway, Fly.io or Render; the `Dockerfile` at the root works on each). Vercel's functions are short-lived and stateless, with no git and nowhere to keep clones, so the indexer can't run there.
 
 ```
-browser ── https://hackgt13.vercel.app ──────── static map (web/dist)
+browser ── https://fiada.tech ─────────────── static map (web/dist)
    └────── VITE_API_URL ── https://<indexer> ── indexer container ── MongoDB Atlas (repos, layers)
                                                      └── /data: clones
 ```
@@ -270,7 +270,7 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `PORT` | `4178` |
 | `MONGODB_URI` | the Atlas connection string, as in `.env` |
 | `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
-| `FIADA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
+| `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
 | `FIADA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
 | `OPENAI_API_KEY` | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
@@ -291,11 +291,11 @@ On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly
 
 Vite writes it into the bundle at build time, so **redeploy** after setting it (Deployments > … > Redeploy, or push). Without it, the deployed map calls `/api` on Vercel, gets 404s and says it can't reach the indexer.
 
-`https://hackgt13.vercel.app` is the production domain, which Vercel's default Standard Protection leaves public; preview and per-deployment URLs ask for a Vercel login. Open the production URL in a private window before sharing it.
+`https://fiada.tech` is the production domain, which Vercel's default Standard Protection leaves public; preview and per-deployment URLs ask for a Vercel login. Open the production URL in a private window before sharing it.
 
 ### 3. Using it
 
-- Open `https://hackgt13.vercel.app/?key=<FIADA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
+- Open `https://fiada.tech/?key=<FIADA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
 - Everyone else gets the plain URL: the same map, read-only, without the import box, the layer presets or the dismiss buttons.
 - To show a coding agent on the hosted map, start it with `FIADA_URL=https://<indexer>` and `FIADA_API_KEY=<key>` in its environment. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
 
