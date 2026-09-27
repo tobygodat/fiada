@@ -1,4 +1,4 @@
-import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, Workspace } from '@strata/shared';
+import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@strata/shared';
 import { apiBase } from './apiBase.ts';
 
 /**
@@ -97,6 +97,7 @@ export const api = {
     call<Workspace>(`/api/repos/upload?name=${encodeURIComponent(name)}${replace ? `&replace=${encodeURIComponent(replace)}` : ''}`, { method: 'POST', body: archive }),
   refreshRepo: (id: string) => call<Workspace>(`/api/repos/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
   source: (repo: string, path: string) => call<SourceText>(`/api/source?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`),
+  summary: (node: string) => call<NodeSummary>(`/api/summary?node=${encodeURIComponent(node)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
   sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
   agentDiffs: (node: string) => call<{ diffs: AgentDiff[] }>(`/api/agent/diff?node=${encodeURIComponent(node)}`),
