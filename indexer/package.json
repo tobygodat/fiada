@@ -1,0 +1,22 @@
+{
+  "name": "@strata/indexer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/server.ts",
+    "start": "tsx src/server.ts",
+    "index": "tsx src/cli.ts",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@strata/shared": "*",
+    "fastify": "^5.6.1",
+    "tree-sitter-wasms": "0.1.13",
+    "tsx": "^4.20.6",
+    "web-tree-sitter": "0.20.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0"
+  }
+}

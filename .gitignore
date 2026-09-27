@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.strata/
+*.log
+.DS_Store
+graph.json
