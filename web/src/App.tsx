@@ -73,7 +73,7 @@ type CameraIntent = { focus: string; detail: boolean; from?: string | null } | {
 export function App() {
   const ws = useWorkspace();
   const agents = useAgents();
-  const [theme, setTheme] = useTheme();
+  const [theme, setTheme, shownTheme] = useTheme();
   const graph = ws.graph;
   const [view, setView] = useState<View>('code');
   const [mode, setModeState] = useState<ExpandMode>(readMode);
@@ -110,7 +110,9 @@ export function App() {
         (graph?.repos ?? []).map((r) => r.id),
         (graph?.layers ?? []).map((l) => l.id),
       ),
-    [graph],
+    // A new palette on a theme switch re-renders every swatch drawn from it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [graph, shownTheme],
   );
 
   const activity = useMemo(
