@@ -23,6 +23,8 @@ The AI part is what makes the map readable on a repo you've never seen:
 - **It tells you which links it's sure of.** Every contract carries its evidence: the exact line of the request, the route and the router mounts it matched. Links the indexer could only infer (a URL that matches a route's tail, a model name shared by several classes) are drawn dotted with a `?`, with a confidence and a reason. On the FastAPI full-stack template all 23 frontend requests match their backend routes exactly.
 - **It shows your coding agent working on the map.** Connect Claude Code with one command and every edit shows up live: a ring on each file or function the agent added, changed or deleted, change counts on closed circles so you can see where it's working without opening anything, the agent's task and plan in a small window, and the diff in the panel when you click a ring. Hooks report what changed (checked against git, so shell commands and generated files are caught), and an MCP server lets the agent say what it's doing and why.
 
+Any repository git can clone works, and so do private ones: upload the folder from the map and the browser sends only the source files, honouring `.gitignore` and leaving out `node_modules` and the git history, and the indexer maps it like a clone.
+
 There are two views of the same code. **Code** is the structural truth: repository, folder, file, function. **By function** regroups the same functions by feature and then by layer, so one feature that spans a React page, a generated client, a FastAPI router and a SQLModel table reads as one circle.
 
 ## How we built it
