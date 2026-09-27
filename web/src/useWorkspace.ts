@@ -8,8 +8,8 @@ import { api } from './api.ts';
 export interface WorkspaceHandle {
   workspace: Workspace | null;
   graph: Graph | null;
-  /** Set when the indexer can't be reached. */
-  offline: boolean;
+  /** Why the indexer can't be reached; null while it answers. */
+  offline: string | null;
   add(source: string): Promise<void>;
   remove(id: string): Promise<void>;
   refresh(id: string): Promise<void>;
@@ -22,7 +22,7 @@ export interface WorkspaceHandle {
 export function useWorkspace(): WorkspaceHandle {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
-  const [offline, setOffline] = useState(false);
+  const [offline, setOffline] = useState<string | null>(null);
   const version = useRef(-1);
   const timer = useRef<number | undefined>(undefined);
 
@@ -30,15 +30,15 @@ export function useWorkspace(): WorkspaceHandle {
     window.clearTimeout(timer.current);
     try {
       const next = ws ?? (await api.workspace());
-      setOffline(false);
+      setOffline(null);
       setWorkspace(next);
       if (next.graphVersion !== version.current) {
         version.current = next.graphVersion;
         setGraph(await api.graph());
       }
       timer.current = window.setTimeout(() => sync(), next.busy ? 800 : 5000);
-    } catch {
-      setOffline(true);
+    } catch (err) {
+      setOffline((err as Error).message);
       timer.current = window.setTimeout(() => sync(), 2000);
     }
   }, []);
