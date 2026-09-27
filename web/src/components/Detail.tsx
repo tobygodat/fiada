@@ -439,7 +439,8 @@ const EVIDENCE_LABEL: Record<EdgeEvidenceSource, string> = {
   orm: 'orm',
 };
 
-const hasEvidence = (e: GraphEdge) => !!(e.reason || e.evidence?.length);
+/** Evidence means lines of code; a reason on its own is the indexer's prose, not proof. */
+const hasEvidence = (e: GraphEdge) => !!e.evidence?.length;
 
 /** One underlying edge: its two ends, and on demand how the indexer knows about it. */
 function Interaction(p: {
@@ -457,7 +458,8 @@ function Interaction(p: {
   const [shown, setShown] = useState(open);
   const [line, setLine] = useState<number | null>(null);
   const guess = p.mark && e.basis === 'inferred';
-  const why = hasEvidence(e);
+  const proven = hasEvidence(e);
+  const why = proven || !!e.reason;
   return (
     <div className="interaction-wrap">
       <div className="interaction" title={`${e.from} → ${e.to}`}>
@@ -474,16 +476,15 @@ function Interaction(p: {
           {e.detail && <span className="muted"> · {e.detail}</span>}
         </span>
         {guess && <span className="guess">inferred</span>}
-        {why ? (
+        {!proven && p.markUnproven && (
+          <span className="guess" title="The indexer recorded this interaction without the code behind it">
+            no evidence
+          </span>
+        )}
+        {why && (
           <button className="link why" onClick={() => setShown((v) => !v)} aria-expanded={shown}>
             {shown ? 'hide' : 'why'}
           </button>
-        ) : (
-          p.markUnproven && (
-            <span className="guess" title="The indexer recorded this interaction without the code behind it">
-              no evidence
-            </span>
-          )
         )}
       </div>
       {shown && why && (
