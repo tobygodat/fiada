@@ -63,6 +63,20 @@ export interface HttpRequest {
   line: number;
   /** Expression that was stripped from the front, e.g. "API_URL" in `${API_URL}/items`. */
   base?: string;
+  /** The client object it went through, e.g. "client" in `client.post("/documents.list")`. */
+  via?: string;
+}
+
+/**
+ * A module-level HTTP client whose requests get a base URL: `axios.create({ baseURL: "/api" })`,
+ * or `new ApiClient()` where the class sets `this.baseUrl = … "/api"`.
+ */
+export interface ClientDecl {
+  name: string;
+  /** Class it instantiates, whose `clientBase` applies. */
+  ctor?: string;
+  base?: UrlPart[];
+  line: number;
 }
 
 /**
@@ -137,6 +151,8 @@ export interface ParsedSymbol {
   params?: string[];
   /** ORM table name (`__tablename__`, GORM TableName) when the class declares one. */
   tableName?: string;
+  /** An HTTP client class's base URL: `baseUrl = "/api"` or `this.baseUrl = options.baseUrl || "/api"`. */
+  clientBase?: { parts: UrlPart[]; line: number };
   /** The class body declares mapped columns (Column, mapped_column, Mapped[…], gorm tags). */
   columns?: boolean;
   orm?: OrmRef[];
@@ -159,6 +175,8 @@ export interface ParsedFile {
   mounts: MountDecl[];
   constants: ConstDecl[];
   pages: PageDecl[];
+  /** HTTP client instances with a base URL (TypeScript/JavaScript). */
+  clients?: ClientDecl[];
   /** Go: package clause name. */
   goPackage?: string;
   /** Source text of the lines evidence points at, keyed by line number. */
