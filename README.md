@@ -1,17 +1,68 @@
 # Strata
 
-A codebase map for working at the middle altitude: above file-by-file reading, below a one-paragraph architecture summary. One graph spans several repositories; opening a circle takes you down a level of abstraction, from systems to modules to files to symbols.
+A map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working.
 
-This is the first scaffold of the prototype. It covers the graph view, the floating sidebar with the **Code · read-only** / **By function** toggle, importing real repositories, per-project layers, and the agent overlay: coding agents report their task and the files they change, and the map shows it live. Search, edge filtering and domain editing come later.
+Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Strata sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
 
-## Run it
+**Try it:** https://hackgt13.vercel.app (hosted, read-only) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
+
+Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
+
+![The map: two repositories, opened into their modules](docs/screenshots/map.png)
+
+## What it does
+
+- **Sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, ...) and a feature domain (Items, Users, Login). Rules seed the domains from routes, ORM models and folder names and follow the call graph from there; Claude names the domains, merges duplicates and places what the rules couldn't, each with a one-line reason.
+- **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash.
+- **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
+- **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
+- **Two views of the same code.** **Code** is the structure as it is on disk. **By function** regroups the same functions by feature, then layer, so a feature that spans a React page, a generated client, a FastAPI route and a table reads as one circle.
+
+| Following an HTTP contract to the code behind it | An agent at work: rings, counts, task and plan |
+| --- | --- |
+| ![Contract panel: 23 HTTP requests from the frontend to the backend, with the request line and the route it matched](docs/screenshots/contract.png) | ![Two Claude Code sessions on the FastAPI template, with rings on the files they changed](docs/screenshots/agent.png) |
+
+![A selected function with its code in the detail panel](docs/screenshots/symbol.png)
+
+## Run it locally
+
+Needs Node 20.19 or later and git.
 
 ```sh
+git clone https://github.com/tobygodat/hackgt13 && cd hackgt13
 npm install
-npm run dev          # indexer on :4178, web on http://localhost:5178
+npm run dev          # indexer on :4178, map on http://localhost:5178
 ```
 
-Open http://localhost:5178 and add a repository in the sidebar. Anything git can clone works (`org/repo`, `github.com/org/repo`, an https or ssh URL), and so does an absolute path to a local checkout, which is read in place. Add several and they share one map; imports, calls and HTTP requests that cross repositories become dashed edges.
+Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the box under **repositories**, and press **import**. For a private repository, use **upload a folder** under the box instead: the browser sends only the source files (it honours `.gitignore` and skips `node_modules` and the git history), up to 50 MB. Then:
+
+1. Click a circle to see what it is; click it again to open it.
+2. Under **view**, switch to **by function** and open the **Items** domain.
+3. Click the **HTTP** tag between Client and API to read the contract, and click either end of an interaction to jump to its code.
+
+Optional, in a `.env` at the repo root (`.env.example` lists them):
+
+- `ANTHROPIC_API_KEY` turns on the AI sorting and the generated summaries. Without it, Strata still sorts by rules and writes plain one-line summaries.
+- `MONGODB_URI` saves projects to MongoDB Atlas instead of `.strata/` on disk. See [MongoDB Atlas](#mongodb-atlas).
+
+## Connect a Claude Code session
+
+Import the repository you'll work in by its local path (so edits re-index in place), then:
+
+```sh
+npm run agent:setup -- --write /path/to/your/repo
+cd /path/to/your/repo && claude
+```
+
+`--write` adds Strata's hooks to that repo's `.claude/settings.local.json` and registers the Strata MCP server with `claude mcp add`. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
+
+## Hosted demo
+
+The map is at https://hackgt13.vercel.app, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Anyone can browse it; adding repositories needs the project's key. [Deploy](#deploy) explains the split.
+
+## Using the map
+
+Open http://localhost:5178 and add a repository in the sidebar. Anything git can clone works (`org/repo`, `github.com/org/repo`, an https or ssh URL), and so does an absolute path to a local checkout, which is read in place. For a private repository, or any folder the indexer can't reach, **upload a folder** under the import box: the browser walks it and sends only the source the indexer reads (up to 50 MB), leaving behind whatever its `.gitignore` files ignore, `node_modules` and the other dependency and build folders, and the git history. The indexer unpacks that into its own storage and indexes it like a clone, keeping the folder's `origin` remote, branch and HEAD from its `.git` so agents working in the real checkout still find it. Uploading the same folder again (same remote, else same name, or **upload again** on its row) replaces it. Add several and they share one map; imports, calls and HTTP requests that cross repositories become dashed edges.
 
 Until you point at something the map draws only a few links: each open circle's strongest two or three, at most six in all (HTTP requests and cross-repository links count for more), untagged. That holds at every depth, so opening a big circle shows its own few key links rather than everything crossing its rim. Point at a circle, or select it, to see its strongest eight links, tagged with what they are ("HTTP · 23", "552 calls +40"); its tooltip says when more were left off, and its panel lists them all. (`?links=all` in the URL draws every link and tag, `?links=none` none until you point; the rules live in `web/src/render/edges.ts`.) Click a circle to select it: the detail panel says what it is, what it depends on and what depends on it. Click it again (or press Enter) to open it in place: its neighbours stay on screen as small closed circles, and edges reattach to the specific file or symbol inside that each one comes from. Click an open circle's name tab (or a breadcrumb) to close it again. Scroll only zooms and drag pans; neither opens or closes anything. Click an edge or its tag to read the contract between two parts, and click either end of any interaction listed there to go straight to the code responsible. Each interaction's **why** lists the code behind it (the request, the route and router mounts it matched, the import or call) and clicking a line shows that code in place. Contracts the indexer only guessed are dotted, with a `?` on their tag, and interactions it recorded without the code behind them say "no evidence found". The detail panel shows the selected file's or symbol's code. Back (the ← button, or Backspace) returns to where you were; Esc clears the selection.
 
@@ -70,9 +121,20 @@ The grouping lives in `.strata/projects/default/strata.grouping.json`. Edit it t
 
 Domains (the features that cut across layers and repos) come from the classification design's seed-and-propagate strategy (`indexer/src/classify/propagate.ts`). Routes (`GET /items/{id}`), ORM entities (`class Item`), page routes, and files in structural folders (`routes/items.py`, `components/Items/`) seed a domain when two or more files agree on it. Everything else takes the domain of the code it's connected to through calls, HTTP requests, renders and imports. A close split goes to **Shared**, and so does code that three or more features use directly. Code with no path to any seed joins the majority of its file, and anything left over is **Unsorted**. Domain pins in the grouping file act as seeds too, so they pull their unclaimed neighbours along. The older `feature-tokens` strategy is still available; strategies are swappable in `indexer/src/classify/index.ts`.
 
+### Sorted on import
+
+With `ANTHROPIC_API_KEY` set, a fresh import doesn't stop at the classifier. Once every repository is indexed, the indexer asks Claude (`indexer/src/classify/model-sort.ts`, off the request path) to finish the job in two steps:
+
+1. **Domains.** Claude sees each domain the classifier found (its files, what seeded it, its biggest symbols) and an outline of what's left over. It gives each a plain product name, merges domains that are one feature ("Shares" and "Sharing"), and adds the few domains the leftovers need ("Platform").
+2. **Leftovers.** Every file with code in Unlayered or Unsorted goes to Claude in batches, with its imports, detected facts, symbols, and the domains and layers of the code around it. Claude picks one of the project's layers and a domain, with a one-line reason.
+
+The result is saved in the grouping as `sorted`, through the same `ProjectStore`, and the map redraws when it lands. It only fills gaps: code the classifier placed keeps its place, and your renames, rules and pins win over it, so you adjust from a sorted map exactly as before. Each placement Claude made shows its reason in the detail panel, marked as inferred. A new repository or commit sorts again; the sidebar's **sort again** does it on demand (`POST /api/grouping/sort`). Delete `sorted` from the grouping to drop it. Without a key, imports keep the classifier's result and the sidebar says sorting is unavailable.
+
+`npm run index -- <repos> --sort` runs the same sort from the command line and prints how much was left unsorted before and after.
+
 ## Node summaries
 
-The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set on the indexer (OpenAI is used when both are), a model writes one or two sentences per node from its code and neighbours, marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
+The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `ANTHROPIC_API_KEY` set on the indexer, Claude writes one or two sentences per node from its code and neighbours, through the same client the sort uses (`indexer/src/llm.ts`), marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
 
 Generated summaries are written in batches, off the request path: after each import or re-index, files first, then folders (deepest first, each reading its children's summaries), domains and their layers, then repositories; a symbol's whole file is written in one request when one of its symbols is first selected. Each summary is cached under a hash of what the model read and saved through the `ProjectStore`, so a restart costs nothing and a re-index rewrites only what changed and what contains it. `npm run index -- <repo> --summaries` prints sample lines and how many requests a fresh import would make, without calling a model: the FastAPI template takes 11 requests for 197 summaries of files, folders, groups and the repository (about 29,000 input tokens), and outline 70 requests for 2,566 (about 430,000); symbols cost one request per file, only as files are opened. The code lives in `indexer/src/summaries/`.
 
@@ -166,13 +228,13 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 | `STRATA_PROJECT` | `default` | which project the indexer serves |
 | `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.strata/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
 | `STRATA_MONGODB_DB` | `strata` | database that holds the `projects` collection |
-| `OPENAI_API_KEY` | unset | write [node summaries](#node-summaries) with OpenAI (`gpt-5-mini`); used when both keys are set |
-| `ANTHROPIC_API_KEY` | unset | write node summaries with Claude (`claude-opus-5`) |
-| `STRATA_LLM_MODEL` | per provider | the model node summaries use |
-| `STRATA_SUMMARIES` | on | `off` writes no generated summaries even with a key set; the lines stay |
+| `STRATA_SUMMARIES` | on | `off` writes no generated [node summaries](#node-summaries) even with a key set; the lines stay |
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+| `STRATA_UPLOAD_MB` | `50` | most megabytes of source one folder upload may carry (20,000 files at most) |
+| `ANTHROPIC_API_KEY` | unset | lets the indexer sort each import with Claude and write [node summaries](#node-summaries); see [Sorted on import](#sorted-on-import) |
+| `STRATA_LLM_MODEL` | `claude-opus-5` | the model it sorts and summarises with |
 | `STRATA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
 | `STRATA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
 | `STRATA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
@@ -207,9 +269,10 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `STRATA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
 | `STRATA_ALLOWED_ORIGINS` | `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
 | `STRATA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
-| `STRATA_GITHUB_TOKEN` | only to import private repos. Reads need no key, so anyone with the map's URL can read their code |
+| `STRATA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
+| `ANTHROPIC_API_KEY` | to sort each import with Claude and write node summaries; without it the map keeps the classifier's result and one-line summaries |
 
-In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `STRATA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
+In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `STRATA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every deploy loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
 
 Check it: `curl https://<indexer>/api/workspace` should answer with `"access":{"localPaths":false,"keyRequired":true}`.
 

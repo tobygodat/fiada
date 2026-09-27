@@ -15,6 +15,7 @@ import {
   type Placement,
 } from '@strata/shared';
 import { PRESETS } from './presets.ts';
+import { normalizeSorted } from './sorted.ts';
 import { globMatch } from './glob.ts';
 import type { Assignments } from './types.ts';
 
@@ -73,7 +74,8 @@ export function normalizeGrouping(raw: unknown): Grouping {
     }
   }
   const preset = PRESETS.find((p) => p === raw.preset);
-  return { schema: 1, ...(preset ? { preset } : {}), layers, domains, rules, pins };
+  const sorted = normalizeSorted(raw.sorted);
+  return { schema: 1, ...(preset ? { preset } : {}), layers, domains, rules, pins, ...(sorted ? { sorted } : {}) };
 }
 
 const user = (source: 'user-rule' | 'user-pin', id: string, detail: string): Placement => ({

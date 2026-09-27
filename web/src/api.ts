@@ -51,7 +51,8 @@ export const canEdit = (ws: Workspace | null) => !ws?.access?.keyRequired || !!a
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {};
-  if (init?.body) headers['content-type'] = 'application/json';
+  if (typeof init?.body === 'string') headers['content-type'] = 'application/json';
+  else if (init?.body instanceof Blob) headers['content-type'] = init.body.type;
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   if (accessKey && init?.method && init.method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
   const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
@@ -91,10 +92,14 @@ export const api = {
   graph: () => call<Graph>('/api/graph'),
   addRepo: (source: string) => call<Workspace>('/api/repos', { method: 'POST', body: JSON.stringify({ source }) }),
   removeRepo: (id: string) => call<Workspace>(`/api/repos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** A folder packed by upload/folder.ts; `replace` names the upload it updates. */
+  uploadRepo: (name: string, archive: Blob, replace?: string) =>
+    call<Workspace>(`/api/repos/upload?name=${encodeURIComponent(name)}${replace ? `&replace=${encodeURIComponent(replace)}` : ''}`, { method: 'POST', body: archive }),
   refreshRepo: (id: string) => call<Workspace>(`/api/repos/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
   source: (repo: string, path: string) => call<SourceText>(`/api/source?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`),
   summary: (node: string) => call<NodeSummary>(`/api/summary?node=${encodeURIComponent(node)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
+  sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
   agentDiffs: (node: string) => call<{ diffs: AgentDiff[] }>(`/api/agent/diff?node=${encodeURIComponent(node)}`),
   clearAgent: (id?: string) => call<ActivityState>(id ? `/api/agent?id=${encodeURIComponent(id)}` : '/api/agent', { method: 'DELETE' }),
 };

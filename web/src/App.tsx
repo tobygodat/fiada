@@ -498,9 +498,11 @@ export function App() {
           onColorBy={setColorBy}
           onSelect={select}
           onAdd={ws.add}
+          onUpload={ws.upload}
           onRemove={ws.remove}
           onRefresh={ws.refresh}
           onPreset={ws.applyPreset}
+          onSortAgain={ws.sortAgain}
         />
         {graph && tree && (selected || contract) && (
           <Detail

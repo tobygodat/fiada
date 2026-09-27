@@ -12,7 +12,7 @@ import { describe as line, indexGraph } from './describe.ts';
 import { fileDoc, firstSentence, symbolDoc } from './docs.ts';
 import { Summaries } from './index.ts';
 import { hashOf, takeBatch, type Item } from './items.ts';
-import { createLlm, LlmError, type JsonRequest, type Llm } from './llm.ts';
+import type { JsonRequest, LLM } from '../llm.ts';
 
 const FILES: Record<string, string> = {
   'backend/app/api/items.py': [
@@ -55,16 +55,16 @@ async function fixtureGraph(files = FILES): Promise<{ graph: Graph; dir: string 
 /** A model stand-in: answers every item, records each request, and can be told to fail. */
 function fakeLlm(opts: { fail?: (req: JsonRequest) => Error | null } = {}) {
   const requests: JsonRequest[] = [];
-  const llm: Llm = {
-    provider: 'openai',
+  const llm: LLM = {
+    label: 'Fake',
     model: 'fake-model',
-    async json<T>(req: JsonRequest) {
+    async json(req: JsonRequest) {
       requests.push(req);
       const err = opts.fail?.(req);
       if (err) throw err;
       // "about <first word of the item> (<hash of the item>)", so a changed item gets a changed summary.
       const items = req.prompt.split(/^### item /m).slice(1);
-      return { summaries: items.map((it) => ({ id: it.split(' ')[0], summary: `about ${it.split('\n')[1].split(' ')[0]} (${hashOf(it).slice(0, 6)})` })) } as T;
+      return { summaries: items.map((it) => ({ id: it.split(' ')[0], summary: `about ${it.split('\n')[1].split(' ')[0]} (${hashOf(it).slice(0, 6)})` })) };
     },
   };
   return { llm, requests };
@@ -84,7 +84,7 @@ function memoryStore(): ProjectStore & { saved: Record<string, StoredSummary> } 
   };
 }
 
-function summaries(graph: Graph, dir: string, llm: Llm | null, store: ProjectStore = memoryStore()) {
+function summaries(graph: Graph, dir: string, llm: LLM | null, store: ProjectStore = memoryStore()) {
   const s = new Summaries({
     store,
     projectId: 'test',
@@ -142,6 +142,7 @@ test('without a model key, summaries are the line and say they are off', async (
   const s = summaries(graph, dir, null);
   const got = await s.get('shop/backend/app/api/items.py#read_items');
   assert.equal(got?.status, 'off');
+  assert.match(got!.off!, /ANTHROPIC_API_KEY/);
   assert.equal(got?.doc, 'Retrieve items.');
   assert.match(got!.line, /^Handles GET/);
   assert.equal(await s.get('shop/missing'), null);
@@ -226,7 +227,7 @@ test('a cut-off reply is retried in halves; a failed request marks its items wit
   const { llm, requests } = fakeLlm({
     fail: (req) => {
       const n = (req.prompt.match(/^### item/gm) ?? []).length;
-      if (cut && n > 1) return new LlmError('too long', 'truncated');
+      if (cut && n > 1) return new Error("Claude's answer to the summaries request was cut off.");
       if (req.prompt.includes('(repo)')) return new Error('OpenAI answered 429: slow down');
       return null;
     },
@@ -249,13 +250,4 @@ test('summaries persist in the file store and merge across saves', async () => {
   const b = { text: 'b', model: 'm', at: '2026-09-27T00:00:01Z' };
   await Promise.all([store.saveSummaries('p', { [hashOf('a')]: a }), store.saveSummaries('p', { [hashOf('b')]: b })]);
   assert.deepEqual(await store.loadSummaries('p'), { [hashOf('a')]: a, [hashOf('b')]: b });
-});
-
-test('the provider comes from whichever key is set, OpenAI first', () => {
-  assert.equal(createLlm({}), null);
-  assert.equal(createLlm({ ANTHROPIC_API_KEY: 'sk-ant-x' })?.provider, 'anthropic');
-  assert.equal(createLlm({ ANTHROPIC_API_KEY: 'sk-ant-x' })?.model, 'claude-opus-5');
-  assert.equal(createLlm({ OPENAI_API_KEY: '"sk-x"', ANTHROPIC_API_KEY: 'sk-ant-x' })?.provider, 'openai');
-  assert.equal(createLlm({ OPENAI_API_KEY: 'sk-x', STRATA_LLM_MODEL: 'gpt-5' })?.model, 'gpt-5');
-  assert.equal(createLlm({ OPENAI_API_KEY: 'sk-x', STRATA_SUMMARIES: 'off' }), null);
 });

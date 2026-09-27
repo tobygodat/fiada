@@ -11,13 +11,13 @@ import type { ProjectStore, StoredSummary } from '../store.ts';
 import { describe, indexGraph, parseGroupId, type GraphIndex } from './describe.ts';
 import { fileDoc, symbolDoc } from './docs.ts';
 import { fileHeader, fileItem, folderItem, groupItem, prompt, repoItem, SCHEMA, symbolItem, SYSTEM, takeBatch, type Batch, type Item } from './items.ts';
-import { LlmError, type Llm } from './llm.ts';
+import { describeLLMError, KEY_HINT, type LLM } from '../llm.ts';
 
 export interface SummariesOptions {
   store: ProjectStore;
   projectId: string;
   /** Null when no model key is set: lines only. */
-  llm: Llm | null;
+  llm: LLM | null;
   /** An indexed file's text, or null. */
   read(repo: string, path: string): Promise<string | null>;
   /** True while repositories are still cloning or indexing; the eager pass waits for them. */
@@ -90,7 +90,7 @@ export class Summaries {
     const n = gi.byId.get(id);
     const doc = n ? await this.doc(n) : '';
     const base: NodeSummary = { node: id, line: derived, ...(doc ? { doc } : {}), status: 'off' };
-    if (!this.o.llm) return base;
+    if (!this.o.llm) return { ...base, off: `set ${KEY_HINT} on the indexer for generated summaries` };
 
     const it = await this.itemFor(gi, id);
     if (!it) return { ...base, status: 'error', error: "Couldn't read this code from the indexer's checkout." };
@@ -284,14 +284,12 @@ export class Summaries {
       const text = prompt(batch);
       this.stats.calls++;
       this.stats.promptChars += text.length + SYSTEM.length;
-      const reply = await llm.json<{ summaries: { id: string; summary: string }[] }>({
-        system: SYSTEM,
+      const reply = (await llm.json({
+        label: `summaries of ${batch.items.length} ${batch.items[0].kind === 'symbol' ? 'symbols' : 'nodes'}`,
+        system: [SYSTEM],
         prompt: text,
         schema: SCHEMA as unknown as Record<string, unknown>,
-        name: 'summaries',
-        // Room for brief reasoning as well as about 60 words per item.
-        maxTokens: 2000 + 200 * batch.items.length,
-      });
+      })) as { summaries?: { id: string; summary: string }[] };
       const at = new Date().toISOString();
       const missing: Item[] = [];
       batch.items.forEach((it, i) => {
@@ -308,13 +306,14 @@ export class Summaries {
       else if (missing.length) this.fail(missing, 'The model left these out of its reply.');
     } catch (err) {
       for (const it of batch.items) this.claimed.delete(it.hash);
-      if (err instanceof LlmError && batch.items.length > 1) {
+      // A reply that was cut off, declined or unreadable may be one item's fault: try the halves.
+      if (batch.items.length > 1 && (err instanceof SyntaxError || /cut off|declined/.test((err as Error).message))) {
         const half = Math.ceil(batch.items.length / 2);
         await this.run({ ...batch, items: batch.items.slice(0, half) });
         await this.run({ ...batch, items: batch.items.slice(half) });
         return;
       }
-      this.fail(batch.items, (err as Error).message);
+      this.fail(batch.items, describeLLMError(err));
     }
   }
 
