@@ -198,16 +198,17 @@ export class BadgeSpace {
   private hiX: number;
   private hiY: number;
 
+  /** `badges` are the circles that will get one and each badge's size: a badge placed later must be no bigger. */
   constructor(
     private taken: Taken,
     drawn: readonly Drawn[],
-    badged: readonly Drawn[],
+    badges: readonly { d: Drawn; w: number; h: number }[],
   ) {
     this.hiX = Math.ceil(taken.view.w / CELL) + 4;
     this.hiY = Math.ceil(taken.view.h / CELL) + 4;
-    // The farthest a badge reaches from its circle: the ring, then a pill of up to about 90px.
-    for (const d of badged) {
-      const reach = ringGeometry(d.r).outer + 96;
+    // The farthest a badge reaches from its circle: past the ring by its longer side, whichever way it grows.
+    for (const { d, w, h } of badges) {
+      const reach = ringGeometry(d.r).outer + 2 + Math.max(w, h);
       const [cx0, cx1, cy0, cy1] = this.span(d.x - reach, d.y - reach, d.x + reach, d.y + reach);
       for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) this.near.add(key(cx, cy));
     }
@@ -362,11 +363,7 @@ export function drawBadges(
   const k = geometryKey(taken, drawn, badges);
   let boxes = cache.boxes;
   if (!boxes || !sameKey(cache.key, k)) {
-    const space = new BadgeSpace(
-      taken,
-      drawn,
-      badges.map((b) => b.d),
-    );
+    const space = new BadgeSpace(taken, drawn, badges);
     boxes = badges.map((b) => space.place(b.d, b.w, b.h));
     cache.key = k;
     cache.boxes = boxes;

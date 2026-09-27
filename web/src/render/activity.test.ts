@@ -11,7 +11,7 @@ const view = { w: 1000, h: 1000 };
 
 type Circle = ReturnType<typeof circle>;
 /** One badge on `d`, with only `d` on the map besides what's taken. */
-const place = (d: Circle, taken: Omit<Taken, 'free' | 'view'>) => new BadgeSpace({ ...taken, free, view }, [d], [d]).place(d, W, H);
+const place = (d: Circle, taken: Omit<Taken, 'free' | 'view'>) => new BadgeSpace({ ...taken, free, view }, [d], [{ d, w: W, h: H }]).place(d, W, H);
 
 /** A straight link drawn as the renderer does: a quadratic with its control point at the middle. */
 function link(x1: number, y1: number, x2: number, y2: number, w = 2): Taken['edges'][number] {
@@ -52,7 +52,7 @@ test('a link leaving the circle at the upper right moves the badge off it', () =
 test('tags, tabs and other badges are kept clear too', () => {
   const d = circle('a', 500, 500, 30);
   const upper: Rect[] = [{ x: 380, y: 400, w: 240, h: 90 }];
-  const space = new BadgeSpace({ edges: [], rects: upper, free, view }, [d], [d]);
+  const space = new BadgeSpace({ edges: [], rects: upper, free, view }, [d], [{ d, w: W, h: H }]);
   const box = space.place(d, W, H);
   assert.ok(box.y >= 490, 'below the taken band');
   const again = space.place(d, W, H);
@@ -87,7 +87,11 @@ test('a link that only passes near the circle still counts, however long it is',
 
 test('other closed circles are avoided when there is room, and a crowd of badges never overlaps', () => {
   const circles = Array.from({ length: 60 }, (_, i) => circle(`c${i}`, 60 + (i % 10) * 90, 60 + Math.floor(i / 10) * 90, 22));
-  const space = new BadgeSpace({ edges: [], rects: [], free, view }, circles, circles);
+  const space = new BadgeSpace(
+    { edges: [], rects: [], free, view },
+    circles,
+    circles.map((d) => ({ d, w: W, h: H })),
+  );
   const boxes = circles.map((c) => space.place(c, W, H));
   for (let i = 0; i < boxes.length; i++)
     for (let j = i + 1; j < boxes.length; j++) {
@@ -112,4 +116,16 @@ test('badge spots are reused while nothing moves, and worked out again when some
   drawBadges(ctx, [{ ...d, x: 520 }], marks, (t) => t.length * 6, taken, cache);
   assert.notEqual(cache.boxes, first);
   assert.equal(cache.boxes![0].x - first![0].x, 20);
+});
+
+test('a wide badge still sees what is near its far end', () => {
+  const d = circle('a', 500, 500, 30);
+  const wide = 160;
+  // A tag well past 96px from the ring, where only a badge this wide reaches, at the upper right and upper left.
+  const rects: Rect[] = [
+    { x: 640, y: 440, w: 30, h: 30 },
+    { x: 330, y: 440, w: 30, h: 30 },
+  ];
+  const box = new BadgeSpace({ edges: [], rects, free, view }, [d], [{ d, w: wide, h: H }]).place(d, wide, H);
+  for (const r of rects) assert.ok(!(r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h), 'clear of the far tag');
 });
