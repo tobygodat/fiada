@@ -246,9 +246,15 @@ export class Workspace {
   }
 
   private async save() {
-    await this.store.saveRepos(
-      this.projectId,
-      this.repos.map(({ id, name, source, kind }) => ({ id, name, source, kind })),
-    );
+    // A failed save (the database dropped, or another indexer saved first) is
+    // logged rather than thrown, so indexing and the map keep working.
+    try {
+      await this.store.saveRepos(
+        this.projectId,
+        this.repos.map(({ id, name, source, kind }) => ({ id, name, source, kind })),
+      );
+    } catch (err) {
+      console.error(`[strata] couldn't save repos for project "${this.projectId}": ${(err as Error).message}`);
+    }
   }
 }

@@ -1,6 +1,7 @@
 // HTTP API the map talks to. Binds to localhost: importing a local path reads
 // that directory, so this is a single-user development tool, not a service.
 
+import './env.ts';
 import Fastify from 'fastify';
 import type { LayerPreset } from '@strata/shared';
 import { GroupingError, PRESETS } from './classify/index.ts';
@@ -10,7 +11,7 @@ import { STRATA_HOME, Workspace } from './workspace.ts';
 const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
-const ws = new Workspace(createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'));
+const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'));
 await ws.init();
 
 const app = Fastify({ logger: { level: 'warn' } });
