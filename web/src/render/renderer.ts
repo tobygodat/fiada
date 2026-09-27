@@ -26,8 +26,10 @@ const LABEL_FULL_R = 34;
 
 /**
  * Literata's sizes (DESIGN.md, Type): fine, small, body, title, display. A
- * label takes the largest one its circle has room for; one that would be
- * under 13px isn't drawn, and the tooltip names the circle instead.
+ * label takes the largest one its circle has room for, and 13px is the
+ * least: a small circle keeps its name only if the name (or its short form)
+ * fits inside at 13px. Nothing shrinks below that to squeeze in; a name that
+ * doesn't fit is left to the tooltip.
  */
 export const TYPE = [13, 15, 17, 20, 24] as const;
 export const typeSize = (px: number) => TYPE.reduce<number>((s, t) => (t <= px ? t : s), TYPE[0]);
@@ -601,6 +603,7 @@ export class MapRenderer {
         this.drawnTabs.push({ id: n.id, x: bx, y: by, w: bw, h: bh });
       } else if (r > LABEL_MIN_R) {
         // Containers' names in 600, leaves' in 400, at the largest size of the scale the circle has room for.
+        // Small circles get 13px, and the fitting below decides whether the name is drawn at all.
         const weight: Weight = n.children.length ? 600 : 400;
         const size = typeSize(r * (big ? 0.24 : 0.2));
         const max = r * 1.8;
