@@ -163,7 +163,12 @@ export class Workspace {
     for (let n = 2; this.repos.some((r) => r.id === id); n++) id = `${slug(src.name)}-${n}`;
     const info: RepoInfo = { id, name: src.name, source: src.location, kind: src.kind, status: 'queued' };
     this.repos.push(info);
-    await this.save();
+    try {
+      await this.save();
+    } catch (err) {
+      this.repos = this.repos.filter((r) => r !== info);
+      throw err;
+    }
     this.enqueue(id, false);
     return info;
   }
@@ -171,10 +176,18 @@ export class Workspace {
   async remove(id: string) {
     const repo = this.repos.find((r) => r.id === id);
     if (!repo) return;
-    this.repos = this.repos.filter((r) => r.id !== id);
+    const index = this.repos.indexOf(repo);
+    this.repos = this.repos.filter((r) => r !== repo);
+    // Persist the removal before discarding anything, so a rejected save
+    // (another indexer changed the list) leaves the repo in place.
+    try {
+      await this.save();
+    } catch (err) {
+      if (!this.repos.includes(repo)) this.repos.splice(Math.min(index, this.repos.length), 0, repo);
+      throw err;
+    }
     this.parsed.delete(id);
     if (repo.kind === 'git') await fs.rm(path.join(CLONES, id), { recursive: true, force: true });
-    await this.save();
     this.rebuild();
   }
 
@@ -226,7 +239,10 @@ export class Workspace {
       repo.error = (e.stderr?.trim().split('\n').pop() || e.message).slice(0, 300);
       console.error(`[strata] ${id}: ${repo.error}`);
     }
-    await this.save();
+    // A failed save (the database dropped, or another indexer saved first) is
+    // logged rather than thrown here, so the map still rebuilds. Adding and
+    // removing repos report it to the caller instead.
+    await this.save().catch((err) => console.error(`[strata] couldn't save repos for project "${this.projectId}": ${(err as Error).message}`));
     this.rebuild();
   }
 

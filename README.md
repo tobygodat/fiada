@@ -67,7 +67,20 @@ Domains (the features that cut across layers and repos) come from the classifica
 
 ## Storage
 
-Everything a project keeps (its repositories and its grouping) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`; a database-backed store implements the same five methods and is selected in `createStore()`. The graph itself is always derived, never stored.
+Everything a project keeps (its repositories and its grouping) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
+
+### MongoDB Atlas
+
+With Atlas, each project is one document in the `projects` collection, keyed by project id, with the repo list and the grouping side by side. Restarting the indexer, or running it on another machine with the same connection string, brings the project back.
+
+1. In [Atlas](https://cloud.mongodb.com), create a free cluster, then a database user under **Database Access**.
+2. Under **Network Access**, allow your IP address.
+3. Under **Connect > Drivers**, copy the connection string, put your user's password in it, and save it as `MONGODB_URI=...` in a `.env` file at the repo root (gitignored; `.env.example` lists the variables).
+4. `npm run dev`. The indexer logs `saving projects to MongoDB at …`, never the password.
+
+If Atlas can't be reached or read at startup, the indexer says why and saves under `.strata/` for that run, so the map still works offline. Clones and parsed code stay on local disk either way.
+
+Two indexers can serve one project. Saving the repo list never touches the grouping and vice versa, and each carries a revision: if another indexer saved after this one loaded, the save is refused with a message to restart instead of silently undoing the other's change. Grouping edits made elsewhere don't apply live the way edits to `strata.grouping.json` do; restart to pick them up. MongoDB field names can't contain dots and symbol ids do, so `.`, `$` and `%` in keys are percent-escaped in the database and restored on load.
 
 To see classification results without the UI:
 
@@ -84,9 +97,13 @@ npm run index -- ../some-repo --grouping my.grouping.json --layers
 | `PORT` | `4178` | indexer port (the web dev server proxies `/api` to it; set `STRATA_INDEXER_PORT` for the proxy if you change it) |
 | `STRATA_HOME` | `.strata/` | where clones and project files live |
 | `STRATA_PROJECT` | `default` | which project the indexer serves |
+| `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.strata/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
+| `STRATA_MONGODB_DB` | `strata` | database that holds the `projects` collection |
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+
+The indexer also reads a `.env` file at the repo root; variables already set in your shell win.
 
 The indexer binds to 127.0.0.1: importing a local path reads that directory, so it's a single-user development tool.
 
@@ -96,5 +113,6 @@ The indexer binds to 127.0.0.1: importing a local path reads that directory, so 
 
 ```sh
 npm test             # indexer: route matching, layer matchers, rules and pins, the file store, and a two-repo fixture end to end
+STRATA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test   # also runs the MongoDB store tests
 npm run typecheck
 ```

@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { Grouping } from '@strata/shared';
+import { MongoProjectStore, redact } from './mongo-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
 export interface SavedRepo {
@@ -115,7 +116,23 @@ export class FileProjectStore implements ProjectStore {
   }
 }
 
-/** The store the server uses. A database-backed store would be selected here (for example when its connection string is set). */
-export function createStore(home: string): ProjectStore {
+/**
+ * The store the server uses: MongoDB (Atlas) when MONGODB_URI is set, else
+ * files under `home`. If MongoDB can't be reached or read at startup, says
+ * why and uses the files for this run, so the map still works offline.
+ */
+export async function createStore(home: string): Promise<ProjectStore> {
+  const uri = process.env.MONGODB_URI?.trim();
+  if (uri) {
+    try {
+      const db = process.env.STRATA_MONGODB_DB?.trim() || 'strata';
+      const store = await MongoProjectStore.connect(uri, db);
+      console.log(`[strata] saving projects to MongoDB at ${redact(uri)} (${db}.projects)`);
+      return store;
+    } catch (err) {
+      console.error(`[strata] can't use MongoDB at ${redact(uri)}: ${(err as Error).message}`);
+      console.error(`[strata] saving to ${path.join(home, 'projects')} for this run instead`);
+    }
+  }
   return new FileProjectStore(home);
 }

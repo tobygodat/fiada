@@ -4,6 +4,7 @@
 //   npm run index -- ../some-repo --grouping my.grouping.json --layers
 //   npm run index -- ../some-repo --preset by-repo --out graph.json
 
+import './env.ts';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
