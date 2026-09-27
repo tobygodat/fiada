@@ -9,6 +9,10 @@
 import { changeCount, type Marks, type TreeActivity } from '../graph/activity.ts';
 import type { TNode } from '../graph/tree.ts';
 import { BG, CHANGE, MONO } from '../theme.ts';
+import { token } from '../theme/tokens.ts';
+
+/** The map's paper: the gap round a ring and a badge's fill are cut from it. */
+const paper = () => token('--ground') || BG;
 
 /** How long a change keeps pulsing. */
 export const PULSE_MS = 8000;
@@ -37,6 +41,8 @@ export interface Taken {
   rects: readonly Rect[];
   /** The part of the canvas that isn't under a panel. */
   free: { x0: number; x1: number; y0: number; y1: number };
+  /** The canvas size in CSS pixels. */
+  view: { w: number; h: number };
 }
 
 const dominant = (m: Marks) => (m.added >= m.modified && m.added >= m.deleted ? 'added' : m.modified >= m.deleted ? 'modified' : 'deleted');
@@ -73,7 +79,7 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     if (m.self) {
       const color = CHANGE[m.self];
       ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = BG;
+      ctx.strokeStyle = paper();
       ctx.lineWidth = g.gap;
       ctx.beginPath();
       ctx.arc(d.x, d.y, g.gapR, 0, Math.PI * 2);
@@ -119,103 +125,229 @@ function boxAt(d: Drawn, angle: number, w: number, h: number, out: number): Rect
 
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-/** Whether the segment from (x1, y1) to (x2, y2) passes through the box (Liang–Barsky). */
-function segmentHits(x1: number, y1: number, x2: number, y2: number, b: Rect): boolean {
+/** Whether the segment from (x1, y1) to (x2, y2) passes through the box, grown by `pad` on every side (Liang–Barsky). */
+function segmentHits(x1: number, y1: number, x2: number, y2: number, b: Rect, pad: number): boolean {
   const dx = x2 - x1;
   const dy = y2 - y1;
   let t0 = 0;
   let t1 = 1;
-  const edges: [number, number][] = [
-    [-dx, x1 - b.x],
-    [dx, b.x + b.w - x1],
-    [-dy, y1 - b.y],
-    [dy, b.y + b.h - y1],
-  ];
-  for (const [p, q] of edges) {
+  // Clip against each side in turn: left, right, top, bottom.
+  for (let side = 0; side < 4; side++) {
+    const p = side === 0 ? -dx : side === 1 ? dx : side === 2 ? -dy : dy;
+    const q = side === 0 ? x1 - (b.x - pad) : side === 1 ? b.x + b.w + pad - x1 : side === 2 ? y1 - (b.y - pad) : b.y + b.h + pad - y1;
     if (p === 0) {
       if (q < 0) return false;
       continue;
     }
     const t = q / p;
-    if (p < 0) t0 = Math.max(t0, t);
-    else t1 = Math.min(t1, t);
+    if (p < 0) {
+      if (t > t0) t0 = t;
+    } else if (t < t1) t1 = t;
     if (t0 > t1) return false;
   }
   return true;
 }
 
-const STEPS = 16;
+type Edge = Taken['edges'][number];
 
-/** Whether a drawn link passes through the box, with its width and a little air around it. */
-export function curveHits(e: Taken['edges'][number], box: Rect): boolean {
-  const pad = e.w / 2 + 2;
-  const b = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
-  if (e.maxX < b.x || e.minX > b.x + b.w || e.maxY < b.y || e.minY > b.y + b.h) return false;
+/** Room left round a link: half its width and a little air. */
+const edgePad = (e: Edge) => e.w / 2 + 2;
+
+/** A link as short straight pieces, more of them the longer it is. */
+function sample(e: Edge, each: (x1: number, y1: number, x2: number, y2: number) => boolean | void) {
   const [x1, y1, cx, cy, x2, y2] = e.pts;
+  const steps = Math.min(24, Math.max(3, Math.ceil((Math.hypot(cx - x1, cy - y1) + Math.hypot(x2 - cx, y2 - cy)) / 48)));
   let px = x1;
   let py = y1;
-  for (let i = 1; i <= STEPS; i++) {
-    const t = i / STEPS;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
     const u = 1 - t;
     const x = u * u * x1 + 2 * u * t * cx + t * t * x2;
     const y = u * u * y1 + 2 * u * t * cy + t * t * y2;
-    if (segmentHits(px, py, x, y, b)) return true;
+    if (each(px, py, x, y)) return;
     px = x;
     py = y;
   }
-  return false;
 }
+
+/** Whether a drawn link passes through the box, with its width and a little air around it. */
+export function curveHits(e: Edge, box: Rect): boolean {
+  const pad = edgePad(e);
+  if (e.maxX < box.x - pad || e.minX > box.x + box.w + pad || e.maxY < box.y - pad || e.minY > box.y + box.h + pad) return false;
+  let hit = false;
+  sample(e, (ax, ay, bx, by) => (hit = segmentHits(ax, ay, bx, by, box, pad)));
+  return hit;
+}
+
+// Screen cells for looking up what's near a spot. Each item is visited once per
+// look (`seen`), and a link counts once however many of its pieces are hit (`hit`).
+const CELL = 64;
+type Item = { seen: number } & (
+  | { k: 'seg'; link: { hit: number }; x1: number; y1: number; x2: number; y2: number; pad: number }
+  | { k: 'rect'; r: Rect }
+  | { k: 'circle'; d: Drawn }
+);
 
 /**
- * The best spot for a badge of this size on this circle: the first angle that
- * covers nothing, else the one that covers least. Links, tags, tabs and other
- * badges count heavily; other closed circles and leaving the free area a little.
+ * Everything a badge must keep clear of, bucketed into screen cells so each
+ * spot a badge might take only checks what's near it. Only cells around the
+ * circles that get a badge are filled, so a big map with a few badges stays cheap.
  */
-export function placeBadge(d: Drawn, w: number, h: number, taken: Taken, others: readonly Drawn[], placed: readonly Rect[]): Rect {
-  const out = ringGeometry(d.r).outer + 1;
-  let best: Rect | null = null;
-  let bestScore = Infinity;
-  for (const a of ANGLES) {
-    const box = boxAt(d, a, w, h, out);
-    let score = 0;
-    for (const e of taken.edges) if (curveHits(e, box)) score += 10;
-    for (const r of taken.rects) if (overlaps(r, box)) score += 10;
-    for (const r of placed) if (overlaps(r, box)) score += 10;
-    if (score >= bestScore) continue;
-    const f = taken.free;
-    if (box.x < f.x0 || box.x + box.w > f.x1 || box.y < f.y0 || box.y + box.h > f.y1) score += 3;
-    for (const o of others) {
-      if (o === d || o.open) continue;
-      const nx = Math.max(box.x, Math.min(o.x, box.x + box.w));
-      const ny = Math.max(box.y, Math.min(o.y, box.y + box.h));
-      if (Math.hypot(nx - o.x, ny - o.y) < o.r) score += 1;
+export class BadgeSpace {
+  private cells = new Map<number, Item[]>();
+  private near = new Set<number>();
+  private stamp = 0;
+  // Cell bounds: off-screen parts can't meet a badge that's on screen, and the clamp bounds a huge circle's cells.
+  private lo = -4;
+  private hiX: number;
+  private hiY: number;
+
+  /** `badges` are the circles that will get one and each badge's size: a badge placed later must be no bigger. */
+  constructor(
+    private taken: Taken,
+    drawn: readonly Drawn[],
+    badges: readonly { d: Drawn; w: number; h: number }[],
+  ) {
+    this.hiX = Math.ceil(taken.view.w / CELL) + 4;
+    this.hiY = Math.ceil(taken.view.h / CELL) + 4;
+    // The farthest a badge reaches from its circle: past the ring by its longer side, whichever way it grows.
+    for (const { d, w, h } of badges) {
+      const reach = ringGeometry(d.r).outer + 2 + Math.max(w, h);
+      const [cx0, cx1, cy0, cy1] = this.span(d.x - reach, d.y - reach, d.x + reach, d.y + reach);
+      for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) this.near.add(key(cx, cy));
     }
-    if (score < bestScore) {
-      best = box;
-      bestScore = score;
-      if (!score) break;
+    for (const e of taken.edges) {
+      const link = { hit: 0 };
+      const pad = edgePad(e);
+      sample(e, (x1, y1, x2, y2) => {
+        this.add({ k: 'seg', link, x1, y1, x2, y2, pad, seen: 0 }, Math.min(x1, x2) - pad, Math.min(y1, y2) - pad, Math.max(x1, x2) + pad, Math.max(y1, y2) + pad);
+      });
     }
+    for (const r of taken.rects) this.add({ k: 'rect', r, seen: 0 }, r.x, r.y, r.x + r.w, r.y + r.h);
+    for (const d of drawn) if (!d.open) this.add({ k: 'circle', d, seen: 0 }, d.x - d.r, d.y - d.r, d.x + d.r, d.y + d.r);
   }
-  return best!;
+
+  private span(x0: number, y0: number, x1: number, y1: number): [number, number, number, number] {
+    return [
+      Math.max(this.lo, Math.floor(x0 / CELL)),
+      Math.min(this.hiX, Math.floor(x1 / CELL)),
+      Math.max(this.lo, Math.floor(y0 / CELL)),
+      Math.min(this.hiY, Math.floor(y1 / CELL)),
+    ];
+  }
+
+  private add(item: Item, x0: number, y0: number, x1: number, y1: number) {
+    const [cx0, cx1, cy0, cy1] = this.span(x0, y0, x1, y1);
+    for (let cx = cx0; cx <= cx1; cx++)
+      for (let cy = cy0; cy <= cy1; cy++) {
+        const k = key(cx, cy);
+        if (!this.near.has(k)) continue;
+        const cell = this.cells.get(k);
+        if (cell) cell.push(item);
+        else this.cells.set(k, [item]);
+      }
+  }
+
+  /** What covering `box` costs, stopping once it reaches `limit`. */
+  private cost(box: Rect, self: Drawn, limit: number): number {
+    const f = this.taken.free;
+    let score = box.x < f.x0 || box.x + box.w > f.x1 || box.y < f.y0 || box.y + box.h > f.y1 ? 3 : 0;
+    const stamp = ++this.stamp;
+    const [cx0, cx1, cy0, cy1] = this.span(box.x, box.y, box.x + box.w, box.y + box.h);
+    for (let cx = cx0; cx <= cx1; cx++)
+      for (let cy = cy0; cy <= cy1; cy++) {
+        const cell = this.cells.get(key(cx, cy));
+        if (!cell) continue;
+        for (const it of cell) {
+          if (it.seen === stamp) continue;
+          it.seen = stamp;
+          if (it.k === 'rect') {
+            if (overlaps(it.r, box)) score += 10;
+          } else if (it.k === 'seg') {
+            if (it.link.hit !== stamp && segmentHits(it.x1, it.y1, it.x2, it.y2, box, it.pad)) {
+              it.link.hit = stamp;
+              score += 10;
+            }
+          } else if (it.d !== self) {
+            const o = it.d;
+            const nx = Math.max(box.x, Math.min(o.x, box.x + box.w));
+            const ny = Math.max(box.y, Math.min(o.y, box.y + box.h));
+            if ((nx - o.x) ** 2 + (ny - o.y) ** 2 < o.r * o.r) score += 1;
+          }
+          if (score >= limit) return score;
+        }
+      }
+    return score;
+  }
+
+  /**
+   * The best spot for a badge of this size on this circle: the first angle that
+   * covers nothing, else the one that covers least. Links, tags, tabs and other
+   * badges count heavily; other closed circles and leaving the free area a little.
+   * The spot is then taken, so the next badge keeps clear of it.
+   */
+  place(d: Drawn, w: number, h: number): Rect {
+    const out = ringGeometry(d.r).outer + 1;
+    let best = boxAt(d, ANGLES[0], w, h, out);
+    let bestScore = Infinity;
+    for (const a of ANGLES) {
+      const box = boxAt(d, a, w, h, out);
+      const score = this.cost(box, d, bestScore);
+      if (score < bestScore) {
+        best = box;
+        bestScore = score;
+        if (!score) break;
+      }
+    }
+    this.add({ k: 'rect', r: best, seen: 0 }, best.x, best.y, best.x + best.w, best.y + best.h);
+    return best;
+  }
 }
 
+const key = (cx: number, cy: number) => (cx + 64) * 4096 + (cy + 64);
+
+/**
+ * The last frame's badge spots, reused while nothing they depend on has moved:
+ * the pulse after a change redraws every frame for seconds with the same geometry.
+ */
+export interface BadgeCache {
+  key?: Float64Array;
+  boxes?: Rect[];
+}
+
+/** Every number the badge spots depend on, in order, to compare with the last frame's. */
+function geometryKey(taken: Taken, drawn: readonly Drawn[], badged: readonly { d: Drawn; w: number; h: number }[]): Float64Array {
+  const out: number[] = [taken.view.w, taken.view.h, taken.free.x0, taken.free.x1, taken.free.y0, taken.free.y1, taken.edges.length];
+  for (const e of taken.edges) out.push(e.w, ...e.pts);
+  out.push(taken.rects.length);
+  for (const r of taken.rects) out.push(r.x, r.y, r.w, r.h);
+  out.push(drawn.length);
+  for (const d of drawn) if (!d.open) out.push(d.x, d.y, d.r);
+  out.push(badged.length);
+  for (const b of badged) out.push(b.d.x, b.d.y, b.d.r, b.w, b.h);
+  return Float64Array.from(out);
+}
+
+const sameKey = (a: Float64Array | undefined, b: Float64Array) => !!a && a.length === b.length && a.every((v, i) => v === b[i]);
+
 /** Count badges on closed circles, "+2 ~1 −1", placed clear of links, tags and name tabs. */
-export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, textWidth: (s: string) => number, taken: Taken) {
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  const placed: Rect[] = [];
+export function drawBadges(
+  ctx: CanvasRenderingContext2D,
+  drawn: Drawn[],
+  marks: TreeActivity,
+  textWidth: (s: string) => number,
+  taken: Taken,
+  cache: BadgeCache = {},
+) {
+  const gap = 5;
+  const h = 16;
+  const badges: { d: Drawn; m: Marks; w: number; h: number; parts: { text: string; color: string; w: number }[] }[] = [];
   for (const d of drawn) {
-    if (d.open) continue;
-    const m = marks.get(d.n.id);
+    const m = !d.open && marks.get(d.n.id);
     if (!m || !changeCount(m)) continue;
-    const main = CHANGE[dominant(m)];
+    // Small circles get a dot, the rest a pill with the counts.
     if (d.r < 9) {
-      const box = placeBadge(d, 5, 5, taken, drawn, placed);
-      placed.push(box);
-      ctx.fillStyle = main;
-      ctx.beginPath();
-      ctx.arc(box.x + 2.5, box.y + 2.5, 2.5, 0, Math.PI * 2);
-      ctx.fill();
+      badges.push({ d, m, w: 5, h: 5, parts: [] });
       continue;
     }
     const parts = (
@@ -226,30 +358,50 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
       ] as const
     )
       .filter(([k]) => m[k])
-      .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: CHANGE[k] }));
-    const gap = 5;
-    const widths = parts.map((p) => textWidth(p.text));
-    const w = widths.reduce((a, b) => a + b, 0) + gap * (parts.length - 1) + 12;
-    const h = 16;
-    const box = placeBadge(d, w, h, taken, drawn, placed);
-    placed.push(box);
-    ctx.fillStyle = BG;
+      .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: CHANGE[k], w: textWidth(`${sign}${m[k]}`) }));
+    const w = parts.reduce((a, p) => a + p.w, 0) + gap * (parts.length - 1) + 12;
+    badges.push({ d, m, w, h, parts });
+  }
+  if (!badges.length) return;
+
+  const k = geometryKey(taken, drawn, badges);
+  let boxes = cache.boxes;
+  if (!boxes || !sameKey(cache.key, k)) {
+    const space = new BadgeSpace(taken, drawn, badges);
+    boxes = badges.map((b) => space.place(b.d, b.w, b.h));
+    cache.key = k;
+    cache.boxes = boxes;
+  }
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  badges.forEach((b, i) => {
+    const box = boxes[i];
+    const main = CHANGE[dominant(b.m)];
+    if (!b.parts.length) {
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      ctx.arc(box.x + 2.5, box.y + 2.5, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.fillStyle = paper();
     ctx.strokeStyle = main;
     ctx.globalAlpha = 0.9;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(box.x, box.y, w, h, h / 2);
+    ctx.roundRect(box.x, box.y, b.w, b.h, b.h / 2);
     ctx.fill();
     ctx.globalAlpha = 0.55;
     ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.font = `500 10px ${MONO}`;
     let tx = box.x + 6;
-    parts.forEach((p, i) => {
+    for (const p of b.parts) {
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, tx, box.y + h / 2 + 0.5);
-      tx += widths[i] + gap;
-    });
-  }
+      ctx.fillText(p.text, tx, box.y + b.h / 2 + 0.5);
+      tx += p.w + gap;
+    }
+  });
   ctx.textAlign = 'center';
 }
