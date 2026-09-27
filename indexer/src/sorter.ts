@@ -6,7 +6,7 @@
 
 import type { Graph, Grouping, SortedGrouping, SortingState } from '@strata/shared';
 import { sortProject } from './classify/model-sort.ts';
-import { describeLLMError, llmFromEnv, type LLM } from './llm.ts';
+import { describeLLMError, KEY_HINT, llmFromEnv, type LLM } from './llm.ts';
 
 export interface SortHost {
   /** True while repositories are still cloning or indexing: sort once they're all in. */
@@ -47,19 +47,22 @@ export class Sorter {
     return !!this.llm;
   }
 
-  /** "Claude (claude-opus-5)", for logs. */
+  /** "OpenAI (gpt-5.5)" or "Claude (claude-opus-5)", for logs. */
   get describe(): string {
     return this.llm ? `${this.llm.label} (${this.llm.model})` : 'nothing';
   }
 
   state(grouping: Grouping, placed: number): SortingState {
     const sorted = grouping.sorted;
-    const status = this.status === 'running' || this.status === 'error' || this.status === 'off' ? this.status : sorted ? 'done' : 'idle';
+    // A stored sort still shows as done on an indexer without a key (say, one sorted elsewhere).
+    const status = this.status === 'running' || this.status === 'error' ? this.status : sorted ? 'done' : this.status === 'off' ? 'off' : 'idle';
     const ds = sorted?.domains ?? [];
+    const by = this.llm?.label ?? sorted?.by;
     return {
       available: this.available,
       status,
-      ...(this.llm ? { by: this.llm.label } : {}),
+      ...(status === 'off' ? { keyHint: KEY_HINT } : {}),
+      ...(by ? { by } : {}),
       ...(sorted ? { model: sorted.model, at: sorted.at, placed, merged: ds.filter((d) => d.mergeInto).length, renamed: ds.filter((d) => d.from && !d.mergeInto).length, added: ds.filter((d) => d.added).length } : {}),
       ...(status === 'error' && this.error ? { error: this.error } : {}),
     };
@@ -105,7 +108,7 @@ export class Sorter {
     const llm = this.llm!;
     console.log(`[strata] sorting ${graph.repos.map((r) => r.id).join(', ')} with ${this.describe}`);
     try {
-      const sorted = await sortProject(graph, host.grouping(), (req) => llm.json(req), { model: llm.model, log: (l) => console.log(l) });
+      const sorted = await sortProject(graph, host.grouping(), (req) => llm.json(req), { get model() { return llm.model; }, by: llm.label, log: (l) => console.log(l) });
       await host.save(sorted);
       this.failed = undefined;
       this.status = 'done';

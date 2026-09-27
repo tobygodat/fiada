@@ -1,5 +1,6 @@
-// Right-hand panel: what the selected node is (including why it landed in its
-// layer and domain), what it depends on, or the contract behind an edge.
+// Right-hand panel: what the selected node is and does (its summary, then why
+// it landed in its layer and domain), what it depends on, or the contract
+// behind an edge.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -13,12 +14,14 @@ import {
   type Graph,
   type GraphEdge,
   type GraphNode,
+  type NodeSummary,
   type Placement,
   type PlacementSource,
   type RepoInfo,
 } from '@strata/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
+import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
@@ -67,6 +70,8 @@ const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) 
 function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
+  // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
+  const [open, setOpen] = useState({ uses: false, usedBy: false });
   const repo = g?.kind === 'repo' ? graph.repos.find((r) => r.id === g.id) : null;
   const color = colorBy === 'layer' ? (n.layer ? pal.layer(n.layer) : pal.neutral()) : n.repo ? pal.repo(n.repo) : pal.neutral();
   const path = g?.kind === 'symbol' ? `${g.path}${g.lines ? `:${g.lines[0]}` : ''}` : (g?.path ?? (n.kind === 'layer' ? `${tree.nodes.get(n.parent!)?.name} · ${n.name}` : ''));
@@ -82,6 +87,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
         <div className="detail-title">{n.name}</div>
         {path && <div className="detail-path">{path}</div>}
       </div>
+
+      <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
       {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
 
@@ -100,10 +107,6 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
         </div>
       )}
 
-      {(n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder') && (
-        <div className="detail-block summary">{summary(n)}</div>
-      )}
-
       {g?.layer && g.domain && <WhyHere graph={graph} g={g} layer={g.layer} domain={g.domain} />}
 
       {!!g?.routes?.length && (
@@ -118,14 +121,68 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
       )}
 
       <div className="detail-block deps">
-        <DepList title="uses" items={uses} graphIndex={graphIndex} self={n} onSelect={onSelect} />
-        <DepList title="used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
+        <DepList title="uses" items={uses} open={open.uses} onFold={() => setOpen((o) => ({ ...o, uses: !o.uses }))} graphIndex={graphIndex} self={n} onSelect={onSelect} />
+        <DepList title="used by" items={usedBy} open={open.usedBy} onFold={() => setOpen((o) => ({ ...o, usedBy: !o.usedBy }))} graphIndex={graphIndex} self={n} onSelect={onSelect} />
       </div>
 
       {g?.path && (g.kind === 'file' || g.kind === 'symbol') && (
         <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} rev={activity?.nodes[g.kind === 'symbol' ? g.parent : g.id]?.at ?? 0} />
       )}
     </aside>
+  );
+}
+
+/**
+ * What the node does, first thing under its name: the indexer's generated
+ * summary when it has one, marked as generated, else its line from the graph
+ * or the code's own doc comment. Asks again while a summary is being written.
+ */
+function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: string | null }) {
+  const [state, setState] = useState<{ id: string; s?: NodeSummary; failed?: boolean } | null>(null);
+  useEffect(() => {
+    let live = true;
+    let timer: number | undefined;
+    let tries = 0;
+    const load = () =>
+      api.summary(id).then(
+        (s) => {
+          if (!live) return;
+          setState({ id, s });
+          // A big import's first pass takes minutes: ask again, backing off to every ten seconds.
+          if (s.status === 'pending') timer = window.setTimeout(load, Math.min(1000 * 1.5 ** tries++, 10_000));
+        },
+        () => live && setState({ id, failed: true }),
+      );
+    void load();
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [id, rev]);
+  const mine = state?.id === id ? state : null;
+  // An indexer from before summaries (or one that's down) still gets the client's own count for groups.
+  if (!mine?.s) return mine?.failed && fallback ? <div className="detail-block summary">{fallback}</div> : null;
+  const s = mine.s;
+  const generated = s.status === 'ready' ? s.generated : undefined;
+  // The code's own first sentence leads; a short one ("Retrieve items.") keeps the graph's line after it.
+  const text = generated ? generated.text : s.doc ? (s.doc.length < 90 ? `${s.doc} ${s.line}` : s.doc) : s.line;
+  const note = generated ? (
+    <span title={`Written ${new Date(generated.at).toLocaleString()} from the code and its neighbours`}>generated · {generated.model}</span>
+  ) : s.status === 'pending' ? (
+    <span className="busy">writing a summary…</span>
+  ) : s.status === 'error' ? (
+    <span>Couldn't write a summary: {s.error}</span>
+  ) : (
+    <span>
+      {s.doc ? 'its doc comment and the map' : 'from the map'}
+      {s.off ? ` · ${s.off}` : ''}
+    </span>
+  );
+  return (
+    <div className="detail-block node-summary">
+      <p>{text}</p>
+      <div className="summary-note">{note}</div>
+    </div>
   );
 }
 
@@ -289,18 +346,24 @@ interface Dep {
   reason?: string;
 }
 
-function DepList({ title, items, graphIndex, self, onSelect }: { title: string; items: Dep[]; graphIndex: Map<string, GraphNode>; self: TNode; onSelect(id: string): void }) {
+function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void; graphIndex: Map<string, GraphNode>; self: TNode; onSelect(id: string): void }) {
+  const { title, items, graphIndex, self, onSelect } = p;
+  if (!items.length) {
+    return (
+      <div className="dep-col">
+        <div className="block-title fold-none" title="The indexer links imports, calls, renders, type uses and HTTP requests it can match to a route. Anything else won't show here.">
+          {title} <span className="muted">· none found</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="dep-col">
-      <div className="block-title">
-        {title} {items.length ? <span className="muted num">· {items.length}</span> : null}
-      </div>
-      {!items.length && (
-        <div className="muted small" title="The indexer links imports, calls, renders, type uses and HTTP requests it can match to a route. Anything else won't show here.">
-          none found
-        </div>
-      )}
-      {items.slice(0, 40).map((d) => {
+      <button className="block-title fold" onClick={p.onFold} aria-expanded={p.open}>
+        {title} <span className="muted num">· {items.length}</span>
+        <Chevron dir={p.open ? 'down' : 'right'} size={16} />
+      </button>
+      {p.open && items.slice(0, 40).map((d) => {
         const other = graphIndex.get(d.id);
         const crossRepo = other && self.repo && other.repo !== self.repo;
         return (
@@ -314,7 +377,7 @@ function DepList({ title, items, graphIndex, self, onSelect }: { title: string; 
           </button>
         );
       })}
-      {items.length > 40 && <div className="muted small">and {items.length - 40} more</div>}
+      {p.open && items.length > 40 && <div className="muted small">and {items.length - 40} more</div>}
     </div>
   );
 }
