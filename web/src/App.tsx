@@ -418,11 +418,13 @@ export function App() {
       const f = freeArea(viewport(detailOpen));
       const x = (f.cx - cam.tx) / cam.k;
       const y = (f.cy - cam.ty) / cam.k;
+      // The deepest open circle under the middle that is big enough on screen to be where you are.
+      const minR = (f.side * 0.3) / cam.k;
       let here = tree.root;
       for (const id of zoomVis.open) {
         const n = tree.nodes.get(id);
         const c = L.get(id);
-        if (n && c && n.depth > here.depth && (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r ** 2) here = n;
+        if (n && c && n.depth > here.depth && c.r >= minR && (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r ** 2) here = n;
       }
       return ancestors(tree, here.id);
     };

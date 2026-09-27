@@ -113,6 +113,8 @@ export class MapRenderer {
   /** The agent overlay has a pulse running, so keep drawing frames. */
   private pulsing = false;
   private listeners = new Set<() => void>();
+  /** The camera listeners last heard about; wheel and drag replace `cam` between frames. */
+  private emitted: Camera | null = null;
 
   private drag: { x: number; y: number; cam: Camera; moved: boolean; id: number } | null = null;
   private pointer: { x: number; y: number } | null = null;
@@ -206,7 +208,7 @@ export class MapRenderer {
     return this.cam;
   }
 
-  /** Subscribe to camera changes (for the zoom readout). */
+  /** Subscribe to camera changes, however they happen (for the zoom readout and breadcrumb). */
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
     return () => {
@@ -246,7 +248,6 @@ export class MapRenderer {
   private tick = (now: number) => {
     this.raf = 0;
     let more = false;
-    const before = this.cam;
     if (this.camAnim) {
       const t = Math.min(1, (now - this.camAnim.start) / this.camAnim.dur);
       this.cam = this.camAnim.at(easeInOut(t));
@@ -261,7 +262,10 @@ export class MapRenderer {
     }
     this.draw(easeInOut(lt));
     if (this.pulsing) more = true;
-    if (before !== this.cam) for (const fn of this.listeners) fn();
+    if (this.emitted !== this.cam) {
+      this.emitted = this.cam;
+      for (const fn of this.listeners) fn();
+    }
     // Whatever is under a resting pointer may have moved or changed.
     if (this.pointer && !this.drag?.moved) this.setHover(this.hitTest(this.pointer.x, this.pointer.y));
     if (more) this.request();
@@ -591,7 +595,8 @@ export class MapRenderer {
         const b = box(p);
         return !this.drawnTags.some((o) => b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
       };
-      const at = tagPoint(...t.pts, tagBox, clear) ?? (t.isSel || isHover ? tagPoint(...t.pts, tagBox) : null);
+      const half = { w: tw / 2, h: 10 };
+      const at = tagPoint(...t.pts, tagBox, half, clear) ?? (t.isSel || isHover ? tagPoint(...t.pts, tagBox, half) : null);
       if (!at) continue;
       const r = box(at);
       ctx.globalAlpha = t.isSel || !anyEdgeSel ? 1 : 0.3;
@@ -813,8 +818,10 @@ export class MapRenderer {
 
   private placeTip() {
     if (!this.pointer) return;
-    const x = Math.min(this.pointer.x + 14, this.w - this.tip.offsetWidth - 8);
-    const y = this.pointer.y + 18 + this.tip.offsetHeight > this.h ? this.pointer.y - this.tip.offsetHeight - 10 : this.pointer.y + 18;
+    // Kept out from under the side panels, like the tags.
+    const f = this.free();
+    const x = Math.max(f.x0, Math.min(this.pointer.x + 14, f.x1 - this.tip.offsetWidth - 8));
+    const y = this.pointer.y + 18 + this.tip.offsetHeight > f.y1 ? this.pointer.y - this.tip.offsetHeight - 10 : this.pointer.y + 18;
     this.tip.style.transform = `translate(${x}px, ${y}px)`;
   }
 
@@ -916,7 +923,10 @@ function segmentOnScreen(a: { x: number; y: number }, b: { x: number; y: number 
   return maxX > 0 && minX < w && maxY > 0 && minY < h;
 }
 
-/** Where on a curve to put its tag: the middle if that's in `box`, else the in-box point nearest the middle. */
+/**
+ * Where on a curve to put its tag: the middle if a tag of half-size `half`
+ * fits inside `box` there, else the fitting point nearest the middle.
+ */
 function tagPoint(
   x1: number,
   y1: number,
@@ -925,13 +935,15 @@ function tagPoint(
   x2: number,
   y2: number,
   box: { x0: number; x1: number; y0: number; y1: number },
+  half: { w: number; h: number },
   ok: (p: { x: number; y: number }) => boolean = () => true,
 ) {
   const at = (t: number) => {
     const u = 1 - t;
     return { x: u * u * x1 + 2 * u * t * cx + t * t * x2, y: u * u * y1 + 2 * u * t * cy + t * t * y2 };
   };
-  const inside = (p: { x: number; y: number }) => p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1;
+  const inside = (p: { x: number; y: number }) =>
+    p.x - half.w >= box.x0 && p.x + half.w <= box.x1 && p.y - half.h >= box.y0 && p.y + half.h <= box.y1;
   for (let step = 0; step <= 7; step++) {
     for (const t of step ? [0.5 - step * 0.05, 0.5 + step * 0.05] : [0.5]) {
       const p = at(t);
