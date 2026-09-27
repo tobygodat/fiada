@@ -10,7 +10,7 @@ import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode, type NodeSummar
 import type { ProjectStore, StoredSummary } from '../store.ts';
 import { describe, indexGraph, parseGroupId, type GraphIndex } from './describe.ts';
 import { fileDoc, symbolDoc } from './docs.ts';
-import { fileHeader, fileItem, folderItem, groupItem, prompt, repoItem, SCHEMA, symbolItem, SYSTEM, takeBatch, type Batch, type Item } from './items.ts';
+import { fileHeader, fileItem, folderItem, groupItem, matchReply, prompt, replySchema, repoItem, symbolItem, SYSTEM, takeBatch, type Batch, type Item } from './items.ts';
 import { describeLLMError, KEY_HINT, type LLM } from '../llm.ts';
 
 export interface SummariesOptions {
@@ -288,12 +288,13 @@ export class Summaries {
         label: `summaries of ${batch.items.length} ${batch.items[0].kind === 'symbol' ? 'symbols' : 'nodes'}`,
         system: [SYSTEM],
         prompt: text,
-        schema: SCHEMA as unknown as Record<string, unknown>,
-      })) as { summaries?: { id: string; summary: string }[] };
+        schema: replySchema(batch.items.length),
+      })) as { summaries?: { id?: unknown; summary?: unknown }[] };
       const at = new Date().toISOString();
       const missing: Item[] = [];
+      const texts = matchReply(batch.items, Array.isArray(reply?.summaries) ? reply.summaries : []);
       batch.items.forEach((it, i) => {
-        const s = reply.summaries?.find((r) => r.id === String(i + 1) || r.id === `item ${i + 1}`)?.summary?.trim();
+        const s = texts[i];
         if (!s) return void missing.push(it);
         const stored = { text: s, model: llm.model, at };
         this.cache.set(it.hash, stored);
