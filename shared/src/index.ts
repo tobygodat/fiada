@@ -194,12 +194,58 @@ export interface GraphNode {
   routes?: string[];
 }
 
+/**
+ * Whether an edge is proven by the code or guessed by a heuristic.
+ *
+ * - `evidenced`: the source names the target. An import statement resolves to
+ *   it, a call or type use binds to it through one, or a request's full URL
+ *   equals a route's full path once router mounts are applied.
+ * - `inferred`: a heuristic linked them. A URL matched only the tail of a
+ *   route (a mount prefix or base URL we couldn't see), a Python module path
+ *   happened to exist in another repository, an ORM relationship named a
+ *   class several entities share.
+ */
+export type EdgeBasis = 'evidenced' | 'inferred';
+
+/** What a piece of edge evidence is. */
+export type EdgeEvidenceSource =
+  | 'import' // import / require / from … import / Go import
+  | 'call' // a call or instantiation that resolved to the target
+  | 'jsx' // a JSX element naming the target
+  | 'type-ref' // a type annotation, base class or struct field type
+  | 'reference' // any other identifier use
+  | 'request' // the client code making an HTTP request
+  | 'route' // the server route declaration the request matched
+  | 'mount' // a router mount that adds a prefix (include_router, app.use, Group)
+  | 'constant' // a constant a URL or prefix was resolved through
+  | 'orm'; // an ORM relationship or foreign key
+
+export interface EdgeEvidence {
+  source: EdgeEvidenceSource;
+  /** File node id the evidence sits in, e.g. "web/src/lib/api.ts". */
+  file: string;
+  /** 1-based line. */
+  line: number;
+  /** That line of code, trimmed and capped at 200 characters. */
+  code?: string;
+  /** What this piece shows, e.g. "prefix /api/v1" or "matched GET /api/v1/items/{id}". */
+  note?: string;
+}
+
 export interface GraphEdge {
   from: string;
   to: string;
   kind: EdgeKind;
   /** Short evidence: imported names, the matched route, etc. */
   detail?: string;
+  /** Proven by the code or guessed. Absent only on graphs from older indexers. */
+  basis?: EdgeBasis;
+  /** 0..1: how sure the indexer is that the link is real. */
+  confidence?: number;
+  /** One line on how the link was made, e.g. "request matched the route's tail; the /api/v1 prefix wasn't found". */
+  reason?: string;
+  /** Supporting code, strongest first: the use site, then the import, route or mount it went through. */
+  evidence?: EdgeEvidence[];
 }
 
 export type RepoStatus = 'queued' | 'cloning' | 'indexing' | 'ready' | 'error';
