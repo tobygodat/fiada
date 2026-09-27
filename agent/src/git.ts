@@ -176,8 +176,11 @@ export async function describe(co: Checkout | null, abs: string, told?: ChangeKi
   const entry = st?.find((e) => e.path === rel);
   let kind: FileChange['kind'];
   if (entry) kind = kindOf(entry.xy);
-  else if (!exists) return told === 'deleted' ? { path: abs, kind: 'deleted' } : null;
-  else {
+  else if (!exists) {
+    // In neither the tree nor git's status, so not in HEAD either: a new file removed again, back to what HEAD has.
+    if (st) return { path: abs, kind: 'reverted' };
+    return told === 'deleted' ? { path: abs, kind: 'deleted' } : null;
+  } else {
     const tracked = await tryGit(co.root, ['ls-files', '--error-unmatch', '--', rel]);
     // Tracked and not in the status: it's back to what HEAD has. Untracked and not in the status: ignored.
     kind = tracked ? 'reverted' : 'added';

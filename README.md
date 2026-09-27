@@ -145,7 +145,7 @@ Then run `npm run dev`, import the repository you're working in by its local pat
 ### Other agents
 
 - **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "strata": { "command": "node", "args": ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
-- **Codex CLI**: add the MCP server under `[mcp_servers.strata]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"]`), and set `notify = ["node", "/path/to/hackgt13/agent/bin/strata-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes.
+- **Codex CLI**: add the MCP server under `[mcp_servers.strata]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"]`), and set `notify = ["node", "/path/to/hackgt13/agent/bin/strata-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes (the first one counts what changed since Codex started).
 - **Anything else**, scripts included: `strata-hook changed <file>… [--kind added|modified|deleted]`, `strata-hook task "Add tags" --step "Add the model"`, `strata-hook sweep` (whatever changed in the working tree since the last call) and `strata-hook done`, with `--client <name>` to name the agent.
 
 The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end. Set `STRATA_HOOK_LOG` to a file to record every payload the hook receives.

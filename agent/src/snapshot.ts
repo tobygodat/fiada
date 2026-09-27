@@ -59,6 +59,26 @@ export async function forget(key: string, root: string) {
 }
 
 /**
+ * With no earlier snapshot to compare against: the dirty files changed at or
+ * after `since`, going by their mtimes (for a deleted file, its folder's,
+ * which moves when an entry is removed). Anything older was already there.
+ */
+export async function changedSince(co: Checkout, cur: Snapshot, since: number): Promise<{ path: string; kind: ChangeKind }[]> {
+  const out: { path: string; kind: ChangeKind }[] = [];
+  const dirs = new Map<string, Promise<number>>();
+  const dirTime = (d: string) => {
+    let t = dirs.get(d);
+    if (!t) dirs.set(d, (t = fs.stat(path.join(co.root, d)).then((s) => s.mtimeMs, () => 0)));
+    return t;
+  };
+  for (const [p, e] of Object.entries(cur.files)) {
+    const at = e.mtime || (await dirTime(path.dirname(p)));
+    if (at >= since) out.push({ path: p, kind: kindOf(e.xy) });
+  }
+  return out;
+}
+
+/**
  * Files whose state differs between two snapshots: newly dirty, dirty in a
  * different way, or touched again. Files that went clean without a commit
  * in between were reverted; after a commit they're just committed, and not

@@ -5,12 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { AgentEvent } from '@strata/shared';
-import { ancestors } from './client.ts';
+import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import { sweep } from './hook.ts';
 import { clientId, StrataMcp } from './mcp.ts';
 import { hooksBlock, mergeHooks } from './setup.ts';
-import { compare } from './snapshot.ts';
+import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
@@ -112,6 +112,37 @@ test('a hook sweep reports edits, new files, deletions made from a shell, and re
   git(dir, 'checkout', '--', 'src/a.ts');
   out = await sweep(key, co);
   assert.deepEqual(out.map((c) => [path.relative(dir, c.path), c.kind]), [['src/a.ts', 'reverted']]);
+
+  // A file the agent made and then removed again: git no longer knows it, and it's reverted too.
+  await fs.rm(path.join(dir, 'src/gen.ts'));
+  out = await sweep(key, co);
+  assert.deepEqual(out.map((c) => [path.relative(dir, c.path), c.kind, c.swept]), [['src/gen.ts', 'reverted', true]]);
+});
+
+test('a first sweep with a start time reports what changed after it, and nothing older', async () => {
+  const dir = await repo({ 'src/a.ts': 'export const a = 1;\n', 'src/b.ts': 'export const b = 1;\n', 'lib/c.ts': 'export const c = 1;\n' });
+  const co = (await checkout(dir))!;
+  // Dirty before the session began.
+  await fs.writeFile(path.join(dir, 'src/a.ts'), 'export const a = 2;\n');
+  const old = new Date(Date.now() - 60_000);
+  await fs.utimes(path.join(dir, 'src/a.ts'), old, old);
+  const since = Date.now() - 5;
+  // During the session: an edit, a new file, a deletion (its folder's time moves).
+  await fs.writeFile(path.join(dir, 'src/b.ts'), 'export const b = 2;\n');
+  await fs.writeFile(path.join(dir, 'src/new.ts'), 'export const n = 1;\n');
+  await fs.rm(path.join(dir, 'lib/c.ts'));
+  const cur = (await take(co))!;
+  assert.deepEqual((await changedSince(co, cur, since)).sort((x, y) => x.path.localeCompare(y.path)), [
+    { path: 'lib/c.ts', kind: 'deleted' },
+    { path: 'src/b.ts', kind: 'modified' },
+    { path: 'src/new.ts', kind: 'added' },
+  ]);
+
+  // Through sweep: only with no earlier snapshot, and only when asked.
+  const out = await sweep(`test-since:${dir}`, co, [], undefined, async () => since);
+  assert.deepEqual(out.map((c) => path.relative(dir, c.path)).sort(), ['lib/c.ts', 'src/b.ts', 'src/new.ts']);
+  assert.deepEqual(await sweep(`test-since:${dir}`, co, [], undefined, async () => since), []);
+  assert.deepEqual(await sweep(`test-none:${dir}`, co), []);
 });
 
 test('the MCP server answers the handshake and forwards tool calls', async () => {
@@ -166,11 +197,13 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   assert.equal(clientId('Cursor-VSCode'), 'cursor');
 });
 
-test('the processes above this one, nearest first', async () => {
+test('the processes above this one, nearest first, and when one started', async () => {
   const procs = await ancestors(2);
   if (process.platform === 'win32') return assert.deepEqual(procs, []);
   assert.equal(procs[0], process.ppid);
   assert.ok(procs.length <= 2);
+  const t = await startedAt(process.pid);
+  assert.ok(t != null && t <= Date.now() && t > Date.now() - 10 * 60_000);
 });
 
 test('setup merges hooks without disturbing others and replaces its own', () => {

@@ -54,6 +54,19 @@ export async function ancestors(depth: number): Promise<number[]> {
   return out;
 }
 
+/** When a process started (ms since the epoch), or null where that can't be read. */
+export async function startedAt(pid: number): Promise<number | null> {
+  if (process.platform === 'win32') return null;
+  try {
+    // "Sun Sep 27 10:11:07 2026", local time; C locale for English names.
+    const { stdout } = await exec('ps', ['-o', 'lstart=', '-p', String(pid)], { timeout: 1000, env: { ...process.env, LC_ALL: 'C' } });
+    const t = Date.parse(stdout.trim());
+    return Number.isFinite(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
 async function parentOf(pid: number): Promise<number | null> {
   if (process.platform === 'win32') return null;
   try {

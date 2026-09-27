@@ -19,9 +19,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@strata/shared';
-import { send, whoAndWhere } from './client.ts';
+import { send, startedAt, whoAndWhere } from './client.ts';
 import { checkout, describe, real, type Checkout } from './git.ts';
-import { compare, forget, load, save, take } from './snapshot.ts';
+import { changedSince, compare, forget, load, save, take } from './snapshot.ts';
 
 type Payload = Record<string, any>;
 type Out = { events: AgentEventBody[]; stdout?: string };
@@ -39,15 +39,18 @@ const oneLine = (s: unknown, max = 300) => String(s ?? '').replace(/\s+/g, ' ').
  * What changed in the working tree since the last call, plus `explicit`
  * files a tool just wrote (which may be in another checkout entirely).
  * The first call in a session has nothing to compare with, so it only
- * records the tree and reports the explicit files.
+ * records the tree and reports the explicit files, unless `since` says when
+ * the session began: then files changed after that count too.
  */
-export async function sweep(key: string, co: Checkout | null, explicit: string[] = [], told?: ChangeKind): Promise<FileChange[]> {
+export async function sweep(key: string, co: Checkout | null, explicit: string[] = [], told?: ChangeKind, since?: () => Promise<number | null>): Promise<FileChange[]> {
   const found = new Map<string, { kind?: ChangeKind | 'reverted'; swept: boolean }>();
   for (const f of explicit) found.set(await real(f), { kind: told, swept: false });
   if (co) {
     const [prev, cur] = await Promise.all([load(key, co.root), take(co)]);
     if (cur) {
-      if (prev) for (const c of compare(prev, cur)) if (!found.has(path.join(co.root, c.path))) found.set(path.join(co.root, c.path), { kind: c.kind, swept: true });
+      const start = !prev && since ? await since() : null;
+      const seen = prev ? compare(prev, cur) : start != null ? await changedSince(co, cur, start) : [];
+      for (const c of seen) if (!found.has(path.join(co.root, c.path))) found.set(path.join(co.root, c.path), { kind: c.kind, swept: true });
       await save(key, co.root, cur);
     }
   }
@@ -210,7 +213,9 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
     const inputs = Array.isArray(p['input-messages']) ? p['input-messages'] : [];
     const events: Out['events'] = [];
     if (inputs.length) events.push({ type: 'prompt', text: oneLine(inputs[inputs.length - 1]) });
-    events.push(...changes(await sweep(key, co)), { type: 'state', state: 'waiting' });
+    // Codex only calls this after a turn, so the first call has no earlier tree to compare with:
+    // count what changed since Codex itself started.
+    events.push(...changes(await sweep(key, co, [], undefined, () => startedAt(process.ppid))), { type: 'state', state: 'waiting' });
     return { agent, out: { events } };
   }
 
