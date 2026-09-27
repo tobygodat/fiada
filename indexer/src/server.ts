@@ -58,5 +58,13 @@ app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, repl
   return { grouping: await ws.applyPreset(preset) };
 });
 
+app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async (req, reply) => {
+  const { repo, path } = req.query;
+  if (!repo || !path) return reply.code(400).send({ error: 'Query must be ?repo=<id>&path=<repo-relative path>' });
+  const source = await ws.readSource(repo, path);
+  if (!source) return reply.code(404).send({ error: `${repo}/${path} is not an indexed file` });
+  return source;
+});
+
 await app.listen({ port: PORT, host: HOST });
 console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);

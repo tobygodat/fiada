@@ -24,6 +24,8 @@ export interface TNode {
   layer?: string;
   /** Leaf size in layout units. */
   size: number;
+  /** Total leaf size underneath (its own size for a leaf); how big the node is when closed. */
+  weight: number;
   /** Number of symbols underneath (or 1 for a symbol). */
   symbols: number;
 }
@@ -40,18 +42,25 @@ const leafSize = (n: GraphNode) => {
 };
 
 function finish(root: TNode, nodes: Map<string, TNode>, view: View): Tree {
-  const walk = (n: TNode, depth: number): number => {
+  const walk = (n: TNode, depth: number): void => {
     n.depth = depth;
-    if (!n.children.length) return (n.symbols = n.kind === 'symbol' ? 1 : 0);
-    let s = 0;
-    for (const c of n.children) s += walk(c, depth + 1);
-    return (n.symbols = s);
+    if (!n.children.length) {
+      n.symbols = n.kind === 'symbol' ? 1 : 0;
+      n.weight = Math.max(n.size, 1);
+      return;
+    }
+    n.symbols = n.weight = 0;
+    for (const c of n.children) {
+      walk(c, depth + 1);
+      n.symbols += c.symbols;
+      n.weight += c.weight;
+    }
   };
   walk(root, -1);
   return { view, root, nodes };
 }
 
-const mkRoot = (): TNode => ({ id: 'root', kind: 'root', name: 'workspace', parent: null, children: [], depth: -1, repo: '', size: 0, symbols: 0 });
+const mkRoot = (): TNode => ({ id: 'root', kind: 'root', name: 'workspace', parent: null, children: [], depth: -1, repo: '', size: 0, weight: 0, symbols: 0 });
 
 export function buildCodeTree(graph: Graph): Tree {
   const root = mkRoot();
@@ -68,6 +77,7 @@ export function buildCodeTree(graph: Graph): Tree {
       data: g,
       layer: g.layer?.id,
       size: leafSize(g),
+      weight: 0,
       symbols: 0,
     });
   }
@@ -99,7 +109,7 @@ export function buildFunctionTree(graph: Graph): Tree {
   const group = (id: string, name: string, kind: 'domain' | 'layer', parent: TNode, layer?: string) => {
     let n = nodes.get(id);
     if (!n) {
-      n = { id, kind, name, parent: parent.id, children: [], depth: 0, repo: '', size: 0, symbols: 0, layer };
+      n = { id, kind, name, parent: parent.id, children: [], depth: 0, repo: '', size: 0, weight: 0, symbols: 0, layer };
       nodes.set(id, n);
       parent.children.push(n);
     }
@@ -113,7 +123,7 @@ export function buildFunctionTree(graph: Graph): Tree {
     const layer = g.layer?.id ?? UNLAYERED;
     const D = group(`domain:${domain}`, domainName.get(domain) ?? domain, 'domain', root);
     const L = group(`${D.id}/${layer}`, layerName.get(layer) ?? layer, 'layer', D, layer);
-    const leaf: TNode = { id: g.id, kind: g.kind, name: g.name, parent: L.id, children: [], depth: 0, repo: g.repo, data: g, layer, size: leafSize(g), symbols: 0 };
+    const leaf: TNode = { id: g.id, kind: g.kind, name: g.name, parent: L.id, children: [], depth: 0, repo: g.repo, data: g, layer, size: leafSize(g), weight: 0, symbols: 0 };
     nodes.set(g.id, leaf);
     L.children.push(leaf);
   }

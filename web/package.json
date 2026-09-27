@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --import tsx --test src/**/*.test.ts",
+    "bench": "node bench/zoom.mjs"
   },
   "dependencies": {
     "@strata/shared": "*",
@@ -19,6 +21,8 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "playwright": "^1.56.1",
+    "tsx": "^4.20.6",
     "vite": "^7.3.6"
   }
 }

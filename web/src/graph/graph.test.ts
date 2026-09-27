@@ -1,0 +1,149 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type { GraphNode } from '@strata/shared';
+import { directZoom, enclose, frame, freeArea, smoothZoom, zoomAt, type Camera } from './camera.ts';
+import { fixtureGraph } from './fixture.test-util.ts';
+import { closedRadius, layoutExpanded, type Circle } from './layout.ts';
+import { buildCodeTree, buildFunctionTree, locate, type Tree } from './tree.ts';
+import { aggregateEdges, expandedNodes, indexEdges, withCollapsed, withPathOpen, type Visible } from './view.ts';
+
+const graph = fixtureGraph();
+const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
+const code = buildCodeTree(graph);
+
+/** The straightforward version of edge lifting, to check the indexed one against. */
+function naiveContracts(tree: Tree, vis: Visible) {
+  const visible = new Set(vis.list.map((n) => n.id));
+  const lift = (id: string) => {
+    let cur = locate(tree, graphIndex, id);
+    while (cur && !visible.has(cur)) cur = tree.nodes.get(cur)?.parent ?? null;
+    return cur;
+  };
+  const isAncestor = (anc: string, id: string) => {
+    for (let n = tree.nodes.get(id); n?.parent; n = tree.nodes.get(n.parent)) if (n.parent === anc) return true;
+    return false;
+  };
+  const out = new Map<string, number>();
+  for (const e of graph.edges) {
+    const a = lift(e.from);
+    const b = lift(e.to);
+    if (!a || !b || a === b || isAncestor(a, b) || isAncestor(b, a)) continue;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    out.set(key, (out.get(key) ?? 0) + 1);
+  }
+  return out;
+}
+
+test('opening and closing circles', () => {
+  let open = new Set<string>();
+  assert.deepEqual(
+    expandedNodes(code, open).list.map((n) => n.id),
+    ['web', 'api'],
+  );
+  open = withPathOpen(code, open, 'web/src/pages/items.tsx', true);
+  assert.deepEqual([...open].sort(), ['web', 'web/src', 'web/src/pages', 'web/src/pages/items.tsx']);
+  const vis = expandedNodes(code, open);
+  assert.ok(vis.list.some((n) => n.id === 'web/src/pages/items.tsx#ItemsPage'));
+  assert.ok(!vis.list.some((n) => n.id === 'web/src/client/api.ts'), 'a closed folder hides its contents');
+  // Revealing a symbol opens its ancestors but a leaf has nothing to open.
+  assert.deepEqual([...withPathOpen(code, new Set(), 'api/app/models.py#Item', true)].sort(), ['api', 'api/app', 'api/app/models.py']);
+  // Closing a folder closes everything opened inside it.
+  assert.deepEqual([...withCollapsed(code, open, 'web/src')].sort(), ['web']);
+});
+
+test('indexed edge lifting matches the straightforward version', () => {
+  const ix = indexEdges(code, graphIndex, graph.edges);
+  const ids = [...code.nodes.keys()].filter((id) => code.nodes.get(id)!.children.length && id !== 'root');
+  // Every combination of open containers (there are few enough).
+  for (let mask = 0; mask < 1 << ids.length; mask++) {
+    const open = new Set(ids.filter((_, i) => mask & (1 << i)));
+    const vis = expandedNodes(code, open);
+    const got = new Map(aggregateEdges(ix, vis).map((c) => [c.key, c.items.length]));
+    assert.deepEqual(got, naiveContracts(code, vis), `open: ${[...open].join(', ')}`);
+  }
+});
+
+test('edges reattach to the inner component that is responsible', () => {
+  const ix = indexEdges(code, graphIndex, graph.edges);
+  const closed = aggregateEdges(ix, expandedNodes(code, new Set()));
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].key, 'api|web');
+  assert.ok(closed[0].cross);
+  assert.equal(closed[0].items.length, 2);
+  assert.equal(closed[0].tag, 'A');
+
+  const open = withPathOpen(code, withPathOpen(code, new Set(), 'web/src/client/api.ts', true), 'api/app/routes/items.py', true);
+  const opened = aggregateEdges(ix, expandedNodes(code, open));
+  const http = opened.find((c) => c.kinds.has('http'))!;
+  assert.equal(http.key, 'api/app/routes/items.py#create_item|web/src/client/api.ts#ItemsService');
+  assert.ok(opened.some((c) => c.key === 'api/app/routes/items.py#read_items|web/src/client/api.ts#ItemsService'));
+});
+
+test('by-function tree keeps symbol ids, so edges resolve the same way', () => {
+  const fn = buildFunctionTree(graph);
+  const ix = indexEdges(fn, graphIndex, graph.edges);
+  const all = new Set([...fn.nodes.keys()].filter((id) => fn.nodes.get(id)!.children.length));
+  const got = aggregateEdges(ix, expandedNodes(fn, all));
+  assert.ok(got.some((c) => c.key === 'api/app/routes/items.py#read_items|web/src/client/api.ts#ItemsService'));
+});
+
+const inside = (c: Circle, p: Circle) => Math.hypot(c.x - p.x, c.y - p.y) + c.r <= p.r + 1e-6;
+
+test('click-mode layout: children inside parents, siblings apart, closed sizes stable', () => {
+  const closed = layoutExpanded(code, new Set());
+  const open = withPathOpen(code, new Set(), 'web/src/pages/items.tsx', true);
+  const L = layoutExpanded(code, open);
+  const vis = expandedNodes(code, open);
+  for (const n of vis.list) {
+    const c = L.get(n.id)!;
+    assert.ok(c, `${n.id} has a circle`);
+    assert.ok(inside(c, L.get(n.parent!)!), `${n.id} sits inside its parent`);
+    if (!vis.open.has(n.id)) assert.ok(Math.abs(c.r - closedRadius(n)) < 1e-9, `${n.id} keeps its closed radius`);
+    for (const m of vis.list)
+      if (m !== n && m.parent === n.parent) {
+        const d = L.get(m.id)!;
+        assert.ok(Math.hypot(c.x - d.x, c.y - d.y) >= c.r + d.r - 1e-6, `${n.id} and ${m.id} don't overlap`);
+      }
+  }
+  // Nothing inside a closed circle is laid out, and a closed neighbour is the same size either way.
+  assert.equal(L.has('web/src/client/api.ts'), false);
+  assert.equal(L.get('api')!.r, closed.get('api')!.r);
+  assert.ok(L.get('web')!.r > closed.get('web')!.r, 'an open circle grows to fit its contents');
+});
+
+const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(a), Math.abs(b));
+const sameCam = (a: Camera, b: Camera) => near(a.k, b.k) && near(a.tx, b.tx) && near(a.ty, b.ty);
+
+test('camera framing avoids panels while there is room', () => {
+  const c = { x: 10, y: -20, r: 50 };
+  const vp = { w: 1440, h: 852, left: 316, right: 356 };
+  const f = freeArea(vp);
+  assert.equal(f.w, 1440 - 316 - 356);
+  const cam = frame(c, vp, 0.4);
+  assert.ok(near(cam.tx + c.x * cam.k, f.cx) && near(cam.ty + c.y * cam.k, f.cy), 'centred in the free area');
+  assert.ok(near(c.r * cam.k, f.side * 0.4));
+  assert.equal(frame(c, vp, 0.4, 2).k, 2, 'respects a zoom cap');
+  // On a narrow stage the panels are ignored rather than squeezing the map to nothing.
+  assert.equal(freeArea({ w: 700, h: 600, left: 316, right: 356 }).w, 700);
+});
+
+test('camera helpers', () => {
+  const a = { x: 0, y: 0, r: 10 };
+  const b = { x: 100, y: 0, r: 20 };
+  const e = enclose(a, b);
+  assert.ok(inside(a, e) && inside(b, e));
+  assert.ok(near(e.r, 65));
+  assert.deepEqual(enclose(a, { x: 1, y: 0, r: 2 }), a);
+
+  const cam = { k: 2, tx: 30, ty: -40 };
+  const z = zoomAt(cam, 3, 200, 100);
+  assert.ok(near((200 - z.tx) / z.k, (200 - cam.tx) / cam.k), 'the point under the pointer stays put');
+
+  const target = { k: 0.5, tx: 700, ty: 300 };
+  const anchor = { x: 720, y: 426 };
+  const s = smoothZoom(cam, target, anchor, 852);
+  assert.ok(sameCam(s.interpolate(0), cam) && sameCam(s.interpolate(1), target));
+  assert.ok(s.duration > 0);
+  const d = directZoom(cam, target, anchor);
+  assert.ok(sameCam(d(0), cam) && sameCam(d(1), target));
+});
