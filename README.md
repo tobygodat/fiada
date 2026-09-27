@@ -90,6 +90,8 @@ npm run index -- ../some-repo --grouping my.grouping.json --layers
 
 The indexer binds to 127.0.0.1: importing a local path reads that directory, so it's a single-user development tool.
 
+`vercel.json` builds only the web app (`web/dist`) for preview deployments. The indexer clones repositories and runs a long-lived server, so a Vercel preview shows the UI without an indexer behind it.
+
 ## Tests
 
 ```sh
