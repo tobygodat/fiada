@@ -299,3 +299,151 @@ export interface Workspace {
     groupingError?: string;
   };
 }
+
+// ── Agent activity ──
+//
+// Coding agents (Claude Code, Cursor, Codex, anything that speaks MCP) report
+// what they're working on and which files they change. Events come from the
+// agent's MCP server (`@strata/agent`, when the agent calls its tools) and
+// from its tool hooks (deterministically, after every edit). The indexer maps
+// changed files to graph nodes and pushes the result to the map.
+
+export type ChangeKind = 'added' | 'modified' | 'deleted';
+
+/** One coding agent in one working tree. */
+export interface AgentRef {
+  /** "claude-code", "cursor", "codex", or the name an MCP client gives itself. */
+  client: string;
+  /** The agent's own session id, when it has one. */
+  session?: string;
+  /** Absolute directory the agent runs in. */
+  cwd: string;
+  /** Git top level of `cwd`, when it's a checkout. */
+  root?: string;
+  /** URL of that checkout's `origin` remote. */
+  remote?: string;
+  /**
+   * The reporting process's nearest ancestor pids, nearest first. An MCP
+   * server that isn't told its session (Claude Code tells it) shares a
+   * parent with that session's hooks, which tells the indexer which it is.
+   */
+  procs?: number[];
+}
+
+/** A 1-based inclusive line range; `[n, n - 1]` marks lines removed just before line n. */
+export type LineRange = [start: number, end: number];
+
+export interface FileChange {
+  /** Absolute, or relative to the agent's root (else cwd). */
+  path: string;
+  /** `reverted` clears an earlier change: the file is back to what HEAD has. */
+  kind: ChangeKind | 'reverted';
+  /** Changed lines in the new version of the file (from `git diff`). */
+  lines?: LineRange[];
+  /** The same changes, as lines of the HEAD version. */
+  oldLines?: LineRange[];
+  additions?: number;
+  deletions?: number;
+  /** Unified diff against HEAD, capped. Kept by the indexer and served on request, never pushed. */
+  diff?: string;
+  /** Symbol names the agent says it touched, when it reports them itself. */
+  symbols?: string[];
+  /** The checkout the file is in, when that isn't the agent's own (an agent editing a sibling repo). */
+  checkout?: { root: string; remote?: string };
+  /**
+   * Found by comparing the working tree rather than named by the tool that
+   * wrote it, so it may be another agent's change in the same checkout.
+   */
+  swept?: boolean;
+}
+
+export type StepStatus = 'pending' | 'active' | 'done';
+
+export interface AgentStep {
+  /** The agent's own id for the step (Claude Code task ids), when it has one. */
+  id?: string;
+  text: string;
+  /** What to show while the step is active, e.g. "Running tests" for "Run tests". */
+  activeText?: string;
+  status: StepStatus;
+}
+
+/** What the agent is doing between tool calls. */
+export type AgentState = 'working' | 'waiting' | 'ended';
+
+/** What happened, without who: the part each hook and tool fills in. */
+export type AgentEventBody =
+  | { type: 'session'; phase: 'start' | 'end' }
+  /** The user's latest prompt: the task until the agent names its own. */
+  | { type: 'prompt'; text: string }
+  /** The agent's own account of its task. `steps` replaces the plan when present; `step` marks one step active. */
+  | { type: 'task'; task?: string; steps?: AgentStep[]; step?: string; state?: AgentState; note?: string }
+  /** One step added or updated, by id (Claude Code's TaskCreate / TaskUpdate). */
+  | { type: 'step'; id: string; text?: string; activeText?: string; status?: StepStatus | 'removed' }
+  | { type: 'changes'; files: FileChange[] }
+  | { type: 'state'; state: AgentState };
+
+export type AgentEvent = { agent: AgentRef; at?: string } & AgentEventBody;
+
+/** A changed file as the map sees it. */
+export interface AgentFile {
+  /** Repository id when the file is in an imported repository. */
+  repo?: string;
+  /** Repo-relative when `repo` is set, else absolute. */
+  path: string;
+  /** Graph node id of the file, when it's in the graph. */
+  node?: string;
+  kind: ChangeKind;
+  additions?: number;
+  deletions?: number;
+  /** Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no longer in the graph. */
+  symbols: { id: string; name: string; kind: ChangeKind }[];
+  /** ISO time of the latest change. */
+  at: string;
+  /** Whether the indexer holds a diff for it. */
+  diff: boolean;
+}
+
+export interface AgentActivity {
+  /** Stable key: client and working tree. */
+  id: string;
+  client: string;
+  /** Display name, e.g. "Claude Code". */
+  name: string;
+  /** Where it's working: the imported repo's id or the folder name. */
+  where: string;
+  cwd: string;
+  state: AgentState;
+  /** The agent's own summary of its task. */
+  task?: string;
+  /** First line of the user's latest prompt. */
+  prompt?: string;
+  note?: string;
+  steps: AgentStep[];
+  files: AgentFile[];
+  startedAt: string;
+  updatedAt: string;
+}
+
+/** A node the overlay marks, directly changed or standing in for a deleted one. */
+export interface NodeChange {
+  kind: ChangeKind;
+  /** Agent ids. */
+  agents: string[];
+  /** Epoch ms of the latest change, for the pulse. */
+  at: number;
+  /** For nodes that aren't in the graph (deleted, or not indexed yet): the nearest ancestor that is. */
+  anchor?: string;
+  /** 'file' or 'symbol'. */
+  unit: 'file' | 'symbol';
+}
+
+export interface ActivityState {
+  /** Bumps on every change. */
+  version: number;
+  /** The graph these node ids refer to; when it moves past the one the map has, refetch it (changed files were re-indexed). */
+  graphVersion: number;
+  agents: AgentActivity[];
+  /** Graph node id → change: files and symbols agents touched. */
+  nodes: Record<string, NodeChange>;
+}

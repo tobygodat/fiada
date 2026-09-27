@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   describeFact,
   UNLAYERED,
+  type ActivityState,
   type EdgeEvidence,
   type EdgeEvidenceSource,
   type EdgeKind,
@@ -16,6 +17,7 @@ import {
   type RepoInfo,
 } from '@strata/shared';
 import { api, type SourceText } from '../api.ts';
+import { AgentChange } from './AgentChange.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import type { Contract } from '../graph/view.ts';
 import type { Palette } from '../theme.ts';
@@ -46,6 +48,8 @@ interface Props {
   pal: Palette;
   selected: string | null;
   contract: Contract | null;
+  /** What agents changed, for the diff of a changed file or symbol. */
+  activity?: ActivityState | null;
   onSelect(id: string): void;
 }
 
@@ -58,7 +62,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, n, activity, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   const repo = g?.kind === 'repo' ? graph.repos.find((r) => r.id === g.id) : null;
@@ -76,6 +80,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <div className="detail-title">{n.name}</div>
         {path && <div className="detail-path">{path}</div>}
       </div>
+
+      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
 
       {repo && (
         <div className="detail-block">
@@ -114,7 +120,9 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <DepList title="Used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
       </div>
 
-      {g?.path && (g.kind === 'file' || g.kind === 'symbol') && <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} />}
+      {g?.path && (g.kind === 'file' || g.kind === 'symbol') && (
+        <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} rev={activity?.nodes[g.kind === 'symbol' ? g.parent : g.id]?.at ?? 0} />
+      )}
     </aside>
   );
 }
@@ -122,9 +130,20 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
-/** A file's lines from the indexer's checkout, fetched once per file and commit. */
-function useSource(repo: string, path: string, commit?: string): { lines: string[] | null; error: string | null } {
-  const key = `${repo}|${path}|${commit ?? ''}`;
+/** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
+function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | null }) {
+  const own = activity?.nodes[g.id];
+  if (!own) return null;
+  const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
+  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+}
+
+/**
+ * A file's lines from the indexer's checkout, fetched once per file and commit.
+ * `rev` moves when an agent changes the file, which a commit id wouldn't show.
+ */
+function useSource(repo: string, path: string, commit?: string, rev = 0): { lines: string[] | null; error: string | null } {
+  const key = `${repo}|${path}|${commit ?? ''}|${rev}`;
   const [state, setState] = useState<{ key: string; text?: string; error?: string } | null>(null);
   useEffect(() => {
     if (!repo || !path) return;
@@ -148,8 +167,8 @@ function useSource(repo: string, path: string, commit?: string): { lines: string
 }
 
 /** The node's code: a symbol's lines, or the top of a file, read from the indexer's checkout. */
-function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
-  const { lines: all, error } = useSource(g.repo, g.path!, repo?.commit);
+function Code({ g, repo, rev }: { g: GraphNode; repo?: RepoInfo; rev: number }) {
+  const { lines: all, error } = useSource(g.repo, g.path!, repo?.commit, rev);
   const [whole, setWhole] = useState(false);
   useEffect(() => setWhole(false), [g.id]);
 
@@ -329,7 +348,7 @@ function summary(n: TNode): string {
   return `${n.children.length} entries, ${n.symbols} symbols.`;
 }
 
-function ContractDetail({ graph, graphIndex, tree, contract: c, onSelect }: Props & { contract: Contract }) {
+function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSelect }: Props & { contract: Contract }) {
   const A = tree.nodes.get(c.a)!;
   const B = tree.nodes.get(c.b)!;
   const http = c.items.filter((e) => e.kind === 'http');
@@ -379,6 +398,7 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, onSelect }: Prop
             tree={tree}
             open={c.items.length === 1}
             mark={c.inferred > 0 && c.inferred < c.items.length}
+            activity={activity}
             onSelect={onSelect}
           />
         ))}
@@ -402,7 +422,7 @@ const EVIDENCE_LABEL: Record<EdgeEvidenceSource, string> = {
 };
 
 /** One underlying edge: its two ends, and on demand how the indexer knows about it. */
-function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; open: boolean; mark: boolean; onSelect(id: string): void }) {
+function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; open: boolean; mark: boolean; activity?: ActivityState | null; onSelect(id: string): void }) {
   const { e, graph, graphIndex, tree, open, onSelect } = p;
   const [shown, setShown] = useState(open);
   const [line, setLine] = useState<number | null>(null);
@@ -450,7 +470,7 @@ function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, Gr
                   {ev.code && <span className="ev-code">{ev.code}</span>}
                 </span>
               </button>
-              {line === i && <Snippet ev={ev} graph={graph} graphIndex={graphIndex} tree={tree} onSelect={onSelect} />}
+              {line === i && <Snippet ev={ev} graph={graph} graphIndex={graphIndex} tree={tree} rev={p.activity?.nodes[ev.file]?.at ?? 0} onSelect={onSelect} />}
             </div>
           ))}
         </div>
@@ -462,11 +482,11 @@ function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, Gr
 const CONTEXT = 4;
 
 /** A few lines either side of one piece of evidence, read through the indexer's source route. */
-function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; onSelect(id: string): void }) {
+function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; rev: number; onSelect(id: string): void }) {
   const { ev, graph, graphIndex, tree, onSelect } = p;
   const file = graphIndex.get(ev.file);
   const repo = graph.repos.find((r) => r.id === file?.repo);
-  const { lines, error } = useSource(file?.repo ?? '', file?.path ?? '', repo?.commit);
+  const { lines, error } = useSource(file?.repo ?? '', file?.path ?? '', repo?.commit, p.rev);
   // Go to the innermost symbol around the line, which both views have; the file itself only
   // exists in the code view, so fall back to it only when it's on this map.
   const target = useMemo(() => {

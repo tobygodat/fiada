@@ -35,6 +35,9 @@ export const TEST_PATH =
 
 const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
 
+/** Files that change how every other file resolves; a change to one means reloading the repo. */
+const MANIFEST = /(^|\/)(package\.json|[tj]sconfig(\..+)?\.json|go\.mod|pyproject\.toml|requirements.*\.txt|setup\.py|__init__\.py)$/;
+
 async function listFiles(root: string): Promise<string[]> {
   try {
     const { stdout } = await exec('git', ['-C', root, 'ls-files', '-co', '--exclude-standard', '-z'], { maxBuffer: 64 << 20 });
@@ -199,4 +202,54 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
     goModules: goModules.length ? goModules : undefined,
     frameworks,
   };
+}
+
+/** Which of `paths` git ignores, so a file an agent writes under .gitignore stays out as it would on a full load. */
+async function gitIgnored(root: string, paths: string[]): Promise<Set<string>> {
+  return new Promise((resolve) => {
+    const child = execFile('git', ['-C', root, 'check-ignore', '--stdin', '-z'], (_err, stdout) => resolve(new Set(String(stdout ?? '').split('\0').filter(Boolean))));
+    child.stdin?.end(paths.join('\0'));
+  });
+}
+
+/**
+ * Re-reads only `paths` (repo-relative) of a loaded repo: parses the ones that
+ * changed or appeared, drops the ones that are gone or no longer count as
+ * source, and updates the repo's counts. Returns false, touching nothing,
+ * when one of them is a manifest or a Python package marker, which changes
+ * how other files resolve; reload the whole repo then.
+ */
+export async function reloadFiles(repo: ParsedRepo, paths: string[], opts: LoadOptions = DEFAULT_LOAD): Promise<boolean> {
+  if (paths.some((p) => MANIFEST.test(p))) return false;
+  const ignored = await gitIgnored(repo.root, paths);
+  for (const rel of new Set(paths)) {
+    const counts = !!langOf(rel) && !rel.endsWith('.min.js') && !isIgnored(rel) && !ignored.has(rel) && (opts.includeTests || !TEST_PATH.test(rel));
+    const abs = path.join(repo.root, rel);
+    const stat = counts ? await fs.stat(abs).catch(() => null) : null;
+    const text = stat?.isFile() && stat.size <= opts.maxFileBytes ? await readText(abs) : null;
+    let parsed: ParsedFile | null = null;
+    if (text != null) {
+      try {
+        parsed = await parseFile(rel, text);
+      } catch (err) {
+        console.warn(`[strata] failed to parse ${repo.info.id}/${rel}:`, (err as Error).message);
+      }
+    }
+    const i = repo.files.findIndex((f) => f.path === rel);
+    if (parsed && i >= 0) repo.files[i] = parsed;
+    else if (parsed) repo.files.push(parsed);
+    else if (i >= 0) repo.files.splice(i, 1);
+  }
+  if (paths.some((p) => p.endsWith('.go'))) linkGoTableNames(repo.files);
+  const languages: Record<string, number> = {};
+  for (const f of repo.files) {
+    const l = f.lang === 'tsx' ? 'typescript' : f.lang;
+    languages[l] = (languages[l] ?? 0) + 1;
+  }
+  Object.assign(repo.info, {
+    fileCount: repo.files.length,
+    symbolCount: repo.files.reduce((n, f) => n + f.symbols.length, 0),
+    languages,
+  });
+  return true;
 }

@@ -7,12 +7,14 @@
 // testing. Everything else (what's selected, what's open) lives in React and
 // arrives through setScene.
 
+import { describeMarks, type TreeActivity } from '../graph/activity.ts';
 import type { Camera } from '../graph/camera.ts';
 import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/camera.ts';
 import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import { visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import { BG, INK, MONO, SANS, type ColorBy, type Palette } from '../theme.ts';
+import { drawBadges, drawRings } from './activity.ts';
 import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
@@ -32,6 +34,8 @@ export interface Scene {
   colorBy: ColorBy;
   selected: string | null;
   selectedEdge: string | null;
+  /** What coding agents changed, placed on this tree (the agent overlay). */
+  activity?: TreeActivity | null;
 }
 
 export interface RendererEvents {
@@ -106,6 +110,8 @@ export class MapRenderer {
   private layoutAnim: { from: Map<string, Circle>; start: number; dur: number } | null = null;
 
   private raf = 0;
+  /** The agent overlay has a pulse running, so keep drawing frames. */
+  private pulsing = false;
   private listeners = new Set<() => void>();
 
   private drag: { x: number; y: number; cam: Camera; moved: boolean; id: number } | null = null;
@@ -252,6 +258,7 @@ export class MapRenderer {
       else more = true;
     }
     this.draw(easeInOut(lt));
+    if (this.pulsing) more = true;
     if (before !== this.cam) for (const fn of this.listeners) fn();
     // Whatever is under a resting pointer may have moved or changed.
     if (this.pointer && !this.drag?.moved) this.setHover(this.hitTest(this.pointer.x, this.pointer.y));
@@ -368,6 +375,7 @@ export class MapRenderer {
     this.drawnEdges = [];
     this.drawnTags = [];
     this.drawnTabs = [];
+    this.pulsing = false;
     const scene = this.scene;
     if (!scene || !w) return;
     const { tree, L } = scene;
@@ -503,6 +511,7 @@ export class MapRenderer {
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen });
     }
     ctx.globalAlpha = 1;
+    if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now());
 
     // ── labels ──
     ctx.textAlign = 'center';
@@ -567,6 +576,11 @@ export class MapRenderer {
         }
         ctx.globalAlpha = 1;
       }
+    }
+
+    if (scene.activity?.size) {
+      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10));
+      this.lastFont = '';
     }
 
     // ── edge tags ──
@@ -798,7 +812,9 @@ export class MapRenderer {
       if (scene.selected !== n.id) action = ' · click for details';
       else if (n.children.length && !hit.open) action = ' · click again to open';
     }
-    return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${action}`;
+    const marks = scene.activity?.get(n.id);
+    const changed = marks ? describeMarks(marks, scene.tree.view) : '';
+    return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${changed ? ` · ${changed}` : ''}${action}`;
   }
 }
 

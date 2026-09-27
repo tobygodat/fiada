@@ -3,7 +3,8 @@
 
 import './env.ts';
 import Fastify from 'fastify';
-import type { LayerPreset } from '@strata/shared';
+import type { AgentEvent, LayerPreset } from '@strata/shared';
+import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
@@ -13,6 +14,7 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 
 const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'));
 await ws.init();
+const agents = new AgentHub(ws);
 
 const app = Fastify({ logger: { level: 'warn' } });
 
@@ -64,6 +66,47 @@ app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async 
   const source = await ws.readSource(repo, path);
   if (!source) return reply.code(404).send({ error: `${repo}/${path} is not an indexed file` });
   return source;
+});
+
+// ── agent activity ──
+// The agent package's MCP server and hooks post here; the map listens on the stream.
+
+// A sweep can carry many diffs (each capped at 64 KB), so this route takes more than the default 1 MB.
+app.post('/api/agent/events', { bodyLimit: 32 << 20 }, async (req, reply) => {
+  const body = req.body as AgentEvent | AgentEvent[] | undefined;
+  const events = Array.isArray(body) ? body : body ? [body] : [];
+  if (!events.every((e) => e && typeof e === 'object' && typeof e.type === 'string' && e.agent && typeof e.agent.cwd === 'string')) {
+    return reply.code(400).send({ error: 'Body must be an agent event or a list of them: { type, agent: { client, cwd, … }, … }' });
+  }
+  return agents.ingest(events);
+});
+
+app.get('/api/agent/state', async () => agents.state());
+
+app.get('/api/agent/stream', (req, reply) => {
+  reply.hijack();
+  const res = reply.raw;
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+  const send = (s: unknown) => res.write(`data: ${JSON.stringify(s)}\n\n`);
+  send(agents.state());
+  const off = agents.subscribe(send);
+  const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
+  req.raw.on('close', () => {
+    off();
+    clearInterval(ping);
+  });
+});
+
+app.get<{ Querystring: { node?: string } }>('/api/agent/diff', async (req, reply) => {
+  if (!req.query.node) return reply.code(400).send({ error: 'Query must be ?node=<file or symbol id>' });
+  return { diffs: agents.diffs(req.query.node) };
+});
+
+// One agent (?id=) or all of them. The id goes in the query: it holds the checkout's
+// absolute path, often longer than a path parameter may be.
+app.delete<{ Querystring: { id?: string } }>('/api/agent', async (req) => {
+  agents.clear(req.query.id || undefined);
+  return agents.state();
 });
 
 await app.listen({ port: PORT, host: HOST });
