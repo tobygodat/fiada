@@ -574,11 +574,6 @@ export class MapRenderer {
       }
     }
 
-    if (scene.activity?.size) {
-      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10));
-      this.lastFont = '';
-    }
-
     // ── edge tags ──
     // Mid-curve, or the nearest point along it that isn't off screen, under a
     // panel or on top of another tag. The selected and hovered links go first.
@@ -609,6 +604,13 @@ export class MapRenderer {
       this.drawnTags.push({ ...r, key: t.g.key });
     }
     ctx.globalAlpha = 1;
+
+    // ── agent badges, last so they can keep clear of every link, tag and tab ──
+    if (scene.activity?.size) {
+      const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox };
+      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10), taken);
+      this.lastFont = '';
+    }
   }
 
   /** How much of the web to draw: a preset name, or individual settings over the current ones. */

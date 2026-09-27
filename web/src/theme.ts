@@ -9,28 +9,27 @@
 // - repositories take no hue at all: a light-to-dark neutral step, and their
 //   names on the map.
 
-import { UNLAYERED } from '@strata/shared';
+import { UNLAYERED, type ChangeKind } from '@strata/shared';
 
 export const INK = '#e6e3da';
 export const BG = '#0c0d10';
 export const MONO = "'Geist Mono', ui-monospace, monospace";
 export const SANS = "'Geist', system-ui, sans-serif";
 
-/** What an agent did to a node. Used for rings, badges and diffs, and for nothing else. */
+/**
+ * What a coding agent did to a file or symbol: the rings and badges on the
+ * map and the +/~/− marks in the task queue. These hues mean a change and
+ * nothing else; an agent's own state (working, waiting) is drawn in ink.
+ * styles.css repeats them as --added, --modified and --deleted.
+ */
 export const CHANGE = {
   added: 'oklch(85% 0.17 150)',
   modified: 'oklch(82% 0.16 80)',
   deleted: 'oklch(72% 0.15 25)',
-} as const;
-export type ChangeState = keyof typeof CHANGE;
+} as const satisfies Record<ChangeKind, string>;
 /** The hues above; repo and layer colours stay at least `RESERVED_ARC` degrees from each. */
 export const CHANGE_HUES = [150, 80, 25] as const;
 export const RESERVED_ARC = 30;
-
-// The agent overlay's earlier names for the same colours.
-export const MINT = CHANGE.added;
-export const AMBER = CHANGE.modified;
-export const DANGER = CHANGE.deleted;
 
 // Repositories are told apart by name and by lightness, never by hue.
 const REPO_TONES = ['88% 0 0', '66% 0 0', '78% 0 0', '58% 0 0', '94% 0 0', '72% 0 0'];

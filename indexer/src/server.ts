@@ -1,9 +1,14 @@
-// HTTP API the map talks to. Binds to localhost: importing a local path reads
-// that directory, so this is a single-user development tool, not a service.
+// HTTP API the map talks to. Binds to localhost by default: importing a local
+// path reads that directory, so on your own machine it's a single-user tool.
+// Bound anywhere else (HOST=0.0.0.0 in the container), local paths are off,
+// browsers on STRATA_ALLOWED_ORIGINS may call it, and with STRATA_API_KEY set
+// only requests carrying the key can change anything.
 
 import './env.ts';
+import type { OutgoingHttpHeaders } from 'node:http';
 import Fastify from 'fastify';
 import type { AgentEvent, LayerPreset } from '@strata/shared';
+import { allowLocalPaths, hasKey, isLoopback, originMatcher, READS } from './access.ts';
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
 import { checkProjectId, createStore } from './store.ts';
@@ -11,12 +16,33 @@ import { STRATA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST ?? '127.0.0.1';
+const KEY = process.env.STRATA_API_KEY || undefined;
+const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
 
-const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'));
+const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'), {
+  localPaths: allowLocalPaths(HOST),
+  keyRequired: !!KEY,
+});
 await ws.init();
 const agents = new AgentHub(ws);
 
 const app = Fastify({ logger: { level: 'warn' } });
+
+// CORS for the map served from another origin, then the key for anything that isn't a read.
+app.addHook('onRequest', async (req, reply) => {
+  const origin = req.headers.origin;
+  reply.header('vary', 'origin');
+  if (allowedOrigin(origin)) reply.header('access-control-allow-origin', origin);
+  if (req.method === 'OPTIONS') {
+    reply.header('access-control-allow-methods', 'GET, POST, PUT, DELETE');
+    reply.header('access-control-allow-headers', 'content-type, authorization');
+    reply.header('access-control-max-age', '600');
+    return reply.code(204).send();
+  }
+  if (KEY && !READS.has(req.method) && !hasKey(req.headers.authorization, KEY)) {
+    return reply.code(401).send({ error: "This map is read-only without the indexer's access key. Open it once with ?key=<key> to make changes." });
+  }
+});
 
 app.get('/api/workspace', async () => ws.state());
 
@@ -86,7 +112,8 @@ app.get('/api/agent/state', async () => agents.state());
 app.get('/api/agent/stream', (req, reply) => {
   reply.hijack();
   const res = reply.raw;
-  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+  // Hijacked, so the CORS headers set above go out by hand.
+  res.writeHead(200, { ...(reply.getHeaders() as OutgoingHttpHeaders), 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
   const send = (s: unknown) => res.write(`data: ${JSON.stringify(s)}\n\n`);
   send(agents.state());
   const off = agents.subscribe(send);
@@ -111,3 +138,7 @@ app.delete<{ Querystring: { id?: string } }>('/api/agent', async (req) => {
 
 await app.listen({ port: PORT, host: HOST });
 console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);
+if (!ws.allowLocal) console.log('[strata] local folders are off: this indexer imports git repositories only');
+if (process.env.STRATA_ALLOWED_ORIGINS) console.log(`[strata] browsers may call the API from ${process.env.STRATA_ALLOWED_ORIGINS}`);
+if (KEY) console.log('[strata] changes need the access key (STRATA_API_KEY)');
+else if (!isLoopback(HOST)) console.warn('[strata] no STRATA_API_KEY: anyone who can reach this indexer can change its project');

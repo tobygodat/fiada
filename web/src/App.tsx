@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphNode } from '@strata/shared';
+import { canEdit } from './api.ts';
 import { AgentQueue } from './components/AgentQueue.tsx';
 import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
@@ -504,8 +505,8 @@ export function App() {
             onSelect={select}
           />
         )}
-        <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={(id) => void agents.clear(id)} />
-        <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} agents={!!activity?.size} />
+        <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={canEdit(ws.workspace) ? (id) => void agents.clear(id) : undefined} />
+        <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} />
       </div>
     </div>
   );
@@ -516,26 +517,14 @@ function Legend({
   pal,
   layers,
   mode,
-  agents,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
   mode: ExpandMode;
-  agents: boolean;
 }) {
   return (
     <div className="legend">
-      {agents && (
-        <>
-          <span className="row gap">
-            <span className="swatch-ring added" /> agent added
-          </span>
-          <span className="row gap">
-            <span className="swatch-ring modified" /> agent changed
-          </span>
-        </>
-      )}
       <span>{mode === 'click' ? 'point at a circle for its links · click for details, again to open it · scroll to zoom' : 'point at a circle for its links · scroll to zoom and open circles'}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo

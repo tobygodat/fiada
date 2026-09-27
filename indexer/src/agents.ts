@@ -306,7 +306,7 @@ export class AgentHub {
   private async resolve(ref: AgentRef, f: FileChange): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
     for (const r of this.ws.repos) {
-      if (r.kind !== 'local') continue;
+      if (r.kind !== 'local' || !this.ws.allowLocal) continue;
       const src = this.realSource(r.source);
       if (inside(abs, src) && abs !== src) return { abs, repo: r.id, rel: posix(path.relative(src, abs)), live: true };
     }
@@ -317,7 +317,7 @@ export class AgentHub {
       if (co.remote) {
         const want = remoteKey(co.remote);
         for (const r of this.ws.repos) {
-          const theirs = r.kind === 'git' ? r.source : await this.localRemote(r.source);
+          const theirs = r.kind === 'git' ? r.source : this.ws.allowLocal ? await this.localRemote(r.source) : null;
           if (theirs && remoteKey(theirs) === want) return { abs, repo: r.id, rel, live: false };
         }
       }
