@@ -13,7 +13,7 @@ import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
 import { visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import { BG, INK, MONO, SANS, type ColorBy, type Palette } from '../theme.ts';
-import { bestBend, curve, DEFAULT_BEND, restEdges } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
@@ -112,6 +112,7 @@ export class MapRenderer {
   private pointer: { x: number; y: number } | null = null;
   private hover: Hit | null = null;
 
+  private policy: EdgePolicy = DEFAULT_EDGE_POLICY;
   // Per layout and set of open circles: the resting edges, and which way each edge bends.
   private edgeCache: { L: Map<string, Circle>; vis: Visible; contracts: Contract[]; rest: Set<string>; bends: Map<string, number>; obstacles: Circle[] } | null = null;
 
@@ -447,7 +448,7 @@ export class MapRenderer {
       const guess = g.inferred === n;
       const A0 = tree.nodes.get(g.a)!;
       const stroke = isSel ? INK : this.nodeColor(A0, 1);
-      let op = role === 'rest' ? (inFocus ? 0.12 : g.cross ? 0.7 : 0.55) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.9;
+      let op = role === 'rest' ? (inFocus ? this.policy.restFade : g.cross ? 0.7 : 0.55) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.9;
       if (guess && !isSel) op *= 0.8;
       if (isHover) op = Math.max(op, 0.9);
       // Width follows the log of the number of interactions, relative to the heaviest on screen.
@@ -469,8 +470,9 @@ export class MapRenderer {
         maxX: Math.max(x1, mx, x2),
         maxY: Math.max(y1, my, y2),
       });
-      // Letter tags only on what's in focus (and the edge under the pointer), never on the resting overview.
-      if ((role !== 'rest' || isHover) && (i < MAX_TAGS + resting.length || isSel) && c.gap > 36) {
+      // Letter tags on what's in focus and the edge under the pointer; on the resting overview only if the policy asks.
+      const tagged = isSel || isHover || (role === 'focus' ? i - resting.length < MAX_TAGS : this.policy.restTags && !inFocus && i < MAX_TAGS);
+      if (tagged && c.gap > 36) {
         // Mid-curve, or the nearest point to it that isn't off screen or under a panel.
         const at = tagPoint(x1, y1, mx, my, x2, y2, tagBox);
         if (at) tagQueue.push({ g, x: at.x, y: at.y, isSel, touches: role === 'focus' });
@@ -588,6 +590,17 @@ export class MapRenderer {
     ctx.globalAlpha = 1;
   }
 
+  /** How much of the web to draw: a preset name, or individual settings over the current ones. */
+  setEdgePolicy(p: EdgePreset | Partial<EdgePolicy>) {
+    this.policy = typeof p === 'string' ? (EDGE_POLICIES[p] ?? DEFAULT_EDGE_POLICY) : { ...this.policy, ...p };
+    this.edgeCache = null;
+    this.request();
+  }
+
+  get edgePolicy(): EdgePolicy {
+    return this.policy;
+  }
+
   private edges(scene: Scene) {
     const vis = this.vis!;
     let c = this.edgeCache;
@@ -598,7 +611,7 @@ export class MapRenderer {
         const o = scene.L.get(n.id);
         if (o && !vis.open.has(n.id)) obstacles.push(o);
       }
-      c = this.edgeCache = { L: scene.L, vis, contracts: scene.contracts, rest: restEdges(scene.contracts, this.visIds), bends: new Map(), obstacles };
+      c = this.edgeCache = { L: scene.L, vis, contracts: scene.contracts, rest: restEdges(scene.contracts, this.visIds, this.policy), bends: new Map(), obstacles };
     }
     return c;
   }
@@ -614,7 +627,7 @@ export class MapRenderer {
     if (b == null) {
       const A = scene.L.get(g.a);
       const B = scene.L.get(g.b);
-      b = A && B ? bestBend(A, B, c.obstacles) : DEFAULT_BEND;
+      b = A && B && this.policy.route ? bestBend(A, B, c.obstacles) : DEFAULT_BEND;
       c.bends.set(g.key, b);
     }
     return b;

@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import type { EdgeKind, GraphEdge } from '@strata/shared';
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
-import { bestBend, curve, DEFAULT_BEND, REST_EDGES, restEdges } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, restEdges } from './edges.ts';
+
+const REST_EDGES = EDGE_POLICIES.key.restMax;
 
 const contract = (a: string, b: string, n: number, kind: EdgeKind = 'calls'): Contract => ({
   key: `${a}|${b}`,
@@ -42,6 +44,9 @@ test('at rest only the few strongest contracts are drawn', () => {
   // Even spread, everything but single links fits up to the cap.
   const even = ids.slice(1).map((x) => contract('a', x, 4));
   assert.equal(restEdges(even, visible).size, REST_EDGES);
+  // The other presets: every link, or none until you point at a circle.
+  assert.equal(restEdges(all, visible, EDGE_POLICIES.all).size, all.length);
+  assert.equal(restEdges(all, visible, EDGE_POLICIES.none).size, 0);
 });
 
 test('edges bend around circles in their way', () => {

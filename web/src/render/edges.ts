@@ -4,31 +4,60 @@
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
 
-/** At rest the map shows at most this many edges... */
-export const REST_EDGES = 6;
 /**
- * ...and only those scoring at least the strongest one's score to this power
- * (and more than a single interaction). Weights are heavy-tailed, one contract
- * often carrying hundreds of interactions, so a linear share would leave just it.
+ * How much of the web the map shows. Kept in one place so the look can be
+ * tuned (or switched with `?links=` in the URL) without touching the drawing.
  */
-export const REST_POWER = 0.3;
+export interface EdgePolicy {
+  /** Most links drawn before anyone points at anything: 0 draws none, Infinity every one. */
+  restMax: number;
+  /**
+   * A resting link must score at least the strongest one's score to this power
+   * (0 keeps everything). Weights are heavy-tailed, one contract often carrying
+   * hundreds of interactions, so a linear share would leave just that one.
+   */
+  restPower: number;
+  /** Fewest interactions a resting link carries. */
+  restMinItems: number;
+  /** Score multiplier for HTTP and cross-repository links: how a system hangs together outranks plain imports. */
+  boost: number;
+  /** Letter tags on resting links too, not just on the ones in focus. */
+  restTags: boolean;
+  /** Opacity of resting links while a circle or contract is in focus. */
+  restFade: number;
+  /** Bend links around closed circles rather than through them. */
+  route: boolean;
+}
 
-/** Requests and cross-repository links are how a system hangs together, so they outrank plain imports. */
-export const edgeScore = (g: Contract) => g.items.length * (g.kinds.has('http') || g.cross ? 3 : 1);
+export const EDGE_POLICIES = {
+  /** The few strongest links at rest; a circle's own links when you point at it or select it. */
+  key: { restMax: 6, restPower: 0.3, restMinItems: 2, boost: 3, restTags: false, restFade: 0.12, route: true },
+  /** Every link and tag, as the map used to draw them. */
+  all: { restMax: Infinity, restPower: 0, restMinItems: 1, boost: 1, restTags: true, restFade: 0.12, route: true },
+  /** No links until you point at a circle. */
+  none: { restMax: 0, restPower: 0, restMinItems: 1, boost: 3, restTags: false, restFade: 0, route: true },
+} satisfies Record<string, EdgePolicy>;
+
+export type EdgePreset = keyof typeof EDGE_POLICIES;
+export const DEFAULT_EDGE_POLICY: EdgePolicy = EDGE_POLICIES.key;
+
+export const edgeScore = (g: Contract, boost: number) => g.items.length * (g.kinds.has('http') || g.cross ? boost : 1);
 
 /** The few contracts worth drawing before anyone points at anything. */
-export function restEdges(contracts: Contract[], visible: ReadonlySet<string>): Set<string> {
+export function restEdges(contracts: Contract[], visible: ReadonlySet<string>, policy: EdgePolicy = DEFAULT_EDGE_POLICY): Set<string> {
+  if (policy.restMax <= 0) return new Set();
   const top: Contract[] = [];
   for (const g of contracts) {
-    if (!visible.has(g.a) || !visible.has(g.b)) continue;
+    if (!visible.has(g.a) || !visible.has(g.b) || g.items.length < policy.restMinItems) continue;
     top.push(g);
   }
-  top.sort((p, q) => edgeScore(q) - edgeScore(p) || (p.key < q.key ? -1 : 1));
-  const floor = top.length ? Math.max(2, edgeScore(top[0]) ** REST_POWER) : Infinity;
+  const score = (g: Contract) => edgeScore(g, policy.boost);
+  top.sort((p, q) => score(q) - score(p) || (p.key < q.key ? -1 : 1));
+  const floor = top.length ? score(top[0]) ** policy.restPower : Infinity;
   return new Set(
     top
-      .slice(0, REST_EDGES)
-      .filter((g) => edgeScore(g) >= floor)
+      .slice(0, policy.restMax)
+      .filter((g) => score(g) >= floor)
       .map((g) => g.key),
   );
 }
