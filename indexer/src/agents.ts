@@ -16,6 +16,7 @@ import type {
   AgentActivity,
   AgentEvent,
   AgentFile,
+  AgentNow,
   AgentRef,
   AgentState,
   AgentStep,
@@ -67,8 +68,14 @@ interface AgentRec {
   state: AgentState;
   task?: string;
   prompt?: string;
+  /** When the prompt came. */
+  promptAt: number;
   note?: string;
+  /** The agent's own status line this turn, from its `status` tool. */
+  said?: Said;
   steps: AgentStep[];
+  /** When the plan's active step last changed, so the newer of it and `said` heads the entry. */
+  stepAt: number;
   files: Map<string, FileRec>;
   startedAt: number;
   updatedAt: number;
@@ -94,6 +101,31 @@ export function sameProcess<T extends { ref: AgentRef }>(procs: number[] | undef
     if (hits.length) return null;
   }
   return null;
+}
+
+/** A line and when it was said. */
+type Said = { text: string; at: number };
+
+/** The active step, as the key that tells when the agent moved to another one. */
+const activeKey = (steps: AgentStep[]) => {
+  const s = steps.find((x) => x.status === 'active');
+  return s ? `${s.id ?? ''}|${s.text}` : '';
+};
+
+/**
+ * The agent's status line: the newest of its own words, its plan's active
+ * step and the user's prompt; on a tie its own words, then the step. A new
+ * prompt drops what it said last turn, so until it speaks or its plan moves,
+ * the prompt heads the entry.
+ */
+export function statusLine(said: Said | undefined, steps: AgentStep[], stepAt: number, prompt: Said | undefined): AgentNow | undefined {
+  const active = steps.find((s) => s.status === 'active');
+  const lines: (Said & { from: AgentNow['from'] })[] = [];
+  if (said) lines.push({ ...said, from: 'agent' });
+  if (active) lines.push({ text: active.activeText ?? active.text, at: stepAt, from: 'plan' });
+  if (prompt) lines.push({ ...prompt, from: 'prompt' });
+  const best = lines.reduce<(typeof lines)[number] | undefined>((a, b) => (!a || b.at > a.at ? b : a), undefined);
+  return best && { text: best.text, from: best.from, at: new Date(best.at).toISOString() };
 }
 
 const inside = (p: string, dir: string) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
@@ -141,6 +173,7 @@ export class AgentHub {
       const rec = this.agentFor(ev.agent);
       const now = ev.at ? Date.parse(ev.at) || Date.now() : Date.now();
       rec.updatedAt = now;
+      const wasActive = activeKey(rec.steps);
       switch (ev.type) {
         case 'session':
           if (ev.phase === 'start') rec.state = 'waiting';
@@ -152,13 +185,20 @@ export class AgentHub {
           break;
         case 'prompt':
           rec.prompt = ev.text || rec.prompt;
+          rec.promptAt = now;
           rec.task = undefined;
           rec.note = undefined;
+          // A new turn: last turn's line no longer says what it's doing.
+          rec.said = undefined;
           if (rec.steps.every((s) => s.status === 'done')) rec.steps = [];
           rec.state = 'working';
           break;
         case 'task':
           this.applyTask(rec, ev);
+          break;
+        case 'status':
+          if (typeof ev.text === 'string' && ev.text.trim()) rec.said = { text: ev.text.trim(), at: now };
+          rec.state = 'working';
           break;
         case 'step': {
           const i = rec.steps.findIndex((s) => s.id === ev.id);
@@ -181,6 +221,7 @@ export class AgentHub {
           rec.state = ev.state;
           break;
       }
+      if (activeKey(rec.steps) !== wasActive) rec.stepAt = now;
       // A session's processes are its hooks'; an MCP server matched to it keeps them.
       const procs = ev.agent.session || !rec.ref.session ? (ev.agent.procs ?? rec.ref.procs) : rec.ref.procs;
       rec.ref = { ...rec.ref, ...ev.agent, session: ev.agent.session ?? rec.ref.session, procs };
@@ -199,7 +240,7 @@ export class AgentHub {
    */
   private agentFor(ref: AgentRef): AgentRec {
     const key = agentKey(ref);
-    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], files: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
+    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], stepAt: 0, promptAt: 0, files: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
     if (ref.session) {
       const id = agentId(ref);
       let rec = this.agents.get(id);
@@ -555,6 +596,7 @@ export class AgentHub {
         task: rec.task,
         prompt: rec.prompt,
         note: rec.note,
+        now: statusLine(rec.said, rec.steps, rec.stepAt, rec.prompt ? { text: rec.prompt, at: rec.promptAt } : undefined),
         steps: rec.steps,
         files,
         startedAt: new Date(rec.startedAt).toISOString(),

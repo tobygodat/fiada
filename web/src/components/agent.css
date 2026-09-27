@@ -69,14 +69,26 @@
 .queue-dot.waiting { border-color: var(--warning); }
 @keyframes queue-ripple { from { transform: scale(1); opacity: 0.8; } to { transform: scale(2.4); opacity: 0; } }
 
+/* The headline: what the agent says it's doing now, in its own one or two lines. A line it didn't
+   write (taken from its plan or the prompt) is the same words in muted ink, with where it came from
+   said under it. A new line fades in. */
+.queue-now {
+  margin: var(--space-xs) 0 0; color: var(--text); text-wrap: pretty; white-space: pre-line;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  animation: queue-said var(--medium) var(--ease) both;
+}
+.queue-now.derived { color: var(--muted); }
+@keyframes queue-said { from { opacity: 0; } to { opacity: 1; } }
+/* Under it: the task, or what was asked. */
 .queue-task {
-  margin-top: var(--space-xs); text-wrap: pretty;
+  margin-top: 2px; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); text-wrap: pretty;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .queue-note { margin-top: var(--space-8); padding-left: var(--space-sm); border-left: 2px solid var(--hairline-strong); color: var(--muted); text-wrap: pretty; }
 
-/* The plan: finished steps muted, the current one in ink with the green breathing beside it. */
-.queue-steps { list-style: none; margin: var(--space-8) 0 0; padding: 0; }
+/* The plan: folded under the headline; open, finished steps muted and the current one in ink with the
+   green breathing beside it. */
+.queue-steps { list-style: none; margin: var(--space-xs) 0 0 26px; padding: 0; }
 .step { display: flex; gap: var(--space-8); align-items: flex-start; color: var(--muted); }
 .step.active { color: var(--text); }
 .step-icon { flex: none; width: 18px; height: 18px; margin-top: 3px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
@@ -84,13 +96,14 @@
 .step-more { padding-left: 26px; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 @keyframes queue-breathe { 50% { opacity: 0.35; } }
 
-/* Changed files: a line that opens the list, then one row per file. */
-.queue-files { margin-top: var(--space-8); }
-.queue-files-toggle { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 28px; color: var(--muted); }
-.queue-files-toggle:hover .queue-files-words { color: var(--accent); }
+/* The plan and the changed files: a line that opens each, then its rows. */
+.queue-fold { margin-top: var(--space-xs); }
+.queue-fold + .queue-fold { margin-top: 0; }
+.queue-fold-toggle { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 28px; color: var(--muted); }
+.queue-fold-toggle:hover .queue-fold-words { color: var(--accent); }
 .chev { flex: none; width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--quick) var(--ease); }
 .chev.open { transform: rotate(90deg); }
-.queue-files-counts { display: flex; gap: var(--space-8); margin-left: auto; font-size: var(--size-fine); }
+.queue-fold-count { display: flex; gap: var(--space-8); margin-left: auto; font-size: var(--size-fine); font-variant-numeric: tabular-nums; }
 
 .queue-file-list { display: flex; flex-direction: column; margin: var(--space-xs) 0 0 26px; }
 .queue-file {
@@ -129,7 +142,7 @@
 .main:has(.queue-folded) .detail { top: calc(var(--space-md) + 44px + var(--space-8)); max-height: calc(100% - 44px - 72px); }
 
 @media (prefers-reduced-motion: reduce) {
-  .queue-dot.working::after, .step.active .step-icon { animation: none; }
+  .queue-dot.working::after, .step.active .step-icon, .queue-now { animation: none; }
 }
 
 /* ── The agent's diff in the detail panel ── */

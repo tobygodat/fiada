@@ -484,6 +484,8 @@ export type AgentEventBody =
   | { type: 'prompt'; text: string }
   /** The agent's own account of its task. `steps` replaces the plan when present; `step` marks one step active. */
   | { type: 'task'; task?: string; steps?: AgentStep[]; step?: string; state?: AgentState; note?: string }
+  /** The agent's own one or two lines on what it is doing right now. */
+  | { type: 'status'; text: string }
   /** One step added or updated, by id (Claude Code's TaskCreate / TaskUpdate). */
   | { type: 'step'; id: string; text?: string; activeText?: string; status?: StepStatus | 'removed' }
   | { type: 'changes'; files: FileChange[] }
@@ -525,10 +527,25 @@ export interface AgentActivity {
   /** First line of the user's latest prompt. */
   prompt?: string;
   note?: string;
+  /** What it's doing right now: the headline of its entry. */
+  now?: AgentNow;
   steps: AgentStep[];
   files: AgentFile[];
   startedAt: string;
   updatedAt: string;
+}
+
+/**
+ * The agent's status line. `agent` is its own words (the MCP `status` tool);
+ * when it hasn't said, or its plan moved on since, the line is derived from
+ * the active step of its plan, else from the user's prompt.
+ */
+export interface AgentNow {
+  /** One or two short lines, joined by "\n". */
+  text: string;
+  from: 'agent' | 'plan' | 'prompt';
+  /** ISO time the line was said or the step started. */
+  at: string;
 }
 
 /** A node the overlay marks, directly changed or standing in for a deleted one. */
