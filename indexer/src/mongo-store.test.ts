@@ -116,10 +116,18 @@ test('mongo store refuses to overwrite a save from another indexer', needsMongo,
     await b.saveRepos('p', repos);
     await assert.rejects(a.saveRepos('p', []), ProjectConflictError);
 
+    // Re-saving an unchanged list (every indexer does after indexing) is a
+    // no-op, so it doesn't make the other indexer stale.
+    assert.deepEqual(await a.loadRepos('p'), repos);
+    await b.saveRepos('p', repos);
+    await a.saveRepos('p', repos);
+    await b.saveRepos('p', []);
+    assert.deepEqual(await a.loadRepos('p'), []);
+
     // Revisions are per field: a stale repo list doesn't block a grouping save.
     assert.equal(await a.loadGrouping('p'), null);
     await a.saveGrouping('p', grouping);
     assert.deepEqual(await b.loadGrouping('p'), grouping);
-    assert.deepEqual(await b.loadRepos('p'), repos);
+    assert.deepEqual(await b.loadRepos('p'), []);
   }),
 );

@@ -7,7 +7,9 @@
 // grouping. Each field also carries a revision: a save applies only on top of
 // the revision this process last loaded or saved, so two indexers serving the
 // same project can't silently undo each other's changes; the later one gets a
-// ProjectConflictError telling it to restart instead.
+// ProjectConflictError telling it to restart instead. Saving a value that
+// hasn't changed since it was loaded is skipped, so re-saving the same repo
+// list after indexing doesn't make other indexers stale.
 
 import { MongoClient, type Collection } from 'mongodb';
 import type { Grouping } from '@strata/shared';
@@ -35,6 +37,8 @@ export class ProjectConflictError extends Error {
 export class MongoProjectStore implements ProjectStore {
   /** Revision last seen per project and field; 0 = never saved. */
   private revs = new Map<string, number>();
+  /** The stored (encoded) value at that revision, as JSON, to skip no-op saves. */
+  private stored = new Map<string, string>();
 
   private constructor(
     private client: MongoClient,
@@ -87,19 +91,28 @@ export class MongoProjectStore implements ProjectStore {
   private async load(projectId: string, field: Field): Promise<unknown | null> {
     const rev = `${field}Rev` as const;
     const doc = await this.projects.findOne({ _id: projectId }, { projection: { [field]: 1, [rev]: 1 } });
-    this.revs.set(`${projectId}\0${field}`, doc?.[rev] ?? 0);
-    return doc?.[field] == null ? null : decodeKeys(doc[field]);
+    const key = `${projectId}\0${field}`;
+    this.revs.set(key, doc?.[rev] ?? 0);
+    if (doc?.[field] == null) {
+      this.stored.delete(key);
+      return null;
+    }
+    this.stored.set(key, JSON.stringify(doc[field]));
+    return decodeKeys(doc[field]);
   }
 
   private async save(projectId: string, field: Field, value: unknown) {
     const key = `${projectId}\0${field}`;
     const rev = `${field}Rev` as const;
     const seen = this.revs.get(key) ?? 0;
+    const encoded = encodeKeys(value);
+    const json = JSON.stringify(encoded);
+    if (seen > 0 && this.stored.get(key) === json) return;
     // First save of this field: it must not exist yet. The upsert creates the
     // document when the project is new; when another indexer got there first,
     // nothing matches and the upsert's insert collides on _id.
     const filter = seen === 0 ? { _id: projectId, [rev]: { $exists: false } } : { _id: projectId, [rev]: seen };
-    const update = { $set: { [field]: encodeKeys(value), [rev]: seen + 1, updatedAt: new Date() } };
+    const update = { $set: { [field]: encoded, [rev]: seen + 1, updatedAt: new Date() } };
     try {
       const result = await this.projects.updateOne(filter, update, { upsert: seen === 0 });
       if (result.matchedCount === 0 && result.upsertedCount === 0) throw new ProjectConflictError(projectId, field);
@@ -108,6 +121,7 @@ export class MongoProjectStore implements ProjectStore {
       throw err;
     }
     this.revs.set(key, seen + 1);
+    this.stored.set(key, json);
   }
 }
 
