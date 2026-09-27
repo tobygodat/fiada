@@ -18,7 +18,7 @@ Strata turns one or more real repositories into a single zoomable map. Circles n
 
 The AI part is what makes the map readable on a repo you've never seen:
 
-- **It sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, and so on) and a feature domain (Items, Users, Login). Code facts do most of the work: routes, ORM models, JSX, HTTP requests and folder names seed the domains, and the rest follows the call graph. A language model (OpenAI or Claude) then names the domains, merges ones that mean the same thing, and places the leftovers nothing else could, with a one-line reason you can read in the panel. You start from a sorted map and adjust it, rather than from a pile of "Unsorted".
+- **It sorts the code for you on import.** Every file and function lands in a layer (UI, Client, API, Service, Data, and so on) and a feature domain (Items, Users, Login). Code facts do most of the work: routes, ORM models, JSX, HTTP requests and folder names seed the domains, and the rest follows the call graph. An OpenAI model then names the domains, merges ones that mean the same thing, and places the leftovers nothing else could, with a one-line reason you can read in the panel. You start from a sorted map and adjust it, rather than from a pile of "Unsorted".
 - **Every circle says what it does in one line.** Selecting a node shows a short generated summary at the top of the panel, above the list of calls and callers, so you don't have to open the code to know what `ItemsService` is for. Summaries are cached by content hash, so they're only regenerated when the code changes.
 - **It tells you which links it's sure of.** Every contract carries its evidence: the exact line of the request, the route and the router mounts it matched. Links the indexer could only infer (a URL that matches a route's tail, a model name shared by several classes) are drawn dotted with a `?`, with a confidence and a reason. On the FastAPI full-stack template all 23 frontend requests match their backend routes exactly.
 - **It shows your coding agent working on the map.** Connect Claude Code with one command and every edit shows up live: a ring on each file or function the agent added, changed or deleted, change counts on closed circles so you can see where it's working without opening anything, the agent's task and plan in a small window, and the diff in the panel when you click a ring. Hooks report what changed (checked against git, so shell commands and generated files are caught), and an MCP server lets the agent say what it's doing and why.
@@ -63,7 +63,7 @@ Most of understanding a codebase is knowing what talks to what, and a parser can
 
 ## Built with
 
-TypeScript, Node.js, Fastify, tree-sitter, React, Vite, d3-hierarchy, Canvas, MongoDB Atlas, Claude Code hooks, Model Context Protocol, OpenAI API, Claude API, Vercel, Railway, Docker.
+TypeScript, Node.js, Fastify, tree-sitter, React, Vite, d3-hierarchy, Canvas, MongoDB Atlas, Claude Code hooks, Model Context Protocol, OpenAI API, Vercel, Railway, Docker.
 
 ## Try it
 
