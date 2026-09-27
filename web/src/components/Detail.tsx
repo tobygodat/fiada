@@ -16,7 +16,7 @@ import {
   type RepoInfo,
 } from '@strata/shared';
 import { api, type SourceText } from '../api.ts';
-import type { TNode, Tree } from '../graph/tree.ts';
+import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import type { Contract } from '../graph/view.ts';
 import type { Palette } from '../theme.ts';
 
@@ -376,6 +376,7 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, onSelect }: Prop
             e={e}
             graph={graph}
             graphIndex={graphIndex}
+            tree={tree}
             open={c.items.length === 1}
             mark={c.inferred > 0 && c.inferred < c.items.length}
             onSelect={onSelect}
@@ -401,8 +402,8 @@ const EVIDENCE_LABEL: Record<EdgeEvidenceSource, string> = {
 };
 
 /** One underlying edge: its two ends, and on demand how the indexer knows about it. */
-function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, GraphNode>; open: boolean; mark: boolean; onSelect(id: string): void }) {
-  const { e, graph, graphIndex, open, onSelect } = p;
+function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; open: boolean; mark: boolean; onSelect(id: string): void }) {
+  const { e, graph, graphIndex, tree, open, onSelect } = p;
   const [shown, setShown] = useState(open);
   const [line, setLine] = useState<number | null>(null);
   const guess = p.mark && e.basis === 'inferred';
@@ -449,7 +450,7 @@ function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, Gr
                   {ev.code && <span className="ev-code">{ev.code}</span>}
                 </span>
               </button>
-              {line === i && <Snippet ev={ev} graph={graph} graphIndex={graphIndex} onSelect={onSelect} />}
+              {line === i && <Snippet ev={ev} graph={graph} graphIndex={graphIndex} tree={tree} onSelect={onSelect} />}
             </div>
           ))}
         </div>
@@ -461,10 +462,23 @@ function Interaction(p: { e: GraphEdge; graph: Graph; graphIndex: Map<string, Gr
 const CONTEXT = 4;
 
 /** A few lines either side of one piece of evidence, read through the indexer's source route. */
-function Snippet({ ev, graph, graphIndex, onSelect }: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, GraphNode>; onSelect(id: string): void }) {
+function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, GraphNode>; tree: Tree; onSelect(id: string): void }) {
+  const { ev, graph, graphIndex, tree, onSelect } = p;
   const file = graphIndex.get(ev.file);
   const repo = graph.repos.find((r) => r.id === file?.repo);
   const { lines, error } = useSource(file?.repo ?? '', file?.path ?? '', repo?.commit);
+  // Go to the innermost symbol around the line, which both views have; the file itself only
+  // exists in the code view, so fall back to it only when it's on this map.
+  const target = useMemo(() => {
+    let best: GraphNode | null = null;
+    for (const n of graph.nodes) {
+      if (n.kind !== 'symbol' || !n.lines || !n.id.startsWith(ev.file + '#') || n.lines[0] > ev.line || n.lines[1] < ev.line) continue;
+      if (!best || n.lines[1] - n.lines[0] < best.lines![1] - best.lines![0]) best = n;
+    }
+    const id = best?.id ?? ev.file;
+    const at = locate(tree, graphIndex, id);
+    return at && at !== 'root' ? id : null;
+  }, [graph, graphIndex, tree, ev]);
   if (!file?.path) return <div className="muted small snippet">That file isn't in the map.</div>;
   const a = Math.max(1, ev.line - CONTEXT);
   const b = lines ? Math.min(lines.length, ev.line + CONTEXT) : a;
@@ -484,9 +498,11 @@ function Snippet({ ev, graph, graphIndex, onSelect }: { ev: EdgeEvidence; graph:
         </pre>
       )}
       <div className="row gap">
-        <button className="link" onClick={() => onSelect(ev.file)}>
-          show {short(ev.file)} on the map
-        </button>
+        {target && (
+          <button className="link" onClick={() => onSelect(target)}>
+            show {short(target)} on the map
+          </button>
+        )}
         <span className="grow" />
         {web && (
           <a className="link" href={web} target="_blank" rel="noreferrer">
