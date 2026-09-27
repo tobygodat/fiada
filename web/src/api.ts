@@ -9,16 +9,11 @@ export const API_BASE = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
-/** A build served from somewhere other than this machine, with no VITE_API_URL: nothing answers /api. */
-const UNCONFIGURED =
-  !API_BASE && typeof window !== 'undefined' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+/** Said when nothing answers at the indexer's address. */
+const UNREACHABLE = API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with npm run dev.";
 
-/** What to tell someone when the indexer can't be reached. */
-export const OFFLINE = API_BASE
-  ? `Can't reach the indexer at ${API_BASE}.`
-  : UNCONFIGURED
-    ? 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in the README).'
-    : "Can't reach the indexer. Start it with npm run dev.";
+/** Said when /api on the page's own host is a plain 404: a deployed build without VITE_API_URL. */
+const NOT_SET_UP = 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in the README).';
 
 const KEY_ITEM = 'strata.key';
 
@@ -59,13 +54,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   if (accessKey && init?.method && init.method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
   const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
-    throw new Error(OFFLINE);
+    throw new Error(UNREACHABLE);
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    // The indexer's own errors carry a message; anything else (a static host's 404 page) didn't come from it.
+    // The indexer's own errors carry a message. A bare 404 is some other server answering for /api:
+    // the static host itself when no VITE_API_URL was built in.
     if (body.error) throw new Error(body.error);
-    throw new Error(UNCONFIGURED || res.status === 404 ? OFFLINE : `The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
+    if (res.status === 404) throw new Error(API_BASE ? UNREACHABLE : NOT_SET_UP);
+    throw new Error(`The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
   }
   return body as T;
 }
