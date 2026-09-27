@@ -4,7 +4,7 @@
 // is open the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
-import type { ActivityState, AgentActivity, AgentFile, AgentStep } from '@strata/shared';
+import { HAND_CLIENT, type ActivityState, type AgentActivity, type AgentFile, type AgentStep } from '@strata/shared';
 import './agent.css';
 
 interface Props {
@@ -19,6 +19,9 @@ interface Props {
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
 const STATE_LABEL = { working: 'working', waiting: 'waiting for you', ended: 'session ended' } as const;
 const MAX_STEPS = 6;
+
+/** The record of files saved by hand: always 'waiting', but it waits on no one. */
+const byHand = (a: AgentActivity) => a.client === HAND_CLIENT;
 
 const COLLAPSED_KEY = 'strata.queueCollapsed';
 const readCollapsed = () => {
@@ -54,7 +57,7 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
     const lead = agents[0];
     const { state: word, text } = currentLine(lead);
     return (
-      <button className="queue queue-folded" onClick={() => setCollapsed(false)} aria-expanded={false} title={`${agents.length > 1 ? `${agents.length} agents. ` : ''}Show what the agents are doing`}>
+      <button className="queue queue-folded" onClick={() => setCollapsed(false)} aria-expanded={false} title={agents.length > 1 ? `${agents.length} agents. Show what the agents are doing` : byHand(lead) ? 'Show your edits' : 'Show what the agents are doing'}>
         <StateDot a={lead} />
         <span className="queue-folded-line">
           {word && <span className={`queue-state ${lead.state}`}>{word}</span>}
@@ -106,13 +109,14 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
  * else its state in words and the task.
  */
 function currentLine(a: AgentActivity): { state: string | null; text: string } {
+  if (byHand(a)) return { state: null, text: `your edits · ${a.files.length} file${a.files.length === 1 ? '' : 's'}` };
   const active = a.state === 'working' ? a.steps.find((s) => s.status === 'active') : undefined;
   if (active) return { state: null, text: active.activeText ?? active.text };
   return { state: STATE_LABEL[a.state], text: a.task ?? a.prompt ?? '' };
 }
 
 function StateDot({ a }: { a: AgentActivity }) {
-  return <span className={`queue-dot ${a.state}`} aria-hidden />;
+  return <span className={`queue-dot ${byHand(a) ? 'hand' : a.state}`} aria-hidden />;
 }
 
 function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: string): void; onClear?(): void }) {
@@ -125,7 +129,7 @@ function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: st
       <div className="queue-card-head">
         <StateDot a={a} />
         <span className="queue-name">{a.name}</span>
-        <span className={`queue-state ${a.state}`}>{STATE_LABEL[a.state]}</span>
+        {byHand(a) ? <span className="queue-state">edited by hand</span> : <span className={`queue-state ${a.state}`}>{STATE_LABEL[a.state]}</span>}
       </div>
       {title && (
         <div className="queue-task" title={a.prompt && a.task ? `Asked: ${a.prompt}` : title}>
@@ -168,7 +172,7 @@ function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: st
           {a.where} · {ago(a.updatedAt)}
         </span>
         {onClear && (
-          <button className="queue-act" onClick={onClear} title="Dismiss this agent and clear its changes from the map">
+          <button className="queue-act" onClick={onClear} title={byHand(a) ? 'Clear your edits from the map' : 'Dismiss this agent and clear its changes from the map'}>
             dismiss
           </button>
         )}

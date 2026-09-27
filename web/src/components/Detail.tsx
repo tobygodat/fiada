@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   describeFact,
+  HAND_CLIENT,
   UNLAYERED,
   type ActivityState,
   type EdgeEvidence,
@@ -136,7 +137,10 @@ function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | nul
   const own = activity?.nodes[g.id];
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+  // Who to name in the title: your own edits aren't an agent's.
+  const hands = own.agents.map((id) => activity?.agents.find((a) => a.id === id)?.client === HAND_CLIENT);
+  const by = hands.every(Boolean) ? 'you' : hands.some(Boolean) ? 'you and an agent' : 'an agent';
+  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} by={by} />;
 }
 
 /**

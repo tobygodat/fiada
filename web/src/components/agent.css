@@ -56,7 +56,8 @@
 .queue-state.waiting { color: var(--warning); }
 
 /* The agent's state as a mark beside its words: a green ring sending out a slow ripple while it
-   works, a hollow ochre ring while it waits for you, a muted one once the session has ended. */
+   works, a hollow ochre ring while it waits for you, a muted one once the session has ended.
+   Your own edits aren't an agent's state: a solid muted dot. */
 .queue-dot {
   position: relative; flex: none; align-self: center; width: 9px; height: 9px; margin: 0 4.5px; border-radius: 50%;
   border: 1.5px solid var(--muted);
@@ -67,6 +68,7 @@
   animation: queue-ripple 2s ease-out infinite;
 }
 .queue-dot.waiting { border-color: var(--warning); }
+.queue-dot.hand { background: var(--muted); }
 @keyframes queue-ripple { from { transform: scale(1); opacity: 0.8; } to { transform: scale(2.4); opacity: 0; } }
 
 .queue-task {
