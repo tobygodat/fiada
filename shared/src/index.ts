@@ -216,17 +216,17 @@ export interface SortedPlacement {
   layerReason?: string;
 }
 
-/** "Claude" for a Claude model id, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
-export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : model);
+/** "Claude" for a Claude model id, "OpenAI" for an OpenAI one, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
+export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : /^(gpt|chatgpt|o\d)/i.test(model) ? 'OpenAI' : model);
 
-/** Whether the indexer can sort a project with Claude, and how the last sort went. */
+/** Whether the indexer can sort a project with a model, and how the last sort went. */
 export interface SortingState {
   /** The indexer has a model to sort with (an API key for one). */
   available: boolean;
   /** Where to set a key, when sorting is off (llm.ts KEY_HINT). */
   keyHint?: string;
   status: 'off' | 'idle' | 'running' | 'done' | 'error';
-  /** Who sorts, for people: "Claude". */
+  /** Who sorts, for people: "OpenAI" or "Claude". */
   by?: string;
   /** The model the current sort was made with. */
   model?: string;
@@ -563,4 +563,35 @@ export interface ActivityState {
   agents: AgentActivity[];
   /** Graph node id → change: files and symbols agents touched. */
   nodes: Record<string, NodeChange>;
+}
+
+// ── Node summaries ──
+//
+// What a node does, at the top of its panel. Every node gets a line built
+// from what the indexer knows (or the code's own doc comment), so nothing is
+// ever blank; with a model key set on the indexer, a generated summary is
+// written from the node's code and its neighbours, cached per project.
+
+export type SummaryStatus =
+  /** The generated summary is in `generated`. */
+  | 'ready'
+  /** Being written now; ask again shortly. */
+  | 'pending'
+  /** No model key on the indexer, so only the line. */
+  | 'off'
+  /** Writing it failed; `error` says why. */
+  | 'error';
+
+export interface NodeSummary {
+  node: string;
+  /** Always present: a sentence or two built from the graph (routes, what it defines, calls and who uses it). */
+  line: string;
+  /** First sentence of the code's own docstring or doc comment, when it has one. */
+  doc?: string;
+  /** One or two plain sentences a model wrote from the node's code and neighbours. */
+  generated?: { text: string; model: string; at: string };
+  status: SummaryStatus;
+  error?: string;
+  /** With status `off`: what turns generated summaries on, e.g. "Set ANTHROPIC_API_KEY on the indexer…". */
+  off?: string;
 }

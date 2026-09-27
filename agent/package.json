@@ -13,7 +13,7 @@
   },
   "scripts": {
     "setup": "node bin/strata-setup.mjs",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@strata/shared": "*",
