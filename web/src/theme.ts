@@ -1,6 +1,6 @@
 // Palette and type from the prototype's "orbital" look.
 
-import { UNLAYERED } from '@strata/shared';
+import { UNLAYERED, type ChangeKind } from '@strata/shared';
 
 export const INK = '#e6e3da';
 export const BG = '#0c0d10';
@@ -9,6 +9,14 @@ export const AMBER = 'oklch(82% 0.16 80)';
 export const DANGER = 'oklch(72% 0.15 25)';
 export const MONO = "'Geist Mono', ui-monospace, monospace";
 export const SANS = "'Geist', system-ui, sans-serif";
+
+/**
+ * What a coding agent did to a file or symbol: the rings and badges on the
+ * map and the +/~/− marks in the task queue. These hues mean a change and
+ * nothing else; an agent's own state (working, waiting) is drawn in ink.
+ * styles.css repeats them as --added, --modified and --deleted.
+ */
+export const CHANGE: Readonly<Record<ChangeKind, string>> = { added: MINT, modified: AMBER, deleted: DANGER };
 
 // One hue per repository, in import order.
 const REPO_HUES = ['72% 0.14 280', '74% 0.13 190', '74% 0.14 25', '78% 0.10 95', '76% 0.13 150', '74% 0.14 330', '78% 0.12 60', '74% 0.12 230'];

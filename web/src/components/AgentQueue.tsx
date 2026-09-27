@@ -73,6 +73,17 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
           <AgentCard key={a.id} a={a} onSelect={onSelect} onClear={() => onClear(a.id)} />
         ))}
       </div>
+      <div className="queue-key" title="How the map marks what agents changed">
+        <span>
+          <span className="swatch-ring added" /> added
+        </span>
+        <span>
+          <span className="swatch-ring modified" /> changed
+        </span>
+        <span>
+          <span className="swatch-ring deleted" /> deleted
+        </span>
+      </div>
     </aside>
   );
 }

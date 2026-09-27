@@ -97,7 +97,7 @@ npm run index -- ../some-repo --grouping my.grouping.json --layers
 
 ## Watching a coding agent
 
-Strata can follow a coding agent (Claude Code, Cursor, Codex, or anything that speaks MCP) while it works on a repository you've imported. A small window at the top right lists each agent's task and plan, with the step it's on, and the map marks what it touches: a mint ring on anything it added, amber on anything it changed, and a short pulse as each change lands. A closed circle shows a count of the changes inside it (`+2 ~3 −1`: files in the Code view, symbols By function), so you can see where an agent is working without opening anything. Click a changed file in the window, or any ringed circle, and the detail panel shows the diff (for a symbol, just the hunks that touch it).
+Strata can follow a coding agent (Claude Code, Cursor, Codex, or anything that speaks MCP) while it works on a repository you've imported. A small window at the top right lists each agent's task and plan, with the step it's on, and the map marks what it touches: a ring just outside anything it added (mint), changed (amber) or deleted (dashed red), and a short pulse as each change lands. Those colours only ever mean a change; whether an agent is working or waiting for you is shown in the window in plain ink. A closed circle shows a count of the changes inside it (`+2 ~3 −1`: files in the Code view, symbols By function) on whichever side of it is clear of links and tags, so you can see where an agent is working without opening anything. Click a changed file in the window, or any ringed circle, and the detail panel shows the diff (for a symbol, just the hunks that touch it).
 
 There are two ways in, and they work best together:
 
