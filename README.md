@@ -34,7 +34,7 @@ npm install
 npm run dev          # indexer on :4178, map on http://localhost:5178
 ```
 
-Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the box under **repositories**, and press **import**. Then:
+Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the box under **repositories**, and press **import**. For a private repository, use **upload a folder** under the box instead: the browser sends only the source files (it honours `.gitignore` and skips `node_modules` and the git history), up to 50 MB. Then:
 
 1. Click a circle to see what it is; click it again to open it.
 2. Under **view**, switch to **by function** and open the **Items** domain.
