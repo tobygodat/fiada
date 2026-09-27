@@ -216,7 +216,7 @@ a { color: inherit; }
 }
 .import button:hover:not(:disabled) { color: var(--accent); }
 .import button:disabled { border-color: var(--faint); color: var(--faint); cursor: default; }
-.suggestions { margin-top: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
+.suggestions, .upload-line { margin-top: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
 
 /* Layers: a section that folds from its heading. */
 .section-title.fold { display: flex; align-items: center; gap: var(--space-xs); width: 100%; transition: color var(--quick) var(--ease); }
