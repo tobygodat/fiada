@@ -150,17 +150,30 @@ function segmentHits(x1: number, y1: number, x2: number, y2: number, b: Rect, pa
 
 type Edge = Taken['edges'][number];
 
-/** Room left round a link: half its width and a little air. */
-const edgePad = (e: Edge) => e.w / 2 + 2;
-
-/** A link as short straight pieces, more of them the longer it is. */
-function sample(e: Edge, each: (x1: number, y1: number, x2: number, y2: number) => boolean | void) {
+/**
+ * How many straight pieces stand in for a link, and how far a piece can stray
+ * from the curve. A piece spanning 1/n of a quadratic strays from it by at most
+ * |P0 − 2P1 + P2| / 4n², so a bent link gets enough pieces to keep that under
+ * half a pixel, and a long one enough to keep pieces about a cell long.
+ */
+function pieces(e: Edge): { n: number; stray: number } {
   const [x1, y1, cx, cy, x2, y2] = e.pts;
-  const steps = Math.min(24, Math.max(3, Math.ceil((Math.hypot(cx - x1, cy - y1) + Math.hypot(x2 - cx, y2 - cy)) / 48)));
+  const bend = Math.hypot(x1 - 2 * cx + x2, y1 - 2 * cy + y2);
+  const len = Math.hypot(cx - x1, cy - y1) + Math.hypot(x2 - cx, y2 - cy);
+  const n = Math.min(64, Math.max(2, Math.ceil(Math.sqrt(bend / 2)), Math.ceil(len / 48)));
+  return { n, stray: bend / (4 * n * n) };
+}
+
+/** Room left round a link: half its width, a little air, and however far its pieces stray from it. */
+const edgePad = (e: Edge, stray: number) => e.w / 2 + 2 + stray;
+
+/** A link as short straight pieces (see `pieces`). */
+function sample(e: Edge, n: number, each: (x1: number, y1: number, x2: number, y2: number) => boolean | void) {
+  const [x1, y1, cx, cy, x2, y2] = e.pts;
   let px = x1;
   let py = y1;
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
     const u = 1 - t;
     const x = u * u * x1 + 2 * u * t * cx + t * t * x2;
     const y = u * u * y1 + 2 * u * t * cy + t * t * y2;
@@ -172,10 +185,11 @@ function sample(e: Edge, each: (x1: number, y1: number, x2: number, y2: number) 
 
 /** Whether a drawn link passes through the box, with its width and a little air around it. */
 export function curveHits(e: Edge, box: Rect): boolean {
-  const pad = edgePad(e);
+  const { n, stray } = pieces(e);
+  const pad = edgePad(e, stray);
   if (e.maxX < box.x - pad || e.minX > box.x + box.w + pad || e.maxY < box.y - pad || e.minY > box.y + box.h + pad) return false;
   let hit = false;
-  sample(e, (ax, ay, bx, by) => (hit = segmentHits(ax, ay, bx, by, box, pad)));
+  sample(e, n, (ax, ay, bx, by) => (hit = segmentHits(ax, ay, bx, by, box, pad)));
   return hit;
 }
 
@@ -218,8 +232,9 @@ export class BadgeSpace {
     }
     for (const e of taken.edges) {
       const link = { hit: 0 };
-      const pad = edgePad(e);
-      sample(e, (x1, y1, x2, y2) => {
+      const { n, stray } = pieces(e);
+      const pad = edgePad(e, stray);
+      sample(e, n, (x1, y1, x2, y2) => {
         this.add({ k: 'seg', link, x1, y1, x2, y2, pad, seen: 0 }, Math.min(x1, x2) - pad, Math.min(y1, y2) - pad, Math.max(x1, x2) + pad, Math.max(y1, y2) + pad);
       });
     }

@@ -129,3 +129,40 @@ test('a wide badge still sees what is near its far end', () => {
   const box = new BadgeSpace({ edges: [], rects, free, view }, [d], [{ d, w: wide, h: H }]).place(d, wide, H);
   for (const r of rects) assert.ok(!(r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h), 'clear of the far tag');
 });
+
+test('a short, strongly bent link is followed closely enough that nothing on it is missed', () => {
+  const quad = (pts: number[], w: number): Taken['edges'][number] => ({
+    pts,
+    w,
+    minX: Math.min(pts[0], pts[2], pts[4]),
+    minY: Math.min(pts[1], pts[3], pts[5]),
+    maxX: Math.max(pts[0], pts[2], pts[4]),
+    maxY: Math.max(pts[1], pts[3], pts[5]),
+  });
+  // Both bow far from the straight line between their ends, over less than 144px of curve.
+  const curves = [quad([540, 450, 560, 519, 580, 450], 1), quad([560, 430, 625, 470, 570, 505], 1)];
+  // The truth, from 400 points along the curve: does its stroke touch the box?
+  const touches = (e: Taken['edges'][number], b: Rect) => {
+    const [x1, y1, cx, cy, x2, y2] = e.pts;
+    for (let i = 0; i <= 400; i++) {
+      const t = i / 400;
+      const u = 1 - t;
+      const x = u * u * x1 + 2 * u * t * cx + t * t * x2;
+      const y = u * u * y1 + 2 * u * t * cy + t * t * y2;
+      const dx = Math.max(b.x - x, 0, x - (b.x + b.w));
+      const dy = Math.max(b.y - y, 0, y - (b.y + b.h));
+      if (Math.hypot(dx, dy) <= e.w / 2) return true;
+    }
+    return false;
+  };
+  let checked = 0;
+  for (const e of curves)
+    for (let x = e.minX - 8; x < e.maxX + 8; x += 1)
+      for (let y = e.minY - 8; y < e.maxY + 8; y += 1) {
+        const box = { x, y, w: 4, h: 4 };
+        if (!touches(e, box)) continue;
+        checked++;
+        assert.ok(curveHits(e, box), `missed the link at ${x},${y}`);
+      }
+  assert.ok(checked > 100);
+});
