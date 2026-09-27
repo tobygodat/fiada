@@ -25,8 +25,10 @@ import { palette, type ColorBy } from './theme.ts';
 import { useAgents } from './useAgents.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
-const SIDEBAR = 316;
-const DETAIL = 356;
+// What the floating panels cover, from the window's edge: the 16px inset plus
+// --strata-sidebar and --strata-detail in styles.css.
+const SIDEBAR = 16 + 312;
+const DETAIL = 16 + 372;
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
 const CLICK_MAX_K = 3.5;
 
@@ -468,7 +470,7 @@ export function App() {
         />
         {empty && (
           <div className="empty">
-            <div className="empty-title">Map a codebase</div>
+            <div className="empty-title">map a codebase</div>
             <p>
               Import one or more repositories from the sidebar. Strata parses them, links imports, calls and HTTP routes across repos, and
               draws one map you can open from systems down to symbols.
@@ -508,7 +510,7 @@ export function App() {
           />
         )}
         <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={canEdit(ws.workspace) ? (id) => void agents.clear(id) : undefined} />
-        <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} />
+        {!empty && <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} besideDetail={detailOpen} />}
       </div>
     </div>
   );
@@ -519,14 +521,16 @@ function Legend({
   pal,
   layers,
   mode,
+  besideDetail,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
   mode: ExpandMode;
+  besideDetail: boolean;
 }) {
   return (
-    <div className="legend">
+    <div className={`legend${besideDetail ? ' beside-detail' : ''}`}>
       <span>{mode === 'click' ? 'point at a circle for its links · click for details, again to open it · scroll to zoom' : 'point at a circle for its links · scroll to zoom and open circles'}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo

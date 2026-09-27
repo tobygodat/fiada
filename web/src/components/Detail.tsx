@@ -23,13 +23,13 @@ import { direction, type Contract } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
-  root: 'Workspace',
-  repo: 'Repository',
-  folder: 'Module',
-  file: 'File',
-  symbol: 'Symbol',
-  domain: 'Domain',
-  layer: 'Layer',
+  root: 'workspace',
+  repo: 'repository',
+  folder: 'module',
+  file: 'file',
+  symbol: 'symbol',
+  domain: 'domain',
+  layer: 'layer',
 };
 
 const EDGE_VERB: Record<EdgeKind, string> = {
@@ -76,7 +76,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
         <div className="kicker">
           <span className="dot" style={{ background: color }} />
           {KIND_LABEL[n.kind]}
-          {g?.symbolKind && <span className="muted">· {g.symbolKind}</span>}
+          {g?.symbolKind && <span> · {g.symbolKind}</span>}
         </div>
         <div className="detail-title">{n.name}</div>
         {path && <div className="detail-path">{path}</div>}
@@ -100,16 +100,16 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
       )}
 
       {(n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder') && (
-        <div className="detail-block muted">{summary(n)}</div>
+        <div className="detail-block summary">{summary(n)}</div>
       )}
 
       {g?.layer && g.domain && <WhyHere graph={graph} g={g} layer={g.layer} domain={g.domain} />}
 
       {!!g?.routes?.length && (
         <div className="detail-block">
-          <div className="block-title">Serves</div>
+          <div className="block-title">serves</div>
           {g.routes.map((r) => (
-            <div key={r} className="mono small">
+            <div key={r} className="routes">
               {r}
             </div>
           ))}
@@ -117,8 +117,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
       )}
 
       <div className="detail-block deps">
-        <DepList title="Uses" items={uses} graphIndex={graphIndex} self={n} onSelect={onSelect} />
-        <DepList title="Used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
+        <DepList title="uses" items={uses} graphIndex={graphIndex} self={n} onSelect={onSelect} />
+        <DepList title="used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
       </div>
 
       {g?.path && (g.kind === 'file' || g.kind === 'symbol') && (
@@ -179,9 +179,8 @@ function Code({ g, repo, rev }: { g: GraphNode; repo?: RepoInfo; rev: number }) 
 
   return (
     <div className="detail-block code-block">
-      <div className="block-title row gap">
-        <span>Code</span>
-        <span className="grow" />
+      <div className="code-head">
+        <span className="block-title">code</span>
         {g.kind === 'symbol' && all && (
           <button className="link" onClick={() => setWhole((w) => !w)}>
             {whole ? 'just this symbol' : 'whole file'}
@@ -193,8 +192,12 @@ function Code({ g, repo, rev }: { g: GraphNode; repo?: RepoInfo; rev: number }) 
           </a>
         )}
       </div>
-      {error && <div className="muted small">Couldn't load the source: {error}</div>}
-      {!all && !error && <div className="muted small">Loading…</div>}
+      {error && (
+        <div className="small muted">
+          <span className="err-lead">Couldn't load the source.</span> {error}
+        </div>
+      )}
+      {!all && !error && <div className="muted small busy">loading…</div>}
       {all && (
         <pre className="code">
           {shown.map((line, i) => (
@@ -245,7 +248,7 @@ function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; laye
   if (imports.length) seen.push(`imports ${imports.slice(0, 6).join(', ')}${imports.length > 6 ? ` +${imports.length - 6}` : ''}`);
   return (
     <div className="detail-block">
-      <div className="block-title">Why it's here</div>
+      <div className="block-title">why it's here</div>
       <Facts
         rows={[
           ['layer', layerName, explain(layer)],
@@ -285,7 +288,7 @@ function DepList({ title, items, graphIndex, self, onSelect }: { title: string; 
   return (
     <div className="dep-col">
       <div className="block-title">
-        {title} {items.length ? <span className="muted">· {items.length}</span> : null}
+        {title} {items.length ? <span className="muted num">· {items.length}</span> : null}
       </div>
       {!items.length && (
         <div className="muted small" title="The indexer links imports, calls, renders, type uses and HTTP requests it can match to a route. Anything else won't show here.">
@@ -378,7 +381,7 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
       <div className="detail-head">
         <div className="kicker">
           <span className="tag sel static">{c.tag}</span>
-          Contract
+          contract
           {c.cross === c.items.length ? ' · cross-repo' : c.cross ? ` · ${c.cross} cross-repo` : ''}
           {c.inferred ? <span className="guess">{c.inferred === c.items.length ? 'inferred' : `${c.inferred} inferred`}</span> : null}
         </div>
@@ -391,20 +394,28 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
         </div>
       </div>
       <div className="call-grid">
-        <span className="block-title">Call</span>
+        <span className="fact-k">call</span>
         <span>{call.join('; ')}.</span>
-        <span className="block-title">Response</span>
+        <span className="fact-k">response</span>
         <span>{response}</span>
       </div>
       {unproven > 0 && (
         <div className="detail-block no-evidence">
-          {unproven === c.items.length
-            ? 'No evidence found. The indexer recorded this link without the lines of code behind it, so treat it as unverified.'
-            : `No evidence found for ${unproven} of these ${c.items.length} interactions; they are marked below.`}
+          {unproven === c.items.length ? (
+            <>
+              <span className="lead">No evidence found.</span> The indexer recorded this link without the lines of code behind it, so treat it as unverified.
+            </>
+          ) : (
+            <>
+              <span className="lead">No evidence found</span> for {unproven} of these {c.items.length} interactions; they are marked below.
+            </>
+          )}
         </div>
       )}
       <div className="detail-block">
-        <div className="block-title">Interactions</div>
+        <div className="block-title">
+          interactions <span className="muted num">· {c.items.length}</span>
+        </div>
         {c.items.slice(0, 80).map((e, i) => (
           // Rows are marked only when the contract mixes proven and guessed interactions; otherwise the header says it.
           <Interaction
@@ -492,7 +503,7 @@ function Interaction(p: {
           {e.reason && (
             <div className="muted small">
               {e.reason}
-              {e.confidence != null && <span className="mono"> · {e.confidence.toFixed(2)}</span>}
+              {e.confidence != null && <span className="num"> · {e.confidence.toFixed(2)}</span>}
             </div>
           )}
           {(e.evidence ?? []).map((ev, i) => (
@@ -542,8 +553,12 @@ function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, Gr
   const web = repo && webUrl(repo, file.path, [ev.line, ev.line]);
   return (
     <div className="snippet">
-      {error && <div className="muted small">Couldn't load the source: {error}</div>}
-      {!lines && !error && <div className="muted small">Loading…</div>}
+      {error && (
+        <div className="small muted">
+          <span className="err-lead">Couldn't load the source.</span> {error}
+        </div>
+      )}
+      {!lines && !error && <div className="muted small busy">loading…</div>}
       {lines && (
         <pre className="code">
           {lines.slice(a - 1, b).map((text, i) => (
