@@ -35,7 +35,7 @@ export function normalizeSorted(raw: unknown): SortedGrouping | undefined {
       };
     }
   }
-  return { model: raw.model as string, at: raw.at as string, repos, domains, placements };
+  return { model: raw.model as string, ...(str(raw.by) ? { by: raw.by as string } : {}), at: raw.at as string, repos, domains, placements };
 }
 
 /**
@@ -60,12 +60,12 @@ export function mergeMap(grouping: Grouping): Map<string, string> {
   return out;
 }
 
-const modelPlacement = (id: string, detail: string, model: string): Placement => ({
+const modelPlacement = (id: string, detail: string, by: string): Placement => ({
   id,
   confidence: 0.6,
   source: 'model',
   evidence: [{ source: 'model', detail, weight: 1 }],
-  inferredBy: model,
+  inferredBy: by,
 });
 
 /**
@@ -77,6 +77,7 @@ const modelPlacement = (id: string, detail: string, model: string): Placement =>
 export function applySorted(nodes: GraphNode[], grouping: Grouping, layers: Assignments, domains: Assignments, found: Map<string, string>): number {
   const sorted = grouping.sorted;
   if (!sorted) return 0;
+  const by = sorted.by ?? modelLabel(sorted.model);
   const merges = mergeMap(grouping);
   if (merges.size) {
     const named = new Map(sorted.domains.map((d) => [d.id, d]));
@@ -90,7 +91,7 @@ export function applySorted(nodes: GraphNode[], grouping: Grouping, layers: Assi
       domains.set(id, {
         ...p,
         id: to,
-        evidence: [...p.evidence, { source: 'model', detail: `${modelLabel(sorted.model)} ${what}${why ? `: ${why}` : ''}`, weight: 0 }],
+        evidence: [...p.evidence, { source: 'model', detail: `${by} ${what}${why ? `: ${why}` : ''}`, weight: 0 }],
       });
     }
   }
@@ -106,7 +107,7 @@ export function applySorted(nodes: GraphNode[], grouping: Grouping, layers: Assi
       const p = own?.layer && layerIds.has(own.layer) ? own : file?.layer && layerIds.has(file.layer) ? file : null;
       if (p) {
         const why = p.layerReason ?? p.reason;
-        layers.set(n.id, modelPlacement(p.layer!, p === own ? why : `its file: ${why}`, sorted.model));
+        layers.set(n.id, modelPlacement(p.layer!, p === own ? why : `its file: ${why}`, by));
         changed = true;
       }
     }
@@ -114,7 +115,7 @@ export function applySorted(nodes: GraphNode[], grouping: Grouping, layers: Assi
       const p = own?.domain ? own : file?.domain ? file : null;
       if (p) {
         const to = merges.get(p.domain!) ?? p.domain!;
-        domains.set(n.id, modelPlacement(to, p === own ? p.reason : `its file: ${p.reason}`, sorted.model));
+        domains.set(n.id, modelPlacement(to, p === own ? p.reason : `its file: ${p.reason}`, by));
         changed = true;
       }
     }

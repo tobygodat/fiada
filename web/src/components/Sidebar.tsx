@@ -250,7 +250,7 @@ function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain
   }
   let text: ReactNode;
   if (s.status === 'off') {
-    text = "Sorting is unavailable: the indexer has no Anthropic API key (ANTHROPIC_API_KEY), so code the classifier can't place stays Unlayered and Unsorted.";
+    text = `Sorting is unavailable: the indexer has no model API key${s.keyHint ? ` (${s.keyHint})` : ''}, so code the classifier can't place stays Unlayered and Unsorted.`;
   } else if (s.status === 'running') {
     text = <span className="busy">{by} is sorting the code the classifier couldn't place…</span>;
   } else {

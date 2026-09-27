@@ -34,6 +34,8 @@ export type Ask = (req: JsonRequest) => Promise<unknown>;
 
 export interface SortOptions {
   model: string;
+  /** Who sorts, for people: the model client's label ("Claude"). */
+  by?: string;
   /** Leftover files per request. */
   batchSize?: number;
   /** Requests in flight at once. */
@@ -355,7 +357,7 @@ Answer every file, by its ref.`;
     for (let i = 0; i < missed.length; i += batchSize) await run(missed.slice(i, i + batchSize), 1, 1);
   }
 
-  return { model: opts.model, at: new Date().toISOString(), repos, domains: sortedDomains, placements };
+  return { model: opts.model, ...(opts.by ? { by: opts.by } : {}), at: new Date().toISOString(), repos, domains: sortedDomains, placements };
 }
 
 /** The leftovers as folders with file counts, so step 1 sees their shape without every file. */

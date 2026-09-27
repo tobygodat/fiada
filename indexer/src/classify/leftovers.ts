@@ -1,6 +1,6 @@
 // What classification left undecided: code in Unlayered or Unsorted. The
 // counts are how Strata measures a fresh import, and the list is what the
-// Claude sort is asked to place.
+// model sort is asked to place.
 
 import { SHARED_DOMAIN, UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode } from '@strata/shared';
 
@@ -19,8 +19,8 @@ export interface SortStats {
   /** Named domains (not Shared or Unsorted), and how many of them hold code from a single file. */
   domains: number;
   oneFileDomains: number;
-  /** Leaves Claude's sort placed. */
-  sortedByClaude: number;
+  /** Leaves the model's sort placed. */
+  sortedByModel: number;
 }
 
 /** The nodes the By-function view draws as leaves. */
@@ -37,7 +37,7 @@ export function sortStats(graph: Graph): SortStats {
   let unlayered = 0;
   let leftover = 0;
   let shared = 0;
-  let sortedByClaude = 0;
+  let sortedByModel = 0;
   for (const n of ls) {
     const d = n.domain?.id ?? UNSORTED_DOMAIN;
     const u = d === UNSORTED_DOMAIN;
@@ -46,7 +46,7 @@ export function sortStats(graph: Graph): SortStats {
     if (l) unlayered++;
     if (u || l) leftover++;
     if (d === SHARED_DOMAIN) shared++;
-    if (n.domain?.source === 'model' || n.layer?.source === 'model') sortedByClaude++;
+    if (n.domain?.source === 'model' || n.layer?.source === 'model') sortedByModel++;
     if (!u && d !== SHARED_DOMAIN) (filesOf.get(d) ?? filesOf.set(d, new Set()).get(d)!).add(n.kind === 'file' ? n.id : n.parent);
   }
   return {
@@ -59,14 +59,14 @@ export function sortStats(graph: Graph): SortStats {
     filesUnlayered: files.filter((f) => (f.layer?.id ?? UNLAYERED) === UNLAYERED).length,
     domains: filesOf.size,
     oneFileDomains: [...filesOf.values()].filter((s) => s.size === 1).length,
-    sortedByClaude,
+    sortedByModel,
   };
 }
 
 export const describeStats = (s: SortStats) =>
   `${s.leftover} of ${s.leaves} unsorted (${s.unsorted} with no domain, ${s.unlayered} with no layer; ${s.filesUnlayered} of ${s.files} files unlayered) · ` +
   `${s.shared} shared · ${s.domains} domains, ${s.oneFileDomains} from one file` +
-  (s.sortedByClaude ? ` · ${s.sortedByClaude} placed by Claude` : '');
+  (s.sortedByModel ? ` · ${s.sortedByModel} placed by the model` : '');
 
 /** One file with something left to decide: its own layer, or a domain for it or some of its symbols. */
 export interface LeftoverFile {

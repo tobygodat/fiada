@@ -135,7 +135,7 @@ export interface Placement {
   source: PlacementSource;
   /** Winning evidence first, then runners-up. */
   evidence: Evidence[];
-  /** The model that decided it, when Claude sorted it rather than a signal in the code (source "model"). */
+  /** Who decided it ("Claude"), when a model sorted it rather than a signal in the code (source "model"). */
   inferredBy?: string;
 }
 
@@ -182,6 +182,8 @@ export interface Grouping {
 export interface SortedGrouping {
   /** The model that sorted, e.g. "claude-opus-5". */
   model: string;
+  /** Who sorted, for people: the model client's label ("Claude"). */
+  by?: string;
   /** ISO time. */
   at: string;
   /** Repository id → commit it sorted (empty when unknown); a new repository or commit sorts again. */
@@ -214,13 +216,15 @@ export interface SortedPlacement {
   layerReason?: string;
 }
 
-/** "Claude" for a Claude model id, else the id itself: who to credit for a placement a model made. */
+/** "Claude" for a Claude model id, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
 export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : model);
 
 /** Whether the indexer can sort a project with Claude, and how the last sort went. */
 export interface SortingState {
-  /** The indexer has a model to sort with (an ANTHROPIC_API_KEY). */
+  /** The indexer has a model to sort with (an API key for one). */
   available: boolean;
+  /** Where to set a key, when sorting is off (llm.ts KEY_HINT). */
+  keyHint?: string;
   status: 'off' | 'idle' | 'running' | 'done' | 'error';
   /** Who sorts, for people: "Claude". */
   by?: string;
