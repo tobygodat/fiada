@@ -43,6 +43,8 @@ export function rolesPreset(): LayerDef[] {
       match: [
         fact('request', undefined, 250),
         ...imports(220, 'axios', 'ky', 'ofetch', 'got', 'node-fetch', 'cross-fetch', 'swr', 'graphql-request', '@apollo/client', '@tanstack/react-query', 'requests', 'httpx', 'aiohttp'),
+        // Go HTTP clients.
+        ...imports(220, 'github.com/go-resty/resty', 'github.com/hashicorp/go-retryablehttp'),
         ...files(120, 'use[A-Z]*.ts', 'api.ts', 'client.ts', 'fetcher.ts'),
         ...frontendDirs('api', 'apis', 'lib', 'hooks', 'store', 'stores', 'state', 'queries', 'services'),
         ...dirs(100, 'client', 'clients', 'sdk'),
@@ -55,6 +57,8 @@ export function rolesPreset(): LayerDef[] {
       match: [
         fact('route'),
         ...imports(200, 'fastapi', 'flask', 'starlette', 'django.http', 'django.urls', 'rest_framework', 'express', 'fastify', 'hono', 'koa', '@nestjs/common', 'next/server'),
+        // Go web frameworks and RPC servers.
+        ...imports(200, 'github.com/gin-gonic/gin', 'github.com/labstack/echo', 'github.com/go-chi/chi', 'github.com/gofiber/fiber', 'github.com/gorilla/mux', 'github.com/julienschmidt/httprouter', 'google.golang.org/grpc'),
         ...files(120, '*.controller.*', '*.route.*', '*.routes.*', '*.router.*', '*.handler.*', '*.resolver.*', 'routes.py', 'views.py', 'urls.py', 'endpoints.py'),
         ...dirs(100, 'routes', 'routers', 'controllers', 'handlers', 'endpoints', 'resolvers', 'api', 'views'),
       ],
@@ -76,6 +80,8 @@ export function rolesPreset(): LayerDef[] {
       match: [
         fact('table', undefined, 310),
         ...imports(210, 'sqlalchemy', 'sqlmodel', 'alembic', 'django.db', 'peewee', 'tortoise', 'pymongo', 'motor', 'redis', 'psycopg', 'psycopg2', 'asyncpg', 'prisma', '@prisma/client', 'mongoose', 'typeorm', 'drizzle-orm', 'knex', 'pg', 'mysql2', 'sequelize', 'ioredis', 'better-sqlite3', 'kysely'),
+        // Go database drivers and ORMs.
+        ...imports(210, 'gorm.io/gorm', 'gorm.io/driver', 'github.com/jinzhu/gorm', 'database/sql', 'github.com/jmoiron/sqlx', 'github.com/jackc/pgx', 'github.com/lib/pq', 'go.mongodb.org/mongo-driver', 'github.com/redis/go-redis', 'entgo.io/ent'),
         ...files(120, '*.repository.*', '*.entity.*', '*.model.*', 'models.py', 'db.py', 'database.py', 'repository.py', 'orm.py', 'crud.py'),
         // "models/" is ambiguous on purpose: an import of torch outranks it.
         ...dirs(100, 'db', 'database', 'models', 'entities', 'repositories', 'migrations', 'alembic', 'prisma', 'dao', 'orm', 'persistence'),
@@ -88,6 +94,7 @@ export function rolesPreset(): LayerDef[] {
         fact('entrypoint', '^(cron|dag)$'),
         fact('decorator', '(^|\\.)(task|shared_task|periodic_task|dag|flow|scheduled_job|cron)$'),
         ...imports(230, 'airflow', 'celery', 'prefect', 'dagster', 'luigi', 'bullmq', 'bull', 'agenda', 'apscheduler', 'rq', 'dramatiq', 'node-cron'),
+        ...imports(230, 'github.com/hibiken/asynq', 'github.com/robfig/cron', 'github.com/go-co-op/gocron'),
         ...files(120, 'tasks.py', 'jobs.py', 'worker.py', 'celery.py', 'dag.py', '*.job.*', '*.worker.*', '*.task.*'),
         ...dirs(100, 'jobs', 'workers', 'tasks', 'pipelines', 'etl', 'dags', 'cron', 'queues', 'consumers'),
       ],
