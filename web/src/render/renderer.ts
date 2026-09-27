@@ -615,7 +615,7 @@ export class MapRenderer {
     // ── agent badges, last so they can keep clear of every link, tag and tab ──
     if (scene.activity?.size) {
       const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
-      drawBadges(ctx, this.drawnNodes, scene.activity, (s) => this.textWidth(s, 'mono', 10), taken, this.badgeCache);
+      drawBadges(ctx, this.drawnNodes, scene.activity, taken, this.badgeCache);
       this.lastFont = '';
     }
   }

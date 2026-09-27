@@ -1,18 +1,19 @@
 // The agent overlay, drawn over the map's circles: a ring just outside
 // anything an agent added, modified or deleted, a pulse for a few seconds
-// after each change, and on closed circles a small count of the changes
-// inside. It stays quiet on purpose: thin rings, one small badge, and no
-// motion once the agent stops. The colours mean a change and nothing else
-// (theme.ts CHANGE); a thin dark gap keeps a ring apart from the circle's own
-// layer colour, and a badge sits wherever it covers no link, tag or name tab.
+// after each change, a green ring where an agent is working right now, and on
+// closed circles a small count of the changes inside. It stays quiet on
+// purpose: thin rings, one small badge, and no motion once the agent stops.
+// Change colours mean a change and nothing else (ink, ochre, brick); the one
+// green means "an agent is here now". A gap cut from the paper keeps a ring
+// apart from the circle's own colour, and a badge sits wherever it covers no
+// link, tag or name tab. Every colour and the type come from the design tokens.
 
 import { changeCount, type Marks, type TreeActivity } from '../graph/activity.ts';
 import type { TNode } from '../graph/tree.ts';
-import { BG, CHANGE, MONO } from '../theme.ts';
-import { token } from '../theme/tokens.ts';
+import { changeColor, fonts, token } from '../theme/tokens.ts';
 
-/** The map's paper: the gap round a ring and a badge's fill are cut from it. */
-const paper = () => token('--ground') || BG;
+/** The map's paper: the gap round a ring is cut from it. */
+const paper = () => token('--ground');
 
 /** How long a change keeps pulsing. */
 export const PULSE_MS = 8000;
@@ -67,6 +68,34 @@ function halo(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, co
   ctx.stroke();
 }
 
+/** Where the green "working here" ring sits: past the change ring when there is one, else in its place. */
+export function hereGeometry(r: number, changed: boolean) {
+  const g = ringGeometry(r);
+  const line = 1.5;
+  if (!changed) return { gap: g.gap, line, gapR: g.gapR, lineR: g.lineR, outer: g.lineR + line / 2 };
+  const gap = r < 6 ? 1.5 : 2;
+  const gapR = g.outer + gap / 2;
+  const lineR = g.outer + gap + line / 2;
+  return { gap, line, gapR, lineR, outer: lineR + line / 2 };
+}
+
+function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: number; line: number; gapR: number; lineR: number }, color: string, dash: number[]) {
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = paper();
+  ctx.lineWidth = g.gap;
+  ctx.beginPath();
+  ctx.arc(x, y, g.gapR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = g.line;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  ctx.arc(x, y, g.lineR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 /** Rings and pulses. Returns whether anything is still pulsing, so the caller keeps animating. */
 export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number): boolean {
   let pulsing = false;
@@ -76,29 +105,19 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     const age = now - m.at;
     const recent = age >= 0 && age < PULSE_MS;
     const g = ringGeometry(d.r);
+    // An agent working here now: on the node itself, or on the closed circle it's inside.
+    const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self) : null;
+    if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
     if (m.self) {
-      const color = CHANGE[m.self];
-      ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = paper();
-      ctx.lineWidth = g.gap;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, g.gapR, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 0.95;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = g.line;
-      ctx.setLineDash(m.self === 'deleted' ? [3, 3] : []);
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, g.lineR, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      const color = changeColor(m.self);
+      ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);
       if (recent) {
-        halo(ctx, d.x, d.y, g.outer, color, age, 0.7);
+        halo(ctx, d.x, d.y, here?.outer ?? g.outer, color, age, 0.7);
         pulsing = true;
       }
     } else if (!d.open && recent && changeCount(m)) {
       // Something inside a closed circle just changed.
-      halo(ctx, d.x, d.y, d.r, CHANGE[dominant(m)], age, 0.45);
+      halo(ctx, d.x, d.y, d.r, changeColor(dominant(m)), age, 0.45);
       pulsing = true;
     }
   }
@@ -114,10 +133,9 @@ const ANGLES = [-45, -135, 45, 135, -90, 90, 0, 180, -20, -70, -110, -160, 20, 7
 function boxAt(d: Drawn, angle: number, w: number, h: number, out: number): Rect {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
-  // On a diagonal the box meets the ring at a corner, which the pill rounds off: tuck it in to touch.
-  const at = Math.abs(c) > 0.3 && Math.abs(s) > 0.3 ? out - 2.5 : out;
-  const px = d.x + c * at;
-  const py = d.y + s * at;
+  // On a diagonal the box meets the ring at its corner, which is square: it touches as it is.
+  const px = d.x + c * out;
+  const py = d.y + s * out;
   const x = c > 0.3 ? px : c < -0.3 ? px - w : px - w / 2;
   const y = s > 0.3 ? py : s < -0.3 ? py - h : py - h / 2;
   return { x, y, w, h };
@@ -362,22 +380,36 @@ function geometryKey(taken: Taken, drawn: readonly Drawn[], badged: readonly { d
 
 const sameKey = (a: Float64Array | undefined, b: Float64Array) => !!a && a.length === b.length && a.every((v, i) => v === b[i]);
 
-/** Count badges on closed circles, "+2 ~1 −1", placed clear of links, tags and name tabs. */
-export function drawBadges(
-  ctx: CanvasRenderingContext2D,
-  drawn: Drawn[],
-  marks: TreeActivity,
-  textWidth: (s: string) => number,
-  taken: Taken,
-  cache: BadgeCache = {},
-) {
-  const gap = 5;
-  const h = 16;
+// Badge type: `fine` Literata, the floor of the scale.
+const BADGE_SIZE = 13;
+const BADGE_H = 20;
+const BADGE_PAD = 6;
+const BADGE_GAP = 6;
+const badgeFont = () => `400 ${BADGE_SIZE}px ${fonts().serif || 'serif'}`;
+
+// Widths by font and text: a badge reads a few short strings, so each is measured once.
+// The web font can arrive after the first frame; measure again when it does.
+const widths = new Map<string, number>();
+if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => widths.clear());
+function measure(ctx: CanvasRenderingContext2D, font: string, text: string): number {
+  const key = `${font}|${text}`;
+  let w = widths.get(key);
+  if (w == null) widths.set(key, (w = ctx.measureText(text).width));
+  return w;
+}
+
+/**
+ * Count badges on closed circles, "+2 ~1 −1" in `fine` Literata, each count in its change's colour,
+ * in a small square-cornered box on the raised surface. Placed clear of links, tags and name tabs.
+ */
+export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, taken: Taken, cache: BadgeCache = {}) {
+  const font = badgeFont();
+  ctx.font = font;
   const badges: { d: Drawn; m: Marks; w: number; h: number; parts: { text: string; color: string; w: number }[] }[] = [];
   for (const d of drawn) {
     const m = !d.open && marks.get(d.n.id);
     if (!m || !changeCount(m)) continue;
-    // Small circles get a dot, the rest a pill with the counts.
+    // Small circles get a dot, the rest the counts.
     if (d.r < 9) {
       badges.push({ d, m, w: 5, h: 5, parts: [] });
       continue;
@@ -390,9 +422,9 @@ export function drawBadges(
       ] as const
     )
       .filter(([k]) => m[k])
-      .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: CHANGE[k], w: textWidth(`${sign}${m[k]}`) }));
-    const w = parts.reduce((a, p) => a + p.w, 0) + gap * (parts.length - 1) + 12;
-    badges.push({ d, m, w, h, parts });
+      .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: changeColor(k), w: measure(ctx, font, `${sign}${m[k]}`) }));
+    const w = Math.ceil(parts.reduce((a, p) => a + p.w, 0) + BADGE_GAP * (parts.length - 1) + BADGE_PAD * 2);
+    badges.push({ d, m, w, h: BADGE_H, parts });
   }
   if (!badges.length) return;
 
@@ -405,34 +437,35 @@ export function drawBadges(
     cache.boxes = boxes;
   }
 
+  const raised = token('--ground-raised');
+  const border = token('--hairline-strong');
+  ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
+  ctx.lineWidth = 1;
   badges.forEach((b, i) => {
     const box = boxes[i];
-    const main = CHANGE[dominant(b.m)];
     if (!b.parts.length) {
-      ctx.fillStyle = main;
+      ctx.fillStyle = changeColor(dominant(b.m));
       ctx.beginPath();
       ctx.arc(box.x + 2.5, box.y + 2.5, 2.5, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
-    ctx.fillStyle = paper();
-    ctx.strokeStyle = main;
-    ctx.globalAlpha = 0.9;
-    ctx.lineWidth = 1;
+    // Whole pixels, so the 1px border stays crisp.
+    const x = Math.round(box.x) + 0.5;
+    const y = Math.round(box.y) + 0.5;
+    ctx.fillStyle = raised;
+    ctx.strokeStyle = border;
     ctx.beginPath();
-    ctx.roundRect(box.x, box.y, b.w, b.h, b.h / 2);
+    ctx.roundRect(x, y, b.w - 1, b.h - 1, 2);
     ctx.fill();
-    ctx.globalAlpha = 0.55;
     ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.font = `500 10px ${MONO}`;
-    let tx = box.x + 6;
+    let tx = x - 0.5 + BADGE_PAD;
     for (const p of b.parts) {
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, tx, box.y + b.h / 2 + 0.5);
-      tx += p.w + gap;
+      ctx.fillText(p.text, tx, y - 0.5 + b.h / 2 + 0.5);
+      tx += p.w + BADGE_GAP;
     }
   });
   ctx.textAlign = 'center';
