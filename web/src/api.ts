@@ -1,11 +1,12 @@
 import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, Workspace } from '@strata/shared';
+import { apiBase } from './apiBase.ts';
 
 /**
  * Where the indexer is. Empty means this origin, which the dev server
  * proxies to the indexer; a build for a static host (Vercel) sets
  * VITE_API_URL to the hosted indexer.
  */
-export const API_BASE = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
+export const API_BASE = apiBase(import.meta.env.VITE_API_URL);
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 

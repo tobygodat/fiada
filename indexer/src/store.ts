@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { Grouping } from '@strata/shared';
-import { MongoProjectStore, redact } from './mongo-store.ts';
+import { MongoProjectStore, redact, unquote } from './mongo-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
 export interface SavedRepo {
@@ -122,7 +122,7 @@ export class FileProjectStore implements ProjectStore {
  * why and uses the files for this run, so the map still works offline.
  */
 export async function createStore(home: string): Promise<ProjectStore> {
-  const uri = process.env.MONGODB_URI?.trim();
+  const uri = unquote(process.env.MONGODB_URI);
   if (uri) {
     try {
       const db = process.env.STRATA_MONGODB_DB?.trim() || 'strata';
