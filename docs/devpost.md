@@ -1,8 +1,6 @@
 # Fiada: Devpost write-up
 
-Track: Oracle of the Deep (ML/AI + visualization). Also entered for MLH Best Use of MongoDB Atlas, MLH Best Domain Name from .tech [pending: register a .tech domain and point it at the map], and the Create-X checkbox.
-
-Lines marked [pending: thread name] describe a feature that was still landing when this was written. Delete the marker if it shipped, or the sentence if it didn't.
+Track: Oracle of the Deep (ML/AI + visualization). Also entered for MLH Best Use of MongoDB Atlas, MLH Best Domain Name from .tech (https://fiada.tech), and the Create-X checkbox.
 
 ## Tagline
 
@@ -35,7 +33,7 @@ There are two views of the same code. **Code** is the structural truth: reposito
 - **Map** (React 19, Vite, canvas). d3-hierarchy circle packing, with our own canvas renderer for the camera, hit testing, edge bending around closed circles and label fitting. The first version was SVG and dropped to 15 to 20 fps on next.js (13k nodes, 10k edges); the canvas holds 60 fps. At rest the map draws only each open circle's strongest few links, so a first look isn't a hairball.
 - **Agent overlay.** A Claude Code hook CLI and a stdio MCP server (`report_task`, `flag_changes`) post to the indexer, which re-parses just the changed files (about 10 ms on the FastAPI template), diffs each file's functions against HEAD, and streams the result to the map over server-sent events.
 - **MongoDB Atlas** stores each project as one document: its repositories and its layer and domain grouping, with per-field revisions so two indexers can't silently undo each other. A fresh container re-clones the project's repos from what Atlas remembers.
-- **Hosting.** The map is a static build on Vercel at https://hackgt13.vercel.app. The indexer is long-running (git clones, an in-memory graph, SSE), so it runs from a Dockerfile on Railway.
+- **Hosting.** The map is a static build on Vercel at https://fiada.tech. The indexer is long-running (git clones, an in-memory graph, SSE), so it runs from a Dockerfile on Railway.
 
 ## Challenges we ran into
 
@@ -67,5 +65,5 @@ TypeScript, Node.js, Fastify, tree-sitter, React, Vite, d3-hierarchy, Canvas, Mo
 
 ## Try it
 
-- Hosted map (read-only): https://hackgt13.vercel.app
+- Hosted map (read-only): https://fiada.tech
 - Code: https://github.com/tobygodat/hackgt13
