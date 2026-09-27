@@ -216,17 +216,17 @@ export interface SortedPlacement {
   layerReason?: string;
 }
 
-/** "Claude" for a Claude model id, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
-export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : model);
+/** "Claude" for a Claude model id, "OpenAI" for an OpenAI one, else the id itself: who to credit when a sort doesn't say (see SortedGrouping.by). */
+export const modelLabel = (model: string) => (/^claude/i.test(model) ? 'Claude' : /^(gpt|chatgpt|o\d)/i.test(model) ? 'OpenAI' : model);
 
-/** Whether the indexer can sort a project with Claude, and how the last sort went. */
+/** Whether the indexer can sort a project with a model, and how the last sort went. */
 export interface SortingState {
   /** The indexer has a model to sort with (an API key for one). */
   available: boolean;
   /** Where to set a key, when sorting is off (llm.ts KEY_HINT). */
   keyHint?: string;
   status: 'off' | 'idle' | 'running' | 'done' | 'error';
-  /** Who sorts, for people: "Claude". */
+  /** Who sorts, for people: "OpenAI" or "Claude". */
   by?: string;
   /** The model the current sort was made with. */
   model?: string;
