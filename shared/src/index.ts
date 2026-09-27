@@ -454,3 +454,32 @@ export interface ActivityState {
   /** Graph node id → change: files and symbols agents touched. */
   nodes: Record<string, NodeChange>;
 }
+
+// ── Node summaries ──
+//
+// What a node does, at the top of its panel. Every node gets a line built
+// from what the indexer knows (or the code's own doc comment), so nothing is
+// ever blank; with a model key set on the indexer, a generated summary is
+// written from the node's code and its neighbours, cached per project.
+
+export type SummaryStatus =
+  /** The generated summary is in `generated`. */
+  | 'ready'
+  /** Being written now; ask again shortly. */
+  | 'pending'
+  /** No model key on the indexer, so only the line. */
+  | 'off'
+  /** Writing it failed; `error` says why. */
+  | 'error';
+
+export interface NodeSummary {
+  node: string;
+  /** Always present: a sentence or two built from the graph (routes, what it defines, calls and who uses it). */
+  line: string;
+  /** First sentence of the code's own docstring or doc comment, when it has one. */
+  doc?: string;
+  /** One or two plain sentences a model wrote from the node's code and neighbours. */
+  generated?: { text: string; model: string; at: string };
+  status: SummaryStatus;
+  error?: string;
+}

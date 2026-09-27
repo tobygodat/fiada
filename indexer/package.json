@@ -7,9 +7,10 @@
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "start": "tsx src/server.ts",
     "index": "tsx src/cli.ts",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@strata/shared": "*",
     "fastify": "^5.6.1",
     "mongodb": "^6.21.0",

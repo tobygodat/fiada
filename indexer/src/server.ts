@@ -13,6 +13,8 @@ import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS 
 import { AgentHub } from './agents.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
 import { checkProjectId, createStore } from './store.ts';
+import { Summaries } from './summaries/index.ts';
+import { createLlm } from './summaries/llm.ts';
 import { STRATA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
@@ -20,11 +22,23 @@ const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.STRATA_API_KEY || undefined;
 const allowedOrigin = originMatcher(process.env.STRATA_ALLOWED_ORIGINS);
 
-const ws = new Workspace(await createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'), {
+const store = await createStore(STRATA_HOME);
+const ws = new Workspace(store, checkProjectId(process.env.STRATA_PROJECT ?? 'default'), {
   localPaths: allowLocalPaths(HOST),
   keyRequired: !!KEY,
 });
+const llm = createLlm();
+const summaries = new Summaries({
+  store,
+  projectId: ws.projectId,
+  llm,
+  read: (repo, path) => ws.readSource(repo, path).then((s) => s?.text ?? null),
+  busy: () => ws.state().busy,
+});
+await summaries.init();
+ws.onGraph(() => summaries.setGraph(ws.getGraph()));
 await ws.init();
+summaries.setGraph(ws.getGraph());
 const agents = new AgentHub(ws);
 
 const app = Fastify({ logger: { level: 'warn' } });
@@ -95,6 +109,14 @@ app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async 
   return source;
 });
 
+// What a node does: a line from the graph straight away, and a generated summary when a model key is set.
+app.get<{ Querystring: { node?: string } }>('/api/summary', async (req, reply) => {
+  if (!req.query.node) return reply.code(400).send({ error: 'Query must be ?node=<node id>' });
+  const summary = await summaries.get(req.query.node);
+  if (!summary) return reply.code(404).send({ error: `${req.query.node} is not in the graph` });
+  return summary;
+});
+
 // ── agent activity ──
 // The agent package's MCP server and hooks post here; the map listens on the stream.
 
@@ -141,5 +163,6 @@ await app.listen({ port: PORT, host: HOST });
 console.log(`[strata] indexer listening on http://${HOST}:${PORT}`);
 if (!ws.allowLocal) console.log('[strata] local folders are off: this indexer imports git repositories only');
 if (process.env.STRATA_ALLOWED_ORIGINS) console.log(`[strata] browsers may call the API from ${process.env.STRATA_ALLOWED_ORIGINS}`);
+console.log(llm ? `[strata] summaries: written by ${llm.model} (${llm.provider})` : '[strata] summaries: lines only; set OPENAI_API_KEY or ANTHROPIC_API_KEY for generated ones');
 if (KEY) console.log('[strata] changes need the access key (STRATA_API_KEY)');
 else if (!isLoopback(HOST)) console.warn('[strata] no STRATA_API_KEY: anyone who can reach this indexer can change its project');

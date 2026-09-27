@@ -1,6 +1,7 @@
 // Persistence boundary for what Strata keeps per project: the repositories
-// imported into it, and its grouping (layer definitions, domain names, rules
-// and pins). The graph is derived from those and is never stored.
+// imported into it, its grouping (layer definitions, domain names, rules and
+// pins), and the node summaries a model wrote. The graph is derived from
+// those and is never stored.
 //
 // FileProjectStore is the default. A database-backed store implements the
 // same interface (one record per project id) and is chosen in createStore();
@@ -21,6 +22,14 @@ export interface SavedRepo {
   kind: 'git' | 'local';
 }
 
+/** A generated node summary, stored under a hash of what the model read, so it survives restarts and re-indexing. */
+export interface StoredSummary {
+  text: string;
+  model: string;
+  /** ISO time it was written. */
+  at: string;
+}
+
 export interface ProjectStore {
   /** Where this project's data lives, for display ("…/strata.grouping.json", "mongodb: strata.projects"). */
   describe(projectId: string): string;
@@ -35,6 +44,10 @@ export interface ProjectStore {
    * (a hand edit, another instance). Returns a function that stops watching.
    */
   watchGrouping?(projectId: string, onChange: () => void): () => void;
+  /** Optional: generated summaries by hash, or null when none were saved. */
+  loadSummaries?(projectId: string): Promise<Record<string, StoredSummary> | null>;
+  /** Optional: adds or replaces these entries; saved entries not named here are kept. */
+  saveSummaries?(projectId: string, entries: Record<string, StoredSummary>): Promise<void>;
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -47,10 +60,13 @@ export function checkProjectId(id: string): string {
  * One directory per project under `root`:
  *   projects/<id>/repos.json
  *   projects/<id>/strata.grouping.json   (hand-editable; edits apply live)
+ *   projects/<id>/summaries.json         (generated summaries by hash)
  */
 export class FileProjectStore implements ProjectStore {
   /** Last text this process wrote, per file, so the watcher ignores our own saves. */
   private written = new Map<string, string>();
+  /** Summary saves in flight per project, so each merge reads the one before it. */
+  private summaryWrites = new Map<string, Promise<unknown>>();
 
   constructor(private root: string) {}
 
@@ -86,6 +102,24 @@ export class FileProjectStore implements ProjectStore {
 
   async saveGrouping(id: string, grouping: Grouping) {
     await this.write(this.groupingFile(id), JSON.stringify(grouping, null, 2) + '\n');
+  }
+
+  async loadSummaries(id: string): Promise<Record<string, StoredSummary> | null> {
+    const text = await fsp.readFile(path.join(this.dir(id), 'summaries.json'), 'utf8').catch(() => null);
+    if (text == null) return null;
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed.summaries === 'object' ? parsed.summaries : null;
+  }
+
+  async saveSummaries(id: string, entries: Record<string, StoredSummary>) {
+    const file = path.join(this.dir(id), 'summaries.json');
+    // Saves come from one process, one at a time; merge so each only adds what's new.
+    const run = (this.summaryWrites.get(id) ?? Promise.resolve()).then(async () => {
+      const saved = (await this.loadSummaries(id).catch(() => null)) ?? {};
+      await this.write(file, JSON.stringify({ summaries: { ...saved, ...entries } }) + '\n');
+    });
+    this.summaryWrites.set(id, run.catch(() => {}));
+    return run;
   }
 
   watchGrouping(id: string, onChange: () => void): () => void {

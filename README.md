@@ -70,9 +70,15 @@ The grouping lives in `.strata/projects/default/strata.grouping.json`. Edit it t
 
 Domains (the features that cut across layers and repos) come from the classification design's seed-and-propagate strategy (`indexer/src/classify/propagate.ts`). Routes (`GET /items/{id}`), ORM entities (`class Item`), page routes, and files in structural folders (`routes/items.py`, `components/Items/`) seed a domain when two or more files agree on it. Everything else takes the domain of the code it's connected to through calls, HTTP requests, renders and imports. A close split goes to **Shared**, and so does code that three or more features use directly. Code with no path to any seed joins the majority of its file, and anything left over is **Unsorted**. Domain pins in the grouping file act as seeds too, so they pull their unclaimed neighbours along. The older `feature-tokens` strategy is still available; strategies are swappable in `indexer/src/classify/index.ts`.
 
+## Node summaries
+
+The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set on the indexer (OpenAI is used when both are), a model writes one or two sentences per node from its code and neighbours, marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
+
+Generated summaries are written in batches, off the request path: after each import or re-index, files first, then folders (deepest first, each reading its children's summaries), domains and their layers, then repositories; a symbol's whole file is written in one request when one of its symbols is first selected. Each summary is cached under a hash of what the model read and saved through the `ProjectStore`, so a restart costs nothing and a re-index rewrites only what changed and what contains it. `npm run index -- <repo> --summaries` prints sample lines and how many requests a fresh import would make, without calling a model: the FastAPI template takes 11 requests for 197 summaries of files, folders, groups and the repository (about 29,000 input tokens), and outline 70 requests for 2,566 (about 430,000); symbols cost one request per file, only as files are opened. The code lives in `indexer/src/summaries/`.
+
 ## Storage
 
-Everything a project keeps (its repositories and its grouping) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
+Everything a project keeps (its repositories, its grouping and its generated summaries) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
 
 ### MongoDB Atlas
 
@@ -160,6 +166,10 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 | `STRATA_PROJECT` | `default` | which project the indexer serves |
 | `MONGODB_URI` | unset | save projects to MongoDB (Atlas) instead of `.strata/projects/`; see [MongoDB Atlas](#mongodb-atlas) |
 | `STRATA_MONGODB_DB` | `strata` | database that holds the `projects` collection |
+| `OPENAI_API_KEY` | unset | write [node summaries](#node-summaries) with OpenAI (`gpt-5-mini`); used when both keys are set |
+| `ANTHROPIC_API_KEY` | unset | write node summaries with Claude (`claude-opus-5`) |
+| `STRATA_LLM_MODEL` | per provider | the model node summaries use |
+| `STRATA_SUMMARIES` | on | `off` writes no generated summaries even with a key set; the lines stay |
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
