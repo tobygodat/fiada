@@ -11,6 +11,8 @@ export interface WorkspaceHandle {
   /** Why the indexer can't be reached; null while it answers. */
   offline: string | null;
   add(source: string): Promise<void>;
+  /** Sends a packed folder; `replace` names the upload it updates. */
+  upload(name: string, archive: Blob, replace?: string): Promise<void>;
   remove(id: string): Promise<void>;
   refresh(id: string): Promise<void>;
   /** Starts the project's layers over from a preset. */
@@ -53,6 +55,7 @@ export function useWorkspace(): WorkspaceHandle {
     graph,
     offline,
     add: async (source) => sync(await api.addRepo(source)),
+    upload: async (name, archive, replace) => sync(await api.uploadRepo(name, archive, replace)),
     remove: async (id) => sync(await api.removeRepo(id)),
     refresh: async (id) => sync(await api.refreshRepo(id)),
     applyPreset: async (preset) => {

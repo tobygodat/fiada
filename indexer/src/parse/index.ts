@@ -28,6 +28,9 @@ const EXTRACT: Record<Lang, (root: SyntaxNode, file: ParsedFile) => void> = {
   go: extractGo,
 };
 
+/** Extensions of the files a language here parses. */
+export const SOURCE_EXTENSIONS = Object.keys(EXT);
+
 export function langOf(path: string): Lang | null {
   if (path.endsWith('.d.ts')) return null;
   const dot = path.lastIndexOf('.');
