@@ -9,6 +9,17 @@ export const API_BASE = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
+/** A build served from somewhere other than this machine, with no VITE_API_URL: nothing answers /api. */
+const UNCONFIGURED =
+  !API_BASE && typeof window !== 'undefined' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+
+/** What to tell someone when the indexer can't be reached. */
+export const OFFLINE = API_BASE
+  ? `Can't reach the indexer at ${API_BASE}.`
+  : UNCONFIGURED
+    ? 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in the README).'
+    : "Can't reach the indexer. Start it with npm run dev.";
+
 const KEY_ITEM = 'strata.key';
 
 /**
@@ -47,9 +58,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body) headers['content-type'] = 'application/json';
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   if (accessKey && init?.method && init.method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
-  const res = await fetch(apiUrl(path), { ...init, headers });
+  const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
+    throw new Error(OFFLINE);
+  });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // The indexer's own errors carry a message; anything else (a static host's 404 page) didn't come from it.
+    if (body.error) throw new Error(body.error);
+    throw new Error(UNCONFIGURED || res.status === 404 ? OFFLINE : `The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
+  }
   return body as T;
 }
 
