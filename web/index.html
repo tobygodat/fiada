@@ -8,6 +8,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <!-- The design system's type: Literata with its optical-size axis, and IBM Plex Mono for quoted code only. -->
+    <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet" />
+    <!-- Restores the chosen theme before first paint so nothing flashes. Dark unless light was chosen. -->
+    <script>
+      try { document.documentElement.dataset.theme = localStorage.getItem('strata-theme') === 'light' ? 'light' : 'dark'; }
+      catch { document.documentElement.dataset.theme = 'dark'; }
+    </script>
   </head>
   <body>
     <div id="root"></div>
