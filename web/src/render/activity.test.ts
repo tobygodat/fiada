@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
-import { curveHits, placeBadge, ringGeometry, type Rect, type Taken } from './activity.ts';
+import type { Marks, TreeActivity } from '../graph/activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, ringGeometry, type Rect, type Taken } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
 const free = { x0: 0, x1: 1000, y0: 0, y1: 1000 };
+const view = { w: 1000, h: 1000 };
+
+type Circle = ReturnType<typeof circle>;
+/** One badge on `d`, with only `d` on the map besides what's taken. */
+const place = (d: Circle, taken: Omit<Taken, 'free' | 'view'>) => new BadgeSpace({ ...taken, free, view }, [d], [{ d, w: W, h: H }]).place(d, W, H);
 
 /** A straight link drawn as the renderer does: a quadratic with its control point at the middle. */
 function link(x1: number, y1: number, x2: number, y2: number, w = 2): Taken['edges'][number] {
@@ -26,7 +32,7 @@ test('the change ring sits outside the circle, past a dark gap', () => {
 
 test('with nothing around, the badge sits at the upper right, touching the ring from outside', () => {
   const d = circle('a', 500, 500, 30);
-  const box = placeBadge(d, W, H, { edges: [], rects: [], free }, [d], []);
+  const box = place(d, { edges: [], rects: [] });
   assert.ok(box.x > d.x && box.y + box.h < d.y, 'upper right');
   const gap = Math.hypot(box.x - d.x, box.y + box.h - d.y) - ringGeometry(d.r).outer;
   assert.ok(gap > -3 && gap < 2, `touches the ring (gap ${gap.toFixed(1)})`);
@@ -36,20 +42,20 @@ test('a link leaving the circle at the upper right moves the badge off it', () =
   const d = circle('a', 500, 500, 30);
   const a = -Math.PI / 4;
   const e = link(d.x + Math.cos(a) * d.r, d.y + Math.sin(a) * d.r, 800, 200);
-  const taken = { edges: [e], rects: [], free };
-  const box = placeBadge(d, W, H, taken, [d], []);
+  const box = place(d, { edges: [e], rects: [] });
   assert.equal(curveHits(e, box), false);
   // It would have gone there otherwise.
-  const bare = placeBadge(d, W, H, { edges: [], rects: [], free }, [d], []);
+  const bare = place(d, { edges: [], rects: [] });
   assert.equal(curveHits(e, bare), true);
 });
 
 test('tags, tabs and other badges are kept clear too', () => {
   const d = circle('a', 500, 500, 30);
   const upper: Rect[] = [{ x: 380, y: 400, w: 240, h: 90 }];
-  const box = placeBadge(d, W, H, { edges: [], rects: upper, free }, [d], []);
+  const space = new BadgeSpace({ edges: [], rects: upper, free, view }, [d], [{ d, w: W, h: H }]);
+  const box = space.place(d, W, H);
   assert.ok(box.y >= 490, 'below the taken band');
-  const again = placeBadge(d, W, H, { edges: [], rects: upper, free }, [d], [box]);
+  const again = space.place(d, W, H);
   const overlap = again.x < box.x + box.w && box.x < again.x + again.w && again.y < box.y + box.h && box.y < again.y + again.h;
   assert.equal(overlap, false, 'a second badge on the same circle goes elsewhere');
 });
@@ -61,10 +67,65 @@ test('when every side is taken it picks the spot that covers least', () => {
     const a = (deg * Math.PI) / 180;
     return link(d.x + Math.cos(a) * d.r, d.y + Math.sin(a) * d.r, d.x + Math.cos(a) * 300, d.y + Math.sin(a) * 300);
   });
-  const box = placeBadge(d, W, H, { edges, rects: [], free }, [d], []);
+  const box = place(d, { edges, rects: [] });
   assert.ok(box.x + box.w <= d.x, 'on the left, the only clear side');
   assert.equal(
     edges.some((e) => curveHits(e, box)),
     false,
   );
+});
+
+test('a link that only passes near the circle still counts, however long it is', () => {
+  const d = circle('a', 500, 500, 30);
+  // A long link from far off that runs just past the circle's upper right.
+  const e = link(-2000, 3000, 3000, -2000);
+  const bare = place(d, { edges: [], rects: [] });
+  assert.equal(curveHits(e, bare), true);
+  const box = place(d, { edges: [e], rects: [] });
+  assert.equal(curveHits(e, box), false);
+});
+
+test('other closed circles are avoided when there is room, and a crowd of badges never overlaps', () => {
+  const circles = Array.from({ length: 60 }, (_, i) => circle(`c${i}`, 60 + (i % 10) * 90, 60 + Math.floor(i / 10) * 90, 22));
+  const space = new BadgeSpace(
+    { edges: [], rects: [], free, view },
+    circles,
+    circles.map((d) => ({ d, w: W, h: H })),
+  );
+  const boxes = circles.map((c) => space.place(c, W, H));
+  for (let i = 0; i < boxes.length; i++)
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      assert.ok(!(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h), `badges ${i} and ${j} overlap`);
+    }
+});
+
+test('badge spots are reused while nothing moves, and worked out again when something does', () => {
+  // A canvas that draws nothing.
+  const ctx = new Proxy({}, { get: () => () => {}, set: () => true }) as unknown as CanvasRenderingContext2D;
+  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0 }]]);
+  const d = circle('a', 500, 500, 30);
+  const taken = { edges: [], rects: [], free, view };
+  const cache: BadgeCache = {};
+  drawBadges(ctx, [d], marks, (t) => t.length * 6, taken, cache);
+  const first = cache.boxes;
+  assert.equal(first?.length, 1);
+  drawBadges(ctx, [{ ...d }], marks, (t) => t.length * 6, { ...taken }, cache);
+  assert.equal(cache.boxes, first, 'same geometry: same spots, not placed again');
+  drawBadges(ctx, [{ ...d, x: 520 }], marks, (t) => t.length * 6, taken, cache);
+  assert.notEqual(cache.boxes, first);
+  assert.equal(cache.boxes![0].x - first![0].x, 20);
+});
+
+test('a wide badge still sees what is near its far end', () => {
+  const d = circle('a', 500, 500, 30);
+  const wide = 160;
+  // A tag well past 96px from the ring, where only a badge this wide reaches, at the upper right and upper left.
+  const rects: Rect[] = [
+    { x: 640, y: 440, w: 30, h: 30 },
+    { x: 330, y: 440, w: 30, h: 30 },
+  ];
+  const box = new BadgeSpace({ edges: [], rects, free, view }, [d], [{ d, w: wide, h: H }]).place(d, wide, H);
+  for (const r of rects) assert.ok(!(r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h), 'clear of the far tag');
 });
