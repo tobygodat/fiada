@@ -111,21 +111,61 @@ export interface Contract {
   /** Underlying interactions, both directions. */
   items: GraphEdge[];
   kinds: Set<EdgeKind>;
-  cross: boolean;
+  /**
+   * How many of the interactions run between two repositories. Counted from
+   * the edges themselves: the ends drawn can be domains or layers, which
+   * belong to no single repository.
+   */
+  cross: number;
   /** How many of the interactions a heuristic guessed rather than the code proving them. */
   inferred: number;
+  /** How many run from `a` to `b`; the rest run from `b` to `a`. */
+  forward: number;
+  /** Its label on the map, from `contractLabel`. */
   tag: string;
 }
 
-const tagOf = (i: number) => {
-  let s = '';
-  let n = i;
-  do {
-    s = String.fromCharCode(65 + (n % 26)) + s;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-  return s;
+const KIND_WORD: Record<EdgeKind, [string, string]> = {
+  calls: ['call', 'calls'],
+  renders: ['render', 'renders'],
+  imports: ['import', 'imports'],
+  type: ['type use', 'type uses'],
+  references: ['reference', 'references'],
+  http: ['HTTP request', 'HTTP requests'],
 };
+
+// Shorter, for tags on the map.
+const TAG_WORD: Record<EdgeKind, [string, string]> = { ...KIND_WORD, type: ['type', 'types'], references: ['ref', 'refs'], http: ['HTTP', 'HTTP'] };
+
+/** "23 HTTP requests", "1 call". */
+export const countKind = (kind: EdgeKind, n: number) => `${n} ${KIND_WORD[kind][n === 1 ? 0 : 1]}`;
+
+/** How many interactions of each kind a contract carries, most first. */
+export function kindCounts(c: Pick<Contract, 'items'>): [EdgeKind, number][] {
+  const m = new Map<EdgeKind, number>();
+  for (const e of c.items) m.set(e.kind, (m.get(e.kind) ?? 0) + 1);
+  return [...m].sort((p, q) => q[1] - p[1] || (p[0] < q[0] ? -1 : 1));
+}
+
+/**
+ * What a link is at a glance, for its tag on the map: the main kind and how
+ * many ("HTTP · 23", "552 calls +40" with 40 of other kinds). When no one
+ * kind makes up two thirds, the total and the leading kinds ("159 calls &
+ * renders", or "159 calls, renders…" when there are more). "?" when every
+ * interaction behind it was guessed.
+ */
+export function contractLabel(c: Pick<Contract, 'items' | 'inferred'>): string {
+  const counts = kindCounts(c);
+  const [[kind, n], second] = counts;
+  const total = c.items.length;
+  const guessed = c.inferred === total ? '?' : '';
+  if (second && n * 3 < total * 2) {
+    const two = `${TAG_WORD[kind][1]}${counts.length > 2 ? ', ' : ' & '}${TAG_WORD[second[0]][1]}`;
+    return `${total} ${two}${counts.length > 2 ? '…' : ''}${guessed}`;
+  }
+  const main = kind === 'http' ? `HTTP · ${n}` : `${n} ${TAG_WORD[kind][n === 1 ? 0 : 1]}`;
+  return `${main}${total > n ? ` +${total - n}` : ''}${guessed}`;
+}
 
 /**
  * Edges resolved once per tree to integer node indices, so re-aggregating
@@ -178,6 +218,28 @@ export function indexEdges(tree: Tree, graphIndex: Map<string, GraphNode>, edges
   return { tree, edges, nodes, index, parent, depth, from, to, cross };
 }
 
+/** Its two ends in the order the interactions run: [from, to, whether some run the other way too]. */
+export function direction(c: Contract): [string, string, boolean] {
+  if (c.forward === 0) return [c.b, c.a, false];
+  return [c.a, c.b, c.forward < c.items.length];
+}
+
+/** The innermost circle holding both ends: where a link between them sits. */
+export function meetingPoint(tree: Tree, a: string, b: string): string {
+  let x = tree.nodes.get(a);
+  let y = tree.nodes.get(b);
+  while (x && y && x !== y) {
+    const dx = x.depth;
+    const dy = y.depth;
+    if (dx >= dy) x = x.parent ? tree.nodes.get(x.parent) : undefined;
+    if (dy >= dx) y = y.parent ? tree.nodes.get(y.parent) : undefined;
+  }
+  return x && x === y ? x.id : 'root';
+}
+
+/** Mostly between repositories: drawn dashed and ranked with HTTP. */
+export const crossRepo = (c: Contract) => c.cross > 0 && c.cross * 2 >= c.items.length;
+
 /**
  * Lift every edge to the nearest visible ancestor of each end and merge
  * both directions, so one contract covers the relationship between two
@@ -226,16 +288,17 @@ export function aggregateEdges(ix: EdgeIndex, vis: Visible): Contract[] {
       const B = ix.nodes[hi];
       // Keys and ends ordered by id, so a contract keeps its key whatever the index order.
       const [x, y] = A.id < B.id ? [A, B] : [B, A];
-      p = { key: `${x.id}|${y.id}`, a: x.id, b: y.id, items: [], kinds: new Set(), cross: x.repo !== y.repo, inferred: 0, tag: '' };
+      p = { key: `${x.id}|${y.id}`, a: x.id, b: y.id, items: [], kinds: new Set(), cross: 0, inferred: 0, forward: 0, tag: '' };
       pairs.set(pk, p);
     }
     const edge = ix.edges[e];
     p.items.push(edge);
     p.kinds.add(edge.kind);
     if (edge.basis === 'inferred') p.inferred++;
-    if (ix.cross[e]) p.cross = true;
+    p.cross += ix.cross[e];
+    if (ix.nodes[a].id === p.a) p.forward++;
   }
   const out = [...pairs.values()].sort((p, q) => q.items.length - p.items.length || (p.key < q.key ? -1 : 1));
-  out.forEach((p, i) => (p.tag = tagOf(i)));
+  for (const p of out) p.tag = contractLabel(p);
   return out;
 }
