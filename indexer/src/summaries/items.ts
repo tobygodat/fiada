@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { GraphNode } from '@fiada/shared';
 import { declaration, fileDoc } from './docs.ts';
-import { descendants, fileNeighbours, groupMembers, list, symbolNeighbours, type GraphIndex } from './describe.ts';
+import { descendants, fileNeighbours, groupMembers, list, shortName, symbolNeighbours, type GraphIndex } from './describe.ts';
 
 /** Bump when the prompt or item format changes enough that old summaries should be rewritten. */
 export const PROMPT_VERSION = 1;
@@ -136,25 +136,62 @@ export const SYSTEM = [
   'You write the short summaries at the top of a codebase map. A developer new to the code selects a node (a repository, folder, file, function, class, or a group of code by purpose) and reads your summary to decide whether to open it.',
   'For every item, write one or two plain sentences, at most 40 words, saying what it does and why it exists in this codebase. Lead with the behaviour ("Creates an item owned by the signed-in user and…"), not the name, the path or "This file". Name a collaborator only when it explains the role.',
   'Say only what the code shown supports; if something is trivial, say so briefly. Plain prose: no markdown, no backticks, no lists.',
-  'Reply with one entry per item, using the item ids exactly as given.',
+  'Reply with one entry per item. Its id is the number in the item\'s heading ("1", "2", …), never its name.',
 ].join('\n\n');
 
-export const SCHEMA = {
-  type: 'object',
-  properties: {
-    summaries: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { id: { type: 'string' }, summary: { type: 'string' } },
-        required: ['id', 'summary'],
-        additionalProperties: false,
+/** The reply format for a batch of `n` items. Ids are limited to the item numbers, so a model can't answer by name. */
+export function replySchema(n: number): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      summaries: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { id: { type: 'string', enum: Array.from({ length: n }, (_, i) => String(i + 1)) }, summary: { type: 'string' } },
+          required: ['id', 'summary'],
+          additionalProperties: false,
+        },
       },
     },
-  },
-  required: ['summaries'],
-  additionalProperties: false,
-} as const;
+    required: ['summaries'],
+    additionalProperties: false,
+  };
+}
+
+/**
+ * Pairs a reply's entries with a batch's items, by index. Ids should be item
+ * numbers, but a model may still answer "item 2" or with the node's name
+ * (gpt-5.5 named a file's functions), and a reply with one entry per item
+ * needs no ids at all: what's left is matched by position.
+ */
+export function matchReply(items: Item[], entries: readonly { id?: unknown; summary?: unknown }[] = []): (string | undefined)[] {
+  const out: (string | undefined)[] = items.map(() => undefined);
+  const used = new Set<number>();
+  const take = (i: number, j: number, text: string) => {
+    out[i] = text;
+    used.add(j);
+  };
+  const names = items.map((it) => [it.node.toLowerCase(), shortName(it.node).toLowerCase()]);
+  entries.forEach((e, j) => {
+    const text = typeof e?.summary === 'string' ? e.summary.trim() : '';
+    if (!text) return;
+    const id = String(e.id ?? '').trim();
+    const num = /^(?:item\s*)?#?\s*(\d+)$/i.exec(id);
+    const n = num ? Number(num[1]) - 1 : -1;
+    if (n >= 0 && n < items.length && out[n] === undefined) return take(n, j, text);
+    const key = id.toLowerCase().replace(/\s*\(\w+\)$/, '');
+    const byName = names.findIndex(([full, short], i) => out[i] === undefined && (key === full || key === short));
+    if (byName >= 0) take(byName, j, text);
+  });
+  if (entries.length === items.length) {
+    out.forEach((s, i) => {
+      const text = typeof entries[i]?.summary === 'string' ? (entries[i].summary as string).trim() : '';
+      if (s === undefined && !used.has(i) && text) take(i, i, text);
+    });
+  }
+  return out;
+}
 
 export interface Batch {
   items: Item[];

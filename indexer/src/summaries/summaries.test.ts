@@ -11,7 +11,7 @@ import { FileProjectStore, type ProjectStore, type StoredSummary } from '../stor
 import { describe as line, indexGraph } from './describe.ts';
 import { fileDoc, firstSentence, symbolDoc } from './docs.ts';
 import { Summaries } from './index.ts';
-import { hashOf, takeBatch, type Item } from './items.ts';
+import { hashOf, matchReply, replySchema, takeBatch, type Item } from './items.ts';
 import type { JsonRequest, LLM } from '../llm.ts';
 
 const FILES: Record<string, string> = {
@@ -53,7 +53,7 @@ async function fixtureGraph(files = FILES): Promise<{ graph: Graph; dir: string 
 }
 
 /** A model stand-in: answers every item, records each request, and can be told to fail. */
-function fakeLlm(opts: { fail?: (req: JsonRequest) => Error | null } = {}) {
+function fakeLlm(opts: { fail?: (req: JsonRequest) => Error | null; byName?: boolean } = {}) {
   const requests: JsonRequest[] = [];
   const llm: LLM = {
     label: 'Fake',
@@ -64,7 +64,12 @@ function fakeLlm(opts: { fail?: (req: JsonRequest) => Error | null } = {}) {
       if (err) throw err;
       // "about <first word of the item> (<hash of the item>)", so a changed item gets a changed summary.
       const items = req.prompt.split(/^### item /m).slice(1);
-      return { summaries: items.map((it) => ({ id: it.split(' ')[0], summary: `about ${it.split('\n')[1].split(' ')[0]} (${hashOf(it).slice(0, 6)})` })) };
+      const summaries = items.map((it) => {
+        const first = it.split('\n')[1].split(' ')[0];
+        return { id: opts.byName ? first : it.split(' ')[0], summary: `about ${first} (${hashOf(it).slice(0, 6)})` };
+      });
+      // byName answers the way gpt-5.5 did: each entry labelled with the item's name, not its number, and out of order.
+      return { summaries: opts.byName ? summaries.reverse() : summaries };
     },
   };
   return { llm, requests };
@@ -219,6 +224,41 @@ test('a selected symbol has its whole file written in one request, the selected 
   for (const id of ['unused', 'list_items', 'create_item']) assert.equal((await s.get(`shop/backend/app/crud.py#${id}`))?.status, 'ready', id);
   await s.idle();
   assert.equal(requests.length, before + 1, 'selecting the others costs nothing');
+});
+
+test('replies are matched by number, then by name, then by position', () => {
+  const items = ['shop/a.py#read_items', 'shop/a.py#create_item', 'shop/a.py'].map((node): Item => ({ node, kind: 'symbol', text: node, hash: node }));
+  assert.deepEqual(
+    matchReply(items, [
+      { id: '2', summary: ' two ' },
+      { id: 'item 1', summary: 'one' },
+      { id: 'a.py', summary: 'three' },
+    ]),
+    ['one', 'two', 'three'],
+  );
+  assert.deepEqual(matchReply(items, [{ id: 'create_item', summary: 'c' }, { id: 'read_items (symbol)', summary: 'r' }]), ['r', 'c', undefined]);
+  // Unknown ids, but one entry per item: taken in order. Blank or duplicate answers don't count.
+  assert.deepEqual(matchReply(items, [{ id: 'x', summary: 'p' }, { id: 'y', summary: 'q' }, { id: 'z', summary: '' }]), ['p', 'q', undefined]);
+  assert.deepEqual(matchReply(items, [{ id: '1', summary: 'a' }, { id: '1', summary: 'b' }]), ['a', undefined, undefined]);
+  assert.deepEqual(matchReply(items, undefined), [undefined, undefined, undefined]);
+  const id = (replySchema(3).properties as any).summaries.items.properties.id;
+  assert.deepEqual(id.enum, ['1', '2', '3']);
+});
+
+test('a model that labels its answers by name still gets a file\'s symbols written', async () => {
+  const { graph, dir } = await fixtureGraph();
+  const { llm, requests } = fakeLlm({ byName: true });
+  const s = summaries(graph, dir, llm);
+  await s.idle();
+  assert.equal((await s.get('shop/backend/app/crud.py#create_item'))?.status, 'pending');
+  await s.idle();
+  const req = requests.at(-1)!;
+  assert.deepEqual((req.schema as any).properties.summaries.items.properties.id.enum, ['1', '2', '3']);
+  for (const name of ['unused', 'list_items', 'create_item']) {
+    const got = await s.get(`shop/backend/app/crud.py#${name}`);
+    assert.equal(got?.status, 'ready', name);
+    assert.match(got!.generated!.text, new RegExp(`^about ${name} `), name);
+  }
 });
 
 test('a cut-off reply is retried in halves; a failed request marks its items with the reason', async () => {
