@@ -2,8 +2,20 @@
 // layer and domain), what it depends on, or the contract behind an edge.
 
 import { useEffect, useMemo, useState } from 'react';
-import { describeFact, UNLAYERED, type EdgeKind, type Graph, type GraphEdge, type GraphNode, type Placement, type PlacementSource, type RepoInfo } from '@strata/shared';
+import {
+  describeFact,
+  UNLAYERED,
+  type ActivityState,
+  type EdgeKind,
+  type Graph,
+  type GraphEdge,
+  type GraphNode,
+  type Placement,
+  type PlacementSource,
+  type RepoInfo,
+} from '@strata/shared';
 import { api, type SourceText } from '../api.ts';
+import { AgentChange } from './AgentChange.tsx';
 import type { TNode, Tree } from '../graph/tree.ts';
 import type { Contract } from '../graph/view.ts';
 import type { Palette } from '../theme.ts';
@@ -34,6 +46,8 @@ interface Props {
   pal: Palette;
   selected: string | null;
   contract: Contract | null;
+  /** What agents changed, for the diff of a changed file or symbol. */
+  activity?: ActivityState | null;
   onSelect(id: string): void;
 }
 
@@ -46,7 +60,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, n, activity, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   const repo = g?.kind === 'repo' ? graph.repos.find((r) => r.id === g.id) : null;
@@ -64,6 +78,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <div className="detail-title">{n.name}</div>
         {path && <div className="detail-path">{path}</div>}
       </div>
+
+      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
 
       {repo && (
         <div className="detail-block">
@@ -102,7 +118,9 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <DepList title="Used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
       </div>
 
-      {g?.path && (g.kind === 'file' || g.kind === 'symbol') && <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} />}
+      {g?.path && (g.kind === 'file' || g.kind === 'symbol') && (
+        <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} rev={activity?.nodes[g.kind === 'symbol' ? g.parent : g.id]?.at ?? 0} />
+      )}
     </aside>
   );
 }
@@ -110,9 +128,18 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
+/** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
+function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | null }) {
+  const own = activity?.nodes[g.id];
+  if (!own) return null;
+  const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
+  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+}
+
 /** The node's code: a symbol's lines, or the top of a file, read from the indexer's checkout. */
-function Code({ g, repo }: { g: GraphNode; repo?: RepoInfo }) {
-  const key = `${g.repo}|${g.path}|${repo?.commit ?? ''}`;
+function Code({ g, repo, rev }: { g: GraphNode; repo?: RepoInfo; rev: number }) {
+  // `rev` moves when an agent changes the file, which a commit id wouldn't show.
+  const key = `${g.repo}|${g.path}|${repo?.commit ?? ''}|${rev}`;
   const [state, setState] = useState<{ key: string; text?: string; error?: string } | null>(null);
   const [whole, setWhole] = useState(false);
   useEffect(() => {

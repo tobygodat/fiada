@@ -6,6 +6,7 @@ export const INK = '#e6e3da';
 export const BG = '#0c0d10';
 export const MINT = 'oklch(85% 0.17 150)';
 export const AMBER = 'oklch(82% 0.16 80)';
+export const DANGER = 'oklch(72% 0.15 25)';
 export const MONO = "'Geist Mono', ui-monospace, monospace";
 export const SANS = "'Geist', system-ui, sans-serif";
 

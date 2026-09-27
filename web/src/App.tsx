@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphNode } from '@strata/shared';
+import { AgentQueue } from './components/AgentQueue.tsx';
 import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TopBar } from './components/TopBar.tsx';
+import { rollupActivity } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
@@ -18,6 +20,7 @@ import {
 } from './graph/view.ts';
 import type { MapRenderer, Scene } from './render/renderer.ts';
 import { palette, type ColorBy } from './theme.ts';
+import { useAgents } from './useAgents.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
 const SIDEBAR = 316;
@@ -64,6 +67,7 @@ type CameraIntent = { focus: string; detail: boolean; from?: string | null } | {
 
 export function App() {
   const ws = useWorkspace();
+  const agents = useAgents();
   const graph = ws.graph;
   const [view, setView] = useState<View>('code');
   const [mode, setModeState] = useState<ExpandMode>(readMode);
@@ -103,9 +107,22 @@ export function App() {
     [graph],
   );
 
+  const activity = useMemo(
+    () => (tree && agents.state && Object.keys(agents.state.nodes).length ? rollupActivity(tree, graphIndex, agents.state.nodes) : null),
+    [tree, graphIndex, agents.state],
+  );
+
+  // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
+  const reload = ws.reload;
+  const agentGraph = agents.state?.graphVersion;
+  const loadedGraph = ws.workspace?.graphVersion;
+  useEffect(() => {
+    if (agentGraph != null && loadedGraph != null && agentGraph > loadedGraph) void reload();
+  }, [agentGraph, loadedGraph, reload]);
+
   const scene = useMemo<Scene | null>(
-    () => (tree ? { tree, L, mode, vis: mode === 'click' ? clickVis : null, contracts, pal, colorBy, selected, selectedEdge } : null),
-    [tree, L, mode, clickVis, contracts, pal, colorBy, selected, selectedEdge],
+    () => (tree ? { tree, L, mode, vis: mode === 'click' ? clickVis : null, contracts, pal, colorBy, selected, selectedEdge, activity } : null),
+    [tree, L, mode, clickVis, contracts, pal, colorBy, selected, selectedEdge, activity],
   );
 
   // ── camera ──
@@ -285,6 +302,12 @@ export function App() {
     setModeState(m);
   };
 
+  /** From the task queue: a changed file, or for one that's gone, the folder standing in for it. */
+  const selectChange = useCallback(
+    (id: string) => select(graphIndex.has(id) ? id : (agents.state?.nodes[id]?.anchor ?? id)),
+    [select, graphIndex, agents.state],
+  );
+
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
   const lastTree = useRef(tree);
@@ -314,7 +337,9 @@ export function App() {
       }
     }
     if (selected && !tree.nodes.has(selected)) setSelected(null);
-    if (viewChanged || !prev || focus === 'root' || !tree.nodes.has(focus)) {
+    // A rebuilt graph with the same repositories (an agent's edit was re-indexed) leaves the camera where you put it.
+    const reposChanged = !prev || prev.root.children.map((c) => c.id).join('\n') !== tree.root.children.map((c) => c.id).join('\n');
+    if (viewChanged || !prev || (focus === 'root' && reposChanged) || !tree.nodes.has(focus)) {
       setFocus('root');
       fitAll(viewChanged);
     }
@@ -414,17 +439,49 @@ export function App() {
           onPreset={ws.applyPreset}
         />
         {graph && tree && (selected || contract) && (
-          <Detail graph={graph} graphIndex={graphIndex} tree={tree} pal={pal} selected={selected} contract={contract} onSelect={select} />
+          <Detail
+            graph={graph}
+            graphIndex={graphIndex}
+            tree={tree}
+            pal={pal}
+            selected={selected}
+            contract={contract}
+            activity={agents.state}
+            onSelect={select}
+          />
         )}
-        <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} />
+        <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={(id) => void agents.clear(id)} />
+        <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} agents={!!activity?.size} />
       </div>
     </div>
   );
 }
 
-function Legend({ colorBy, pal, layers, mode }: { colorBy: ColorBy; pal: ReturnType<typeof palette>; layers: { id: string; name: string }[]; mode: ExpandMode }) {
+function Legend({
+  colorBy,
+  pal,
+  layers,
+  mode,
+  agents,
+}: {
+  colorBy: ColorBy;
+  pal: ReturnType<typeof palette>;
+  layers: { id: string; name: string }[];
+  mode: ExpandMode;
+  agents: boolean;
+}) {
   return (
     <div className="legend">
+      {agents && (
+        <>
+          <span className="row gap">
+            <span className="swatch-ring added" /> agent added
+          </span>
+          <span className="row gap">
+            <span className="swatch-ring modified" /> agent changed
+          </span>
+        </>
+      )}
       <span>{mode === 'click' ? 'click a circle to open it · scroll to zoom' : 'scroll to zoom and open circles'}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo

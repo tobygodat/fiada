@@ -2,7 +2,7 @@
 
 A codebase map for working at the middle altitude: above file-by-file reading, below a one-paragraph architecture summary. One graph spans several repositories; opening a circle takes you down a level of abstraction, from systems to modules to files to symbols.
 
-This is the first scaffold of the prototype. It covers the graph view, the floating sidebar with the **Code · read-only** / **By function** toggle, importing real repositories, and per-project layers. The agent overlay, search, edge filtering and domain editing come later.
+This is the first scaffold of the prototype. It covers the graph view, the floating sidebar with the **Code · read-only** / **By function** toggle, importing real repositories, per-project layers, and the agent overlay: coding agents report their task and the files they change, and the map shows it live. Search, edge filtering and domain editing come later.
 
 ## Run it
 
@@ -20,9 +20,10 @@ The sidebar's **open** setting switches to the prototype's semantic zoom, where 
 ## How it's put together
 
 ```
-shared/    the graph contract (nodes, edges, layers) both sides import
+shared/    the graph contract (nodes, edges, layers, agent events) both sides import
 indexer/   clone → parse → link → classify → graph, behind a small HTTP API
-web/       React app: canvas map, floating sidebar, detail panel
+web/       React app: canvas map, floating sidebar, detail panel, task queue
+agent/     what a coding agent runs: a stdio MCP server and a tool-hook CLI
 ```
 
 The indexer pipeline:
@@ -94,6 +95,59 @@ npm run index -- ../some-repo --preset by-repo
 npm run index -- ../some-repo --grouping my.grouping.json --layers
 ```
 
+## Watching a coding agent
+
+Strata can follow a coding agent (Claude Code, Cursor, Codex, or anything that speaks MCP) while it works on a repository you've imported. A small window at the top right lists each agent's task and plan, with the step it's on, and the map marks what it touches: a mint ring on anything it added, amber on anything it changed, and a short pulse as each change lands. A closed circle shows a count of the changes inside it (`+2 ~3 −1`: files in the Code view, symbols By function), so you can see where an agent is working without opening anything. Click a changed file in the window, or any ringed circle, and the detail panel shows the diff (for a symbol, just the hunks that touch it).
+
+There are two ways in, and they work best together:
+
+- **Hooks** (deterministic). The agent's own tool hooks run `agent/bin/strata-hook.mjs` after every edit, so changes show up even when the agent never mentions them. The hook asks git about the agent's working tree: edited files come with their changed lines and a diff against HEAD, and after a shell command it compares the tree with the last call, so files removed with `rm` or `git mv`, generated files and reverts are caught too. Changes already in the tree when the agent started, or made by you between prompts, aren't put on the agent. Claude Code's plan (`TodoWrite`, or `TaskCreate`/`TaskUpdate`) becomes the step list, and your prompt is the task until the agent names its own.
+- **MCP** (the agent's own words). `agent/bin/strata-mcp.mjs` is a stdio MCP server with two tools: `report_task` (the task, the plan as steps marked `pending`, `active` or `done`, the step it's on, a note) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
+
+Both post to the indexer's `/api/agent/events`. A file maps to the graph by path when its repository was imported from a local directory, or by `origin` remote (then folder name) when the agent works in another checkout of an imported repository. When the agent edits a repository Strata reads in place, the indexer re-parses just the changed files and relinks (about 10 ms on the FastAPI template), so new files and symbols appear on the map, and comparing each file's symbols with HEAD says which functions were added, changed or deleted. The map fetches the new graph without moving the camera. Agent activity isn't stored anywhere; dismissing an agent in the window clears its marks.
+
+### Claude Code
+
+```sh
+npm run agent:setup                                   # prints the two snippets below with this checkout's paths
+npm run agent:setup -- --write /path/to/your/project  # or writes them for you
+```
+
+`--write` merges the hooks into `/path/to/your/project/.claude/settings.local.json` (your own, git-ignored settings; other hooks there are kept) and registers the MCP server for that project with `claude mcp add`. To do it by hand, add the server:
+
+```sh
+claude mcp add strata -- node /path/to/hackgt13/agent/bin/strata-mcp.mjs
+```
+
+and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared with your team) or `~/.claude/settings.json` (every project):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate",
+        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }]
+      }
+    ],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs", "timeout": 10 }] }]
+  }
+}
+```
+
+Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
+
+### Other agents
+
+- **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "strata": { "command": "node", "args": ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/hackgt13/agent/bin/strata-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
+- **Codex CLI**: add the MCP server under `[mcp_servers.strata]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/hackgt13/agent/bin/strata-mcp.mjs"]`), and set `notify = ["node", "/path/to/hackgt13/agent/bin/strata-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes.
+- **Anything else**, scripts included: `strata-hook changed <file>… [--kind added|modified|deleted]`, `strata-hook task "Add tags" --step "Add the model"`, `strata-hook sweep` (whatever changed in the working tree since the last call) and `strata-hook done`, with `--client <name>` to name the agent.
+
+The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end. Set `STRATA_HOOK_LOG` to a file to record every payload the hook receives.
+
 ## Configuration
 
 | Variable | Default | |
@@ -106,6 +160,9 @@ npm run index -- ../some-repo --grouping my.grouping.json --layers
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+| `STRATA_URL` | `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
+| `STRATA_AGENT_STATE` | `$TMPDIR/strata-agent` | where the hook keeps each session's last view of the working tree |
+| `STRATA_HOOK_LOG` | unset | append every payload the hook receives to this file, one JSON object per line |
 
 The indexer also reads a `.env` file at the repo root; variables already set in your shell win.
 
@@ -116,8 +173,10 @@ The indexer binds to 127.0.0.1: importing a local path reads that directory, so 
 ## Tests
 
 ```sh
-npm test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end
-                     # web: edge lifting, click-mode layout, camera framing
+npm test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end,
+                     #          agent changes mapped to files and symbols with incremental re-indexing
+                     # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
+                     # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools
 STRATA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test   # also runs the MongoDB store tests
 npm run typecheck
 ```

@@ -13,7 +13,7 @@ import type { Graph, Grouping, LayerPreset, RepoInfo, Workspace as WorkspaceStat
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
 import type { ParsedRepo } from './model.ts';
-import { loadRepo } from './sources.ts';
+import { loadRepo, reloadFiles } from './sources.ts';
 import type { ProjectStore } from './store.ts';
 
 const exec = promisify(execFile);
@@ -78,6 +78,7 @@ export class Workspace {
   /** Set when the stored grouping is invalid; the last good one stays in use. */
   private groupingError?: string;
   private queue: Promise<unknown> = Promise.resolve();
+  private graphListeners = new Set<() => void>();
 
   constructor(
     private store: ProjectStore,
@@ -103,6 +104,45 @@ export class Workspace {
       suggestions: [PROJECT_ROOT, 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
       project: { id: this.projectId, groupingLocation: this.store.describe(this.projectId), groupingError: this.groupingError },
     };
+  }
+
+  /** Bumps whenever the graph is rebuilt or reclassified. */
+  get version(): number {
+    return this.graphVersion;
+  }
+
+  /** Called after every rebuild or reclassification. */
+  onGraph(fn: () => void): () => void {
+    this.graphListeners.add(fn);
+    return () => this.graphListeners.delete(fn);
+  }
+
+  /** Where a repository's files are on disk: the local directory, or the clone. */
+  rootOf(id: string): string | null {
+    const repo = this.repos.find((r) => r.id === id);
+    return repo ? this.checkout(repo) : null;
+  }
+
+  /**
+   * Re-indexes just these files of a local repository (read in place), after
+   * something like an agent changed them. Parsing only the changed files
+   * and relinking is much cheaper than reloading the repo, which only
+   * happens when a manifest changed. Resolves once the graph is rebuilt.
+   * Clones aren't touched: an agent edits its own checkout, not Strata's.
+   */
+  updateFiles(id: string, paths: string[]): Promise<void> {
+    const run = async () => {
+      const repo = this.repos.find((r) => r.id === id);
+      const parsed = this.parsed.get(id);
+      if (!repo || !parsed || repo.kind !== 'local' || repo.status !== 'ready') return;
+      const started = Date.now();
+      if (!(await reloadFiles(parsed, paths))) return this.process(id, false);
+      console.log(`[strata] re-indexed ${paths.length} file${paths.length === 1 ? '' : 's'} in ${id} in ${Date.now() - started}ms`);
+      this.rebuild();
+    };
+    const done = this.queue.then(run);
+    this.queue = done.catch((err) => console.error('[strata]', err));
+    return done.catch(() => undefined);
   }
 
   getGraph(): Graph {
@@ -270,6 +310,7 @@ export class Workspace {
     this.graph = classifyGraph(this.base, this.grouping);
     this.graphVersion++;
     console.log(`[strata] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
+    for (const fn of this.graphListeners) fn();
   }
 
   private async save() {
