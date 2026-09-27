@@ -40,7 +40,7 @@ export interface RouteEntry {
 export interface LinkResult {
   edges: GraphEdge[];
   routes: RouteEntry[];
-  /** Per file: top-level names of imported packages that aren't in any indexed repo. */
+  /** Per file: module specifiers it imports that don't resolve to any indexed repo, e.g. "sqlalchemy.orm", "next/server". */
   externalImports: Map<string, string[]>;
 }
 
@@ -230,7 +230,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const external = new Set<string>();
     for (const spec of e.file.imports) {
       const mod = resolveModule(e, spec);
-      if (!mod && spec.level === 0 && !spec.source.startsWith('.')) external.add(packageName(spec.source, e.file.lang === 'python'));
+      if (!mod && spec.level === 0 && spec.source && !spec.source.startsWith('.')) external.add(spec.source.replace(/^node:/, ''));
       if (mod && !usedModules.has(mod)) {
         const names = spec.names.map((n) => n.imported).filter((n) => n !== '*');
         addEdge(e.id, mod, 'imports', names.length ? names.slice(0, 6).join(', ') + (names.length > 6 ? ', …' : '') : undefined);
@@ -271,13 +271,6 @@ export function link(repos: ParsedRepo[]): LinkResult {
   }
 
   return { edges: [...edgeMap.values()], routes, externalImports };
-}
-
-/** "@scope/pkg/sub" → "@scope/pkg", "lodash/fp" → "lodash", "sqlalchemy.orm" → "sqlalchemy". */
-function packageName(source: string, python: boolean): string {
-  if (python) return source.split('.')[0];
-  const parts = source.replace(/^node:/, '').split('/');
-  return source.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
 /** "/api/v1/items/{id}" → ["api","v1","items","*"]. Every param style collapses to "*". */
@@ -323,7 +316,7 @@ export function matchRoute(routes: RouteEntry[], method: string, req: string[]):
   return best;
 }
 
-function nextPath(dir: string): string {
+export function nextPath(dir: string): string {
   const segs = dir
     .split('/')
     .filter((s) => s && !/^\(.*\)$/.test(s) && !s.startsWith('@'))

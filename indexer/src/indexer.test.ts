@@ -3,11 +3,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { RepoInfo } from '@strata/shared';
+import { UNLAYERED, type GraphNode, type Grouping, type RepoInfo } from '@strata/shared';
 import { buildGraph } from './build.ts';
-import { globToRegExp } from './classify/config.ts';
+import { classify, defaultGrouping, GroupingError, normalizeGrouping } from './classify/index.ts';
+import { globToRegExp } from './classify/glob.ts';
+import { importMatches } from './classify/layers.ts';
 import { matchRoute, segments } from './link.ts';
 import { loadRepo } from './sources.ts';
+import { FileProjectStore } from './store.ts';
 import { parseSource } from './workspace.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
@@ -34,11 +37,16 @@ test('route matching tolerates mount prefixes and param styles', () => {
   assert.deepEqual(segments('/users/:id/posts/[slug]'), ['users', '*', 'posts', '*']);
 });
 
-test('config globs', () => {
+test('globs and import prefixes', () => {
   assert.ok(globToRegExp('src/server/**').test('src/server/a/b.ts'));
   assert.ok(globToRegExp('**/models.py').test('backend/app/models.py'));
   assert.ok(globToRegExp('src/*.ts').test('src/a.ts'));
   assert.ok(!globToRegExp('src/*.ts').test('src/a/b.ts'));
+  assert.ok(globToRegExp('**/use[A-Z]*.ts').test('web/src/hooks/useItems.ts'));
+  assert.ok(!globToRegExp('**/use[A-Z]*.ts').test('web/src/users.ts'));
+  assert.ok(importMatches('sqlalchemy.orm', 'sqlalchemy'));
+  assert.ok(importMatches('next/server', 'next'));
+  assert.ok(!importMatches('react-dom', 'react'));
 });
 
 test('parseSource understands what people paste', async () => {
@@ -68,7 +76,7 @@ test('links a web client to an API in another repo, and classifies both', async 
       'from fastapi import APIRouter\nfrom app.models import Item, ItemPublic\nrouter = APIRouter(prefix="/items")\n' +
       '@router.get("/{id}")\ndef read_item(id: str) -> ItemPublic:\n    return Item(id=id)\n',
   });
-  const graph = buildGraph([await loadRepo(info('web'), web), await loadRepo(info('api'), api)]);
+  const graph = buildGraph([await loadRepo(info('web'), web), await loadRepo(info('api'), api)], defaultGrouping());
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const has = (from: string, to: string, kind: string) => graph.edges.some((e) => e.from === from && e.to === to && e.kind === kind);
 
@@ -76,11 +84,109 @@ test('links a web client to an API in another repo, and classifies both', async 
   assert.ok(has('web/src/components/ItemCard.tsx#ItemCard', 'web/src/lib/api.ts#getItem', 'calls'), 'tsconfig alias resolved');
   assert.ok(has('api/app/routes/items.py#read_item', 'api/app/models.py#Item', 'calls'));
 
-  assert.equal(byId.get('api/app/routes/items.py')?.layer?.value, 'API');
-  assert.equal(byId.get('web/src/components/ItemCard.tsx')?.layer?.value, 'UI');
-  assert.equal(byId.get('web/src/lib/api.ts')?.layer?.value, 'Client');
-  assert.equal(byId.get('web/src/types.ts')?.layer?.value, 'Contracts');
-  assert.equal(byId.get('api/app/models.py#Item')?.layer?.value, 'Storage');
-  assert.equal(byId.get('api/app/models.py#ItemPublic')?.layer?.value, 'Contracts');
+  const layer = (id: string) => byId.get(id)?.layer?.id;
+  assert.equal(layer('api/app/routes/items.py'), 'api');
+  assert.equal(layer('web/src/components/ItemCard.tsx'), 'ui');
+  assert.equal(layer('web/src/lib/api.ts'), 'client');
+  assert.equal(layer('web/src/types.ts'), 'contract');
+  assert.equal(layer('api/app/models.py'), 'data');
+  assert.equal(layer('api/app/models.py#Item'), 'data', 'table=True makes an ORM table');
+  assert.equal(layer('api/app/models.py#ItemPublic'), 'contract', 'a schema class splits off its models file');
+  assert.equal(byId.get('api/app/routes/items.py#read_item')?.layer?.evidence[0].detail, 'serves GET /items/{id}');
   assert.deepEqual(byId.get('api/app/routes/items.py#read_item')?.routes, ['GET /items/{id}']);
+  assert.ok(byId.get('api/app/models.py')?.facts?.some((f) => f.type === 'import' && f.value === 'sqlmodel'));
+  assert.deepEqual(graph.layers.map((l) => l.id), ['ui', 'client', 'api', 'service', 'data', 'job', 'contract', 'test']);
+
+  // The same code under the by-repo preset: one layer per repository.
+  const byRepo = buildGraph([await loadRepo(info('web'), web), await loadRepo(info('api'), api)], defaultGrouping('by-repo', [info('web'), info('api')]));
+  assert.equal(byRepo.nodes.find((n) => n.id === 'api/app/models.py#ItemPublic')?.layer?.id, 'api');
+});
+
+// A tiny hand-made graph for exercising the classifier directly.
+const file = (id: string, facts: GraphNode['facts'] = []): GraphNode => ({ id, kind: 'file', name: id, parent: 'r', repo: id.split('/')[0], path: id.split('/').slice(1).join('/'), facts });
+const sym = (fileId: string, name: string, facts: GraphNode['facts'] = []): GraphNode => ({ id: `${fileId}#${name}`, kind: 'symbol', name, parent: fileId, repo: fileId.split('/')[0], facts });
+
+test('project layers: priorities, neighbours, Unlayered', () => {
+  const grouping: Grouping = {
+    schema: 1,
+    layers: [
+      { id: 'edge', name: 'Edge', match: [{ fact: { type: 'route' }, priority: 300 }, { path: '**/handlers/**', priority: 100 }] },
+      { id: 'store', name: 'Store', match: [{ import: 'pg', priority: 200 }] },
+    ],
+    domains: [],
+    rules: [],
+    pins: {},
+  };
+  const nodes = [
+    file('svc/handlers/a.ts', [{ type: 'import', value: 'pg' }]), // import (200) beats path (100)
+    file('svc/handlers/b.ts'),
+    file('svc/util/helper.ts'), // only called from handlers
+    file('svc/misc/lonely.ts'), // no signal, no neighbours
+    sym('svc/handlers/b.ts', 'getThing', [{ type: 'route', value: 'GET /thing' }]),
+    sym('svc/handlers/b.ts', 'helper'),
+  ];
+  const edges = [
+    { from: 'svc/handlers/b.ts#getThing', to: 'svc/util/helper.ts', kind: 'calls' as const },
+    { from: 'svc/handlers/b.ts#helper', to: 'svc/handlers/a.ts', kind: 'calls' as const },
+  ];
+  const { layers } = classify(nodes, edges, grouping);
+  assert.equal(layers.get('svc/handlers/a.ts')?.id, 'store');
+  assert.match(layers.get('svc/handlers/a.ts')!.evidence[1].detail, /would be Edge/);
+  assert.equal(layers.get('svc/handlers/b.ts')?.id, 'edge');
+  assert.equal(layers.get('svc/util/helper.ts')?.source, 'graph');
+  assert.equal(layers.get('svc/util/helper.ts')?.id, 'edge');
+  assert.equal(layers.get('svc/misc/lonely.ts')?.id, UNLAYERED);
+  assert.equal(layers.get('svc/handlers/b.ts#getThing')?.source, 'fact');
+  assert.equal(layers.get('svc/handlers/b.ts#helper')?.source, 'path', 'inherits its file');
+});
+
+test('user rules and pins win, later rules over earlier ones', () => {
+  const grouping = normalizeGrouping({
+    schema: 1,
+    layers: [{ id: 'a', name: 'A', match: [{ path: 'r/**', priority: 100 }] }, { id: 'b', name: 'B', match: [] }],
+    rules: [
+      { match: { path: 'r/legacy/**' }, layer: 'b', domain: 'old' },
+      { match: { path: 'r/legacy/**', name: '^keep' }, layer: 'a' },
+      { match: { path: 'r/**' }, layer: 'no-such-layer' },
+    ],
+    pins: { 'r/x.ts': { layer: 'b' } },
+  });
+  const nodes = [file('r/legacy/old.ts'), sym('r/legacy/old.ts', 'keepMe'), sym('r/legacy/old.ts', 'dropMe'), file('r/x.ts'), sym('r/x.ts', 'f')];
+  const { layers, domains, domainList } = classify(nodes, [], grouping);
+  assert.equal(layers.get('r/legacy/old.ts')?.id, 'b');
+  assert.equal(layers.get('r/legacy/old.ts#keepMe')?.id, 'a');
+  assert.equal(layers.get('r/legacy/old.ts#dropMe')?.source, 'user-rule');
+  assert.equal(domains.get('r/legacy/old.ts#dropMe')?.id, 'old');
+  assert.equal(layers.get('r/x.ts')?.source, 'user-pin');
+  assert.equal(layers.get('r/x.ts#f')?.id, 'b', 'a file pin covers its symbols');
+  assert.ok(domainList.some((d) => d.id === 'old' && d.name === 'Old'));
+});
+
+test('groupings are validated before use', () => {
+  assert.throws(() => normalizeGrouping({ layers: [{ id: 'unlayered' }] }), GroupingError);
+  assert.throws(() => normalizeGrouping({ layers: [{ id: 'a' }, { id: 'a' }] }), GroupingError);
+  assert.throws(() => normalizeGrouping({ layers: [{ id: 'a', match: [{ fact: { type: 'nope' } }] }] }), /fact: type must be/);
+  const g = normalizeGrouping({ layers: [{ id: 'a', match: [{ path: 'x/**' }] }], pins: { n: { layer: 'a' }, bad: 3 } });
+  assert.equal(g.layers[0].name, 'a');
+  assert.equal(g.layers[0].match[0].priority, 100);
+  assert.deepEqual(Object.keys(g.pins), ['n']);
+});
+
+test('file store round-trips a project and ignores its own writes', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'strata-store-'));
+  const store = new FileProjectStore(dir);
+  assert.equal(await store.loadGrouping('p1'), null);
+  let changes = 0;
+  const stop = store.watchGrouping('p1', () => changes++);
+  await store.saveGrouping('p1', defaultGrouping());
+  await store.saveRepos('p1', [{ id: 'a', name: 'a', source: '/tmp/a', kind: 'local' }]);
+  assert.equal(normalizeGrouping(await store.loadGrouping('p1')).layers.length, 8);
+  assert.equal((await store.loadRepos('p1'))?.[0].id, 'a');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(changes, 0);
+  await fs.writeFile(store.describe('p1'), JSON.stringify({ schema: 1, layers: [] }));
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.equal(changes, 1, 'a hand edit is noticed');
+  assert.throws(() => store.describe('../escape'));
 });

@@ -2,12 +2,15 @@
 // that directory, so this is a single-user development tool, not a service.
 
 import Fastify from 'fastify';
-import { Workspace } from './workspace.ts';
+import type { LayerPreset } from '@strata/shared';
+import { GroupingError, PRESETS } from './classify/index.ts';
+import { checkProjectId, createStore } from './store.ts';
+import { STRATA_HOME, Workspace } from './workspace.ts';
 
 const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
-const ws = new Workspace();
+const ws = new Workspace(createStore(STRATA_HOME), checkProjectId(process.env.STRATA_PROJECT ?? 'default'));
 await ws.init();
 
 const app = Fastify({ logger: { level: 'warn' } });
@@ -35,6 +38,23 @@ app.delete<{ Params: { id: string } }>('/api/repos/:id', async (req) => {
 app.post<{ Params: { id: string } }>('/api/repos/:id/refresh', async (req, reply) => {
   ws.refresh(req.params.id);
   return reply.code(202).send(ws.state());
+});
+
+app.get('/api/grouping', async () => ({ grouping: ws.getGrouping(), presets: PRESETS, location: ws.state().project.groupingLocation }));
+
+app.put('/api/grouping', async (req, reply) => {
+  try {
+    return { grouping: await ws.setGrouping(req.body) };
+  } catch (err) {
+    if (err instanceof GroupingError) return reply.code(400).send({ error: err.message });
+    throw err;
+  }
+});
+
+app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, reply) => {
+  const preset = req.body?.preset as LayerPreset;
+  if (!PRESETS.includes(preset)) return reply.code(400).send({ error: `preset must be one of ${PRESETS.join(', ')}` });
+  return { grouping: await ws.applyPreset(preset) };
 });
 
 await app.listen({ port: PORT, host: HOST });

@@ -27,19 +27,144 @@ export type EdgeKind =
   | 'references' // any other resolved identifier use
   | 'http'; // client request matched to a server route
 
-/** The fixed layer taxonomy used by the By-function view. */
-export const LAYERS = ['UI', 'Client', 'API', 'Services', 'Storage', 'Pipeline', 'Contracts', 'Other'] as const;
-export type Layer = (typeof LAYERS)[number];
+/**
+ * What a language-specific detector saw in a file or symbol, before any
+ * judgment. Classification reads facts, paths and edges only, so it stays
+ * language-agnostic; layer matchers are written against these.
+ */
+export type FactType =
+  | 'import' // file: package it imports, e.g. "react", "sqlalchemy"
+  | 'frontend' // file: UI framework of the package it lives in, e.g. "react"
+  | 'route' // file/symbol: route it serves, e.g. "GET /items/{id}"
+  | 'pageRoute' // file: framework file-system page route, e.g. "/items/[id]"
+  | 'returnsJSX' // file/symbol: renders JSX
+  | 'request' // file/symbol: HTTP request it makes, e.g. "GET /api/v1/items/{}"
+  | 'extends' // symbol: base class, e.g. "BaseModel"
+  | 'table' // symbol: ORM entity; value is the class name
+  | 'typeOnly' // file: declares only types, interfaces, enums or schema classes
+  | 'decorator' // symbol: decorator text, e.g. "router.get"
+  | 'entrypoint' // file: "main" | "cli" | "cron"
+  | 'test'; // file: a test
+
+export interface Fact {
+  type: FactType;
+  value: string;
+}
+
+const FACT_TEXT: Record<FactType, (v: string) => string> = {
+  import: (v) => `imports ${v}`,
+  frontend: (v) => `in a ${v} package`,
+  route: (v) => `serves ${v}`,
+  pageRoute: (v) => `page route ${v}`,
+  returnsJSX: () => 'renders JSX',
+  request: (v) => `requests ${v}`,
+  extends: (v) => `extends ${v}`,
+  table: (v) => `ORM table ${v}`,
+  typeOnly: () => 'only declares types',
+  decorator: (v) => `decorated @${v}`,
+  entrypoint: (v) => `${v} entry point`,
+  test: () => 'is a test',
+};
+
+/** "serves GET /items/{id}", "renders JSX", … */
+export const describeFact = (f: Fact) => FACT_TEXT[f.type]?.(f.value) ?? `${f.type} ${f.value}`;
+
+/**
+ * One way code can land in a layer. Every field that is set must match; the
+ * highest-priority match across all of a project's layers wins.
+ */
+export interface LayerMatcher {
+  /** A fact of this type; `value` is a regex tested against the fact's value (omitted = any). */
+  fact?: { type: FactType; value?: string };
+  /** Package the file imports: equal to this, or a submodule of it ("sqlalchemy" matches "sqlalchemy.orm"). */
+  import?: string;
+  /** Glob on "<repo>/<path>", e.g. "web/src/components/**" or "api/app/crud.py". */
+  path?: string;
+  /** Repository id: the whole repo lands in this layer. */
+  repo?: string;
+  /** Higher wins. The presets use about 300 for facts, 200 for imports, 100 for paths and 50 for repos. */
+  priority: number;
+}
+
+/** A project-defined layer. Nothing in the indexer hard-codes a layer id. */
+export interface LayerDef {
+  /** Stable slug; never changes on rename. */
+  id: string;
+  name: string;
+  /** Position in the request flow (lower is closer to the user). Optional. */
+  rank?: number;
+  match: LayerMatcher[];
+}
+
+/** Where code no matcher or neighbour places goes, so it's visible rather than guessed. */
+export const UNLAYERED = 'unlayered';
+/** Domains for code split evenly between several domains, and for code with no signal at all. */
+export const SHARED_DOMAIN = 'shared';
+export const UNSORTED_DOMAIN = 'unsorted';
+
+export type LayerPreset = 'roles' | 'by-repo' | 'empty';
+
+export type PlacementSource =
+  | 'user-pin'
+  | 'user-rule'
+  | 'fact'
+  | 'import'
+  | 'path'
+  | 'repo'
+  | 'graph'
+  | 'seed'
+  | 'propagated'
+  | 'cohesion'
+  | 'fallback';
+
+export interface Evidence {
+  source: PlacementSource;
+  /** Human-readable, e.g. "serves GET /items/{id}". */
+  detail: string;
+  weight: number;
+}
 
 /** Why a node landed in its layer or domain, so the map can show its work. */
-export interface Classification<T extends string = string> {
-  value: T;
-  /** 0..1, how sure the winning classifier was. */
+export interface Placement {
+  /** LayerDef id or domain id. */
+  id: string;
+  /** 0..1 */
   confidence: number;
-  /** Name of the classifier that won, e.g. "code-signals". */
-  source: string;
-  /** Human-readable evidence, e.g. "declares route GET /items/{id}". */
-  reason: string;
+  /** The signal that decided it. */
+  source: PlacementSource;
+  /** Winning evidence first, then runners-up. */
+  evidence: Evidence[];
+}
+
+/** Bulk moves, stored as rules so code added later follows them. Later rules win. */
+export interface GroupingRule {
+  match: {
+    repo?: string;
+    /** Glob on "<repo>/<path>". */
+    path?: string;
+    /** Regex on the symbol name. */
+    name?: string;
+    /** Only move code currently in this layer. */
+    layer?: string;
+  };
+  layer?: string;
+  domain?: string;
+}
+
+/**
+ * Everything the user owns about how one project is grouped. Persisted per
+ * project (strata.grouping.json), seeded from a preset on first run.
+ */
+export interface Grouping {
+  schema: 1;
+  /** The preset the layers started from. */
+  preset?: LayerPreset;
+  layers: LayerDef[];
+  /** Renamed, reordered or hidden domains, by id. */
+  domains: { id: string; name?: string; order?: number; hidden?: boolean }[];
+  rules: GroupingRule[];
+  /** Single-node moves keyed by file or symbol id. */
+  pins: Record<string, { layer?: string; domain?: string }>;
 }
 
 export interface GraphNode {
@@ -59,10 +184,12 @@ export interface GraphNode {
   loc?: number;
   /** 1-based inclusive line range for symbols. */
   lines?: [number, number];
+  /** What the detectors saw (files and symbols). */
+  facts?: Fact[];
   /** Present on files and symbols. */
-  layer?: Classification<Layer>;
+  layer?: Placement;
   /** Present on files and symbols. */
-  domain?: Classification;
+  domain?: Placement;
   /** HTTP routes this file or symbol serves, e.g. "GET /items/{id}". */
   routes?: string[];
 }
@@ -103,8 +230,11 @@ export interface Graph {
   repos: RepoInfo[];
   nodes: GraphNode[];
   edges: GraphEdge[];
-  /** Which classifier chains produced layer and domain assignments. */
-  classifiers: { layer: string[]; domain: string[] };
+  /** The project's layers in display order (Unlayered is implied). */
+  layers: { id: string; name: string; rank?: number }[];
+  /** Domains that occur in this graph, in display order. */
+  domains: { id: string; name: string }[];
+  preset?: LayerPreset;
 }
 
 export interface Workspace {
@@ -115,4 +245,11 @@ export interface Workspace {
   graphVersion: number;
   /** Sources worth offering on an empty workspace (e.g. this checkout). */
   suggestions: string[];
+  project: {
+    id: string;
+    /** Where the project's grouping is stored, e.g. a file path. */
+    groupingLocation: string;
+    /** Set when the stored grouping failed to validate; the last good one is still in use. */
+    groupingError?: string;
+  };
 }

@@ -3,7 +3,7 @@
 //   function  domain → layer → symbol               (the theoretical grouping)
 // Symbols keep their graph ids in both, so edges resolve the same way.
 
-import { LAYERS, type Graph, type GraphNode, type Layer } from '@strata/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode } from '@strata/shared';
 
 export type View = 'code' | 'function';
 
@@ -20,7 +20,8 @@ export interface TNode {
   repo: string;
   /** The underlying graph node, for repos, folders, files and symbols. */
   data?: GraphNode;
-  layer?: Layer;
+  /** Layer id: the node's own, or for folders and repos the one most of their code is in. */
+  layer?: string;
   /** Leaf size in layout units. */
   size: number;
   /** Number of symbols underneath (or 1 for a symbol). */
@@ -65,7 +66,7 @@ export function buildCodeTree(graph: Graph): Tree {
       depth: 0,
       repo: g.repo,
       data: g,
-      layer: g.layer?.value,
+      layer: g.layer?.id,
       size: leafSize(g),
       symbols: 0,
     });
@@ -77,12 +78,12 @@ export function buildCodeTree(graph: Graph): Tree {
 }
 
 /** Folders and repos take the layer most of their files have, so "color by layer" reads at every altitude. */
-function dominantLayers(n: TNode): Map<Layer, number> {
-  const tally = new Map<Layer, number>();
+function dominantLayers(n: TNode): Map<string, number> {
+  const tally = new Map<string, number>();
   if (n.kind === 'file' && n.layer) tally.set(n.layer, Math.max(1, n.data?.loc ?? 1));
   else for (const c of n.children) for (const [l, v] of dominantLayers(c)) tally.set(l, (tally.get(l) ?? 0) + v);
   if (n.kind === 'folder' || n.kind === 'repo') {
-    const top = [...tally].filter(([l]) => l !== 'Other').sort((a, b) => b[1] - a[1])[0];
+    const top = [...tally].filter(([l]) => l !== UNLAYERED).sort((a, b) => b[1] - a[1])[0];
     n.layer = top?.[0];
   }
   return tally;
@@ -93,7 +94,9 @@ export function buildFunctionTree(graph: Graph): Tree {
   const nodes = new Map<string, TNode>([['root', root]]);
   const hasSymbols = new Set(graph.nodes.filter((n) => n.kind === 'symbol').map((n) => n.parent));
 
-  const group = (id: string, name: string, kind: 'domain' | 'layer', parent: TNode, layer?: Layer) => {
+  const layerName = new Map([...graph.layers.map((l) => [l.id, l.name] as const), [UNLAYERED, 'Unlayered']]);
+  const domainName = new Map(graph.domains.map((d) => [d.id, d.name]));
+  const group = (id: string, name: string, kind: 'domain' | 'layer', parent: TNode, layer?: string) => {
     let n = nodes.get(id);
     if (!n) {
       n = { id, kind, name, parent: parent.id, children: [], depth: 0, repo: '', size: 0, symbols: 0, layer };
@@ -106,18 +109,22 @@ export function buildFunctionTree(graph: Graph): Tree {
   for (const g of graph.nodes) {
     // Symbols carry the grouping; files only appear when they have no symbols of their own.
     if (g.kind !== 'symbol' && !(g.kind === 'file' && !hasSymbols.has(g.id))) continue;
-    const domainName = g.domain?.value ?? 'Shared';
-    const layer = g.layer?.value ?? 'Other';
-    const D = group(`domain:${domainName}`, domainName, 'domain', root);
-    const L = group(`${D.id}/${layer}`, layer, 'layer', D, layer);
+    const domain = g.domain?.id ?? UNSORTED_DOMAIN;
+    const layer = g.layer?.id ?? UNLAYERED;
+    const D = group(`domain:${domain}`, domainName.get(domain) ?? domain, 'domain', root);
+    const L = group(`${D.id}/${layer}`, layerName.get(layer) ?? layer, 'layer', D, layer);
     const leaf: TNode = { id: g.id, kind: g.kind, name: g.name, parent: L.id, children: [], depth: 0, repo: g.repo, data: g, layer, size: leafSize(g), symbols: 0 };
     nodes.set(g.id, leaf);
     L.children.push(leaf);
   }
 
-  // Shared last, everything else by size; layers in the canonical order.
-  root.children.sort((a, b) => (a.name === 'Shared' ? 1 : b.name === 'Shared' ? -1 : 0) || b.children.length - a.children.length);
-  for (const D of root.children) D.children.sort((a, b) => LAYERS.indexOf(a.name as Layer) - LAYERS.indexOf(b.name as Layer));
+  // Domains in the order the graph lists them (Shared and Unsorted last); layers
+  // in the project's order, Unlayered last.
+  const domainOrder = new Map(graph.domains.map((d, i) => [`domain:${d.id}`, i]));
+  const layerOrder = new Map(graph.layers.map((l, i) => [l.id, i]));
+  const at = (m: Map<string, number>, k: string | undefined) => m.get(k ?? '') ?? 1e6;
+  root.children.sort((a, b) => at(domainOrder, a.id) - at(domainOrder, b.id));
+  for (const D of root.children) D.children.sort((a, b) => at(layerOrder, a.layer) - at(layerOrder, b.layer));
   return finish(root, nodes, 'function');
 }
 

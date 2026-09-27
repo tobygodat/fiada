@@ -32,7 +32,14 @@ export function App() {
   const graphIndex = useMemo(() => new Map<string, GraphNode>((graph?.nodes ?? []).map((n) => [n.id, n])), [graph]);
   const tree = useMemo(() => (graph ? (view === 'code' ? buildCodeTree(graph) : buildFunctionTree(graph)) : null), [graph, view]);
   const L = useMemo(() => (tree ? layout(tree) : new Map()), [tree]);
-  const pal = useMemo(() => palette((graph?.repos ?? []).map((r) => r.id)), [graph]);
+  const pal = useMemo(
+    () =>
+      palette(
+        (graph?.repos ?? []).map((r) => r.id),
+        (graph?.layers ?? []).map((l) => l.id),
+      ),
+    [graph],
+  );
 
   const vis = useMemo(() => (tree ? visibleNodes(tree, L, cam, size.w, size.h) : null), [tree, L, cam, size]);
   const contracts = useMemo(
@@ -173,6 +180,7 @@ export function App() {
         )}
         <Sidebar
           workspace={ws.workspace}
+          graph={graph}
           offline={ws.offline}
           tree={tree}
           view={view}
@@ -185,17 +193,18 @@ export function App() {
           onAdd={ws.add}
           onRemove={ws.remove}
           onRefresh={ws.refresh}
+          onPreset={ws.applyPreset}
         />
         {graph && tree && (selected || contract) && (
           <Detail graph={graph} graphIndex={graphIndex} tree={tree} pal={pal} selected={selected} contract={contract} onSelect={select} />
         )}
-        <Legend colorBy={colorBy} pal={pal} />
+        <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} />
       </div>
     </div>
   );
 }
 
-function Legend({ colorBy, pal }: { colorBy: ColorBy; pal: ReturnType<typeof palette> }) {
+function Legend({ colorBy, pal, layers }: { colorBy: ColorBy; pal: ReturnType<typeof palette>; layers: { id: string; name: string }[] }) {
   return (
     <div className="legend">
       <span className="row gap">
@@ -205,9 +214,9 @@ function Legend({ colorBy, pal }: { colorBy: ColorBy; pal: ReturnType<typeof pal
         <span className="swatch-line dashed" /> cross-repo
       </span>
       {colorBy === 'layer' &&
-        (['UI', 'Client', 'API', 'Services', 'Storage', 'Pipeline', 'Contracts'] as const).map((l) => (
-          <span key={l} className="row gap">
-            <span className="dot small" style={{ background: pal.layer(l) }} /> {l}
+        layers.map((l) => (
+          <span key={l.id} className="row gap">
+            <span className="dot small" style={{ background: pal.layer(l.id) }} /> {l.name}
           </span>
         ))}
     </div>

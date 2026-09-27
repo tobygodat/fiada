@@ -1,52 +1,30 @@
-// The classification step is a chain of small, independent classifiers.
-// Each looks at one file (and optionally its symbols) and either abstains or
-// casts a vote with a confidence and a human-readable reason. The highest
-// confidence wins; ties go to whichever classifier comes first in the chain.
+// Classification is a pure function of the graph and the project's grouping:
 //
-// To try a different strategy, write a classifier and put it in the chain in
-// classify/index.ts. Nothing else in the indexer needs to change.
+//   (file and symbol nodes with facts, edges, grouping) → a layer and a domain per node
+//
+// Language-specific knowledge stays in the fact detectors (../facts.ts), and
+// the project's layer definitions arrive inside `grouping`, so nothing here
+// hard-codes a layer. Layer and domain strategies are separate, swappable
+// functions; the user's rules and pins are applied on top of whatever they return.
 
-import type { Classification, Layer } from '@strata/shared';
-import type { ParsedFile, ParsedRepo, ParsedSymbol } from '../model.ts';
+import type { GraphEdge, GraphNode, Grouping, Placement } from '@strata/shared';
 
-export interface FileContext {
-  repo: ParsedRepo;
-  file: ParsedFile;
-  /** Graph node id of the file. */
-  id: string;
-  /** Top-level names of packages this file imports that are not in any indexed repo. */
-  externalImports: string[];
-  /** True when the nearest package.json depends on a UI framework. */
-  frontend: boolean;
-  /** Files that call into this one, and files this one calls into. */
-  callers: string[];
-  callees: string[];
-  /**
-   * Layers already assigned by earlier passes, by file id. Only filled for
-   * classifiers with phase "graph", which run after the first pass.
-   */
-  layerOf?: (fileId: string) => Layer | undefined;
+export interface ClassifyInput {
+  /** Files and symbols (other node kinds are ignored). Symbols' parent is their file. */
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  grouping: Grouping;
 }
 
-export interface Vote<T extends string = string> {
-  value: T;
-  confidence: number;
-  reason: string;
-}
+/** Placement per file and symbol id. */
+export type Assignments = Map<string, Placement>;
 
-export interface Classifier<T extends string = string> {
+export interface LayerStrategy {
   name: string;
-  /**
-   * "facts" classifiers see only the file's own facts. "graph" classifiers run
-   * afterwards and can read the first-pass result for neighbouring files.
-   */
-  phase?: 'facts' | 'graph';
-  /** Optional hook that sees every file first, for classifiers that need corpus-wide statistics. */
-  prepare?(all: FileContext[]): void;
-  classifyFile(ctx: FileContext): Vote<T> | null;
-  /** Optional per-symbol override; symbols otherwise inherit the file's result. */
-  classifySymbol?(sym: ParsedSymbol, file: Classification<T>, ctx: FileContext): Vote<T> | null;
+  assign(input: ClassifyInput): Assignments;
 }
 
-export type LayerClassifier = Classifier<Layer>;
-export type DomainClassifier = Classifier<string>;
+export interface DomainStrategy {
+  name: string;
+  assign(input: ClassifyInput, layers: Assignments): { domains: { id: string; name: string }[]; assignments: Assignments };
+}

@@ -110,14 +110,4 @@ export interface ParsedRepo {
   /** Directories that act as Python import roots ("" = repo root). */
   pyRoots: string[];
   frameworks: string[];
-  /** Optional strata.config.json at the repo root. */
-  config?: RepoConfig;
-}
-
-/** strata.config.json: explicit, checked-in overrides for classification. */
-export interface RepoConfig {
-  /** Glob → layer, e.g. { "src/server/**": "API" }. First match wins. */
-  layers?: Record<string, string>;
-  /** Glob → domain name. First match wins. */
-  domains?: Record<string, string>;
 }

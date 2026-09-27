@@ -2,7 +2,7 @@
 // anything is cloning or indexing, and refetches the graph when it changes.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Graph, Workspace } from '@strata/shared';
+import type { Graph, LayerPreset, Workspace } from '@strata/shared';
 import { api } from './api.ts';
 
 export interface WorkspaceHandle {
@@ -13,6 +13,8 @@ export interface WorkspaceHandle {
   add(source: string): Promise<void>;
   remove(id: string): Promise<void>;
   refresh(id: string): Promise<void>;
+  /** Starts the project's layers over from a preset. */
+  applyPreset(preset: LayerPreset): Promise<void>;
 }
 
 export function useWorkspace(): WorkspaceHandle {
@@ -51,5 +53,9 @@ export function useWorkspace(): WorkspaceHandle {
     add: async (source) => sync(await api.addRepo(source)),
     remove: async (id) => sync(await api.removeRepo(id)),
     refresh: async (id) => sync(await api.refreshRepo(id)),
+    applyPreset: async (preset) => {
+      await api.applyPreset(preset);
+      await sync();
+    },
   };
 }

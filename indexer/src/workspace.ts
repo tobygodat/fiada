@@ -1,6 +1,7 @@
-// The set of imported repositories: where they came from, their clones on
-// disk, their parsed facts, and the combined graph. Persisted to
-// .strata/workspace.json so a restart re-indexes without re-cloning.
+// One project: the repositories imported into it, their clones on disk, their
+// parsed facts, its grouping (layers, rules, pins), and the combined graph.
+// Repos and grouping persist through a ProjectStore, so a restart re-indexes
+// without re-cloning and keeps the project's layers.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -8,17 +9,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Graph, RepoInfo, Workspace as WorkspaceState } from '@strata/shared';
-import { buildGraph } from './build.ts';
+import type { Graph, Grouping, LayerPreset, RepoInfo, Workspace as WorkspaceState } from '@strata/shared';
+import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
+import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
 import type { ParsedRepo } from './model.ts';
 import { loadRepo } from './sources.ts';
+import type { ProjectStore } from './store.ts';
 
 const exec = promisify(execFile);
 
 export const PROJECT_ROOT = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
 export const STRATA_HOME = process.env.STRATA_HOME ?? path.join(PROJECT_ROOT, '.strata');
 const CLONES = path.join(STRATA_HOME, 'repos');
-const STATE = path.join(STRATA_HOME, 'workspace.json');
 
 export interface RepoSource {
   kind: 'git' | 'local';
@@ -69,14 +71,27 @@ const git = (args: string[], timeout = 300_000) =>
 export class Workspace {
   repos: RepoInfo[] = [];
   private parsed = new Map<string, ParsedRepo>();
+  private base: BaseGraph = { repos: [], nodes: [], edges: [] };
   private graph: Graph | null = null;
   private graphVersion = 0;
+  private grouping: Grouping = defaultGrouping();
+  /** Set when the stored grouping is invalid; the last good one stays in use. */
+  private groupingError?: string;
   private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private store: ProjectStore,
+    readonly projectId = 'default',
+  ) {}
 
   async init() {
     await fs.mkdir(CLONES, { recursive: true });
-    const saved = await fs.readFile(STATE, 'utf8').then(JSON.parse, () => null);
-    this.repos = (saved?.repos ?? []).map((r: RepoInfo) => ({ ...r, status: 'queued' as const, error: undefined }));
+    await this.loadGrouping(true);
+    this.store.watchGrouping?.(this.projectId, () => {
+      this.loadGrouping(false).then(() => this.reclassify(), (err) => console.error('[strata]', err));
+    });
+    const saved = (await this.store.loadRepos(this.projectId)) ?? [];
+    this.repos = saved.map(({ id, name, source, kind }) => ({ id, name, source, kind, status: 'queued' as const }));
     for (const r of this.repos) this.enqueue(r.id, false);
   }
 
@@ -86,20 +101,55 @@ export class Workspace {
       busy: this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
       graphVersion: this.graphVersion,
       suggestions: [PROJECT_ROOT, 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
+      project: { id: this.projectId, groupingLocation: this.store.describe(this.projectId), groupingError: this.groupingError },
     };
   }
 
   getGraph(): Graph {
-    return (
-      this.graph ?? {
-        version: 1,
-        generatedAt: new Date().toISOString(),
-        repos: [],
-        nodes: [],
-        edges: [],
-        classifiers: { layer: [], domain: [] },
-      }
-    );
+    return this.graph ?? classifyGraph(this.base, this.grouping);
+  }
+
+  getGrouping(): Grouping {
+    return this.grouping;
+  }
+
+  /** Replaces the project's grouping. Throws GroupingError when it doesn't validate. */
+  async setGrouping(raw: unknown): Promise<Grouping> {
+    const g = normalizeGrouping(raw);
+    await this.store.saveGrouping(this.projectId, g);
+    this.grouping = g;
+    this.groupingError = undefined;
+    this.reclassify();
+    return g;
+  }
+
+  /** Starts the project's layers over from a preset. Rules and pins are kept; ones naming a layer that no longer exists stop applying. */
+  async applyPreset(preset: LayerPreset): Promise<Grouping> {
+    return this.setGrouping({ ...this.grouping, preset, layers: presetLayers(preset, this.repos) });
+  }
+
+  private async loadGrouping(first: boolean) {
+    let raw: unknown;
+    try {
+      raw = await this.store.loadGrouping(this.projectId);
+    } catch (err) {
+      this.groupingError = `Couldn't read the grouping: ${(err as Error).message}`;
+      console.error(`[strata] ${this.groupingError}`);
+      return;
+    }
+    if (raw == null) {
+      // A new project starts from the roles preset.
+      if (first) await this.store.saveGrouping(this.projectId, this.grouping);
+      return;
+    }
+    try {
+      this.grouping = normalizeGrouping(raw);
+      this.groupingError = undefined;
+    } catch (err) {
+      if (!(err instanceof GroupingError)) throw err;
+      this.groupingError = err.message;
+      console.error(`[strata] grouping not applied: ${err.message}`);
+    }
   }
 
   async add(input: string): Promise<RepoInfo> {
@@ -183,14 +233,22 @@ export class Workspace {
   private rebuild() {
     const ordered = this.repos.map((r) => this.parsed.get(r.id)).filter((p): p is ParsedRepo => !!p);
     const started = Date.now();
-    this.graph = buildGraph(ordered);
+    this.base = buildBase(ordered);
+    console.log(`[strata] linked ${this.base.nodes.length} nodes, ${this.base.edges.length} edges in ${Date.now() - started}ms`);
+    this.reclassify();
+  }
+
+  private reclassify() {
+    const started = Date.now();
+    this.graph = classifyGraph(this.base, this.grouping);
     this.graphVersion++;
-    console.log(`[strata] graph v${this.graphVersion}: ${this.graph.nodes.length} nodes, ${this.graph.edges.length} edges in ${Date.now() - started}ms`);
+    console.log(`[strata] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
   }
 
   private async save() {
-    const repos = this.repos.map(({ id, name, source, kind }) => ({ id, name, source, kind }));
-    await fs.mkdir(STRATA_HOME, { recursive: true });
-    await fs.writeFile(STATE, JSON.stringify({ repos }, null, 2));
+    await this.store.saveRepos(
+      this.projectId,
+      this.repos.map(({ id, name, source, kind }) => ({ id, name, source, kind })),
+    );
   }
 }

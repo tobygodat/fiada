@@ -2,7 +2,7 @@
 
 A codebase map for working at the middle altitude: above file-by-file reading, below a one-paragraph architecture summary. One graph spans several repositories; zooming changes the level of abstraction, from systems to modules to files to symbols.
 
-This is the first scaffold of the prototype. It covers the graph view, the floating sidebar with the **Code · read-only** / **By function** toggle, and importing real repositories. The agent overlay, search, edge filtering and domain editing come later.
+This is the first scaffold of the prototype. It covers the graph view, the floating sidebar with the **Code · read-only** / **By function** toggle, importing real repositories, and per-project layers. The agent overlay, search, edge filtering and domain editing come later.
 
 ## Run it
 
@@ -28,39 +28,53 @@ The indexer pipeline:
 1. **Sources** (`indexer/src/sources.ts`): lists files with `git ls-files`, skips vendored and generated directories and (by default) tests, and reads `package.json`, `tsconfig*.json`, `pyproject.toml` and `requirements*.txt`.
 2. **Parse** (`indexer/src/parse/`): tree-sitter (WASM, no native build) extracts imports, top-level symbols, the identifiers each symbol uses, server routes and client HTTP requests. TypeScript, TSX, JavaScript and Python today; a language is a grammar plus one extractor.
 3. **Link** (`indexer/src/link.ts`): resolves imports (relative paths, tsconfig `paths`, workspace packages, Python packages, across every imported repo), binds identifiers to the symbols they name through re-exports and barrels, and matches requests like `fetch(\`${API}/items/${id}\`)` to routes like FastAPI's `@router.get("/{id}")` under `APIRouter(prefix="/items")`.
-4. **Classify** (`indexer/src/classify/`): assigns every file and symbol a layer and a domain, each with a confidence and a reason.
+4. **Facts** (`indexer/src/facts.ts`): detectors turn what the parser saw into language-neutral facts on every file and symbol: the routes it serves, the requests it makes, JSX, ORM tables, base classes, decorators, imports, and whether it's type-only.
 5. **Build** (`indexer/src/build.ts`): emits the node tree (single-child folder chains collapsed) and edges.
+6. **Classify** (`indexer/src/classify/`): places every file and symbol in one of the project's layers and a domain, each with evidence. This step only reads facts, paths and edges, so a grouping change reclassifies in milliseconds without re-parsing.
 
 The web app rebuilds the tree for the chosen view, lays it out with circle packing, opens circles once they're big enough on screen, and lifts every edge to the nearest visible ancestor of each end, so edge thickness is the number of underlying interactions.
 
-## Classification is pluggable
+## Layers are per project
 
-Layers (UI, Client, API, Services, Storage, Pipeline, Contracts) and domains are decided by chains of small classifiers. Each one abstains or votes with a confidence and a reason; the highest confidence wins. The default layer chain is:
-
-| Classifier | Evidence |
-| --- | --- |
-| `repo-config` | globs in a checked-in `strata.config.json` (always wins) |
-| `code-signals` | what the code does: declares routes, renders JSX, defines ORM models, makes HTTP requests, only declares types |
-| `path-conventions` | where it lives: `routes/`, `components/`, `models.py`, `*.service.ts`, read differently in frontend and backend packages |
-| `graph-position` | second pass for leftovers: a file whose callers are mostly API handlers is a service |
-
-Symbols inherit their file's layer unless a classifier has symbol-level evidence (a `models.py` that mixes ORM tables with request schemas splits into Storage and Contracts). The default domain classifier, `feature-tokens`, looks for words that recur across paths in several files, such as `items` in `components/Items/`, `routes/items.py` and `crud.py#create_item`.
-
-To try another strategy, write a `Classifier` (see `indexer/src/classify/types.ts`) and put it in the chain in `indexer/src/classify/index.ts`. The detail panel shows the winning classifier and its reason for every file and symbol, and "color by layer" in the sidebar paints the whole map.
-
-To pin things down in a repo, add `strata.config.json` at its root:
+Each project defines its own layers. A layer is an id, a name and a list of matchers; a matcher names a fact, an imported package, a path glob or a whole repo (every field it sets must match) and a priority. Across all of a project's layers, the highest-priority match wins:
 
 ```json
 {
-  "layers": { "src/server/**": "API", "src/db/**": "Storage" },
-  "domains": { "src/billing/**": "Billing" }
+  "id": "api",
+  "name": "API",
+  "rank": 3,
+  "match": [
+    { "fact": { "type": "route" }, "priority": 300 },
+    { "import": "fastapi", "priority": 200 },
+    { "path": "**/controllers/**", "priority": 100 }
+  ]
 }
 ```
+
+Files nothing matches take the layer most of their callers have; anything still unplaced lands in **Unlayered**, which the sidebar counts so you can see what needs a rule. Symbols inherit their file's layer unless one of their own facts matches (a schema class in a models file, a fetch helper in a component file).
+
+A new project starts from a preset, which is just data you then own:
+
+| Preset | Layers |
+| --- | --- |
+| `roles` (default) | UI, Client, API, Service, Data, Job, Contract, Test, matched by code facts first (routes, JSX, ORM tables, requests), then imports, then file and folder names |
+| `by-repo` | one layer per repository |
+| `empty` | none; everything starts Unlayered |
+
+The grouping lives in `.strata/projects/default/strata.grouping.json`. Edit it to rename layers, add matchers, or add `rules` (bulk moves by path, symbol name or current layer) and `pins` (single files or symbols); edits apply live, and the sidebar shows an error if the file doesn't validate. The sidebar also switches presets, and the detail panel shows why each file and symbol landed where it did.
+
+Domains still come from the `feature-tokens` strategy (words that recur across file paths, such as `items`). The seed-and-propagate strategy from the classification design is the planned replacement; strategies are swappable in `indexer/src/classify/index.ts`.
+
+## Storage
+
+Everything a project keeps (its repositories and its grouping) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.strata/projects/<id>/`; a database-backed store implements the same five methods and is selected in `createStore()`. The graph itself is always derived, never stored.
 
 To see classification results without the UI:
 
 ```sh
 npm run index -- ../some-repo org/other-repo --layers --domains
+npm run index -- ../some-repo --preset by-repo
+npm run index -- ../some-repo --grouping my.grouping.json --layers
 ```
 
 ## Configuration
@@ -68,7 +82,8 @@ npm run index -- ../some-repo org/other-repo --layers --domains
 | Variable | Default | |
 | --- | --- | --- |
 | `PORT` | `4178` | indexer port (the web dev server proxies `/api` to it; set `STRATA_INDEXER_PORT` for the proxy if you change it) |
-| `STRATA_HOME` | `.strata/` | where clones and the workspace file live |
+| `STRATA_HOME` | `.strata/` | where clones and project files live |
+| `STRATA_PROJECT` | `default` | which project the indexer serves |
 | `STRATA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `STRATA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
 | `STRATA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
@@ -78,6 +93,6 @@ The indexer binds to 127.0.0.1: importing a local path reads that directory, so 
 ## Tests
 
 ```sh
-npm test             # indexer: route matching, source parsing, and a two-repo fixture end to end
+npm test             # indexer: route matching, layer matchers, rules and pins, the file store, and a two-repo fixture end to end
 npm run typecheck
 ```

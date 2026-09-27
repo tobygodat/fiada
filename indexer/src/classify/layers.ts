@@ -1,143 +1,184 @@
-// Default layer classifiers. Each one is a different kind of evidence:
-//   code-signals      what the code does (declares routes, renders JSX, defines ORM models…)
-//   path-conventions  where the file lives (routes/, components/, models.py…)
-//   graph-position    who calls it (a file only API handlers call is probably a service)
+// Default layer strategy: the project's own matchers, then graph position.
+//
+//   1. Every matcher of every layer in the project's grouping is tried against
+//      the file (its path, its repo, its facts); the highest priority wins.
+//   2. Files nothing matched take the layer most of their callers (or, failing
+//      that, their callees) have.
+//   3. Anything still unplaced is Unlayered, so it shows up as needing a rule.
+//
+// Symbols inherit their file's layer unless one of their own facts matches a
+// fact matcher: a schema class in a routes file, a fetch helper in a component file.
 
-import type { Layer } from '@strata/shared';
-import type { LayerClassifier, Vote } from './types.ts';
+import { describeFact, UNLAYERED, type Fact, type LayerDef, type LayerMatcher, type Placement, type PlacementSource } from '@strata/shared';
+import { globMatch } from './glob.ts';
+import type { Assignments, ClassifyInput, LayerStrategy } from './types.ts';
 
-const UI_LIBS = /^(react|react-dom|vue|svelte|solid-js|preact|@angular\/.*|react-native|@mui\/.*|@chakra-ui\/.*|@radix-ui\/.*|lucide-react|@headlessui\/.*|tailwind-merge|framer-motion)$/;
-const HTTP_CLIENTS = /^(axios|ky|ofetch|got|node-fetch|cross-fetch|swr|graphql-request|@apollo\/client|requests|httpx|aiohttp|urllib3)$/;
-const ORM = /^(sqlalchemy|sqlmodel|alembic|django|peewee|tortoise|pymongo|motor|redis|psycopg2?|asyncpg|prisma|@prisma\/client|mongoose|typeorm|drizzle-orm|knex|pg|mysql2|sequelize|ioredis|better-sqlite3|kysely)$/;
-const SERVER_LIBS = /^(fastapi|flask|starlette|django|express|fastify|hono|koa|@nestjs\/.*|next\/server)$/;
-const PIPELINE_LIBS = /^(airflow|celery|prefect|dagster|luigi|dask|pyspark|ray|kafka|confluent_kafka|bullmq|bull|agenda|torch|tensorflow|sklearn|scikit-learn|pandas|polars|numpy|transformers)$/;
-const ORM_BASES = /(^|\.)(Base|DeclarativeBase|Model|Document|Entity)$|^table=True$/;
-const SCHEMA_BASES = /(^|\.)(BaseModel|SQLModel|TypedDict|Schema|BaseSettings|Enum|IntEnum|StrEnum|Protocol|NamedTuple)$/;
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
-
-export const codeSignals: LayerClassifier = {
-  name: 'code-signals',
-  classifyFile({ file, externalImports, frontend }): Vote<Layer> | null {
-    const routes = file.routes.length + file.symbols.reduce((n, s) => n + (s.routes?.length ?? 0), 0);
-    const nextRoute = /(^|\/)app\/(.*\/)?route\.[cm]?[jt]sx?$|(^|\/)pages\/api\//.test(file.path);
-    if (routes || nextRoute) {
-      const first = file.symbols.find((s) => s.routes?.length)?.routes?.[0] ?? file.routes[0];
-      const example = first ? ` (${first.method} ${first.path})` : '';
-      return { value: 'API', confidence: 0.9, reason: nextRoute ? 'Next.js route handler' : `declares ${plural(routes, 'route')}${example}` };
+const regexes = new Map<string, RegExp | null>();
+function regex(src: string): RegExp | null {
+  if (!regexes.has(src)) {
+    try {
+      regexes.set(src, new RegExp(src));
+    } catch {
+      console.warn(`[strata] ignoring invalid regex in a layer matcher: ${src}`);
+      regexes.set(src, null);
     }
-    const components = file.symbols.filter((s) => s.kind === 'component').length;
-    if (file.jsx || components) {
-      return { value: 'UI', confidence: 0.85, reason: components ? `renders JSX (${plural(components, 'component')})` : 'renders JSX' };
-    }
-    const ormModels = file.symbols.filter((s) => s.kind === 'class' && s.bases?.some((b) => ORM_BASES.test(b)));
-    if (ormModels.length) return { value: 'Storage', confidence: 0.8, reason: `defines ${plural(ormModels.length, 'ORM model')} (${ormModels[0].name})` };
+  }
+  return regexes.get(src)!;
+}
 
-    const requests = file.requests.length + file.symbols.reduce((n, s) => n + (s.requests?.length ?? 0), 0);
-    if (requests) return { value: 'Client', confidence: 0.8, reason: `makes ${plural(requests, 'HTTP request')}` };
+/** "sqlalchemy" matches "sqlalchemy" and "sqlalchemy.orm"; "next" matches "next/server". */
+export const importMatches = (spec: string, prefix: string) =>
+  spec === prefix || (spec.startsWith(prefix) && (spec[prefix.length] === '/' || spec[prefix.length] === '.'));
 
-    const orm = externalImports.find((m) => ORM.test(m));
-    const server = externalImports.find((m) => SERVER_LIBS.test(m));
-    const pipeline = externalImports.find((m) => PIPELINE_LIBS.test(m));
-    const http = externalImports.find((m) => HTTP_CLIENTS.test(m));
-    const ui = externalImports.find((m) => UI_LIBS.test(m));
 
-    const syms = file.symbols;
-    const typeOnly = syms.length > 0 && syms.every((s) => s.kind === 'interface' || s.kind === 'type' || s.kind === 'enum');
-    const schemaOnly =
-      syms.length > 0 &&
-      syms.every((s) => (s.kind === 'class' || s.kind === 'enum' || s.kind === 'interface') && s.bases?.some((b) => SCHEMA_BASES.test(b)));
-    if (typeOnly) return { value: 'Contracts', confidence: 0.75, reason: `only declares types (${plural(syms.length, 'type')})` };
-    if (schemaOnly) return { value: 'Contracts', confidence: 0.7, reason: `only declares schemas (${syms[0].bases?.find((b) => SCHEMA_BASES.test(b))})` };
-
-    if (orm) return { value: 'Storage', confidence: 0.65, reason: `imports ${orm}` };
-    if (pipeline) return { value: 'Pipeline', confidence: 0.6, reason: `imports ${pipeline}` };
-    if (http) return { value: 'Client', confidence: 0.6, reason: `imports ${http}` };
-    if (server) return { value: 'API', confidence: 0.55, reason: `imports ${server}` };
-    if (ui && frontend) return { value: 'UI', confidence: 0.55, reason: `imports ${ui}` };
-    return null;
-  },
-  classifySymbol(sym, file): Vote<Layer> | null {
-    // A models module often mixes table models (Storage) with request/response schemas (Contracts).
-    if (sym.kind === 'class' && sym.bases?.some((b) => ORM_BASES.test(b)) && file.value !== 'Storage') {
-      return { value: 'Storage', confidence: 0.8, reason: `ORM model (${sym.bases.find((b) => ORM_BASES.test(b))})` };
-    }
-    if ((sym.kind === 'class' || sym.kind === 'enum' || sym.kind === 'interface') && sym.bases?.some((b) => SCHEMA_BASES.test(b)) && !sym.bases.some((b) => ORM_BASES.test(b))) {
-      return { value: 'Contracts', confidence: 0.75, reason: `schema class (${sym.bases.find((b) => SCHEMA_BASES.test(b))})` };
-    }
-    if ((sym.kind === 'interface' || sym.kind === 'type') && file.value !== 'Contracts') {
-      return { value: 'Contracts', confidence: 0.6, reason: `${sym.kind} declaration` };
-    }
-    if (sym.routes?.length) return { value: 'API', confidence: 0.9, reason: `serves ${sym.routes[0].method} ${sym.routes[0].path}` };
-    if (sym.kind === 'component' && file.value !== 'UI') return { value: 'UI', confidence: 0.85, reason: 'React component' };
-    if (sym.requests?.length && file.value !== 'Client') return { value: 'Client', confidence: 0.8, reason: `requests ${sym.requests[0].method} ${sym.requests[0].path}` };
-    return null;
-  },
-};
-
-// Directory and file-name conventions. `frontend` flips the meaning of
-// ambiguous names like "api/" (a client wrapper in a web app, the HTTP surface
-// in a server).
-const SEGMENTS: [RegExp, Layer | ((frontend: boolean) => Layer)][] = [
-  [/^(components?|pages|views|screens|layouts?|ui|widgets|templates|app)$/, (fe) => (fe ? 'UI' : 'Other')],
-  [/^(routes?|routers?|controllers?|handlers?|endpoints?|resolvers|views)$/, (fe) => (fe ? 'UI' : 'API')],
-  [/^(api|apis)$/, (fe) => (fe ? 'Client' : 'API')],
-  [/^(client|clients|sdk|lib|hooks|store|stores|state|queries|services)$/, (fe) => (fe ? 'Client' : 'Services')],
-  [/^(domain|usecases?|core|logic|business|crud)$/, 'Services'],
-  [/^(db|database|models?|entities|repositories|repos?|migrations|alembic|prisma|dao|orm|persistence|storage)$/, 'Storage'],
-  [/^(jobs?|workers?|tasks?|pipelines?|etl|dags?|cron|queues?|consumers?|ingest|scripts|ml|training)$/, 'Pipeline'],
-  [/^(types|contracts|schemas?|interfaces|proto|protos|dto|dtos|shared|common)$/, 'Contracts'],
-];
-const FILE_NAMES: [RegExp, Layer][] = [
-  [/\.(controller|route|routes|router|handler|resolver)\.[jt]sx?$|^(routes|views|urls|endpoints)\.py$/, 'API'],
-  [/\.(service|usecase)\.[jt]sx?$|^(services?|crud|logic)\.py$/, 'Services'],
-  [/\.(repository|repo|entity|model|schema\.prisma)\.[jt]sx?$|^(models|db|database|repository|orm)\.py$/, 'Storage'],
-  [/\.(dto|types?|d)\.[jt]sx?$|^(schemas?|types|dto)\.py$/, 'Contracts'],
-  [/^(tasks|jobs|worker|celery|pipeline|dag)\.py$|\.(job|worker|task)\.[jt]sx?$/, 'Pipeline'],
-  [/^use[A-Z].*\.[jt]sx?$|^(api|client|fetcher)\.[jt]sx?$/, 'Client'],
-];
-
-export const pathConventions: LayerClassifier = {
-  name: 'path-conventions',
-  classifyFile({ file, frontend }): Vote<Layer> | null {
-    const segs = file.path.split('/');
-    const base = segs.pop()!;
-    for (const [re, layer] of FILE_NAMES) if (re.test(base)) return { value: layer, confidence: 0.6, reason: `file name "${base}"` };
-    // Deepest directory that means something wins.
-    for (let i = segs.length - 1; i >= 0; i--) {
-      const seg = segs[i].toLowerCase();
-      for (const [re, layer] of SEGMENTS) {
-        if (!re.test(seg)) continue;
-        const value = typeof layer === 'function' ? layer(frontend) : layer;
-        if (value === 'Other') continue;
-        return { value, confidence: 0.5, reason: `lives under ${segs.slice(0, i + 1).join('/')}/` };
-      }
-    }
-    return null;
-  },
-};
+export interface Hit {
+  layer: LayerDef;
+  matcher: LayerMatcher;
+  source: PlacementSource;
+  detail: string;
+}
 
 /**
- * Second pass: files nothing else claimed get a layer from their neighbours.
- * A file whose callers are mostly API handlers is a service; one whose callers
- * are mostly UI is client-side plumbing.
+ * Tests one matcher; returns what it matched on, or null. Every field that is
+ * set must match. A matcher's source is its most specific condition: a path
+ * qualified by a fact ("api/ in a react package") is still a path convention.
  */
-export const graphPosition: LayerClassifier = {
-  name: 'graph-position',
-  phase: 'graph',
-  classifyFile({ callers, callees, layerOf }): Vote<Layer> | null {
-    if (!layerOf || !callers.length) return null;
-    const tally = new Map<Layer, number>();
-    for (const c of callers) {
-      const l = layerOf(c);
-      if (l && l !== 'Other') tally.set(l, (tally.get(l) ?? 0) + 1);
+export function matchOne(m: LayerMatcher, node: { repo: string; id: string }, facts: Fact[]): { source: PlacementSource; detail: string } | null {
+  const parts: string[] = [];
+  const kinds: PlacementSource[] = [];
+  if (m.path !== undefined) {
+    if (!globMatch(m.path, node.id.split('#')[0])) return null;
+    parts.push(`path matches ${m.path}`);
+    kinds.push('path');
+  }
+  if (m.import !== undefined) {
+    const f = facts.find((f) => f.type === 'import' && importMatches(f.value, m.import!));
+    if (!f) return null;
+    parts.push(`imports ${f.value}`);
+    kinds.push('import');
+  }
+  if (m.fact) {
+    const re = m.fact.value ? regex(m.fact.value) : null;
+    if (m.fact.value && !re) return null;
+    const f = facts.find((f) => f.type === m.fact!.type && (!re || re.test(f.value)));
+    if (!f) return null;
+    parts.push(describeFact(f));
+    kinds.push('fact');
+  }
+  if (m.repo !== undefined) {
+    if (node.repo !== m.repo) return null;
+    parts.push(`in repo ${m.repo}`);
+    kinds.push('repo');
+  }
+  return { source: kinds[0] ?? 'fallback', detail: parts.join(', ') || 'matches everything' };
+}
+
+/** Confidence follows the priority bands the presets use, so a user's high-priority path rule reads as confident. */
+const confidence = (priority: number) => (priority >= 300 ? 0.9 : priority >= 200 ? 0.7 : priority >= 100 ? 0.6 : 0.5);
+
+/** All matches for a node, best first. Ties go to the layer listed first, then the matcher listed first. */
+export function matchLayers(layers: LayerDef[], node: { repo: string; id: string }, facts: Fact[], factMatchersOnly = false): Hit[] {
+  const hits: Hit[] = [];
+  for (const layer of layers) {
+    for (const m of layer.match) {
+      if (factMatchersOnly && !m.fact) continue;
+      const r = matchOne(m, node, facts);
+      if (r) hits.push({ layer, matcher: m, ...r });
     }
-    const [top, n] = [...tally.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
-    if (!top || n / callers.length < 0.5) return null;
-    const callsStorage = callees.some((c) => layerOf(c) === 'Storage');
-    const map: Partial<Record<Layer, Layer>> = { API: 'Services', Services: callsStorage ? 'Storage' : 'Services', UI: 'Client', Client: 'Client', Pipeline: 'Pipeline' };
-    const value = map[top];
-    if (!value) return null;
-    return { value, confidence: 0.4, reason: `${n} of ${plural(callers.length, 'caller')} are ${top}` };
+  }
+  return hits.sort((a, b) => b.matcher.priority - a.matcher.priority);
+}
+
+function placement(hits: Hit[]): Placement {
+  const win = hits[0];
+  // Runners-up from other layers explain close calls ("also imports sqlmodel").
+  const seen = new Set([win.layer.id]);
+  const evidence = [{ source: win.source, detail: win.detail, weight: win.matcher.priority }];
+  for (const h of hits.slice(1)) {
+    if (seen.has(h.layer.id) || evidence.length >= 2) continue;
+    seen.add(h.layer.id);
+    evidence.push({ source: h.source, detail: `${h.detail} (would be ${h.layer.name})`, weight: h.matcher.priority });
+  }
+  return { id: win.layer.id, confidence: confidence(win.matcher.priority), source: win.source, evidence };
+}
+
+export const UNPLACED: Placement = {
+  id: UNLAYERED,
+  confidence: 0,
+  source: 'fallback',
+  evidence: [{ source: 'fallback', detail: 'no layer matcher applies and no neighbours to go by', weight: 0 }],
+};
+
+export const projectMatchers: LayerStrategy = {
+  name: 'project-matchers',
+  assign({ nodes, edges, grouping }): Assignments {
+    const layers = grouping.layers;
+    const names = new Map(layers.map((l) => [l.id, l.name]));
+    const out: Assignments = new Map();
+    const files = nodes.filter((n) => n.kind === 'file');
+
+    // 1. Matchers.
+    for (const f of files) {
+      const hits = matchLayers(layers, f, f.facts ?? []);
+      if (hits.length) out.set(f.id, placement(hits));
+    }
+
+    // 2. Neighbours, a few rounds so placements can travel along call chains.
+    const fileOf = (id: string) => id.split('#')[0];
+    const callers = new Map<string, Set<string>>();
+    const callees = new Map<string, Set<string>>();
+    for (const e of edges) {
+      const a = fileOf(e.from);
+      const b = fileOf(e.to);
+      if (a === b) continue;
+      (callers.get(b) ?? callers.set(b, new Set()).get(b)!).add(a);
+      (callees.get(a) ?? callees.set(a, new Set()).get(a)!).add(b);
+    }
+    const majority = (ids: Set<string> | undefined): [string, number, number] | null => {
+      if (!ids?.size) return null;
+      const tally = new Map<string, number>();
+      let placed = 0;
+      for (const id of ids) {
+        const l = out.get(id)?.id;
+        if (!l || l === UNLAYERED) continue;
+        placed++;
+        tally.set(l, (tally.get(l) ?? 0) + 1);
+      }
+      const [top, n] = [...tally].sort((a, b) => b[1] - a[1])[0] ?? [];
+      return top && n / placed > 0.5 ? [top, n, placed] : null;
+    };
+    for (let round = 0; round < 3; round++) {
+      const next: [string, Placement][] = [];
+      for (const f of files) {
+        if (out.has(f.id)) continue;
+        const up = majority(callers.get(f.id));
+        const down = up ? null : majority(callees.get(f.id));
+        const m = up ?? down;
+        if (!m) continue;
+        const [layer, n, of] = m;
+        const detail = `${n} of ${of} ${up ? 'callers' : 'files it uses'} ${n === 1 ? 'is' : 'are'} ${names.get(layer) ?? layer}`;
+        next.push([f.id, { id: layer, confidence: 0.4, source: 'graph', evidence: [{ source: 'graph', detail, weight: n / of }] }]);
+      }
+      if (!next.length) break;
+      for (const [id, p] of next) out.set(id, p);
+    }
+    for (const f of files) if (!out.has(f.id)) out.set(f.id, UNPLACED);
+
+    // 3. Symbols: their own facts, or their file's layer.
+    const inheritedCache = new Map<Placement, Placement>();
+    for (const s of nodes) {
+      if (s.kind !== 'symbol') continue;
+      const hits = s.facts?.length ? matchLayers(layers, s, s.facts, true) : [];
+      if (hits.length) {
+        out.set(s.id, placement(hits));
+        continue;
+      }
+      const file = out.get(s.parent) ?? UNPLACED;
+      const inherited = inheritedCache.get(file) ?? { ...file, evidence: file.evidence.map((e, i) => (i ? e : { ...e, detail: `its file: ${e.detail}` })) };
+      inheritedCache.set(file, inherited);
+      out.set(s.id, inherited);
+    }
+    return out;
   },
 };
+

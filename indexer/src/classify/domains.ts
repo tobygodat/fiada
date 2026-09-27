@@ -1,4 +1,5 @@
-// Default domain classifier: "feature tokens".
+// Default domain strategy: "feature tokens". (The design's seed-and-propagate
+// strategy is the planned replacement; it plugs in here the same way.)
 //
 // Feature names tend to repeat across layers and repositories:
 // web/components/Items/AddItem.tsx, api/routes/items.py and api/crud.py's
@@ -7,7 +8,8 @@
 // routes, utils, get, create…), and treat a word that recurs in several files,
 // but not in most of them, as a domain.
 
-import type { DomainClassifier, FileContext, Vote } from './types.ts';
+import { UNSORTED_DOMAIN, type GraphNode, type Placement } from '@strata/shared';
+import type { Assignments, DomainStrategy } from './types.ts';
 
 const GENERIC = new Set(
   (
@@ -48,45 +50,64 @@ const MAX_DOMAINS = 16;
 
 const title = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 
-export function featureTokens(): DomainClassifier {
-  let features = new Set<string>();
+const UNSORTED: Placement = {
+  id: UNSORTED_DOMAIN,
+  confidence: 0,
+  source: 'fallback',
+  evidence: [{ source: 'fallback', detail: 'no recurring feature name in its path', weight: 0 }],
+};
 
-  const pathTokens = (ctx: FileContext) => {
-    const segs = ctx.file.path.split('/');
-    const stem = segs.pop()!;
-    // Most specific first: the file name, then directories from deepest up.
-    const out = [...words(stem).reverse()];
-    for (let i = segs.length - 1; i >= 0; i--) out.push(...words(segs[i]).reverse());
-    return out.filter((w) => !GENERIC.has(w) && !ctx.repo.info.name.toLowerCase().includes(w));
-  };
-
+export function featureTokens(): DomainStrategy {
   return {
     name: 'feature-tokens',
-    prepare(all) {
+    assign({ nodes }) {
+      const repoNames = new Map<string, string>();
+      for (const n of nodes) if (n.kind === 'repo') repoNames.set(n.id, n.name.toLowerCase());
+      const files = nodes.filter((n) => n.kind === 'file');
+
+      const pathTokens = (f: GraphNode) => {
+        const segs = (f.path ?? '').split('/');
+        const stem = segs.pop()!;
+        // Most specific first: the file name, then directories from deepest up.
+        const out = [...words(stem).reverse()];
+        for (let i = segs.length - 1; i >= 0; i--) out.push(...words(segs[i]).reverse());
+        const repo = repoNames.get(f.repo) ?? f.repo.toLowerCase();
+        return out.filter((w) => !GENERIC.has(w) && !repo.includes(w));
+      };
+
+      // Only paths vote: symbol names are full of UI-kit words (Trigger, Separator…) that aren't features.
       const df = new Map<string, number>();
-      for (const ctx of all) {
-        // Only paths vote: symbol names are full of UI-kit words (Trigger, Separator…) that aren't features.
-        for (const w of new Set(pathTokens(ctx))) df.set(w, (df.get(w) ?? 0) + 1);
+      const tokens = new Map<string, string[]>();
+      for (const f of files) {
+        const t = pathTokens(f);
+        tokens.set(f.id, t);
+        for (const w of new Set(t)) df.set(w, (df.get(w) ?? 0) + 1);
       }
       // Recurs in several files but isn't everywhere (then it's structure, not a feature).
       // Keep the most common few: a map with a hundred domains isn't a map.
-      const max = Math.max(4, all.length * 0.3);
-      features = new Set(
-        [...df]
-          .filter(([, n]) => n >= 2 && n <= max)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_DOMAINS)
-          .map(([w]) => w),
-      );
-    },
-    classifyFile(ctx): Vote | null {
-      const hit = pathTokens(ctx).find((w) => features.has(w));
-      return hit ? { value: title(hit), confidence: 0.6, reason: `"${hit}" recurs across files` } : null;
-    },
-    classifySymbol(sym, file): Vote | null {
-      const hit = words(sym.name).reverse().find((w) => features.has(w) && !GENERIC.has(w));
-      if (!hit || title(hit) === file.value) return null;
-      return { value: title(hit), confidence: 0.55, reason: `name mentions "${hit}"` };
+      const max = Math.max(4, files.length * 0.3);
+      const ranked = [...df]
+        .filter(([, n]) => n >= 2 && n <= max)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, MAX_DOMAINS)
+        .map(([w]) => w);
+      const features = new Set(ranked);
+
+      const out: Assignments = new Map();
+      for (const f of files) {
+        const hit = tokens.get(f.id)!.find((w) => features.has(w));
+        out.set(f.id, hit ? { id: hit, confidence: 0.6, source: 'seed', evidence: [{ source: 'seed', detail: `"${hit}" recurs across file paths`, weight: df.get(hit)! }] } : UNSORTED);
+      }
+      for (const s of nodes) {
+        if (s.kind !== 'symbol') continue;
+        const file = out.get(s.parent) ?? UNSORTED;
+        const hit = words(s.name).reverse().find((w) => features.has(w) && !GENERIC.has(w));
+        out.set(
+          s.id,
+          hit && hit !== file.id ? { id: hit, confidence: 0.55, source: 'seed', evidence: [{ source: 'seed', detail: `name mentions "${hit}"`, weight: df.get(hit)! }] } : file,
+        );
+      }
+      return { domains: ranked.map((w) => ({ id: w, name: title(w) })), assignments: out };
     },
   };
 }

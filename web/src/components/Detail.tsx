@@ -2,7 +2,7 @@
 // layer and domain), what it depends on, or the contract behind an edge.
 
 import { useMemo } from 'react';
-import type { EdgeKind, Graph, GraphEdge, GraphNode } from '@strata/shared';
+import { describeFact, UNLAYERED, type EdgeKind, type Graph, type GraphEdge, type GraphNode, type Placement, type PlacementSource } from '@strata/shared';
 import type { TNode, Tree } from '../graph/tree.ts';
 import type { Contract } from '../graph/view.ts';
 import type { Palette } from '../theme.ts';
@@ -83,17 +83,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <div className="detail-block muted">{summary(n)}</div>
       )}
 
-      {g?.layer && g.domain && (
-        <div className="detail-block">
-          <div className="block-title">Classification</div>
-          <Facts
-            rows={[
-              ['layer', `${g.layer.value}`, `${g.layer.reason} · ${g.layer.source} ${g.layer.confidence.toFixed(2)}`],
-              ['domain', `${g.domain.value}`, `${g.domain.reason} · ${g.domain.source} ${g.domain.confidence.toFixed(2)}`],
-            ]}
-          />
-        </div>
-      )}
+      {g?.layer && g.domain && <WhyHere graph={graph} g={g} layer={g.layer} domain={g.domain} />}
 
       {!!g?.routes?.length && (
         <div className="detail-block">
@@ -111,6 +101,45 @@ function NodeDetail({ graph, graphIndex, tree, pal, n, onSelect }: Props & { n: 
         <DepList title="Used by" items={usedBy} graphIndex={graphIndex} self={n} onSelect={onSelect} />
       </div>
     </aside>
+  );
+}
+
+const SOURCE: Record<PlacementSource, string> = {
+  'user-pin': 'your pin',
+  'user-rule': 'your rule',
+  fact: 'code',
+  import: 'import',
+  path: 'path',
+  repo: 'repository',
+  graph: 'neighbours',
+  seed: 'name',
+  propagated: 'neighbours',
+  cohesion: 'file',
+  fallback: 'no signal',
+};
+
+const explain = (p: Placement) =>
+  [p.evidence[0]?.detail, ...p.evidence.slice(1).map((e) => `also ${e.detail}`), `${SOURCE[p.source]} · ${p.confidence.toFixed(2)}`].filter(Boolean).join(' · ');
+
+/** "Why is this here?": the winning evidence for its layer and domain, and what the detectors saw. */
+function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; layer: Placement; domain: Placement }) {
+  const layerName = layer.id === UNLAYERED ? 'Unlayered' : (graph.layers.find((l) => l.id === layer.id)?.name ?? layer.id);
+  const domainName = graph.domains.find((d) => d.id === domain.id)?.name ?? domain.id;
+  const facts = g.facts ?? [];
+  const imports = facts.filter((f) => f.type === 'import').map((f) => f.value);
+  const seen = facts.filter((f) => f.type !== 'import').map(describeFact);
+  if (imports.length) seen.push(`imports ${imports.slice(0, 6).join(', ')}${imports.length > 6 ? ` +${imports.length - 6}` : ''}`);
+  return (
+    <div className="detail-block">
+      <div className="block-title">Why it's here</div>
+      <Facts
+        rows={[
+          ['layer', layerName, explain(layer)],
+          ['domain', domainName, explain(domain)],
+          ...(seen.length ? [['detected', seen.join(' · ')] as [string, string]] : []),
+        ]}
+      />
+    </div>
   );
 }
 

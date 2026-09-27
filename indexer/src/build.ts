@@ -1,55 +1,24 @@
-// The pipeline: parsed repos → linked edges → classification → graph.
+// The pipeline: parsed repos → linked edges → facts → node tree (buildBase),
+// then classification against the project's grouping (classifyGraph). The two
+// halves are separate so a grouping change reclassifies without re-linking.
 
 import path from 'node:path';
-import type { Graph, GraphNode } from '@strata/shared';
-import { classifyAll, defaultDomainChain, defaultLayerChain, type DomainClassifier, type FileContext, type LayerClassifier } from './classify/index.ts';
+import type { Graph, GraphEdge, GraphNode, Grouping, RepoInfo } from '@strata/shared';
+import { classify, type Strategies } from './classify/index.ts';
+import { detectFacts } from './facts.ts';
 import { fileId, link, symbolIds } from './link.ts';
 import type { ParsedRepo } from './model.ts';
+import { TEST_PATH } from './sources.ts';
 
-const UI_FRAMEWORKS = /^(react|react-dom|next|vue|nuxt|svelte|@sveltejs\/kit|@angular\/core|react-native|solid-js|preact)$/;
-
-export interface BuildOptions {
-  layerChain?: LayerClassifier[];
-  domainChain?: DomainClassifier[];
+/** The graph before classification. */
+export interface BaseGraph {
+  repos: RepoInfo[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
 }
 
-export function buildGraph(repos: ParsedRepo[], opts: BuildOptions = {}): Graph {
-  const layerChain = opts.layerChain ?? defaultLayerChain();
-  const domainChain = opts.domainChain ?? defaultDomainChain();
+export function buildBase(repos: ParsedRepo[]): BaseGraph {
   const { edges, routes, externalImports } = link(repos);
-
-  // File-to-file call structure, for classifiers that reason about neighbours.
-  const fileOf = (id: string) => id.split('#')[0];
-  const callers = new Map<string, Set<string>>();
-  const callees = new Map<string, Set<string>>();
-  for (const e of edges) {
-    const a = fileOf(e.from);
-    const b = fileOf(e.to);
-    if (a === b) continue;
-    if (!callers.has(b)) callers.set(b, new Set());
-    if (!callees.has(a)) callees.set(a, new Set());
-    callers.get(b)!.add(a);
-    callees.get(a)!.add(b);
-  }
-
-  const contexts: FileContext[] = [];
-  for (const repo of repos) {
-    const uiDirs = repo.packages.filter((p) => p.deps.some((d) => UI_FRAMEWORKS.test(d))).map((p) => p.dir);
-    for (const file of repo.files) {
-      const id = fileId(repo.info.id, file.path);
-      const frontend = file.lang !== 'python' && uiDirs.some((d) => d === '' || file.path.startsWith(d + '/'));
-      contexts.push({
-        repo,
-        file,
-        id,
-        externalImports: externalImports.get(id) ?? [],
-        frontend,
-        callers: [...(callers.get(id) ?? [])],
-        callees: [...(callees.get(id) ?? [])],
-      });
-    }
-  }
-  const classes = classifyAll(contexts, layerChain, domainChain);
 
   const routesByNode = new Map<string, string[]>();
   for (const r of routes) {
@@ -103,7 +72,14 @@ export function buildGraph(repos: ParsedRepo[], opts: BuildOptions = {}): Graph 
     for (const f of repo.files) {
       const id = fileId(rid, f.path);
       const d = path.posix.dirname(f.path);
-      const c = classes.get(id)!;
+      const ids = symbolIds(id, f);
+      const facts = detectFacts({
+        repo,
+        file: f,
+        externalImports: externalImports.get(id) ?? [],
+        routes: [routesByNode.get(id), ...ids.map((s) => routesByNode.get(s))],
+        test: TEST_PATH.test(f.path),
+      });
       nodes.push({
         id,
         kind: 'file',
@@ -113,11 +89,9 @@ export function buildGraph(repos: ParsedRepo[], opts: BuildOptions = {}): Graph 
         path: f.path,
         lang: f.lang,
         loc: f.loc,
-        layer: c.layer,
-        domain: c.domain,
+        facts: facts.file.length ? facts.file : undefined,
         routes: routesByNode.get(id),
       });
-      const ids = symbolIds(id, f);
       f.symbols.forEach((s, i) => {
         nodes.push({
           id: ids[i],
@@ -131,20 +105,32 @@ export function buildGraph(repos: ParsedRepo[], opts: BuildOptions = {}): Graph 
           exported: s.exported,
           loc: s.lines[1] - s.lines[0] + 1,
           lines: s.lines,
-          layer: c.symbols[i].layer,
-          domain: c.symbols[i].domain,
+          facts: facts.symbols[i].length ? facts.symbols[i] : undefined,
           routes: routesByNode.get(ids[i]),
         });
       });
     }
   }
 
+  return { repos: repos.map((r) => r.info), nodes, edges };
+}
+
+/** Places every file and symbol in one of the project's layers and a domain. */
+export function classifyGraph(base: BaseGraph, grouping: Grouping, strategies?: Strategies): Graph {
+  const { layers, domains, domainList } = classify(base.nodes, base.edges, grouping, strategies);
+  const nodes = base.nodes.map((n) => (n.kind === 'file' || n.kind === 'symbol' ? { ...n, layer: layers.get(n.id), domain: domains.get(n.id) } : n));
   return {
     version: 1,
     generatedAt: new Date().toISOString(),
-    repos: repos.map((r) => r.info),
+    repos: base.repos,
     nodes,
-    edges,
-    classifiers: { layer: layerChain.map((c) => c.name), domain: domainChain.map((c) => c.name) },
+    edges: base.edges,
+    layers: grouping.layers.map(({ id, name, rank }) => ({ id, name, ...(rank == null ? {} : { rank }) })),
+    domains: domainList,
+    preset: grouping.preset,
   };
+}
+
+export function buildGraph(repos: ParsedRepo[], grouping: Grouping, strategies?: Strategies): Graph {
+  return classifyGraph(buildBase(repos), grouping, strategies);
 }

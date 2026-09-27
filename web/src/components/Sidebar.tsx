@@ -1,13 +1,14 @@
-// Floating sidebar: repository import, the Code / By-function toggle, and an
-// outline of whichever hierarchy the map is showing.
+// Floating sidebar: repository import, the Code / By-function toggle, the
+// project's layers, and an outline of whichever hierarchy the map is showing.
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { RepoInfo, Workspace } from '@strata/shared';
+import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@strata/shared';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 interface Props {
   workspace: Workspace | null;
+  graph: Graph | null;
   offline: boolean;
   tree: Tree | null;
   view: View;
@@ -20,6 +21,7 @@ interface Props {
   onAdd(source: string): Promise<void>;
   onRemove(id: string): Promise<void>;
   onRefresh(id: string): Promise<void>;
+  onPreset(preset: LayerPreset): Promise<void>;
 }
 
 export function Sidebar(p: Props) {
@@ -64,6 +66,7 @@ export function Sidebar(p: Props) {
           />
         </div>
       </section>
+      {p.graph && p.workspace && <Layers {...p} graph={p.graph} workspace={p.workspace} />}
       {p.tree && p.tree.root.children.length > 0 && <Outline {...p} tree={p.tree} />}
     </aside>
   );
@@ -78,6 +81,50 @@ function Segmented<T extends string>({ value, options, onChange, small }: { valu
         </button>
       ))}
     </div>
+  );
+}
+
+const PRESET_LABEL: Record<LayerPreset, string> = { roles: 'Roles', 'by-repo': 'By repo', empty: 'Empty' };
+
+/** The project's own layers: how much code each holds, the preset they started from, and where to edit them. */
+function Layers({ graph, workspace, pal, onPreset }: Props & { graph: Graph; workspace: Workspace }) {
+  const [error, setError] = useState<string | null>(null);
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of graph.nodes) if (n.kind === 'symbol' && n.layer) m.set(n.layer.id, (m.get(n.layer.id) ?? 0) + 1);
+    return m;
+  }, [graph]);
+  const choose = async (preset: LayerPreset) => {
+    if (preset === graph.preset) return;
+    if (!window.confirm(`Replace this project's layers with the ${PRESET_LABEL[preset]} preset? Your rules and pins are kept.`)) return;
+    setError(null);
+    await onPreset(preset).catch((err: Error) => setError(err.message));
+  };
+  const file = workspace.project.groupingLocation;
+  const rows = [...graph.layers, ...(counts.get(UNLAYERED) ? [{ id: UNLAYERED, name: 'Unlayered' }] : [])];
+  return (
+    <section className="section">
+      <div className="section-title row">
+        <span>Layers</span>
+        <span className="grow" />
+        <Segmented small value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
+      </div>
+      <div className="layer-list">
+        {rows.map((l) => (
+          <div key={l.id} className={`layer-row${l.id === UNLAYERED ? ' muted' : ''}`}>
+            <span className="dot small" style={{ background: pal.layer(l.id) }} />
+            <span className="grow">{l.name}</span>
+            <span className="count">{counts.get(l.id) ?? 0}</span>
+          </div>
+        ))}
+        {!rows.length && <div className="muted small">No layers yet. Everything is Unlayered.</div>}
+      </div>
+      <div className="muted small layer-file" title={file}>
+        Edit <span className="mono">{file.split(/[\\/]/).pop()}</span> to rename layers or add matchers and rules; changes apply live.
+      </div>
+      {workspace.project.groupingError && <div className="notice err">Grouping not applied: {workspace.project.groupingError}</div>}
+      {error && <div className="notice err">{error}</div>}
+    </section>
   );
 }
 

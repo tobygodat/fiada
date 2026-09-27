@@ -1,0 +1,121 @@
+// Persistence boundary for what Strata keeps per project: the repositories
+// imported into it, and its grouping (layer definitions, domain names, rules
+// and pins). The graph is derived from those and is never stored.
+//
+// FileProjectStore is the default. A database-backed store implements the
+// same interface (one record per project id) and is chosen in createStore();
+// nothing in the indexer, classifier or graph code depends on which one runs.
+
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import type { Grouping } from '@strata/shared';
+
+/** A repository as the project remembers it; everything else about it is re-derived on load. */
+export interface SavedRepo {
+  id: string;
+  name: string;
+  /** Clone URL or absolute local path. */
+  source: string;
+  kind: 'git' | 'local';
+}
+
+export interface ProjectStore {
+  /** Where this project's data lives, for display ("…/strata.grouping.json", "mongodb: strata.projects"). */
+  describe(projectId: string): string;
+  /** null when the project has never been saved. */
+  loadRepos(projectId: string): Promise<SavedRepo[] | null>;
+  saveRepos(projectId: string, repos: SavedRepo[]): Promise<void>;
+  /** The stored grouping as raw JSON (the caller validates it), or null when there is none yet. */
+  loadGrouping(projectId: string): Promise<unknown | null>;
+  saveGrouping(projectId: string, grouping: Grouping): Promise<void>;
+  /**
+   * Optional: call `onChange` when the grouping changes outside this process
+   * (a hand edit, another instance). Returns a function that stops watching.
+   */
+  watchGrouping?(projectId: string, onChange: () => void): () => void;
+}
+
+const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export function checkProjectId(id: string): string {
+  if (!PROJECT_ID.test(id)) throw new Error(`Invalid project id "${id}": use letters, digits, ".", "_" or "-".`);
+  return id;
+}
+
+/**
+ * One directory per project under `root`:
+ *   projects/<id>/repos.json
+ *   projects/<id>/strata.grouping.json   (hand-editable; edits apply live)
+ */
+export class FileProjectStore implements ProjectStore {
+  /** Last text this process wrote, per file, so the watcher ignores our own saves. */
+  private written = new Map<string, string>();
+
+  constructor(private root: string) {}
+
+  private dir(id: string) {
+    return path.join(this.root, 'projects', checkProjectId(id));
+  }
+  private groupingFile(id: string) {
+    return path.join(this.dir(id), 'strata.grouping.json');
+  }
+
+  describe(id: string) {
+    return this.groupingFile(id);
+  }
+
+  async loadRepos(id: string): Promise<SavedRepo[] | null> {
+    const text = await fsp.readFile(path.join(this.dir(id), 'repos.json'), 'utf8').catch(() => null);
+    // Before projects existed, the default project lived in <root>/workspace.json.
+    const legacy = text == null && id === 'default' ? await fsp.readFile(path.join(this.root, 'workspace.json'), 'utf8').catch(() => null) : null;
+    const raw = text ?? legacy;
+    if (raw == null) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.repos) ? parsed.repos : [];
+  }
+
+  async saveRepos(id: string, repos: SavedRepo[]) {
+    await this.write(path.join(this.dir(id), 'repos.json'), JSON.stringify({ repos }, null, 2) + '\n');
+  }
+
+  async loadGrouping(id: string): Promise<unknown | null> {
+    const text = await fsp.readFile(this.groupingFile(id), 'utf8').catch(() => null);
+    return text == null ? null : JSON.parse(text);
+  }
+
+  async saveGrouping(id: string, grouping: Grouping) {
+    await this.write(this.groupingFile(id), JSON.stringify(grouping, null, 2) + '\n');
+  }
+
+  watchGrouping(id: string, onChange: () => void): () => void {
+    const file = this.groupingFile(id);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    let timer: NodeJS.Timeout | undefined;
+    // Watch the directory: editors often save by writing a new file and renaming it over the old one.
+    const watcher = fs.watch(path.dirname(file), (_event, name) => {
+      if (name !== path.basename(file)) return;
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const text = await fsp.readFile(file, 'utf8').catch(() => null);
+        if (text != null && text !== this.written.get(file)) onChange();
+      }, 150);
+    });
+    return () => {
+      clearTimeout(timer);
+      watcher.close();
+    };
+  }
+
+  private async write(file: string, text: string) {
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    this.written.set(file, text);
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fsp.writeFile(tmp, text);
+    await fsp.rename(tmp, file);
+  }
+}
+
+/** The store the server uses. A database-backed store would be selected here (for example when its connection string is set). */
+export function createStore(home: string): ProjectStore {
+  return new FileProjectStore(home);
+}

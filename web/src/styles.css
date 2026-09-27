@@ -181,3 +181,12 @@ input { font-family: inherit; outline: none; }
 .contract-ends button:last-child { text-align: right; }
 .call-grid { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px 0; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.5; }
 .call-grid .block-title { margin: 3px 0 0; }
+
+/* Layers */
+.grow { flex: 1; min-width: 0; }
+.section-title.row { gap: 8px; }
+.section-title .segmented { flex: none; text-transform: none; font-size: 10.5px; }
+.layer-list { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; }
+.layer-row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 4px; font-size: 12.5px; }
+.layer-row .count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); }
+.layer-file { line-height: 1.45; }

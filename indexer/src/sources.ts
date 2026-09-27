@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { RepoInfo } from '@strata/shared';
-import type { PackageManifest, ParsedFile, ParsedRepo, RepoConfig, TsConfigPaths } from './model.ts';
+import type { PackageManifest, ParsedFile, ParsedRepo, TsConfigPaths } from './model.ts';
 import { langOf, parseFile } from './parse/index.ts';
 
 const exec = promisify(execFile);
@@ -29,7 +29,7 @@ const IGNORED_DIR = new Set([
   '.pytest_cache', '.tox', 'bower_components', '.idea', '.vscode',
 ]);
 
-const TEST_PATH =
+export const TEST_PATH =
   /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.py$|(^|\/)conftest\.py$/;
 
 const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
@@ -165,16 +165,6 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
     languages[l] = (languages[l] ?? 0) + 1;
   }
 
-  let config: RepoConfig | undefined;
-  const configText = await readText(path.join(root, 'strata.config.json'));
-  if (configText) {
-    try {
-      config = parseJsonc(configText);
-    } catch (err) {
-      console.warn(`[strata] ignoring malformed strata.config.json in ${info.id}:`, (err as Error).message);
-    }
-  }
-
   return {
     info: {
       ...info,
@@ -191,6 +181,5 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
     tsconfigs: [...tsconfigs.values()],
     pyRoots: [...pyRoots],
     frameworks,
-    config,
   };
 }
