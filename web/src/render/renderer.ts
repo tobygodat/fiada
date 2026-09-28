@@ -7,7 +7,7 @@
 // testing. Everything else (what's selected, what's open) lives in React and
 // arrives through setScene.
 
-import { describeMarks, type TreeActivity } from '../graph/activity.ts';
+import type { TreeActivity } from '../graph/activity.ts';
 import type { Camera } from '../graph/camera.ts';
 import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/camera.ts';
 import type { Circle } from '../graph/layout.ts';
@@ -29,7 +29,7 @@ const LABEL_FULL_R = 34;
  * label takes the largest one its circle has room for, and 13px is the
  * least: a small circle keeps its name only if the name (or its short form)
  * fits inside at 13px. Nothing shrinks below that to squeeze in; a name that
- * doesn't fit is left to the tooltip.
+ * doesn't fit is left to the details panel.
  */
 export const TYPE = [13, 15, 17, 20, 24] as const;
 export const typeSize = (px: number) => TYPE.reduce<number>((s, t) => (t <= px ? t : s), TYPE[0]);
@@ -610,7 +610,7 @@ export class MapRenderer {
         const lines = big ? this.wrap2(n.name, weight, size, max) : [this.fit(n.name, weight, size, max)];
         if (!big && r < LABEL_FULL_R && lines[0] !== n.name) {
           // A small circle with a clipped name ("lin…") says nothing. Try a file without its extension, or
-          // the last part of a folder path ("react-email" for "packages/react-email"); else leave it to the tooltip.
+          // the last part of a folder path ("react-email" for "packages/react-email"); else leave it to the details panel.
           const short = n.kind === 'file' ? n.name.replace(/\.[^.]+$/, '') : n.name.slice(n.name.lastIndexOf('/') + 1);
           if (!short || short === n.name || this.textWidth(short, weight, size) > max) continue;
           lines[0] = short;
@@ -901,31 +901,10 @@ export class MapRenderer {
       const cross = !c.cross ? '' : c.cross === c.items.length ? ' · cross-repo' : ` · ${c.cross} cross-repo`;
       return `${A} ${both ? '⇄' : '→'} ${B} · ${kinds}${cross}${guessed}`;
     }
-    const n = scene.tree.nodes.get(hit.id);
-    if (!n) return '';
-    if (hit.type === 'tab') return `close ${n.name}`;
-    const sub = this.subtitle(n);
-    const kind = KIND[n.kind] ?? n.kind;
-    let action = '';
-    if (scene.mode === 'click') {
-      if (scene.selected !== n.id) action = ' · click for details';
-      else if (n.children.length && !hit.open) action = ' · click again to open';
-    }
-    const marks = scene.activity?.get(n.id);
-    const changed = marks ? describeMarks(marks, scene.tree.view) : '';
-    // Say when some of its links are left off the map.
-    let links = '';
-    if (!hit.open) {
-      const inside = this.within(n.id);
-      let count = 0;
-      for (const g of scene.contracts) if (this.visIds.has(g.a) && this.visIds.has(g.b) && inside(g.a) !== inside(g.b)) count++;
-      if (count > this.policy.focusMax) links = ` · strongest ${this.policy.focusMax} of ${count} links shown`;
-    }
-    return `${n.name} · ${kind}${sub ? ` · ${sub}` : ''}${changed ? ` · ${changed}` : ''}${links}${action}`;
+    // Circles and their name tabs say nothing on hover; the details panel has it on click.
+    return '';
   }
 }
-
-const KIND: Partial<Record<TNode['kind'], string>> = { repo: 'repository', folder: 'module', file: 'file', symbol: 'symbol', domain: 'domain', layer: 'layer' };
 
 /**
  * Circle positions part-way through a layout change. Circles that were
