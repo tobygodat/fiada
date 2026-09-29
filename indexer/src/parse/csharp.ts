@@ -1,0 +1,185 @@
+// C# fact extraction: namespaces, usings, types and their methods, and the
+// routes of ASP.NET controllers (`[Route]`, `[HttpGet]`) and minimal APIs
+// (`app.MapGet("/x", …)`).
+
+import type { ParsedFile, RouteDecl } from '../model.ts';
+import { annotationRoutes, capitalized, joinPath, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
+import { line, type SyntaxNode } from './treesitter.ts';
+
+const TYPE_KIND = {
+  class_declaration: 'class',
+  record_declaration: 'class',
+  record_struct_declaration: 'class',
+  struct_declaration: 'class',
+  interface_declaration: 'interface',
+  enum_declaration: 'enum',
+  delegate_declaration: 'type',
+} as const;
+
+const MAP_VERB: Record<string, string> = { MapGet: 'GET', MapPost: 'POST', MapPut: 'PUT', MapDelete: 'DELETE', MapPatch: 'PATCH', Map: '*', MapMethods: '*' };
+
+const lastSegment = (s: string) => s.slice(s.lastIndexOf('.') + 1);
+const isPrivate = (n: SyntaxNode) => n.namedChildren.some((c) => c.type === 'modifier' && c.text === 'private');
+
+function attributes(n: SyntaxNode): Ann[] {
+  const out: Ann[] = [];
+  for (const list of n.namedChildren.filter((c) => c.type === 'attribute_list')) {
+    for (const a of list.namedChildren.filter((c) => c.type === 'attribute')) {
+      const name = lastSegment(a.childForFieldName('name')?.text ?? '').replace(/Attribute$/, '');
+      const strings = a.descendantsOfType(['string_literal', 'verbatim_string_literal']).map((s) => literal(s));
+      out.push({ name, path: strings.find((s) => s != null) ?? null, methods: methodsIn(a.text) });
+    }
+  }
+  return out;
+}
+
+const enclosingType = (n: SyntaxNode) => {
+  for (let p = n.parent; p; p = p.parent) if (p.type in TYPE_KIND) return p;
+  return null;
+};
+
+const typeName = (n: SyntaxNode | null | undefined): string | null => {
+  if (!n) return null;
+  if (n.type === 'identifier') return n.text;
+  if (n.type === 'generic_name') return n.namedChildren[0]?.text ?? null;
+  if (n.type === 'qualified_name') return typeName(n.namedChildren[n.namedChildren.length - 1]);
+  return null;
+};
+
+const spec: LangSpec = {
+  decl(n): Decl | null {
+    if (n.type === 'using_directive') return { as: 'skip' };
+    if (n.type === 'namespace_declaration') return { as: 'scope', body: n.childForFieldName('body') };
+    if (n.type === 'file_scoped_namespace_declaration') return { as: 'scope' };
+    if (n.type in TYPE_KIND) {
+      const name = n.childForFieldName('name')?.text;
+      if (!name) return null;
+      const bases = (n.childForFieldName('bases') ?? n.namedChildren.find((c) => c.type === 'base_list'))?.namedChildren.map(typeName).filter((b): b is string => !!b) ?? [];
+      return {
+        as: 'type',
+        kind: TYPE_KIND[n.type as keyof typeof TYPE_KIND],
+        name,
+        body: n.childForFieldName('body'),
+        exported: !isPrivate(n),
+        bases,
+        decorators: attributes(n).map((a) => a.name),
+      };
+    }
+    if (n.type === 'method_declaration') {
+      const name = n.childForFieldName('name')?.text;
+      if (!name) return null;
+      const owner = enclosingType(n);
+      const own = attributes(n);
+      const routes = annotationRoutes(own, owner ? attributes(owner) : [], n, { type: owner?.childForFieldName('name')?.text, method: name });
+      return { as: 'function', kind: 'function', name, exported: !isPrivate(n), decorators: own.map((a) => a.name), routes };
+    }
+    return null;
+  },
+  ref(n, out) {
+    switch (n.type) {
+      case 'invocation_expression': {
+        const fn = n.childForFieldName('function');
+        if (fn?.type === 'identifier' || fn?.type === 'generic_name') {
+          out.seen(fn);
+          out.seen(fn.namedChildren[0]);
+          out.add(typeName(fn)!, 'call', n);
+        } else if (fn?.type === 'member_access_expression') {
+          const expr = fn.childForFieldName('expression');
+          const name = typeName(fn.childForFieldName('name'));
+          out.seen(fn);
+          out.seen(fn.childForFieldName('name'));
+          if (!name) return;
+          if (expr?.type === 'this_expression') out.self(name, 'call', n);
+          else if (expr?.type === 'identifier') {
+            out.seen(expr);
+            out.add(expr.text, 'call', n, name);
+          }
+        }
+        return;
+      }
+      case 'object_creation_expression': {
+        const type = n.childForFieldName('type');
+        const name = typeName(type);
+        if (name) {
+          out.seen(type);
+          out.seen(type?.namedChildren[0]);
+          out.add(name, 'new', n);
+        }
+        return;
+      }
+      case 'member_access_expression': {
+        const expr = n.childForFieldName('expression');
+        const name = n.childForFieldName('name');
+        out.seen(name);
+        if (expr?.type === 'this_expression' && name) out.self(name.text, 'ref', n);
+        else if (expr?.type === 'identifier' && name && capitalized(expr.text)) {
+          out.seen(expr);
+          out.add(expr.text, 'ref', n, name.text);
+        }
+        return;
+      }
+      case 'attribute': {
+        const name = n.childForFieldName('name');
+        out.seen(name);
+        if (name) out.add(lastSegment(name.text), 'type', n);
+        return;
+      }
+      case 'qualified_name':
+        if (!n.parent?.type.endsWith('namespace_declaration')) out.add(typeName(n)!, 'type', n);
+        return true;
+      case 'identifier': {
+        if (!capitalized(n.text) || n.parent?.type.endsWith('namespace_declaration')) return;
+        const p = n.parent;
+        const isType = p?.type === 'base_list' || p?.type === 'type_argument_list' || p?.childForFieldName('type')?.id === n.id;
+        out.add(n.text, isType ? 'type' : 'ref', n);
+        return;
+      }
+    }
+  },
+};
+
+/** Minimal-API routes: `app.MapGet("/items/{id}", …)`, with the prefix of a `MapGroup("/api")` they're called on. */
+function minimalApiRoutes(root: SyntaxNode): RouteDecl[] {
+  const groups = new Map<string, string>();
+  for (const d of root.descendantsOfType('variable_declarator')) {
+    const call = d.descendantsOfType('invocation_expression')[0];
+    const fn = call?.childForFieldName('function');
+    if (fn?.type !== 'member_access_expression' || fn.childForFieldName('name')?.text !== 'MapGroup') continue;
+    const name = d.namedChildren[0]?.text;
+    const p = literal(call!.childForFieldName('arguments')?.descendantsOfType('string_literal')[0]);
+    const parent = groups.get(fn.childForFieldName('expression')?.text ?? '') ?? '';
+    if (name && p != null) groups.set(name, joinPath(parent, p));
+  }
+  const out: RouteDecl[] = [];
+  for (const call of root.descendantsOfType('invocation_expression')) {
+    const fn = call.childForFieldName('function');
+    if (fn?.type !== 'member_access_expression') continue;
+    const verb = MAP_VERB[fn.childForFieldName('name')?.text ?? ''];
+    const first = call.childForFieldName('arguments')?.namedChildren[0]?.namedChildren[0];
+    const p = first?.type === 'string_literal' ? literal(first) : null;
+    if (!verb || p == null) continue;
+    const prefix = groups.get(fn.childForFieldName('expression')?.text ?? '') ?? '';
+    out.push({ method: verb, path: joinPath(prefix, p), line: line(call) });
+  }
+  return out;
+}
+
+export function extractCSharp(root: SyntaxNode, file: ParsedFile) {
+  const namespaces = root
+    .descendantsOfType(['namespace_declaration', 'file_scoped_namespace_declaration'])
+    .map((n) => n.childForFieldName('name')?.text)
+    .filter((n): n is string => !!n);
+  if (namespaces.length) file.namespaces = [...new Set(namespaces)];
+  for (const u of root.descendantsOfType('using_directive')) {
+    const target = u.namedChildren.find((c) => c.type === 'qualified_name' || c.type === 'identifier');
+    if (!target) continue;
+    const alias = u.namedChildren.find((c) => c.type === 'name_equals')?.namedChildren[0]?.text;
+    // `using static A.B.C;` opens a type's members, which aren't symbols of their own here.
+    if (alias) file.imports.push({ source: target.text, level: 0, names: [{ imported: lastSegment(target.text), local: alias }], line: line(u) });
+    else file.imports.push({ source: target.text, level: 0, names: [], open: true, line: line(u) });
+  }
+  outline(root, spec, file);
+  // Routes mapped in top-level statements or a Program.Main belong to the file.
+  const mapped = minimalApiRoutes(root);
+  if (mapped.length) file.routes.push(...mapped);
+}

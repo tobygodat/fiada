@@ -2,8 +2,15 @@
 // extension mapping here, and an extractor that fills a ParsedFile.
 
 import type { HttpRequest, Lang, MountDecl, ParsedFile, RouteDecl, RouterDecl } from '../model.ts';
+import { extractC, looksLikeCpp } from './cfamily.ts';
+import { extractCSharp } from './csharp.ts';
 import { extractGo } from './go.ts';
+import { extractJava } from './java.ts';
+import { extractKotlin } from './kotlin.ts';
 import { extractPython } from './python.ts';
+import { extractRuby } from './ruby.ts';
+import { extractRust } from './rust.ts';
+import { extractSwift } from './swift.ts';
 import { getParser, type SyntaxNode } from './treesitter.ts';
 import { extractTs } from './typescript.ts';
 
@@ -18,6 +25,23 @@ const EXT: Record<string, Lang> = {
   '.jsx': 'tsx', // tsx grammar is a superset that handles JSX in plain JS
   '.py': 'python',
   '.go': 'go',
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.kts': 'kotlin',
+  '.cs': 'csharp',
+  '.rs': 'rust',
+  '.c': 'c',
+  '.h': 'c', // or C++: parseFile looks at the text
+  '.cc': 'cpp',
+  '.cpp': 'cpp',
+  '.cxx': 'cpp',
+  '.c++': 'cpp',
+  '.hh': 'cpp',
+  '.hpp': 'cpp',
+  '.hxx': 'cpp',
+  '.rb': 'ruby',
+  '.rake': 'ruby',
+  '.swift': 'swift',
 };
 
 const EXTRACT: Record<Lang, (root: SyntaxNode, file: ParsedFile) => void> = {
@@ -26,6 +50,14 @@ const EXTRACT: Record<Lang, (root: SyntaxNode, file: ParsedFile) => void> = {
   javascript: extractTs,
   python: extractPython,
   go: extractGo,
+  java: extractJava,
+  kotlin: extractKotlin,
+  csharp: extractCSharp,
+  rust: extractRust,
+  c: extractC,
+  cpp: extractC,
+  ruby: extractRuby,
+  swift: extractSwift,
 };
 
 /** Extensions of the files a language here parses. */
@@ -38,8 +70,9 @@ export function langOf(path: string): Lang | null {
 }
 
 export async function parseFile(path: string, text: string): Promise<ParsedFile | null> {
-  const lang = langOf(path);
+  let lang = langOf(path);
   if (!lang) return null;
+  if (lang === 'c' && path.endsWith('.h') && looksLikeCpp(text)) lang = 'cpp';
   const parser = await getParser(lang);
   const tree = parser.parse(text);
   const file: ParsedFile = {

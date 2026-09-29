@@ -3,7 +3,7 @@
 
 import type { RepoInfo, SymbolKind } from '@fiada/shared';
 
-export type Lang = 'typescript' | 'tsx' | 'javascript' | 'python' | 'go';
+export type Lang = 'typescript' | 'tsx' | 'javascript' | 'python' | 'go' | 'java' | 'kotlin' | 'csharp' | 'rust' | 'c' | 'cpp' | 'ruby' | 'swift';
 
 export interface ImportBinding {
   /** Name in the source module: an identifier, "default", or "*" for the whole module. */
@@ -22,6 +22,11 @@ export interface ImportSpec {
   reexport?: boolean;
   /** `export * from` in TS/JS. */
   reexportAll?: boolean;
+  /**
+   * Every name of the module is visible here without a prefix: Java's
+   * `import a.b.*`, C#'s `using A.B;`, Rust's `use a::*`, a C `#include`.
+   */
+  open?: boolean;
   line: number;
 }
 
@@ -179,6 +184,8 @@ export interface ParsedFile {
   clients?: ClientDecl[];
   /** Go: package clause name. */
   goPackage?: string;
+  /** Java and Kotlin package, or C# namespaces, that this file's declarations belong to. */
+  namespaces?: string[];
   /** Source text of the lines evidence points at, keyed by line number. */
   code: Record<number, string>;
   /** TS/JS: names listed in `export { a, b }` without a source. */
@@ -209,6 +216,8 @@ export interface ParsedRepo {
   info: RepoInfo;
   /** Go module paths from go.mod files, by the directory they're in ("" for the root). */
   goModules?: { dir: string; module: string }[];
+  /** Rust crates from Cargo.toml files: their directory ("" for the root) and name as code writes it (dashes become underscores). */
+  rustCrates?: { dir: string; name: string }[];
   /** Absolute path on disk. */
   root: string;
   files: ParsedFile[];

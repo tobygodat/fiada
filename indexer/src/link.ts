@@ -1,6 +1,8 @@
 // Turns per-file facts into edges: resolves imports (relative, tsconfig
-// paths, workspace packages, Python packages, Go modules, across every
-// indexed repo), binds each identifier a symbol uses to the symbol it names,
+// paths, workspace packages, Python packages, Go modules, Java and Kotlin
+// packages, C# namespaces, Swift modules, Rust module paths, C includes and
+// Ruby requires, across every indexed repo), binds each identifier a symbol
+// uses to the symbol it names,
 // works out the full path of every server route by following router mounts,
 // and matches client HTTP requests to the routes that serve them.
 //
@@ -15,6 +17,7 @@ import { isTable, tableNames } from './orm.ts';
 const posix = path.posix;
 
 export const fileId = (repo: string, p: string) => `${repo}/${p}`;
+const fileOf = (id: string) => id.split('#')[0];
 
 /** Stable symbol ids for a file, aligned with file.symbols. Duplicate names get a ~n suffix. */
 export function symbolIds(fid: string, file: ParsedFile): string[] {
@@ -37,12 +40,43 @@ interface FileEntry {
   bindings: Map<string, { spec: ImportSpec; imported: string }>;
   /** Go: the package this file belongs to (its folder's node id). */
   pkg?: string;
+  /** Namespaces whose names this file sees without importing them (its own package, module, …). */
+  scopes: string[];
 }
 
 interface GoPackage {
   name?: string;
   files: FileEntry[];
   symbols: Map<string, string>;
+}
+
+/**
+ * Names shared by the files of a Java or Kotlin package, a C# namespace, a
+ * Swift module, or a repository's Ruby constants: visible without an import
+ * of each file. Known to edges by the folder (or repository) holding them.
+ */
+interface Namespace {
+  node: string;
+  /** How a reason names it: "package com.acme.shop". */
+  label: string;
+  symbols: Map<string, string>;
+  /** Set when finding a name here is a guess: why. */
+  guess?: string;
+}
+
+/** Namespace ids stand in for a module; edges use the namespace's node. */
+const NS = 'ns:';
+const C_FAMILY = new Set(['c', 'cpp']);
+/** Most headers an include closure walks for one file. */
+const MAX_INCLUDES = 300;
+/** Languages whose import paths are split into module and name by what the indexed code declares. */
+const BY_PATH = new Set(['java', 'kotlin', 'csharp', 'swift', 'rust', 'c', 'cpp', 'ruby']);
+
+/** An import path resolved: the module (a file, or a namespace id) and the name left over, "" for the module itself. */
+interface Split {
+  id: string;
+  rest: string;
+  guess?: string;
 }
 
 export interface RouteEntry {
@@ -97,7 +131,9 @@ interface Resolved {
   to: string;
   /** Import statement the name came through. */
   spec?: ImportSpec;
-  how: 'local' | 'package' | 'import';
+  how: 'local' | 'package' | 'namespace' | 'import';
+  /** For `namespace`: how the reason names it. */
+  label?: string;
   /** Set when a heuristic was involved. */
   guess?: string;
   /** Set when the imported name wasn't found and the edge points at the module. */
@@ -120,9 +156,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
         if (s.isDefault) defaultSymbol = ids[i];
       });
       if (!defaultSymbol && file.defaultExport) defaultSymbol = symbols.get(file.defaultExport);
+      // Filled in once every file is known: where an import path splits into module and name depends on what exists.
       const bindings = new Map<string, { spec: ImportSpec; imported: string }>();
-      for (const spec of file.imports) for (const b of spec.names) bindings.set(b.local, { spec, imported: b.imported });
-      const entry: FileEntry = { id, repo, file, ids, symbols, defaultSymbol, bindings };
+      const entry: FileEntry = { id, repo, file, ids, symbols, defaultSymbol, bindings, scopes: [] };
       if (file.lang === 'go') {
         const dir = posix.dirname(file.path);
         entry.pkg = dir === '.' ? repo.info.id : `${repo.info.id}/${dir}`;
@@ -133,6 +169,80 @@ export function link(repos: ParsedRepo[]): LinkResult {
       }
       files.set(id, entry);
     }
+  }
+
+  // ── namespaces ──────────────────────────────────────────────────────
+  const namespaces = new Map<string, Namespace>();
+  const dirNode = (e: FileEntry) => {
+    const dir = posix.dirname(e.file.path);
+    return dir === '.' ? e.repo.info.id : `${e.repo.info.id}/${dir}`;
+  };
+  const joinNs = (key: string, node: string, label: string, e: FileEntry, symbols: Iterable<[string, string]> = e.symbols, guess?: string) => {
+    let ns = namespaces.get(key);
+    if (!ns) namespaces.set(key, (ns = guess ? { node, label, symbols: new Map(), guess } : { node, label, symbols: new Map() }));
+    for (const [name, sid] of symbols) if (!ns.symbols.has(name)) ns.symbols.set(name, sid);
+    e.scopes.push(key);
+  };
+  const swiftModule = (p: string) => p.match(/(?:^|\/)Sources\/([^/]+)\//)?.[1] ?? '';
+  for (const e of files.values()) {
+    const { file, repo } = e;
+    switch (file.lang) {
+      case 'java':
+      case 'kotlin':
+        if (file.namespaces?.length) joinNs(`jvm:${file.namespaces[0]}`, dirNode(e), `package ${file.namespaces[0]}`, e);
+        else joinNs(`jvm:@${dirNode(e)}`, dirNode(e), 'the same folder', e);
+        break;
+      case 'csharp': {
+        // A namespace sees its parents' names, and the global namespace's.
+        const parents = new Set<string>();
+        for (const n of file.namespaces ?? []) {
+          joinNs(`cs:${n}`, dirNode(e), `namespace ${n}`, e);
+          const parts = n.split('.');
+          for (let i = parts.length - 1; i > 0; i--) parents.add(parts.slice(0, i).join('.'));
+        }
+        if (!file.namespaces?.length) joinNs(`cs:@${repo.info.id}`, repo.info.id, 'the global namespace', e);
+        else e.scopes.push(`cs:@${repo.info.id}`, ...[...parents].map((n) => `cs:${n}`));
+        break;
+      }
+      case 'swift': {
+        // SwiftPM puts each target under Sources/<Target>/; elsewhere the module is a guess from the repository.
+        const mod = swiftModule(file.path);
+        if (mod) joinNs(`swift:${repo.info.id}:${mod}`, `${repo.info.id}/${file.path.slice(0, file.path.indexOf(`Sources/${mod}/`))}Sources/${mod}`, `the Swift module ${mod}`, e);
+        else joinNs(`swift:${repo.info.id}:`, repo.info.id, 'this repository\'s Swift code', e, e.symbols, "taken to be one Swift module, as the project file that says which files form which target isn't read");
+        break;
+      }
+      case 'ruby': {
+        // Constants are global. Code inside `module Admin` names `Admin::Policy` as `Policy`: a guess when only the last part matches.
+        joinNs(`rb:${repo.info.id}`, repo.info.id, 'this repository (Ruby constants are global)', e);
+        const short = file.symbols.map((s, i) => [s.name.split('::').pop()!, e.ids[i]] as [string, string]).filter(([n], i) => n !== file.symbols[i].name);
+        joinNs(`rb~:${repo.info.id}`, repo.info.id, 'this repository', e, short, 'matched on the last part of the constant name, as Ruby resolves it through the enclosing modules');
+        break;
+      }
+    }
+  }
+  // Scopes a file names but no file declares into (a parent namespace with no types of its own).
+  for (const e of files.values()) e.scopes = e.scopes.filter((k) => namespaces.has(k));
+
+  // ── Rust modules ────────────────────────────────────────────────────
+  /** "<crate>::a::b" → the file that is that module. */
+  const rustMods = new Map<string, string>();
+  const rustCrateOf = new Map<string, { crate: string; mod: string[] | null }>();
+  const cratesByName = new Map<string, string>();
+  for (const repo of repos) for (const c of repo.rustCrates ?? []) if (!cratesByName.has(c.name)) cratesByName.set(c.name, `${repo.info.id}/${c.dir}`);
+  for (const e of files.values()) {
+    if (e.file.lang !== 'rust') continue;
+    const crates = (e.repo.rustCrates ?? []).filter((c) => c.dir === '' || e.file.path.startsWith(c.dir + '/')).sort((a, b) => b.dir.length - a.dir.length);
+    const dir = crates[0]?.dir ?? '';
+    const crate = crates[0] ? `${e.repo.info.id}/${dir}` : `${e.repo.info.id}/`;
+    const src = dir ? `${dir}/src/` : 'src/';
+    let mod: string[] | null = null;
+    if (e.file.path.startsWith(src)) {
+      const rel = e.file.path.slice(src.length).replace(/\.rs$/, '').replace(/(^|\/)mod$/, '');
+      mod = rel === 'lib' || rel === 'main' || rel === '' ? [] : rel.split('/');
+      const key = [crate, ...mod].join('::');
+      if (!rustMods.has(key) || /(^|\/)lib\.rs$/.test(e.file.path)) rustMods.set(key, e.id);
+    }
+    rustCrateOf.set(e.id, { crate, mod });
   }
 
   const ev = (e: FileEntry, source: EdgeEvidenceSource, line: number, note?: string): EdgeEvidence => {
@@ -239,6 +349,116 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return null;
   };
 
+  /** "a.b.C.m" → the module (namespace "a.b", or the file in it declaring C) and the name left over ("C.m"). */
+  const splitNamespaced = (family: string, parts: string[]): Split | null => {
+    for (let i = parts.length; i > 0; i--) {
+      const key = `${family}:${parts.slice(0, i).join('.')}`;
+      const ns = namespaces.get(key);
+      if (!ns) continue;
+      const rest = parts.slice(i);
+      const sid = rest.length ? (ns.symbols.get(rest.join('.')) ?? ns.symbols.get(rest[0])) : undefined;
+      return { id: sid ? fileOf(sid) : NS + key, rest: rest.join('.') };
+    }
+    return null;
+  };
+
+  /** `crate::a::B`, `super::x`, `self::m`, `other_crate::y`, or a child module `m::z`, to the file that is that module. */
+  const splitRust = (e: FileEntry, source: string): Split | null => {
+    const at = rustCrateOf.get(e.id);
+    if (!at) return null;
+    let parts = source.split('::').filter(Boolean);
+    const here = [at.crate, ...(at.mod ?? [])];
+    let base: string[];
+    if (parts[0] === 'crate') [base, parts] = [[at.crate], parts.slice(1)];
+    else if (parts[0] === 'self') [base, parts] = [here, parts.slice(1)];
+    else if (parts[0] === 'super') {
+      base = here;
+      while (parts[0] === 'super') [base, parts] = [base.length > 1 ? base.slice(0, -1) : base, parts.slice(1)];
+    } else if (rustMods.has([...here, parts[0]].join('::'))) base = here;
+    else if (cratesByName.has(parts[0])) [base, parts] = [[cratesByName.get(parts[0])!], parts.slice(1)];
+    else return null;
+    for (let i = parts.length; i >= 0; i--) {
+      const id = rustMods.get([...base, ...parts.slice(0, i)].join('::'));
+      if (id) return { id, rest: parts.slice(i).join('.') };
+    }
+    return null;
+  };
+
+  /** Files by base name, for includes and requires that name a path under a root we can't see (an include path set in the build). */
+  let byBase: Map<string, FileEntry[]> | null = null;
+  const bySuffix = (e: FileEntry, p: string): FileEntry | null => {
+    if (!byBase) {
+      byBase = new Map();
+      for (const f of files.values()) {
+        const b = posix.basename(f.file.path);
+        byBase.set(b, [...(byBase.get(b) ?? []), f]);
+      }
+    }
+    const hits = (byBase.get(posix.basename(p)) ?? []).filter((f) => f.file.path === p || f.file.path.endsWith(`/${p}`));
+    hits.sort((a, b) => Number(b.repo === e.repo) - Number(a.repo === e.repo) || a.file.path.length - b.file.path.length);
+    return hits[0] ?? null;
+  };
+  const found = (e: FileEntry, what: string, f: FileEntry | null): Split | null =>
+    f && { id: f.id, rest: '', guess: `found "${what}" by path at ${f.repo === e.repo ? f.file.path : `${f.repo.info.name}/${f.file.path}`}; include and load paths aren't read from the build` };
+
+  /** `#include "util.h"`: beside the file, then from the repository root and the usual include folders, then anywhere by path. */
+  const resolveInclude = (e: FileEntry, source: string): Split | null => {
+    const dir = posix.dirname(e.file.path);
+    for (const p of [posix.join(dir, source), source, ...['include', 'inc', 'src', 'lib'].map((r) => posix.join(r, source))]) {
+      const id = exists(e.repo, p);
+      if (id) return { id, rest: '' };
+    }
+    return found(e, source, bySuffix(e, posix.normalize(source)));
+  };
+
+  /** `require_relative "x"` beside the file; `require "a/b"` under lib/ or the root, then anywhere by path. */
+  const resolveRequire = (e: FileEntry, source: string): Split | null => {
+    const rb = source.endsWith('.rb') ? source : `${source}.rb`;
+    if (source.startsWith('.')) {
+      const id = exists(e.repo, posix.join(posix.dirname(e.file.path), rb));
+      return id ? { id, rest: '' } : null;
+    }
+    for (const p of [posix.join('lib', rb), rb]) {
+      const id = exists(e.repo, p);
+      if (id) return { id, rest: '' };
+    }
+    return rb.includes('/') ? found(e, source, bySuffix(e, rb)) : null;
+  };
+
+  /** Imports whose path splits into a module and a name only once we know what exists. */
+  const splitCache = new Map<string, Split | null>();
+  const splitImport = (e: FileEntry, spec: ImportSpec): Split | null => {
+    const key = `${e.id}|${spec.source}`;
+    if (splitCache.has(key)) return splitCache.get(key)!;
+    let hit: Split | null = null;
+    switch (e.file.lang) {
+      case 'java':
+      case 'kotlin':
+        hit = splitNamespaced('jvm', spec.source.split('.'));
+        break;
+      case 'csharp':
+        hit = splitNamespaced('cs', spec.source.split('.'));
+        break;
+      case 'swift': {
+        const key = [e.repo, ...repos].map((r) => `swift:${r.info.id}:${spec.source}`).find((k) => namespaces.has(k));
+        hit = key ? { id: NS + key, rest: '' } : null;
+        break;
+      }
+      case 'rust':
+        hit = splitRust(e, spec.source);
+        break;
+      case 'c':
+      case 'cpp':
+        hit = resolveInclude(e, spec.source);
+        break;
+      case 'ruby':
+        hit = resolveRequire(e, spec.source);
+        break;
+    }
+    splitCache.set(key, hit);
+    return hit;
+  };
+
   const moduleCache = new Map<string, { id: string; guess?: string } | null>();
   const resolveModuleInfo = (e: FileEntry, spec: ImportSpec): { id: string; guess?: string } | null => {
     const key = `${e.id}|${spec.level}|${spec.source}`;
@@ -248,6 +468,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
     else if (e.file.lang === 'go') {
       const id = resolveGo(e, spec.source);
       hit = id ? { id } : null;
+    } else if (BY_PATH.has(e.file.lang)) {
+      const s = splitImport(e, spec);
+      hit = s && (s.guess ? { id: s.id, guess: s.guess } : { id: s.id });
     } else {
       const id = resolveTs(e, spec.source);
       hit = id ? { id } : null;
@@ -256,6 +479,14 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return hit;
   };
   const resolveModule = (e: FileEntry, spec: ImportSpec) => resolveModuleInfo(e, spec)?.id ?? null;
+
+  // What each import binds, now that paths like `a.b.C.m` can be split where a module ends.
+  for (const e of files.values()) {
+    for (const spec of e.file.imports) {
+      const split = spec.names.length && BY_PATH.has(e.file.lang) ? splitImport(e, spec) : null;
+      for (const b of spec.names) e.bindings.set(b.local, { spec, imported: split ? split.rest || '*' : b.imported });
+    }
+  }
 
   // A Go package's declared name can differ from its import path's last segment.
   for (const e of files.values()) {
@@ -268,6 +499,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
 
   /** Find what `name` means inside module `fid`, following re-exports and barrels. */
   const resolveName = (fid: string, name: string, depth = 0): string | null => {
+    if (fid.startsWith(NS)) return namespaces.get(fid.slice(NS.length))?.symbols.get(name) ?? null;
     const pkg = goPkgs.get(fid);
     if (pkg) return pkg.symbols.get(name) ?? null;
     const e = files.get(fid);
@@ -297,7 +529,53 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const submodule = (e: FileEntry, spec: ImportSpec, name: string): string | null =>
     e.file.lang === 'python' ? (resolvePy(e, spec.source ? `${spec.source}.${name}` : name, spec.level)?.id ?? null) : null;
 
-  const fileOf = (id: string) => id.split('#')[0];
+
+  /** Headers a C or C++ file sees, directly or through other headers, with the include of this file that brings each in. */
+  const includeCache = new Map<string, { id: string; spec: ImportSpec; guess?: string }[]>();
+  const includesOf = (e: FileEntry) => {
+    const cached = includeCache.get(e.id);
+    if (cached) return cached;
+    const out: { id: string; spec: ImportSpec; guess?: string }[] = [];
+    const seen = new Set([e.id]);
+    const queue: { f: FileEntry; spec?: ImportSpec; guess?: string }[] = [{ f: e }];
+    while (queue.length && out.length < MAX_INCLUDES) {
+      const { f, spec: via, guess } = queue.shift()!;
+      for (const spec of f.file.imports) {
+        const mod = spec.open ? resolveModuleInfo(f, spec) : null;
+        const next = mod ? files.get(mod.id) : undefined;
+        if (!next || seen.has(next.id)) continue;
+        seen.add(next.id);
+        const item = { id: next.id, spec: via ?? spec, guess: guess ?? mod!.guess };
+        out.push(item);
+        queue.push({ f: next, spec: item.spec, guess: item.guess });
+      }
+    }
+    includeCache.set(e.id, out);
+    return out;
+  };
+
+  /** A name this file sees without binding it: its package's or module's, or one an open import (`import a.*`, `using`, `#include`) brings in. */
+  const visible = (e: FileEntry, name: string): Resolved | null => {
+    for (const key of e.scopes) {
+      const ns = namespaces.get(key)!;
+      const sid = ns.symbols.get(name);
+      if (sid) return { to: sid, how: 'namespace', label: ns.label, guess: ns.guess, modules: [] };
+    }
+    if (C_FAMILY.has(e.file.lang)) {
+      for (const inc of includesOf(e)) {
+        const sid = files.get(inc.id)!.symbols.get(name);
+        if (sid) return { to: sid, spec: inc.spec, how: 'import', guess: inc.guess, modules: [inc.id] };
+      }
+      return null;
+    }
+    for (const spec of e.file.imports) {
+      if (!spec.open) continue;
+      const mod = resolveModuleInfo(e, spec);
+      const hit = mod && resolveName(mod.id, name);
+      if (hit) return { to: hit, spec, how: 'import', guess: mod.guess, modules: [mod.id] };
+    }
+    return null;
+  };
 
   const resolveRef = (e: FileEntry, r: Pick<Ref, 'name' | 'member'>): Resolved | null => {
     const pkgSymbol = (name: string) => (e.pkg ? goPkgs.get(e.pkg)?.symbols.get(name) : undefined);
@@ -309,11 +587,19 @@ export function link(repos: ParsedRepo[]): LinkResult {
     }
     const b = e.bindings.get(r.name);
     if (!b) {
-      if (!r.member) return null;
-      const own = e.symbols.get(r.name);
-      if (own) return { to: own, how: 'local', modules: [] };
-      const inPkg = pkgSymbol(r.name);
-      return inPkg ? { to: inPkg, how: 'package', modules: [] } : null;
+      if (r.member) {
+        const own = e.symbols.get(r.name);
+        if (own) return { to: own, how: 'local', modules: [] };
+        const inPkg = pkgSymbol(r.name);
+        if (inPkg) return { to: inPkg, how: 'package', modules: [] };
+      }
+      const seen = visible(e, r.name);
+      if (seen && r.member && !seen.to.includes('#')) {
+        const m = resolveName(seen.to, r.member);
+        if (m) seen.to = m;
+        else if (seen.spec) seen.unresolved = r.member;
+      }
+      return seen;
     }
     const mod = resolveModuleInfo(e, b.spec);
     if (!mod) return null;
@@ -333,6 +619,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const edgeMap = new Map<string, GraphEdge>();
   const sameEvidence = (a: EdgeEvidence, b: EdgeEvidence) => a.file === b.file && a.line === b.line && a.source === b.source;
   const addEdge = (from: string, to: string, kind: EdgeKind, s: Support, detail?: string) => {
+    if (to.startsWith(NS)) to = namespaces.get(to.slice(NS.length))?.node ?? to;
     if (from === to || fileOf(from) === to) return;
     // One edge per pair, except HTTP: each distinct request→route is its own interaction.
     const key = kind === 'http' ? `${from}|${to}|${detail}` : `${from}|${to}`;
@@ -365,6 +652,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const name = r.member ? `${r.name}.${r.member}` : r.name;
     const evidence = [ev(e, SOURCE_OF[r.kind], r.line, `${VERB_OF[r.kind]} ${name}`)];
     if (res.spec) evidence.push(ev(e, 'import', res.spec.line));
+    if (res.guess && res.how === 'namespace') return { basis: 'inferred', confidence: 0.7, reason: `${VERB_OF[r.kind]} ${name}, declared in ${res.label}: ${res.guess}`, evidence };
     if (res.guess) return { basis: 'inferred', confidence: 0.6, reason: res.guess, evidence };
     if (res.unresolved) {
       const via = files.get(fileOf(res.to))?.bindings.get(res.unresolved)?.spec.source;
@@ -379,6 +667,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     }
     if (res.how === 'local') return { basis: 'evidenced', confidence: 0.9, reason: `${VERB_OF[r.kind]} ${name}, declared in the same file`, evidence };
     if (res.how === 'package') return { basis: 'evidenced', confidence: 0.9, reason: `${VERB_OF[r.kind]} ${name}, declared in the same Go package`, evidence };
+    if (res.how === 'namespace') return { basis: 'evidenced', confidence: 0.85, reason: `${VERB_OF[r.kind]} ${name}, declared in ${res.label}`, evidence };
     return { basis: 'evidenced', confidence: 0.95, reason: `${VERB_OF[r.kind]} ${name}, imported from "${specText(res.spec!)}"`, evidence };
   };
 

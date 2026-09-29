@@ -18,7 +18,7 @@ const gunzip = promisify(zlib.gunzip);
 const MB = 1 << 20;
 
 /** Parsed source, manifests: what the indexer reads, so all an upload needs to carry. */
-const SOURCE = `^(?!.*\\.d\\.ts$)(?!.*\\.min\\.js$).*(?:${SOURCE_EXTENSIONS.map((e) => e.replace('.', '\\.')).join('|')})$`;
+const SOURCE = `^(?!.*\\.d\\.ts$)(?!.*\\.min\\.js$).*(?:${SOURCE_EXTENSIONS.map((e) => e.replace(/[.+]/g, '\\$&')).join('|')})$`;
 
 export const UPLOAD: UploadPolicy = {
   maxBytes: Math.max(1, Number(process.env.FIADA_UPLOAD_MB) || 50) * MB,

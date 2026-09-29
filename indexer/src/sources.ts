@@ -31,12 +31,12 @@ export const IGNORED_DIR = new Set([
 ]);
 
 export const TEST_PATH =
-  /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.(py|go)$|(^|\/)conftest\.py$|(^|\/)test_helpers?\.go$/;
+  /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.(py|go)$|(^|\/)conftest\.py$|(^|\/)test_helpers?\.go$|[a-z0-9]Tests?\.(java|kt|cs|swift)$|(^|\/)[\w.]+\.Tests?\/|_(spec|test)\.rb$|_test\.(c|cc|cpp)$/;
 
 const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
 
 /** Files that change how every other file resolves; a change to one means reloading the repo. */
-export const MANIFEST = /(^|\/)(package\.json|[tj]sconfig(\..+)?\.json|go\.mod|pyproject\.toml|requirements.*\.txt|setup\.py|__init__\.py)$/;
+export const MANIFEST = /(^|\/)(package\.json|[tj]sconfig(\..+)?\.json|go\.mod|Cargo\.toml|pyproject\.toml|requirements.*\.txt|setup\.py|__init__\.py)$/;
 
 async function listFiles(root: string): Promise<string[]> {
   try {
@@ -101,6 +101,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
   const pyDeps = new Set<string>();
   const goDeps = new Set<string>();
   const goModules: { dir: string; module: string }[] = [];
+  const rustCrates: { dir: string; name: string }[] = [];
   for (const rel of all) {
     const base = rel.slice(rel.lastIndexOf('/') + 1);
     const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
@@ -127,6 +128,11 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
       for (const m of text.matchAll(/^\s*(?:require\s+)?([\w.-]+\.[\w.-]+\/[^\s]+)\s+v[^\s]+(\s*\/\/\s*indirect)?/gm)) {
         if (!m[2]) goDeps.add(m[1]);
       }
+    } else if (base === 'Cargo.toml') {
+      // The [package] name, as `use` paths write it; a workspace-only manifest has none.
+      const pkg = ((await readText(path.join(root, rel))) ?? '').split(/^\s*\[/m).find((sec) => /^package\s*\]/.test(sec));
+      const name = pkg?.match(/^\s*name\s*=\s*["']([^"']+)["']/m)?.[1];
+      if (name) rustCrates.push({ dir, name: name.replace(/-/g, '_') });
     } else if (base === 'pyproject.toml' || /^requirements.*\.txt$/.test(base) || base === 'setup.py') {
       const text = (await readText(path.join(root, rel))) ?? '';
       if (base.endsWith('.txt')) {
@@ -200,6 +206,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
     tsconfigs: [...tsconfigs.values()],
     pyRoots: [...pyRoots],
     goModules: goModules.length ? goModules : undefined,
+    rustCrates: rustCrates.length ? rustCrates : undefined,
     frameworks,
   };
 }

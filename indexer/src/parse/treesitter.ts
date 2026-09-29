@@ -16,13 +16,32 @@ const GRAMMAR: Record<Lang, string> = {
   javascript: 'tree-sitter-javascript.wasm',
   python: 'tree-sitter-python.wasm',
   go: 'tree-sitter-go.wasm',
+  java: 'tree-sitter-java.wasm',
+  kotlin: 'tree-sitter-kotlin.wasm',
+  csharp: 'tree-sitter-c_sharp.wasm',
+  rust: 'tree-sitter-rust.wasm',
+  c: 'tree-sitter-c.wasm',
+  cpp: 'tree-sitter-cpp.wasm',
+  ruby: 'tree-sitter-ruby.wasm',
+  swift: 'tree-sitter-swift.wasm',
+};
+
+/**
+ * C functions a grammar's scanner calls that this build of web-tree-sitter
+ * doesn't export. Ruby's scanner needs `iswupper`; without it parsing throws.
+ */
+const LIBC = {
+  _iswupper: (c: number) => {
+    const s = String.fromCodePoint(c);
+    return s !== s.toLowerCase() && s === s.toUpperCase() ? 1 : 0;
+  },
 };
 
 let init: Promise<void> | null = null;
 const parsers = new Map<Lang, Promise<Parser>>();
 
 export function getParser(lang: Lang): Promise<Parser> {
-  init ??= Parser.init();
+  init ??= Parser.init(LIBC);
   let p = parsers.get(lang);
   if (!p) {
     p = init.then(async () => {
