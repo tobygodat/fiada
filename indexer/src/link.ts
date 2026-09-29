@@ -37,13 +37,27 @@ interface FileEntry {
   ids: string[];
   symbols: Map<string, string>; // name → symbol id (first declaration wins)
   defaultSymbol?: string;
-  bindings: Map<string, { spec: ImportSpec; imported: string }>;
+  bindings: Map<string, Binding>;
   /** Go: the package this file belongs to (its folder's node id). */
   pkg?: string;
   /** Namespaces whose names this file sees without importing them (its own package, module, …). */
   scopes: string[];
   /** C#: what each symbol sees, by the namespace around it, when that differs from the file's. Aligned with file.symbols. */
   symbolScopes?: string[][];
+  /** What each symbol's own imports bind (see ParsedSymbol.imports). Aligned with file.symbols. */
+  symbolBindings?: (Map<string, Binding> | undefined)[];
+}
+
+type Binding = { spec: ImportSpec; imported: string };
+
+/** Where a reference is made: what it sees besides the file's own names. */
+interface At {
+  scopes: string[];
+  /** The symbol's own imports and what they bind, seen before the file's. */
+  imports: ImportSpec[];
+  bindings?: Map<string, Binding>;
+  /** C++: the namespace the code sits in. */
+  namespace?: string;
 }
 
 interface GoPackage {
@@ -519,12 +533,26 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const resolveModule = (e: FileEntry, spec: ImportSpec) => resolveModuleInfo(e, spec)?.id ?? null;
 
   // What each import binds, now that paths like `a.b.C.m` can be split where a module ends.
-  for (const e of files.values()) {
-    for (const spec of e.file.imports) {
+  const bind = (e: FileEntry, specs: ImportSpec[], into: Map<string, Binding>) => {
+    for (const spec of specs) {
       const split = spec.names.length && BY_PATH.has(e.file.lang) ? splitImport(e, spec) : null;
-      for (const b of spec.names) e.bindings.set(b.local, { spec, imported: split ? split.rest || '*' : b.imported });
+      for (const b of spec.names) into.set(b.local, { spec, imported: split ? split.rest || '*' : b.imported });
     }
+    return into;
+  };
+  for (const e of files.values()) {
+    bind(e, e.file.imports, e.bindings);
+    if (e.file.symbols.some((s) => s.imports?.length)) e.symbolBindings = e.file.symbols.map((s) => (s.imports?.length ? bind(e, s.imports, new Map()) : undefined));
   }
+  const atOf = (e: FileEntry, i?: number): At => {
+    const sym = i == null ? undefined : e.file.symbols[i];
+    return {
+      scopes: (i != null && e.symbolScopes?.[i]) || e.scopes,
+      imports: sym?.imports?.length ? [...sym.imports, ...e.file.imports] : e.file.imports,
+      bindings: i == null ? undefined : e.symbolBindings?.[i],
+      namespace: sym?.namespace,
+    };
+  };
 
   // A Go package's declared name can differ from its import path's last segment.
   for (const e of files.values()) {
@@ -595,21 +623,67 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return out;
   };
 
+  /**
+   * C and C++: the declaration of `r.name` among `ids` (this file, then what
+   * it includes), taking the namespace a qualified name gives, else one the
+   * code sits in or above it, else the first; a guess when namespaces differ.
+   */
+  const byName = new Map<string, Map<string, number[]>>();
+  const declarationsOf = (f: FileEntry, name: string) => {
+    let index = byName.get(f.id);
+    if (!index) {
+      byName.set(f.id, (index = new Map()));
+      f.file.symbols.forEach((s, i) => index!.set(s.name, [...(index!.get(s.name) ?? []), i]));
+    }
+    return index.get(name) ?? [];
+  };
+  const cDeclaration = (ids: string[], r: Pick<Ref, 'name' | 'scope'>, at: At): { sid: string; file: string; guess?: string } | null => {
+    const found: { sid: string; file: string; ns: string }[] = [];
+    for (const id of ids) {
+      const f = files.get(id)!;
+      for (const i of declarationsOf(f, r.name)) found.push({ sid: f.ids[i], file: id, ns: f.file.symbols[i].namespace ?? '' });
+    }
+    // `details::registry::instance` may name a member of class `registry`, which a lowercase name doesn't give away.
+    const asMember = () => {
+      const parts = r.scope?.split('::') ?? [];
+      const owner = parts.pop();
+      return owner ? cDeclaration(ids, { name: `${owner}.${r.name}`, scope: parts.length ? parts.join('::') : undefined }, at) : null;
+    };
+    if (!found.length) return r.scope ? asMember() : null;
+    const under = (outer: string, ns: string) => ns === outer || (outer !== '' && ns.startsWith(`${outer}::`));
+    if (r.scope != null) {
+      // `b::Foo` from inside namespace `a` may mean `a::b::Foo` or `b::Foo`; `::Foo` is the global one.
+      const hit = r.scope === ''
+        ? found.find((c) => c.ns === '')
+        : found.find((c) => at.namespace && c.ns === `${at.namespace}::${r.scope}`) ?? found.find((c) => c.ns === r.scope || c.ns.endsWith(`::${r.scope}`));
+      return hit ?? asMember();
+    }
+    const enclosing = at.namespace ?? '';
+    const near = found.filter((c) => c.ns === '' || under(c.ns, enclosing)).sort((a, b) => b.ns.length - a.ns.length)[0];
+    if (near) return near;
+    const spaces = [...new Set(found.map((c) => c.ns))];
+    return spaces.length > 1
+      ? { ...found[0], guess: `${r.name} is declared in several namespaces (${spaces.join(', ')}); taken to be ${found[0].ns}::${r.name}, as \`using namespace\` isn't followed` }
+      : found[0];
+  };
+
   /** A name this file sees without binding it: its package's or module's, or one an open import (`import a.*`, `using`, `#include`) brings in. */
-  const visible = (e: FileEntry, name: string, scopes: string[]): Resolved | null => {
-    for (const key of scopes) {
+  const visible = (e: FileEntry, r: Pick<Ref, 'name' | 'scope'>, at: At): Resolved | null => {
+    const name = r.name;
+    for (const key of at.scopes) {
       const ns = namespaces.get(key)!;
       const sid = pick(ns, name, e.repo);
       if (sid) return { to: sid, how: 'namespace', label: ns.label, guess: ns.guess ?? elsewhere(e, name, sid), modules: [] };
     }
     if (C_FAMILY.has(e.file.lang)) {
-      for (const inc of includesOf(e)) {
-        const sid = files.get(inc.id)!.symbols.get(name);
-        if (sid) return { to: sid, spec: inc.spec, how: 'import', guess: inc.guess, modules: [inc.id] };
-      }
-      return null;
+      const incs = includesOf(e);
+      const hit = cDeclaration([e.id, ...incs.map((i) => i.id)], r, at);
+      if (!hit) return null;
+      if (hit.file === e.id) return hit.guess ? { to: hit.sid, how: 'local', guess: hit.guess, modules: [] } : { to: hit.sid, how: 'local', modules: [] };
+      const inc = incs.find((i) => i.id === hit.file)!;
+      return { to: hit.sid, spec: inc.spec, how: 'import', guess: hit.guess ?? inc.guess, modules: [inc.id] };
     }
-    for (const spec of e.file.imports) {
+    for (const spec of at.imports) {
       if (!spec.open) continue;
       const mod = resolveModuleInfo(e, spec);
       // `import static a.Util.*` opens a type: its members are "Util.run" here.
@@ -620,15 +694,21 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return null;
   };
 
-  const resolveRef = (e: FileEntry, r: Pick<Ref, 'name' | 'member'>, scopes = e.scopes): Resolved | null => {
+  const resolveRef = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At = atOf(e)): Resolved | null => {
     const pkgSymbol = (name: string) => (e.pkg ? goPkgs.get(e.pkg)?.symbols.get(name) : undefined);
+    // C and C++ weigh namespaces, which a file's first-declared name can't.
+    if (C_FAMILY.has(e.file.lang)) {
+      const seen = visible(e, r, at);
+      if (seen && r.member && !seen.to.includes('#')) seen.to = resolveName(seen.to, r.member, 0, e.repo) ?? seen.to;
+      return seen;
+    }
     if (!r.member) {
       const local = e.symbols.get(r.name);
       if (local) return { to: local, how: 'local', modules: [] };
       const inPkg = pkgSymbol(r.name);
       if (inPkg) return { to: inPkg, how: 'package', modules: [] };
     }
-    const b = e.bindings.get(r.name);
+    const b = at.bindings?.get(r.name) ?? e.bindings.get(r.name);
     if (!b) {
       if (r.member) {
         const own = e.symbols.get(r.name);
@@ -636,7 +716,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
         const inPkg = pkgSymbol(r.name);
         if (inPkg) return { to: inPkg, how: 'package', modules: [] };
       }
-      const seen = visible(e, r.name, scopes);
+      const seen = visible(e, r, at);
       if (seen && r.member && !seen.to.includes('#')) {
         const m = resolveName(seen.to, r.member, 0, e.repo);
         if (m) seen.to = m;
@@ -718,10 +798,10 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const externalImports = new Map<string, string[]>();
   for (const e of files.values()) {
     const usedModules = new Set<string>();
-    const sources: [string, Ref[], string[]][] = [[e.id, e.file.fileRefs, e.scopes], ...e.file.symbols.map((s, i) => [e.ids[i], s.refs, e.symbolScopes?.[i] ?? e.scopes] as [string, Ref[], string[]])];
-    for (const [from, refs, scopes] of sources) {
+    const sources: [string, Ref[], At][] = [[e.id, e.file.fileRefs, atOf(e)], ...e.file.symbols.map((s, i) => [e.ids[i], s.refs, atOf(e, i)] as [string, Ref[], At])];
+    for (const [from, refs, at] of sources) {
       for (const r of refs) {
-        const res = resolveRef(e, r, scopes);
+        const res = resolveRef(e, r, at);
         if (!res) continue;
         for (const m of res.modules) usedModules.add(m);
         usedModules.add(fileOf(res.to));
@@ -730,7 +810,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     }
     // Imports nothing visibly uses (side effects, re-exports, barrels) still connect the files.
     const external = new Set<string>();
-    for (const spec of e.file.imports) {
+    for (const spec of new Set([...e.file.imports, ...e.file.symbols.flatMap((s) => s.imports ?? [])])) {
       const mod = resolveModuleInfo(e, spec);
       if (!mod && spec.level === 0 && spec.source && !spec.source.startsWith('.')) external.add(spec.source.replace(/^node:/, ''));
       if (mod && !usedModules.has(mod.id)) {

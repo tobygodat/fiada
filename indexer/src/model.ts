@@ -38,6 +38,8 @@ export type RefKind = 'call' | 'new' | 'jsx' | 'type' | 'ref';
 export interface Ref {
   name: string;
   member?: string;
+  /** C++: the namespace a qualified name gives (`b` in `b::Foo`; "" for `::Foo`). */
+  scope?: string;
   kind: RefKind;
   /** Line of the use that decided `kind` (the first call, else the first JSX use, …). */
   line: number;
@@ -165,8 +167,10 @@ export interface ParsedSymbol {
   orm?: OrmRef[];
   /** Go: the receiver type of a method (`func (m *ArticleModel) Update()` → "ArticleModel"). */
   receiver?: string;
-  /** C#: the namespace declaring it, nested ones joined ("A.B"), when a file may hold several. */
+  /** C# and C++: the namespace declaring it, nested ones joined ("A.B", "a::b"), when a file may hold several. */
   namespace?: string;
+  /** Imports declared inside it (a Rust `use` in a function, a C# `using` in a namespace block), seen only by its own code. */
+  imports?: ImportSpec[];
 }
 
 export interface ParsedFile {

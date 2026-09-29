@@ -4,7 +4,7 @@
 // other files see through an include.
 
 import type { ParsedFile } from '../model.ts';
-import { outline, type Decl, type LangSpec } from './outline.ts';
+import { innermost, outline, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const HEADER = /\.(h|hh|hpp|hxx|h\+\+|inl)$/;
@@ -31,6 +31,31 @@ function functionName(fd: SyntaxNode, namespaces: Set<string>): { name: string; 
   }
   if (!d || !/^(~?\w+|operator\W.*)$/.test(d.text)) return null;
   return owner ? { name: d.text, owner } : { name: d.text };
+}
+
+/**
+ * `b::Foo` → the name and the namespace it gives ("b"; "" for `::Foo`), so
+ * two namespaces' Foo stay apart. A class scope (`Service::create`) is kept
+ * as the name's owner instead, by the callers.
+ */
+function qualified(n: SyntaxNode): { name: SyntaxNode; scope: string } | null {
+  const parts: string[] = [];
+  let d: SyntaxNode | null = n;
+  while (d?.type === 'qualified_identifier') {
+    const scope = d.childForFieldName('scope');
+    parts.push(scope ? (scope.type === 'template_type' ? (scope.childForFieldName('name')?.text ?? scope.text) : scope.text) : '');
+    d = d.childForFieldName('name');
+  }
+  if (d?.type === 'template_function' || d?.type === 'template_type') d = d.childForFieldName('name');
+  return d ? { name: d, scope: parts.join('::') } : null;
+}
+
+/** A qualified name as a ref: `Service::create` names a class member; `util::convert` a namespace's function. */
+function addQualified(out: RefSink, q: { name: SyntaxNode; scope: string }, kind: 'call' | 'new' | 'type' | 'ref', at: SyntaxNode) {
+  out.seen(q.name);
+  const last = q.scope.split('::').pop() ?? '';
+  if (kind === 'call' && /^[A-Z]/.test(last)) out.add(last, 'call', at, q.name.text, q.scope.split('::').slice(0, -1).join('::') || undefined);
+  else out.add(q.name.text, kind, at, undefined, q.scope);
 }
 
 const isStatic = (n: SyntaxNode) => n.namedChildren.some((c) => c.type === 'storage_class_specifier' && c.text === 'static');
@@ -108,25 +133,27 @@ function makeSpec(header: boolean, namespaces: Set<string>): LangSpec {
             out.seen(field);
             if (arg?.type === 'this' && field) out.self(field.text, 'call', n);
           } else if (fn.type === 'qualified_identifier') {
-            const scope = fn.childForFieldName('scope');
-            let name = fn.childForFieldName('name');
-            if (name?.type === 'template_function') name = name.childForFieldName('name');
-            if (!name || name.type !== 'identifier') return;
+            const q = qualified(fn);
+            if (!q || q.name.type !== 'identifier') return;
             out.seen(fn);
-            out.seen(name);
-            // `Service::create()` names a class; `util::convert()` a namespace, which isn't tracked, so just the function.
-            const s = scope?.text.split('::').pop() ?? '';
-            if (/^[A-Z]/.test(s)) out.add(s, 'call', n, name.text);
-            else out.add(name.text, 'call', n);
+            out.seen(q.name);
+            addQualified(out, q, 'call', n);
           }
           return;
         }
         case 'new_expression': {
           const type = n.childForFieldName('type');
-          const name = type?.type === 'template_type' ? type.childForFieldName('name')?.text : type?.text.split('::').pop();
+          const q = type?.type === 'qualified_identifier' ? qualified(type) : null;
+          const name = type?.type === 'template_type' ? type.childForFieldName('name')?.text : type?.text;
           out.seen(type);
-          if (name) out.add(name, 'new', n);
+          if (q) addQualified(out, q, 'new', n);
+          else if (name) out.add(name, 'new', n);
           return;
+        }
+        case 'qualified_identifier': {
+          const q = qualified(n);
+          if (q && (q.name.type === 'type_identifier' || q.name.type === 'identifier')) addQualified(out, q, q.name.type === 'type_identifier' ? 'type' : 'ref', n);
+          return true;
         }
         case 'field_expression': {
           const field = n.childForFieldName('field');
@@ -158,8 +185,19 @@ function includes(root: SyntaxNode, file: ParsedFile) {
 
 export function extractC(root: SyntaxNode, file: ParsedFile) {
   includes(root, file);
-  const namespaces = new Set(root.descendantsOfType('namespace_definition').map((n) => n.childForFieldName('name')?.text ?? ''));
+  const defs = root.descendantsOfType('namespace_definition');
+  const namespaces = new Set(defs.map((n) => n.childForFieldName('name')?.text ?? ''));
   outline(root, makeSpec(HEADER.test(file.path), namespaces), file);
+  // Each declaration's namespace, nested ones joined ("a::b"); anonymous namespaces add nothing.
+  const spans = defs.map((n) => {
+    const names: string[] = [];
+    for (let p: SyntaxNode | null = n; p; p = p.parent) if (p.type === 'namespace_definition') names.unshift(p.childForFieldName('name')?.text ?? '');
+    return { name: names.filter(Boolean).join('::'), start: line(n), end: n.endPosition.row + 1 };
+  });
+  for (const s of file.symbols) {
+    const ns = innermost(spans, s.lines[0], s.lines[1])?.name;
+    if (ns) s.namespace = ns;
+  }
 }
 
 /** Headers are shared by C and C++; one with C++-only syntax is C++. */

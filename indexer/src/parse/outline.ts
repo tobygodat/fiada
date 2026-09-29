@@ -33,7 +33,8 @@ export type Decl =
 export const SELF = '@self';
 
 export interface RefSink {
-  add(name: string, kind: RefKind, n: SyntaxNode, member?: string): void;
+  /** `scope`: the namespace a C++ qualified name gives. */
+  add(name: string, kind: RefKind, n: SyntaxNode, member?: string, scope?: string): void;
   /** `this.member` / `self.member`: a sibling member of the enclosing type. */
   self(member: string, kind: RefKind, n: SyntaxNode): void;
   /** Mark a node as accounted for, so it isn't read again as a bare identifier. */
@@ -60,9 +61,9 @@ export function outline(root: SyntaxNode, spec: LangSpec, file: ParsedFile) {
   const collect = (node: SyntaxNode, refs: RefSet, owner: string | null, membersApart: boolean) => {
     const seen = new Set<number>();
     const sink: RefSink = {
-      add: (name, kind, n, member) => {
+      add: (name, kind, n, member, scope) => {
         seen.add(n.id);
-        refs.add(name, kind, line(n), member);
+        refs.add(name, kind, line(n), member, scope);
       },
       self: (member, kind, n) => {
         seen.add(n.id);
@@ -132,12 +133,22 @@ export function outline(root: SyntaxNode, spec: LangSpec, file: ParsedFile) {
       }
       if (!r.member && owner) {
         const sibling = join(owner, r.name, 'function');
-        if (names.has(sibling) && sibling !== s.name) return [{ ...r, name: sibling }];
+        if (r.scope == null && names.has(sibling) && sibling !== s.name) return [{ ...r, name: sibling }];
       }
       return [r];
     });
   });
   file.fileRefs = fileRefs.list().filter((r) => r.name !== SELF);
+}
+
+/** The innermost of `spans` holding lines `a` to `b`. */
+export function innermost<T extends { start: number; end: number }>(spans: T[], a: number, b = a): T | undefined {
+  return spans.filter((s) => s.start <= a && b <= s.end).sort((x, y) => y.start - x.start || x.end - y.end)[0];
+}
+
+/** The innermost function symbol whose body holds `at`, to own an import declared there. */
+export function enclosingFunction(file: ParsedFile, at: number): ParsedSymbol | undefined {
+  return innermost(file.symbols.filter((s) => s.kind === 'function').map((s) => ({ start: s.lines[0], end: s.lines[1], s })), at)?.s;
 }
 
 /** Text of a string literal without its quotes, or null when it has interpolations. */

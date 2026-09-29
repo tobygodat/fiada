@@ -143,11 +143,15 @@ test('C#: each type belongs to the namespace around it, nested ones included', a
       'Other.cs': 'namespace A;\n\npublic class Other\n{\n    public void Run() { new Square(); }\n}\n',
       'Foo.cs': 'namespace B;\n\npublic class Foo { }\n',
       'Mixed.cs': 'namespace A\n{\n    public class Mixed { Foo f; }\n}\nnamespace B\n{\n    public class Late { Foo f; }\n}\n',
+      'Scoped.cs': 'namespace A\n{\n    using B;\n    public class In { Foo f; }\n}\nnamespace C\n{\n    public class Out { Foo f; }\n}\n',
     },
   });
   // Code in namespace A of a file that also declares namespace B doesn't see B's names.
   noEdge(g, 'api/Mixed.cs#Mixed', 'api/Foo.cs#Foo');
   edge(g, 'api/Mixed.cs#Late', 'api/Foo.cs#Foo', 'type');
+  // A using inside namespace A's block isn't seen from namespace C's.
+  assert.match(edge(g, 'api/Scoped.cs#In', 'api/Foo.cs#Foo', 'type').reason!, /imported from "B"/);
+  noEdge(g, 'api/Scoped.cs#Out', 'api/Foo.cs#Foo');
   // A.B's Circle, not C's, and not one filed under A or a top-level B.
   assert.match(edge(g, 'api/Use.cs#Use.Run', 'api/Shapes.cs#Circle', 'calls').reason!, /imported from "A\.B"/);
   assert.match(edge(g, 'api/Other.cs#Other.Run', 'api/Shapes.cs#Square', 'calls').reason!, /namespace A\b/);
@@ -192,6 +196,38 @@ test('Rust: use paths through crate, self, super and other crates; mod files; im
   edge(g, 'ws/app/src/routes/items.rs#Handler.show', 'ws/app/src/routes/items.rs#Handler.log', 'calls');
   assert.deepEqual(node(g, 'ws/app/src/routes/items.rs#Handler').symbolKind, 'class');
   assert.deepEqual(node(g, 'ws/app/src/routes/items.rs#show').routes, ['GET /items/{id}']);
+});
+
+test('Rust: a use inside a function binds only there', async () => {
+  const g = await graphOf({
+    app: {
+      'Cargo.toml': '[package]\nname = "app"\n',
+      'src/lib.rs': 'mod a;\nmod b;\n\npub fn one() {\n    use crate::a::Item;\n    Item::make();\n}\n\npub fn two() {\n    use crate::b::Item;\n    Item::make();\n}\n',
+      'src/a.rs': 'pub struct Item;\nimpl Item { pub fn make() {} }\n',
+      'src/b.rs': 'pub struct Item;\nimpl Item { pub fn make() {} }\n',
+    },
+  });
+  edge(g, 'app/src/lib.rs#one', 'app/src/a.rs#Item', 'calls');
+  edge(g, 'app/src/lib.rs#two', 'app/src/b.rs#Item', 'calls');
+  noEdge(g, 'app/src/lib.rs#one', 'app/src/b.rs#Item');
+});
+
+test('C++: a namespace keeps same-named declarations apart', async () => {
+  const g = await graphOf({
+    app: {
+      'src/shapes.h': 'namespace a { struct Foo { int x; }; }\nnamespace b { struct Foo { int y; }; }\n',
+      'src/main.cpp':
+        '#include "shapes.h"\n\nint useB() { auto f = new b::Foo(); return 0; }\n' +
+        'namespace a {\nint useA() { Foo f; return 0; }\n}\nint vec() { std::vector<int> v; return 0; }\n',
+    },
+  });
+  const [aFoo, bFoo] = ['app/src/shapes.h#Foo', 'app/src/shapes.h#Foo~2'];
+  assert.equal(node(g, bFoo).symbolKind, 'class');
+  edge(g, 'app/src/main.cpp#useB', bFoo, 'calls');
+  noEdge(g, 'app/src/main.cpp#useB', aFoo);
+  // Inside namespace a, a bare Foo is a::Foo.
+  edge(g, 'app/src/main.cpp#useA', aFoo, 'type');
+  noEdge(g, 'app/src/main.cpp#useA', bFoo);
 });
 
 test('C: includes make a header\'s declarations visible, directly or through another header', async () => {

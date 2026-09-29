@@ -3,7 +3,7 @@
 // the routes of actix-web and Rocket attributes (`#[get("/x")]`).
 
 import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
-import { capitalized, literal, outline, type Decl, type LangSpec } from './outline.ts';
+import { capitalized, enclosingFunction, literal, outline, type Decl, type LangSpec } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const ITEM_KIND = {
@@ -177,8 +177,14 @@ const spec: LangSpec = {
 };
 
 export function extractRust(root: SyntaxNode, file: ParsedFile) {
-  file.imports.push(...imports(root));
+  const specs = imports(root);
   outline(root, spec, file);
+  // A `use` inside a function binds only there.
+  for (const s of specs) {
+    const owner = enclosingFunction(file, s.line);
+    if (owner) (owner.imports ??= []).push(s);
+    else file.imports.push(s);
+  }
   // `impl Api for Service` makes Api a base of Service, when both are here.
   for (const impl of root.descendantsOfType('impl_item')) {
     const trait = typeName(impl.childForFieldName('trait'));

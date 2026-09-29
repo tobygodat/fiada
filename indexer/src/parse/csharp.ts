@@ -2,8 +2,8 @@
 // routes of ASP.NET controllers (`[Route]`, `[HttpGet]`) and minimal APIs
 // (`app.MapGet("/x", …)`).
 
-import type { ParsedFile, RouteDecl } from '../model.ts';
-import { annotationRoutes, capitalized, joinPath, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
+import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
+import { annotationRoutes, capitalized, innermost, joinPath, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const TYPE_KIND = {
@@ -177,18 +177,25 @@ export function extractCSharp(root: SyntaxNode, file: ParsedFile) {
     return [{ name: [...outer, own].filter(Boolean).join('.'), start: line(n), end }];
   });
   if (spans.length) file.namespaces = [...new Set(spans.map((s) => s.name))];
+  // A using inside a namespace block is seen only by the code in that block.
+  const blocks = root.descendantsOfType('namespace_declaration').map((n) => ({ start: line(n), end: n.endPosition.row + 1, specs: [] as ImportSpec[] }));
   for (const u of root.descendantsOfType('using_directive')) {
     const target = u.namedChildren.find((c) => c.type === 'qualified_name' || c.type === 'identifier');
     if (!target) continue;
     const alias = u.namedChildren.find((c) => c.type === 'name_equals')?.namedChildren[0]?.text;
-    // `using static A.B.C;` opens a type's members, which aren't symbols of their own here.
-    if (alias) file.imports.push({ source: target.text, level: 0, names: [{ imported: lastSegment(target.text), local: alias }], line: line(u) });
-    else file.imports.push({ source: target.text, level: 0, names: [], open: true, line: line(u) });
+    // `using static A.B.C;` opens a type, whose members are "C.x" here.
+    const s: ImportSpec = alias
+      ? { source: target.text, level: 0, names: [{ imported: lastSegment(target.text), local: alias }], line: line(u) }
+      : { source: target.text, level: 0, names: [], open: true, line: line(u) };
+    const block = u.parent?.parent?.type === 'namespace_declaration' ? innermost(blocks, line(u)) : undefined;
+    (block ? block.specs : file.imports).push(s);
   }
   outline(root, spec, file);
   for (const sym of file.symbols) {
-    const inside = spans.filter((ns) => ns.start <= sym.lines[0] && sym.lines[1] <= ns.end).sort((a, b) => b.start - a.start)[0];
+    const inside = innermost(spans, sym.lines[0], sym.lines[1]);
     if (inside) sym.namespace = inside.name;
+    const specs = blocks.filter((b) => b.start <= sym.lines[0] && sym.lines[1] <= b.end).flatMap((b) => b.specs);
+    if (specs.length) sym.imports = specs;
   }
   // Routes mapped in top-level statements or a Program.Main belong to the file.
   const mapped = minimalApiRoutes(root);
