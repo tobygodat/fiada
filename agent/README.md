@@ -1,4 +1,4 @@
-# @fiada/agent
+# @fiadatech/agent
 
 Shows what your coding agent is doing on [Fiada](https://fiada.tech), a live map of your codebase. As Claude Code works, its task and plan appear in the map's agent window, and every file and function it adds, changes or deletes gets a ring on the map.
 
@@ -7,7 +7,7 @@ Shows what your coding agent is doing on [Fiada](https://fiada.tech), a live map
 Sign in at your Fiada map, open **agents** in the sidebar and choose **connect an agent**. It gives you one command with your indexer and token filled in. Run it in your project's folder:
 
 ```sh
-npx -y --package=@fiada/agent fiada setup --write . --url=https://<indexer> --token=<token>
+npx -y --package=@fiadatech/agent fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
 That does three things:
@@ -18,10 +18,10 @@ That does three things:
 
 Then start `claude` there. Nothing else to set.
 
-The package has several commands, so npx is told which one to run (`--package=@fiada/agent fiada`). Hooks run after every edit, and through npx each call starts a little slower. To skip that, install it once and run setup from the installed copy:
+The package has several commands, so npx is told which one to run (`--package=@fiadatech/agent fiada`). Hooks run after every edit, and through npx each call starts a little slower. To skip that, install it once and run setup from the installed copy:
 
 ```sh
-npm install -g @fiada/agent
+npm install -g @fiadatech/agent
 fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 

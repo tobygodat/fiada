@@ -443,7 +443,7 @@ export interface UploadPolicy {
 //
 // Coding agents (Claude Code, Cursor, Codex, anything that speaks MCP) report
 // what they're working on and which files they change. Events come from the
-// agent's MCP server (`@fiada/agent`, when the agent calls its tools) and
+// agent's MCP server (`@fiadatech/agent`, when the agent calls its tools) and
 // from its tool hooks (deterministically, after every edit). The indexer maps
 // changed files to graph nodes and pushes the result to the map.
 

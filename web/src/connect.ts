@@ -1,5 +1,5 @@
 // The command that connects a coding agent to this map (components/Account.tsx).
-// It runs the published @fiada/agent package, so no checkout of Fiada is needed.
+// It runs the published @fiadatech/agent package, so no checkout of Fiada is needed.
 
 import type { AgentConnection } from '@fiada/shared';
 
@@ -16,5 +16,5 @@ export function shellWord(s: string): string {
 export function setupCommand(c: AgentConnection, token = c.token): string {
   // Several bins and none named after the package, so npx is told which to run.
   // --name=value, so a value starting with dashes can't be taken for another flag.
-  return ['npx -y --package=@fiada/agent fiada setup', '--write .', `--url=${shellWord(c.url)}`, ...(token ? [`--token=${shellWord(token)}`] : [])].join(' ');
+  return ['npx -y --package=@fiadatech/agent fiada setup', '--write .', `--url=${shellWord(c.url)}`, ...(token ? [`--token=${shellWord(token)}`] : [])].join(' ');
 }

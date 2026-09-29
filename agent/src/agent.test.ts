@@ -323,14 +323,17 @@ test('setup keeps a token only for the indexer it was given for', () => {
 });
 
 test('setup runs this copy by its path, or through npx when it lives in npx cache', () => {
-  const pkg = { name: '@fiada/agent', version: '1.2.3' };
-  const installed = commandsFor('/usr/lib/node_modules/@fiada/agent/bin', pkg);
-  assert.equal(installed.hook, 'node /usr/lib/node_modules/@fiada/agent/bin/fiada-hook.mjs');
-  assert.deepEqual(installed.mcp, ['node', '/usr/lib/node_modules/@fiada/agent/bin/fiada-mcp.mjs']);
-  const cached = commandsFor('/home/a/.npm/_npx/9f2c/node_modules/@fiada/agent/bin', pkg);
-  assert.equal(cached.hook, 'npx -y --prefer-offline --package=@fiada/agent@1.2.3 fiada hook');
-  assert.deepEqual(cached.mcp, ['npx', '-y', '--prefer-offline', '--package=@fiada/agent@1.2.3', 'fiada', 'mcp']);
+  const pkg = { name: '@fiadatech/agent', version: '1.2.3' };
+  const installed = commandsFor('/usr/lib/node_modules/@fiadatech/agent/bin', pkg);
+  assert.equal(installed.hook, 'node /usr/lib/node_modules/@fiadatech/agent/bin/fiada-hook.mjs');
+  assert.deepEqual(installed.mcp, ['node', '/usr/lib/node_modules/@fiadatech/agent/bin/fiada-mcp.mjs']);
+  const cached = commandsFor('/home/a/.npm/_npx/9f2c/node_modules/@fiadatech/agent/bin', pkg);
+  assert.equal(cached.hook, 'npx -y --prefer-offline --package=@fiadatech/agent@1.2.3 fiada hook');
+  assert.deepEqual(cached.mcp, ['npx', '-y', '--prefer-offline', '--package=@fiadatech/agent@1.2.3', 'fiada', 'mcp']);
   // Setting up again replaces the npx hook as it does a path to fiada-hook.
   const merged = mergeHooks({ hooks: hooksBlock(cached.hook) }, hooksBlock(installed.hook));
   assert.deepEqual(merged.hooks.Stop, hooksBlock(installed.hook).Stop);
+  // And an npx hook written before the package moved to the fiadatech scope.
+  const renamed = mergeHooks({ hooks: hooksBlock('npx -y --package=@fiada/agent@0.1.0 fiada hook') }, hooksBlock(installed.hook));
+  assert.deepEqual(renamed.hooks.Stop, hooksBlock(installed.hook).Stop);
 });
