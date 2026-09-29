@@ -54,11 +54,17 @@ npm run agent:setup -- --write /path/to/your/repo
 cd /path/to/your/repo && claude
 ```
 
-`--write` adds Fiada's hooks to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
+`--write` adds Fiada's hooks to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. For a map you signed in to, open **agents** in the sidebar and choose **connect an agent**: it gives one command to run in your project, no checkout of Fiada needed, which runs the published [`@fiada/agent`](agent/README.md) package:
+
+```sh
+npx -y --package=@fiada/agent fiada setup --write . --url=https://<indexer> --token=<token>
+```
+
+It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiada/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
 
 ## Hosted demo
 
-The map is at https://fiada.tech, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Anyone can browse it; adding repositories needs the project's key. [Deploy](#deploy) explains the split.
+The map is at https://fiada.tech, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
 
 ## Using the map
 
@@ -140,7 +146,7 @@ Generated summaries are written in batches, off the request path: after each imp
 
 ## Storage
 
-Everything a project keeps (its repositories, its grouping and its generated summaries) goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.fiada/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
+Everything a project keeps (its repositories, its grouping and its generated summaries), and the accounts of people who sign in with GitHub, goes through the `ProjectStore` interface in `indexer/src/store.ts`. The default `FileProjectStore` writes under `.fiada/projects/<id>/`. When `MONGODB_URI` is set, `createStore()` picks `MongoProjectStore` (`indexer/src/mongo-store.ts`) instead. The graph itself is always derived, never stored.
 
 ### MongoDB Atlas
 
@@ -210,6 +216,10 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 
 Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
+The same package is on npm as [`@fiada/agent`](agent/README.md): `npx -y --package=@fiada/agent fiada setup --write .` in your project does what `npm run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
+
+To publish a new version: bump `version` in `agent/package.json`, then `npm publish -w @fiada/agent`. Publishing bundles `agent/src` into `agent/dist/cli.js` with esbuild (`npm run agent:build`): one file with no dependencies, since Node won't strip types from a package in `node_modules`. A checkout keeps running the TypeScript source.
+
 ### Other agents
 
 - **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "fiada": { "command": "node", "args": ["/path/to/hackgt13/agent/bin/fiada-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
@@ -217,6 +227,19 @@ Then run `npm run dev`, import the repository you're working in by its local pat
 - **Anything else**, scripts included: `fiada-hook changed <file>… [--kind added|modified|deleted]`, `fiada-hook task "Add tags" --step "Add the model"`, `fiada-hook sweep` (whatever changed in the working tree since the last call) and `fiada-hook done`, with `--client <name>` to name the agent.
 
 The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end. Set `FIADA_HOOK_LOG` to a file to record every payload the hook receives.
+
+## Signing in with GitHub
+
+Set `FIADA_GITHUB_CLIENT_ID` and `FIADA_GITHUB_CLIENT_SECRET` on the indexer and it becomes a place many people can use at once:
+
+- **Everyone signs in.** The map opens on a sign-in screen, and every API route answers only a signed-in browser. The shared project and `FIADA_API_KEY` aren't used.
+- **Each person has their own project.** Their repositories, clones (`$FIADA_HOME/clones/gh-<GitHub user id>/`), grouping, summaries and agent activity are theirs alone: what one person imports or has an agent do never shows on anyone else's map. A project opens on its owner's first request and is let go after 30 idle minutes; opening it again re-indexes from its clones.
+- **Private repositories work.** The sign-in asks GitHub for the `repo` scope, and the person's own token clones and pulls what they import (passed per git command, never written to disk). Their recently pushed repositories are offered under the import box. The token is kept on their account encrypted with AES-GCM; `FIADA_GITHUB_TOKEN` is never used for anyone's project.
+- **Agents need one command.** **connect an agent** in the sidebar shows `npm run agent:setup -- --write <project> --url <indexer> --token <token>`. The token lets an agent report to that person's map and nothing else; **new token** revokes the old one.
+
+To set it up, create an OAuth app at GitHub under **Settings > Developer settings > OAuth Apps** with the callback URL `<indexer>/api/auth/github/callback`: `http://localhost:5178/api/auth/github/callback` for `npm run dev` (the dev server forwards the address it was reached at), or `https://<indexer>/api/auth/github/callback` hosted. Put its client id and a client secret in `.env` or the host's variables. The map's origin must be allowed to receive the session: its own origin, the fiada.tech domains, or one in `FIADA_ALLOWED_ORIGINS`. If a proxy in front of the indexer doesn't forward the scheme and host, set `FIADA_PUBLIC_URL`.
+
+Sessions and agent tokens are signed rather than stored, with a key derived from `FIADA_SESSION_SECRET`, or else the client secret. A session lasts 30 days in one browser; **sign out** forgets it there. Changing the secret signs everyone out and they sign in again, keeping their projects. Accounts go through `ProjectStore` like everything else (`$FIADA_HOME/accounts/<id>.json`, or the `accounts` collection in MongoDB).
 
 ## Configuration
 
@@ -233,17 +256,23 @@ Fiada used to be called Strata. Every `FIADA_*` variable is also read under its 
 | `FIADA_SUMMARIES` | on | `off` writes no generated [node summaries](#node-summaries) even with a key set; the lines stay |
 | `FIADA_INCLUDE_TESTS` | off | set to `1` to index test files |
 | `FIADA_MAX_FILES` | `4000` | per-repo file budget; the shallowest files are kept |
-| `FIADA_GITHUB_TOKEN` | unset | token for private GitHub repos, passed per git command and never written to disk |
+| `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | unset | a GitHub OAuth app: turns on [signing in with GitHub](#signing-in-with-github), with a project per person |
+| `FIADA_SESSION_SECRET` | the client secret | signs sessions and agent tokens and encrypts GitHub tokens; changing it signs everyone out |
+| `FIADA_GITHUB_SCOPE` | `read:user repo` | what the sign-in asks GitHub for; `repo` is what reading private repositories takes |
+| `FIADA_PUBLIC_URL` | the address the request came to | the indexer's public URL, for the sign-in callback and the agent setup command, when a proxy doesn't forward it |
+| `FIADA_GITHUB_TOKEN` | unset | without sign-in: token for private GitHub repos, passed per git command and never written to disk |
 | `FIADA_UPLOAD_MB` | `50` | most megabytes of source one folder upload may carry (20,000 files at most) |
 | `OPENAI_API_KEY` | unset | lets the indexer sort each import with OpenAI and write [node summaries](#node-summaries); see [Sorted on import](#sorted-on-import) |
 | `ANTHROPIC_API_KEY` | unset | the same with Claude; with both keys set, OpenAI answers unless `FIADA_LLM_MODEL` names a Claude model |
 | `FIADA_LLM_MODEL` | `gpt-5.5`, or `claude-opus-5` for Claude | the model it sorts and summarises with; without one, OpenAI falls back to `gpt-5`, then `gpt-4.1`, when the key can't use `gpt-5.5` |
 | `FIADA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
-| `FIADA_API_KEY` | unset | when set, anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
+| `FIADA_API_KEY` | unset | without sign-in: anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
 | `FIADA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
 | `VITE_API_URL` | unset | build time, web: the indexer's URL when the map is served apart from it; unset, the map calls its own origin |
-| `FIADA_URL` | `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
-| `FIADA_API_KEY` (agent) | unset | the hook and MCP server send it to a hosted indexer that has one |
+| `FIADA_URL` | the saved config, else `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
+| `FIADA_TOKEN` (agent) | the saved config's, for its URL only | the person's agent token, for an indexer people sign in to |
+| `FIADA_API_KEY` (agent) | unset | the hook and MCP server send it to a shared indexer that has one |
+| `FIADA_CONFIG` (agent) | `~/.config/fiada/agent.json` | where `agent:setup --url … --token …` saves them |
 | `FIADA_AGENT_STATE` | `$TMPDIR/fiada-agent` | where the hook keeps each session's last view of the working tree |
 | `FIADA_HOOK_LOG` | unset | append every payload the hook receives to this file, one JSON object per line |
 
@@ -271,13 +300,14 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `MONGODB_URI` | the Atlas connection string, as in `.env` |
 | `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
 | `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
-| `FIADA_API_KEY` | a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
+| `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | a GitHub OAuth app with the callback `https://<indexer>/api/auth/github/callback`: everyone signs in and gets a project of their own (see [Signing in with GitHub](#signing-in-with-github)); `FIADA_PROJECT` and `FIADA_API_KEY` are then unused |
+| `FIADA_API_KEY` | without sign-in: a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
 | `OPENAI_API_KEY` | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
 
 In Atlas, **Network Access** must allow the host: Railway has no fixed outbound addresses on its standard plans, so that means `0.0.0.0/0`. The container starts with `HOST=0.0.0.0` and `FIADA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `MONGODB_URI` set, a fresh container re-clones the project's repositories on start, so no volume is needed; mount one on `/data` to skip that (on Railway, also set `RAILWAY_RUN_UID=0` so it can write there). Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every deploy loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so 512 MB is enough.
 
-Check it: `curl https://<indexer>/api/workspace` should answer with `"access":{"localPaths":false,"keyRequired":true}`.
+Check it: `curl https://<indexer>/api/auth` answers `{"mode":"github"}` with sign-in on; without it, `curl https://<indexer>/api/workspace` should answer with `"access":{"localPaths":false,"keyRequired":true}`.
 
 On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly secrets set MONGODB_URI=… FIADA_API_KEY=…` and the rest. Render's free instances sleep when idle and take a while to wake, which a demo will notice.
 
@@ -295,9 +325,13 @@ Vite writes it into the bundle at build time, so **redeploy** after setting it (
 
 ### 3. Using it
 
+With GitHub sign-in, open `https://fiada.tech`, sign in, and import your repositories, private ones included; **connect an agent** in the sidebar gives the command that points Claude Code at your map. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD.
+
+Without it, one shared project:
+
 - Open `https://fiada.tech/?key=<FIADA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
 - Everyone else gets the plain URL: the same map, read-only, without the import box, the layer presets or the dismiss buttons.
-- To show a coding agent on the hosted map, start it with `FIADA_URL=https://<indexer>` and `FIADA_API_KEY=<key>` in its environment. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
+- To show a coding agent on the hosted map, run `npm run agent:setup -- --url https://<indexer> --token <key>` once (or start it with `FIADA_URL` and `FIADA_API_KEY` in its environment). Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
 
 To try the split locally: `docker build -t fiada-indexer . && docker run -p 4178:4178 -e FIADA_ALLOWED_ORIGINS=http://localhost:5199 -e FIADA_API_KEY=dev fiada-indexer`, then `VITE_API_URL=http://localhost:4178 npm run build && npm exec -w @fiada/web -- vite preview --port 5199`.
 
@@ -308,6 +342,7 @@ npm test             # indexer: route matching, layer matchers, rules and pins, 
                      #          agent changes mapped to files and symbols with incremental re-indexing
                      # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
                      # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools
+                     # sign-in: signed sessions and agent tokens, sealed GitHub tokens, one person's project apart from another's
 FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test   # also runs the MongoDB store tests
 npm run typecheck
 ```

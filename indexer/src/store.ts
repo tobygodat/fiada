@@ -1,7 +1,8 @@
 // Persistence boundary for what Fiada keeps per project: the repositories
 // imported into it, its grouping (layer definitions, domain names, rules and
 // pins), and the node summaries a model wrote. The graph is derived from
-// those and is never stored.
+// those and is never stored. It also keeps the accounts of people who signed
+// in with GitHub, each of which owns one project (see auth.ts).
 //
 // FileProjectStore is the default. A database-backed store implements the
 // same interface (one record per project id) and is chosen in createStore();
@@ -35,6 +36,30 @@ export interface StoredSummary {
   at: string;
 }
 
+/**
+ * Someone who signed in with GitHub. Their project is `id`. The GitHub token
+ * is stored encrypted (auth.ts), never as given.
+ */
+export interface StoredAccount {
+  /** "gh-<GitHub user id>", which is also their project id. */
+  id: string;
+  githubId: number;
+  login: string;
+  name?: string;
+  avatar?: string;
+  /** The GitHub access token, sealed with the indexer's secret. */
+  sealedToken: string;
+  /** The scopes GitHub granted, comma-separated as it reports them. */
+  scopes: string;
+  /** Bumped to revoke every agent token given out before. */
+  agentEpoch: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What signing in writes: everything but the agent epoch and when the account was made, which it never touches. */
+export type SignedIn = Omit<StoredAccount, 'agentEpoch' | 'createdAt'>;
+
 export interface ProjectStore {
   /** Where this project's data lives, for display ("…/fiada.grouping.json", "mongodb: fiada.projects"). */
   describe(projectId: string): string;
@@ -53,6 +78,16 @@ export interface ProjectStore {
   loadSummaries?(projectId: string): Promise<Record<string, StoredSummary> | null>;
   /** Optional: adds or replaces these entries; saved entries not named here are kept. */
   saveSummaries?(projectId: string, entries: Record<string, StoredSummary>): Promise<void>;
+  /** A signed-in account, or null when there is none with this id. Both stores have accounts; a store for tests may not. */
+  loadAccount?(id: string): Promise<StoredAccount | null>;
+  /**
+   * Records a sign-in in one step: creates the account (agent epoch 0) or
+   * updates its profile and GitHub token, never its agent epoch, so a sign-in
+   * can't undo a reset made at the same moment. Returns the account as stored.
+   */
+  saveSignIn?(fields: SignedIn): Promise<StoredAccount>;
+  /** Adds one to the account's agent epoch in one step, revoking its agent tokens. Null when there is no such account. */
+  bumpAgentEpoch?(id: string, at: string): Promise<StoredAccount | null>;
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -66,12 +101,15 @@ export function checkProjectId(id: string): string {
  *   projects/<id>/repos.json
  *   projects/<id>/fiada.grouping.json   (hand-editable; edits apply live)
  *   projects/<id>/summaries.json         (generated summaries by hash)
+ * and one file per signed-in account under accounts/<id>.json.
  */
 export class FileProjectStore implements ProjectStore {
   /** Last text this process wrote, per file, so the watcher ignores our own saves. */
   private written = new Map<string, string>();
   /** Summary saves in flight per project, so each merge reads the one before it. */
   private summaryWrites = new Map<string, Promise<unknown>>();
+  /** Account changes in flight per account, so each reads the one before it. */
+  private accountWrites = new Map<string, Promise<unknown>>();
 
   constructor(private root: string) {}
 
@@ -130,6 +168,31 @@ export class FileProjectStore implements ProjectStore {
     return run;
   }
 
+  async loadAccount(id: string): Promise<StoredAccount | null> {
+    const text = await fsp.readFile(path.join(this.root, 'accounts', `${checkProjectId(id)}.json`), 'utf8').catch(() => null);
+    return text == null ? null : (JSON.parse(text) as StoredAccount);
+  }
+
+  // Files belong to one indexer, so queuing each account's changes in this process makes them atomic.
+  saveSignIn(fields: SignedIn): Promise<StoredAccount> {
+    return this.changeAccount(fields.id, (before) => ({ ...before, ...fields, agentEpoch: before?.agentEpoch ?? 0, createdAt: before?.createdAt ?? fields.updatedAt }));
+  }
+
+  async bumpAgentEpoch(id: string, at: string): Promise<StoredAccount | null> {
+    return this.changeAccount(id, (before) => before && { ...before, agentEpoch: before.agentEpoch + 1, updatedAt: at });
+  }
+
+  private changeAccount<T extends StoredAccount | null>(id: string, change: (before: StoredAccount | null) => T): Promise<T> {
+    const run = (this.accountWrites.get(id) ?? Promise.resolve()).then(async () => {
+      const next = change(await this.loadAccount(id));
+      // Only the indexer reads it: the token in it is sealed, but still.
+      if (next) await this.write(path.join(this.root, 'accounts', `${checkProjectId(id)}.json`), JSON.stringify(next, null, 2) + '\n', 0o600);
+      return next;
+    });
+    this.accountWrites.set(id, run.catch(() => {}));
+    return run;
+  }
+
   watchGrouping(id: string, onChange: () => void): () => void {
     const file = this.groupingFile(id);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -149,11 +212,11 @@ export class FileProjectStore implements ProjectStore {
     };
   }
 
-  private async write(file: string, text: string) {
+  private async write(file: string, text: string, mode?: number) {
     await fsp.mkdir(path.dirname(file), { recursive: true });
     this.written.set(file, text);
     const tmp = `${file}.${process.pid}.tmp`;
-    await fsp.writeFile(tmp, text);
+    await fsp.writeFile(tmp, text, { mode });
     await fsp.rename(tmp, file);
   }
 }

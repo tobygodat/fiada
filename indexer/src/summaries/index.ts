@@ -338,6 +338,13 @@ export class Summaries {
     else this.active--;
   }
 
+  /** Stops the eager pass from starting again and saves what is unsaved. */
+  async close() {
+    clearTimeout(this.timer);
+    this.gi = null;
+    await this.flush();
+  }
+
   // ── saving ──
 
   private scheduleSave() {

@@ -374,6 +374,8 @@ export interface Workspace {
   graphVersion: number;
   /** Sources worth offering on an empty workspace (e.g. this checkout). */
   suggestions: string[];
+  /** The suggestions are the signed-in person's own GitHub repositories, worth offering after the first import too. */
+  ownSuggestions?: boolean;
   project: {
     id: string;
     /** Where the project's grouping is stored, e.g. a file path. */
@@ -390,8 +392,35 @@ export interface Workspace {
     /** Changes (imports, grouping, agent events) need the indexer's access key. */
     keyRequired: boolean;
   };
+  /** Who this project belongs to, on an indexer people sign in to. */
+  account?: AccountInfo;
   /** How to upload a folder: what to send and how much. Absent from indexers that predate uploads. */
   upload?: UploadPolicy;
+}
+
+/** Someone signed in with GitHub, as the map shows them. */
+export interface AccountInfo {
+  login: string;
+  name?: string;
+  /** Their GitHub avatar's URL. */
+  avatar?: string;
+  /** GitHub let Fiada read their private repositories. */
+  privateRepos: boolean;
+}
+
+/** GET /api/auth: whether this indexer needs a sign-in, and who is signed in. */
+export interface AuthState {
+  /** "github": everyone signs in and has a project of their own. "off": one shared project, no sign-in. */
+  mode: 'github' | 'off';
+  account?: AccountInfo;
+}
+
+/** GET /api/auth/agent: what an agent needs to report to this person's map. */
+export interface AgentConnection {
+  /** The indexer's URL, as agents should reach it. */
+  url: string;
+  /** The person's agent token; absent when the indexer needs none. */
+  token?: string;
 }
 
 /**

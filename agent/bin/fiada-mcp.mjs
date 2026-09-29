@@ -1,3 +1,3 @@
 #!/usr/bin/env node
 import { run } from './load.mjs';
-await run('mcp.ts');
+await run('mcp');

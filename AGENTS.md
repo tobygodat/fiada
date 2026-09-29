@@ -16,12 +16,13 @@ npm workspaces, TypeScript everywhere, ESM, no compile step (the indexer and age
 shared/   @fiada/shared    the graph contract both sides import: nodes, edges and their evidence, layers, grouping, agent events (src/index.ts)
 indexer/  @strata/indexer  Fastify server on 127.0.0.1:4178 and a CLI: clone → parse → link → facts → build → classify
 web/      @fiada/web       React 19 + Vite on :5178 (proxies /api to the indexer): canvas map, sidebar, detail panel, agent window
-agent/    @fiada/agent     what a coding agent runs: a tool-hook CLI and a stdio MCP server that report edits to the indexer
+agent/    @fiada/agent     what a coding agent runs: a tool-hook CLI and a stdio MCP server that report edits to the indexer; published to npm
 ```
 
 Where things live:
 
-- `indexer/src/server.ts`: every HTTP route (`/api/workspace`, `/api/graph`, `/api/repos`, `/api/grouping`, `/api/source`, `/api/summary`, `/api/agent/*`) and the key check for writes.
+- `indexer/src/server.ts`: every HTTP route (`/api/auth*`, `/api/workspace`, `/api/graph`, `/api/repos`, `/api/grouping`, `/api/source`, `/api/summary`, `/api/agent/*`), and the one `onRequest` hook that decides who is asking and which project (`req.tenant`) they work in.
+- `indexer/src/auth.ts`: GitHub sign-in, signed session and agent tokens, sealed GitHub tokens. `indexer/src/tenants.ts`: one project per signed-in person (or the one shared project), opened on demand and closed when idle.
 - `indexer/src/workspace.ts`: one project, its repos, clones, parsed facts, grouping and the combined graph.
 - `indexer/src/parse/`: tree-sitter (WASM) extractors for TypeScript, TSX, JavaScript, Python and Go. A language is a grammar in `treesitter.ts`, an extension in `index.ts` and one extractor.
 - `indexer/src/link.ts`: resolves imports, calls, router mounts and HTTP requests into edges with evidence.
@@ -33,7 +34,7 @@ Where things live:
 - `web/src/graph/`: tree building, layout, camera maths, edge lifting (`view.ts`) and agent change roll-ups (`activity.ts`).
 - `web/src/components/`: React panels (`Sidebar`, `Detail`, `AgentQueue`, `AgentChange`, `TopBar`, `MapView`).
 - `web/src/theme/tokens.css`: every colour and type token. `tokens.ts` hands them to the canvas.
-- `agent/src/hook.ts`, `mcp.ts`, `setup.ts`, launched by `agent/bin/fiada-*.mjs`.
+- `agent/src/cli.ts` (the `fiada` command) dispatches to `hook.ts`, `mcp.ts` and `setup.ts`; `agent/bin/*.mjs` run it from source in a checkout, or from the esbuild bundle `agent/dist/cli.js` in the published package (`agent/build.mjs`).
 
 ## Commands
 
@@ -47,6 +48,7 @@ npm test             # node:test in indexer, web and agent
 npm run build        # the web app, into web/dist
 npm run index -- <repo-or-path> [more…] --layers --domains   # print classification without the UI
 npm run agent:setup -- --write /path/to/repo                 # hook a repo's Claude Code sessions up to Fiada
+npm run agent:build  # bundle the agent for npm; npm publish -w @fiada/agent runs it
 ```
 
 - The MongoDB store tests run only when `FIADA_TEST_MONGODB_URI` is set.
@@ -56,7 +58,7 @@ npm run agent:setup -- --write /path/to/repo                 # hook a repo's Cla
 ## Code conventions
 
 - Strict TypeScript with `verbatimModuleSyntax` and `allowImportingTsExtensions`: relative imports end in `.ts` or `.tsx`, and type-only imports use `import type`.
-- `agent/` sets `erasableSyntaxOnly` because Node runs it by stripping types: no enums, namespaces or constructor parameter properties there.
+- `agent/` sets `erasableSyntaxOnly` because Node runs it by stripping types: no enums, namespaces or constructor parameter properties there. It is published, so it may import only Node's built-ins and `import type` from `@fiada/shared`; a runtime dependency would have to be bundled.
 - Tests are `*.test.ts` beside the code they test, using `node:test` and `node:assert/strict`. Add or update one with any behaviour change.
 - No linter or formatter is configured. Match the surrounding code: two-space indent, single quotes, semicolons. Each module opens with a short comment saying what it is and why; keep that up when you add one.
 - Commit subjects say what changed in plain words ("Map: no hover text over circles"). PRs target `main` and merge with a merge commit; never rewrite `main`.
@@ -71,7 +73,8 @@ npm run agent:setup -- --write /path/to/repo                 # hook a repo's Cla
 - **Layers are per project.** Layers and domains come from the project's grouping, seeded from a preset (`indexer/src/classify/presets.ts`). Never hard-code a layer name in the indexer or the web app. Classification reads only facts, paths and edges, so it stays language-neutral.
 - **Persistence goes through `ProjectStore`** (`indexer/src/store.ts`): `FileProjectStore` under `.fiada/projects/`, or `MongoProjectStore` when `MONGODB_URI` is set. Anything new that a project keeps gets a method there, implemented in both. The graph is derived and never stored.
 - **Models go through `indexer/src/llm.ts`.** The project runs on OpenAI (`OPENAI_API_KEY`, default `gpt-5.5`, falling back to `gpt-5` then `gpt-4.1`). Don't call a provider directly or add a feature that needs another key. Everything must still work without a key: sorting falls back to the rules and summaries to the lines built from the graph.
-- **Writes need the key.** When `FIADA_API_KEY` is set, anything that changes a project needs `Authorization: Bearer <key>`; reads stay open. The check is one `onRequest` hook in `server.ts` that lets GET, HEAD and OPTIONS through, so a route that changes anything must use another method.
+- **Each signed-in person's project is theirs alone.** With GitHub sign-in on (`FIADA_GITHUB_CLIENT_ID` and `_SECRET`), every route but `/api/auth*` needs a session, and handlers work only through `req.tenant` (its `ws`, `summaries`, `agents`). Never reach for a module-level workspace, a shared clone folder or `FIADA_GITHUB_TOKEN` in that mode. Agent tokens may only post `/api/agent/events`.
+- **Without sign-in, writes need the key.** When `FIADA_API_KEY` is set, anything that changes the project needs `Authorization: Bearer <key>`; reads stay open. The check lets GET, HEAD and OPTIONS through, so a route that changes anything must use another method.
 - **Deploys:** `main` deploys the map to Vercel (`vercel.json` installs only the `@fiada/web` workspace, so the web app can't depend on indexer packages). The indexer runs from the root `Dockerfile`, which copies every workspace's `package.json`; add a new workspace there too.
 
 ## Design system
@@ -89,10 +92,11 @@ Read [`DESIGN.md`](DESIGN.md) before touching anything visible. In short:
 Variables live in a gitignored `.env` at the repo root (`.env.example` lists them; the indexer loads it, and the shell wins). The README's Configuration section has the full table. The ones that matter most:
 
 - `OPENAI_API_KEY`: turns on the model sort and generated summaries. `FIADA_LLM_MODEL` overrides the model.
+- `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET`: GitHub sign-in, with a project per person. `FIADA_SESSION_SECRET` and `FIADA_PUBLIC_URL` are optional.
 - `MONGODB_URI`: save projects to MongoDB Atlas instead of `.fiada/`. The database is still called `strata` (`FIADA_MONGODB_DB`).
 - `FIADA_PROJECT`, `FIADA_HOME`, `FIADA_ALLOWED_ORIGINS`, `FIADA_API_KEY`, `FIADA_GITHUB_TOKEN`, `FIADA_UPLOAD_MB`, `HOST`, `PORT`: the indexer.
 - `VITE_API_URL`: build time, the indexer's URL when the map is served apart from it.
-- `FIADA_URL`, `FIADA_API_KEY`: where the agent hook and MCP server report.
+- `FIADA_URL`, `FIADA_TOKEN` (or `FIADA_API_KEY` for a shared indexer): where the agent hook and MCP server report. `npm run agent:setup -- --url … --token …` saves them to `~/.config/fiada/agent.json` (`agent/src/env.ts`); the environment wins.
 
 Every `FIADA_*` variable is also read as `STRATA_*` (the old name wins when both are set; `indexer/src/env.ts` and `agent/src/env.ts`). Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
 
@@ -103,5 +107,5 @@ New code, copy and variables say **Fiada** (`@fiada/*`, `FIADA_*`, `.fiada/`, `f
 - the indexer package `@strata/indexer` (the Dockerfile and root scripts name it, and the Railway service may too);
 - the `STRATA_*` aliases, an existing `.strata/` folder and `strata.grouping.json`;
 - the MongoDB database `strata`;
-- browser `localStorage` keys (`strata.key`, `strata-theme`, `strata.expandMode`, …);
+- browser `localStorage` keys (`strata.key`, `strata-theme`, `strata.expandMode`, …; the session is the new `fiada.session`);
 - the `agent/bin/strata-*.mjs` shims and the Railway domain `strataindexer-production.up.railway.app`.

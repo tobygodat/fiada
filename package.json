@@ -16,7 +16,8 @@
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web && tsc -p agent",
     "test": "npm test -w @strata/indexer -w @fiada/web -w @fiada/agent",
     "index": "npm run index -w @strata/indexer --",
-    "agent:setup": "npm run setup -w @fiada/agent --"
+    "agent:setup": "npm run setup -w @fiada/agent --",
+    "agent:build": "npm run build -w @fiada/agent"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

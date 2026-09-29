@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@fiada/shared';
+import type { AccountInfo, Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@fiada/shared';
 import { remoteKey } from './agents.ts';
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
@@ -28,7 +28,8 @@ export const PROJECT_ROOT = path.resolve(fileURLToPath(new URL('../../', import.
 const OLD_HOME = path.join(PROJECT_ROOT, '.strata');
 export const FIADA_HOME =
   process.env.FIADA_HOME ?? (!existsSync(path.join(PROJECT_ROOT, '.fiada')) && existsSync(OLD_HOME) ? OLD_HOME : path.join(PROJECT_ROOT, '.fiada'));
-const CLONES = path.join(FIADA_HOME, 'repos');
+/** Where the shared project (no sign-in) keeps its clones. A signed-in person's project keeps its own (tenants.ts). */
+export const CLONES = path.join(FIADA_HOME, 'repos');
 
 export interface RepoSource {
   kind: 'git' | 'local';
@@ -80,18 +81,49 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').repla
 
 /**
  * Token for private GitHub repos, passed per command so it never lands in
- * .git/config. Fiada-specific on purpose: a GITHUB_TOKEN already in the
- * environment may be scoped to something else entirely.
+ * .git/config. It is the signed-in person's own, or FIADA_GITHUB_TOKEN for the
+ * shared project: Fiada-specific on purpose, since a GITHUB_TOKEN already in
+ * the environment may be scoped to something else entirely.
  */
-function authArgs(url: string): string[] {
-  const token = process.env.FIADA_GITHUB_TOKEN;
+function authArgs(url: string, token: string | null | undefined): string[] {
   if (!token || !url.startsWith('https://github.com/')) return [];
   const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
   return ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`];
 }
 
+/**
+ * Runs a git command with the token, and once more without it when that
+ * fails: GitHub turns away a revoked or expired token even for a public
+ * repository. The first error is the one reported.
+ */
+async function withToken(token: string | null | undefined, url: string, run: (auth: string[]) => Promise<unknown>) {
+  const auth = authArgs(url, token);
+  try {
+    await run(auth);
+  } catch (err) {
+    if (!auth.length) throw err;
+    await run([]).catch(() => {
+      throw err;
+    });
+  }
+}
+
 const git = (args: string[], timeout = 300_000) =>
   exec('git', args, { timeout, maxBuffer: 16 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+
+export interface WorkspaceOptions {
+  /** Where clones and uploads go; each project needs its own. */
+  clones?: string;
+  /** The GitHub token to clone and pull with, looked up for each command. */
+  githubToken?: () => string | null | undefined | Promise<string | null | undefined>;
+  /** The person's own repositories to offer, in place of the defaults; null while there are none. */
+  suggestions?: () => string[] | null;
+  /** Who the project belongs to, on an indexer people sign in to. */
+  account?: () => AccountInfo | undefined;
+}
+
+/** The shared project's options: this indexer's own clones and FIADA_GITHUB_TOKEN. */
+const SHARED: WorkspaceOptions = { clones: CLONES, githubToken: () => process.env.FIADA_GITHUB_TOKEN };
 
 export class Workspace {
   repos: RepoInfo[] = [];
@@ -106,6 +138,8 @@ export class Workspace {
   private graphListeners = new Set<() => void>();
   /** Files and symbols Claude's sort placed in the current graph. */
   private sortedPlaced = 0;
+  private clones: string;
+  private unwatch?: () => void;
 
   constructor(
     private store: ProjectStore,
@@ -114,7 +148,10 @@ export class Workspace {
     readonly access: WorkspaceState['access'] = { localPaths: true, keyRequired: false },
     /** Sorts the classifier's leftovers with Claude once repositories are imported. Off unless given one with a key. */
     readonly sorter: Sorter = new Sorter(),
-  ) {}
+    private options: WorkspaceOptions = SHARED,
+  ) {
+    this.clones = options.clones ?? CLONES;
+  }
 
   /** Whether local folders can be imported and read. */
   get allowLocal(): boolean {
@@ -122,13 +159,13 @@ export class Workspace {
   }
 
   async init() {
-    await fs.mkdir(CLONES, { recursive: true });
+    await fs.mkdir(this.clones, { recursive: true });
     // Uploads a previous run didn't finish unpacking.
-    for (const name of await fs.readdir(CLONES)) {
-      if (name.startsWith(UPLOAD_TMP)) await fs.rm(path.join(CLONES, name), { recursive: true, force: true });
+    for (const name of await fs.readdir(this.clones)) {
+      if (name.startsWith(UPLOAD_TMP)) await fs.rm(path.join(this.clones, name), { recursive: true, force: true });
     }
     await this.loadGrouping(true);
-    this.store.watchGrouping?.(this.projectId, () => {
+    this.unwatch = this.store.watchGrouping?.(this.projectId, () => {
       this.loadGrouping(false).then(() => this.reclassify(), (err) => console.error('[fiada]', err));
     });
     const saved = (await this.store.loadRepos(this.projectId)) ?? [];
@@ -140,16 +177,27 @@ export class Workspace {
     for (const r of this.repos) this.enqueue(r.id, false);
   }
 
+  /** Stops watching the store; the project can be opened again later. */
+  close() {
+    this.unwatch?.();
+    this.unwatch = undefined;
+  }
+
   state(): WorkspaceState {
+    const own = this.options.suggestions?.() ?? null;
+    const offer = own ?? [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'];
+    const account = this.options.account?.();
     return {
       repos: this.repos,
       busy: this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
       graphVersion: this.graphVersion,
-      suggestions: [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'].filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
+      suggestions: offer.filter((s) => !this.repos.some((r) => r.source === s || r.source.endsWith(`/${s}`))),
       project: { id: this.projectId, groupingLocation: this.store.describe(this.projectId), groupingError: this.groupingError },
       sorting: this.sorter.state(this.grouping, this.sortedPlaced),
       access: this.access,
       upload: UPLOAD,
+      ...(own ? { ownSuggestions: true } : {}),
+      ...(account ? { account } : {}),
     };
   }
 
@@ -287,7 +335,7 @@ export class Workspace {
    */
   async upload(rawName: string, archive: Buffer, replace?: string): Promise<RepoInfo> {
     const name = folderName(rawName);
-    const tmp = path.join(CLONES, `${UPLOAD_TMP}${randomUUID()}`);
+    const tmp = path.join(this.clones, `${UPLOAD_TMP}${randomUUID()}`);
     let unpacked;
     try {
       unpacked = await unpackUpload(archive, tmp);
@@ -326,7 +374,7 @@ export class Workspace {
     this.queue = this.queue
       .then(async () => {
         if (!this.repos.includes(info)) return fs.rm(tmp, { recursive: true, force: true });
-        const dir = path.join(CLONES, info.id);
+        const dir = path.join(this.clones, info.id);
         try {
           await fs.rm(dir, { recursive: true, force: true });
           await fs.rename(tmp, dir);
@@ -355,7 +403,7 @@ export class Workspace {
       throw err;
     }
     this.parsed.delete(id);
-    if (repo.kind !== 'local') await fs.rm(path.join(CLONES, id), { recursive: true, force: true });
+    if (repo.kind !== 'local') await fs.rm(path.join(this.clones, id), { recursive: true, force: true });
     this.rebuild();
   }
 
@@ -372,7 +420,7 @@ export class Workspace {
   }
 
   private checkout(repo: RepoInfo) {
-    return repo.kind === 'local' ? repo.source : path.join(CLONES, repo.id);
+    return repo.kind === 'local' ? repo.source : path.join(this.clones, repo.id);
   }
 
   private async process(id: string, pull: boolean) {
@@ -384,14 +432,18 @@ export class Workspace {
       if (repo.kind === 'local' && !this.allowLocal) throw new Error(LOCAL_OFF);
       if (repo.kind === 'upload' && !(await fs.stat(path.join(dir, '.git')).then(() => true, () => false))) throw new Error(UPLOAD_GONE);
       if (repo.kind === 'git') {
+        const token = await this.options.githubToken?.();
         const cloned = await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
         if (!cloned) {
           repo.status = 'cloning';
           await fs.rm(dir, { recursive: true, force: true });
-          await git([...authArgs(repo.source), 'clone', '--depth', '1', '--single-branch', '--', repo.source, dir]);
+          await withToken(token, repo.source, async (auth) => {
+            await fs.rm(dir, { recursive: true, force: true });
+            await git([...auth, 'clone', '--depth', '1', '--single-branch', '--', repo.source, dir]);
+          });
         } else if (pull) {
           repo.status = 'cloning';
-          await git([...authArgs(repo.source), '-C', dir, 'fetch', '--depth', '1', 'origin', 'HEAD']);
+          await withToken(token, repo.source, (auth) => git([...auth, '-C', dir, 'fetch', '--depth', '1', 'origin', 'HEAD']));
           await git(['-C', dir, 'reset', '--hard', 'FETCH_HEAD']);
         }
       }

@@ -150,3 +150,18 @@ test('mongo store refuses to overwrite a save from another indexer', needsMongo,
     assert.deepEqual(await b.loadRepos('p'), []);
   }),
 );
+
+test('mongo store changes accounts in one step each, so a sign-in never undoes a reset', needsMongo, () =>
+  withDb('accounts', async (open) => {
+    const [one, two] = [await open(), await open()];
+    const signIn = { id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's1', scopes: 'repo', updatedAt: 't1' };
+    assert.equal(await one.loadAccount('gh-1'), null);
+    assert.equal(await one.bumpAgentEpoch('gh-1', 't'), null);
+    assert.deepEqual(await one.saveSignIn(signIn), { ...signIn, agentEpoch: 0, createdAt: 't1' });
+    await Promise.all([one.bumpAgentEpoch('gh-1', 't2'), two.saveSignIn({ ...signIn, sealedToken: 's2', updatedAt: 't3' })]);
+    const saved = await two.loadAccount('gh-1');
+    assert.equal(saved?.agentEpoch, 1);
+    assert.equal(saved?.sealedToken, 's2');
+    assert.equal(saved?.createdAt, 't1');
+  }),
+);

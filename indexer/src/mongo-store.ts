@@ -10,6 +10,10 @@
 //
 //   { _id: "default:Qm3…", project: "default", text, model, at }
 //
+// Signed-in accounts go in `accounts`, one document each, keyed by account id.
+// A sign-in and an agent-token reset each change their own fields in one
+// update, so indexers doing both at once can't undo each other.
+//
 // Each save touches only its own field, so saving repos never overwrites the
 // grouping. Each field also carries a revision: a save applies only on top of
 // the revision this process last loaded or saved, so two indexers serving the
@@ -20,7 +24,7 @@
 
 import { MongoClient, type Collection } from 'mongodb';
 import type { Grouping } from '@fiada/shared';
-import type { ProjectStore, SavedRepo, StoredSummary } from './store.ts';
+import type { ProjectStore, SavedRepo, SignedIn, StoredAccount, StoredSummary } from './store.ts';
 
 interface ProjectDoc {
   _id: string;
@@ -35,6 +39,8 @@ interface SummaryDoc extends StoredSummary {
   _id: string;
   project: string;
 }
+
+type AccountDoc = Omit<StoredAccount, 'id'> & { _id: string };
 
 type Field = 'repos' | 'grouping';
 
@@ -62,6 +68,7 @@ export class MongoProjectStore implements ProjectStore {
     private client: MongoClient,
     private projects: Collection<ProjectDoc>,
     private summaries: Collection<SummaryDoc>,
+    private accounts: Collection<AccountDoc>,
     private where: string,
   ) {}
 
@@ -76,7 +83,8 @@ export class MongoProjectStore implements ProjectStore {
       const projects = client.db(dbName).collection<ProjectDoc>('projects');
       await projects.findOne({}, { projection: { _id: 1 } });
       const summaries = client.db(dbName).collection<SummaryDoc>('summaries');
-      return new MongoProjectStore(client, projects, summaries, `${redact(uri)} ${dbName}.projects`);
+      const accounts = client.db(dbName).collection<AccountDoc>('accounts');
+      return new MongoProjectStore(client, projects, summaries, accounts, `${redact(uri)} ${dbName}.projects`);
     } catch (err) {
       await client.close().catch(() => {});
       throw err;
@@ -115,6 +123,26 @@ export class MongoProjectStore implements ProjectStore {
       replaceOne: { filter: { _id: `${projectId}:${hash}` }, replacement: { project: projectId, text: s.text, model: s.model, at: s.at }, upsert: true },
     }));
     if (ops.length) await this.summaries.bulkWrite(ops, { ordered: false });
+  }
+
+  async loadAccount(id: string): Promise<StoredAccount | null> {
+    const doc = await this.accounts.findOne({ _id: id });
+    return doc && fromDoc(doc);
+  }
+
+  async saveSignIn(fields: SignedIn): Promise<StoredAccount> {
+    const { id, ...rest } = fields;
+    const doc = await this.accounts.findOneAndUpdate(
+      { _id: id },
+      { $set: rest, $setOnInsert: { agentEpoch: 0, createdAt: fields.updatedAt } },
+      { upsert: true, returnDocument: 'after' },
+    );
+    return fromDoc(doc!);
+  }
+
+  async bumpAgentEpoch(id: string, at: string): Promise<StoredAccount | null> {
+    const doc = await this.accounts.findOneAndUpdate({ _id: id }, { $inc: { agentEpoch: 1 }, $set: { updatedAt: at } }, { returnDocument: 'after' });
+    return doc && fromDoc(doc);
   }
 
   async close() {
@@ -170,6 +198,10 @@ export class MongoProjectStore implements ProjectStore {
     this.revs.set(key, seen + 1);
     this.stored.set(key, json);
   }
+}
+
+function fromDoc({ _id, ...rest }: AccountDoc): StoredAccount {
+  return { id: _id, ...rest };
 }
 
 /**

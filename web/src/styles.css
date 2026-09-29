@@ -160,6 +160,24 @@ a { color: inherit; }
 }
 .empty p { margin: 0; font-size: var(--size-body); line-height: var(--leading); color: var(--muted); }
 
+/* The sign-in screen: one column on the paper, the one action a button like import's. */
+.sign-in { position: fixed; inset: 0; overflow: auto; display: grid; place-items: center; padding: var(--space-lg) var(--space-md); background: var(--ground); }
+.sign-in-body { width: min(var(--measure), 100%); display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); animation: rise 0.6s ease-out both; }
+.sign-in-body svg { display: block; }
+.sign-in-title {
+  margin: var(--space-8) 0 0;
+  font-size: var(--size-display); line-height: var(--leading-tight); letter-spacing: var(--tracking-display); font-weight: var(--weight-bold);
+  text-wrap: balance;
+}
+.sign-in-body p { margin: 0; font-size: var(--size-body); line-height: var(--leading); color: var(--muted); }
+.sign-in-body p.small { font-size: var(--size-fine); line-height: var(--leading-fine); }
+.sign-in-button {
+  display: inline-flex; align-items: center; height: var(--size-control); padding: 0 var(--space-md);
+  border: 1px solid var(--accent); border-radius: var(--radius); font-weight: var(--weight-bold); color: var(--text); text-decoration: none;
+  transition: color var(--quick) var(--ease);
+}
+.sign-in-button:hover { color: var(--accent); }
+
 /* ── floating panels: raised paper, a 1px rule, 6px corners; no shadow, blur or translucency ── */
 .panel {
   position: absolute; z-index: 4; display: flex; flex-direction: column; overflow: hidden;
@@ -218,6 +236,17 @@ a { color: inherit; }
 .import button:hover:not(:disabled) { color: var(--accent); }
 .import button:disabled { border-color: var(--faint); color: var(--faint); cursor: default; }
 .suggestions, .upload-line { margin-top: var(--space-sm); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
+
+/* Connecting an agent: the setup command is words to copy, set off by a rule rather than a box. */
+.account-line { margin: 0; }
+.account-line + .account-line, .connect + .account-line { margin-top: var(--space-sm); }
+.account-name { color: var(--text); }
+.connect { display: flex; flex-direction: column; gap: var(--space-8); margin-top: var(--space-8); }
+.connect p { margin: 0; }
+.setup-command {
+  padding: var(--space-xs) 0 var(--space-xs) var(--space-sm); border-left: 2px solid var(--hairline-strong);
+  font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--text); overflow-wrap: anywhere; user-select: all;
+}
 
 /* Layers, and a node's uses and used-by lists: sections that fold from their heading. */
 .section-title.fold, .block-title.fold { display: flex; align-items: center; gap: var(--space-xs); width: 100%; transition: color var(--quick) var(--ease); }

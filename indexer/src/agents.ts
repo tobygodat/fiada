@@ -159,9 +159,24 @@ export class AgentHub {
   private indexTimer: NodeJS.Timeout | null = null;
   private realSources = new Map<string, string>();
   private remotes = new Map<string, Promise<string | null>>();
+  private offGraph: () => void;
 
   constructor(private ws: Workspace) {
-    ws.onGraph(() => this.push());
+    this.offGraph = ws.onGraph(() => this.push());
+  }
+
+  /** Whether any map is listening. */
+  get watched(): boolean {
+    return this.listeners.size > 0;
+  }
+
+  /** Stops following the workspace and drops pending work; the activity goes with it. */
+  close() {
+    this.offGraph();
+    if (this.pushTimer) clearTimeout(this.pushTimer);
+    if (this.indexTimer) clearTimeout(this.indexTimer);
+    this.pushTimer = this.indexTimer = null;
+    this.listeners.clear();
   }
 
   // ── events ──
