@@ -97,6 +97,10 @@ const tenants = new Tenants(async (projectId) => {
 });
 
 const SIGN_IN = 'Sign in with GitHub to use this map.';
+const DELETING = 'This account is being deleted.';
+
+/** Accounts whose deletion is under way: their project can't be opened again until it is done. */
+const deleting = new Set<string>();
 const AGENT_SIGN_IN = 'This agent token is not valid (it may have been reset). Copy the command from the map again.';
 
 /** The indexer's URL as the caller reached it: behind the dev server's proxy, or the host's. */
@@ -145,6 +149,7 @@ app.addHook('onRequest', async (req, reply) => {
   const token = bearer(req.headers.authorization);
   const account = agentRoute ? await auth.agent(token) : await auth.session(token);
   if (!account) return reply.code(401).send({ error: agentRoute ? AGENT_SIGN_IN : SIGN_IN, signIn: !agentRoute });
+  if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
   if (!READS.has(req.method) && limited(agentRoute ? agentReports : changes, account.id, reply)) return;
   const info = accountInfo(account);
   people.set(account.id, info);
@@ -217,12 +222,19 @@ app.post('/api/auth/agent/reset', async (req, reply): Promise<AgentConnection | 
 app.delete('/api/auth/account', async (req, reply) => {
   const account = await signedIn(req);
   if (!auth || !account) return reply.code(401).send({ error: SIGN_IN, signIn: true });
-  // The account first, so nothing signed in as it can reopen the project while it goes.
-  await auth.deleteAccount(account);
+  if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
+  // The project first and the account last, so a step that fails leaves the person
+  // signed in to try again. Meanwhile nothing signed in as them may reopen the project.
+  deleting.add(account.id);
+  try {
+    await tenants.drop(account.id);
+    await store.deleteProject?.(account.id);
+    await fs.rm(clonesOf(FIADA_HOME, account.id), { recursive: true, force: true });
+    await auth.deleteAccount(account);
+  } finally {
+    deleting.delete(account.id);
+  }
   people.delete(account.id);
-  await tenants.drop(account.id);
-  await store.deleteProject?.(account.id);
-  await fs.rm(clonesOf(FIADA_HOME, account.id), { recursive: true, force: true });
   console.log(`[fiada] ${account.login} deleted their account`);
   return { deleted: true };
 });

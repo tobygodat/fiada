@@ -263,7 +263,7 @@ Fiada used to be called Strata. Every `FIADA_*` variable is also read under its 
 | `FIADA_GITHUB_SCOPE` | `read:user repo` | what the sign-in asks GitHub for; `repo` is what reading private repositories takes |
 | `FIADA_PUBLIC_URL` | the address the request came to | the indexer's public URL, for the sign-in callback and the agent setup command, when a proxy doesn't forward it |
 | `FIADA_GITHUB_TOKEN` | unset | without sign-in: token for private GitHub repos, passed per git command and never written to disk |
-| `FIADA_GIT_HOSTS` | `github.com,gitlab.com,bitbucket.org` | where an indexer others can reach may clone from, over https only; `*` for any host. Your own indexer clones from anywhere |
+| `FIADA_GIT_HOSTS` | `github.com,gitlab.com,bitbucket.org` | where an indexer others can reach may clone from; `*` for any host, still over https only. Your own indexer clones from anywhere |
 | `FIADA_MAX_REPOS` | `20` | repositories one project may hold, on an indexer others can reach |
 | `FIADA_MAX_CLONE_MB` | `500` | largest clone kept on an indexer others can reach; a larger one is removed and its row says why |
 | `FIADA_RATE_LIMIT` | `60` | changes (imports, layers, removals) one person, or one address without sign-in, may make a minute; reads aren't limited, nor is an indexer on loopback |

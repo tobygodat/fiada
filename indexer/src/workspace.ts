@@ -62,7 +62,7 @@ const GIT_HOSTS = gitHosts();
  * "https://…/repo.git", "git@host:org/repo.git", or a local directory
  * (unless `allowLocal` is false).
  *
- * A hosted indexer (`allowLocal` false) clones over https from `hosts` only:
+ * A hosted indexer (`allowLocal` false) clones over https only, and from `hosts` when there is a list:
  * a clone URL is a request the indexer makes, and one to any address would
  * let people reach what sits beside it on the host's network.
  */
@@ -80,12 +80,12 @@ export async function parseSource(input: string, allowLocal = true, hosts: strin
   if (/^[\w.-]+\/[\w.-]+$/.test(raw)) url = `https://github.com/${raw}`;
   else if (/^(github\.com|gitlab\.com|bitbucket\.org)\//.test(raw)) url = `https://${raw}`;
   if (!/^(https?:\/\/|ssh:\/\/|git@)/.test(url)) throw new Error(`Not a git URL or path: ${input}`);
-  if (!allowLocal && hosts) {
+  if (!allowLocal) {
     // The indexer has no SSH key, so git@host:org/repo is the same repository over https.
     url = url.replace(/^git@([\w.-]+):(?!\/)/, 'https://$1/');
     const u = URL.canParse(url) ? new URL(url) : null;
-    if (!u || u.protocol !== 'https:' || u.username || u.password || u.port || !hosts.includes(u.hostname.toLowerCase())) {
-      throw new Error(`This indexer imports repositories over https from ${hosts.join(', ')} only.`);
+    if (!u || u.protocol !== 'https:' || u.username || u.password || u.port || (hosts && !hosts.includes(u.hostname.toLowerCase()))) {
+      throw new Error(`This indexer imports repositories over https${hosts ? ` from ${hosts.join(', ')}` : ''} only.`);
     }
   }
   const name = url.split(/[/:]/).pop()!.replace(/\.git$/, '');
@@ -101,6 +101,8 @@ function saved({ id, name, source, kind, remote, branch, commit, uploadedAt }: R
 }
 
 const MB = 1 << 20;
+/** How often a clone's size is checked while git writes it. */
+const CLONE_WATCH_MS = 1000;
 
 /** Bytes the files under `dir` take, not following links. */
 async function diskUsage(dir: string): Promise<number> {
@@ -142,8 +144,8 @@ async function withToken(token: string | null | undefined, url: string, run: (au
   }
 }
 
-const git = (args: string[], timeout = 300_000) =>
-  exec('git', args, { timeout, maxBuffer: 16 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+const git = (args: string[], timeout = 300_000, signal?: AbortSignal) =>
+  exec('git', args, { timeout, signal, maxBuffer: 16 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
 
 export interface WorkspaceOptions {
   /** Where clones and uploads go; each project needs its own. */
@@ -346,14 +348,49 @@ export class Workspace {
     }
   }
 
+  /**
+   * Runs a clone or fetch into `dir` while watching how much it has written,
+   * and stops git once that passes the project's limit, so a huge repository
+   * never fills the disk. The clone is then removed and the limit reported.
+   */
+  private async bounded(dir: string, run: (signal?: AbortSignal) => Promise<unknown>) {
+    const max = this.options.maxCloneBytes;
+    if (max === undefined) return run();
+    const stop = new AbortController();
+    let over = 0;
+    let checking = false;
+    const watch = setInterval(async () => {
+      if (checking || over) return;
+      checking = true;
+      const bytes = await diskUsage(dir).catch(() => 0);
+      checking = false;
+      if (bytes > max) {
+        over = bytes;
+        stop.abort();
+      }
+    }, CLONE_WATCH_MS);
+    try {
+      await run(stop.signal);
+    } catch (err) {
+      if (!over) throw err;
+    } finally {
+      clearInterval(watch);
+    }
+    if (over) await this.tooBig(dir, over, max);
+    await this.checkCloneSize(dir);
+  }
+
   /** Removes a clone larger than the project allows, and says so. */
   private async checkCloneSize(dir: string) {
     const max = this.options.maxCloneBytes;
     if (max === undefined) return;
     const bytes = await diskUsage(dir);
-    if (bytes <= max) return;
+    if (bytes > max) await this.tooBig(dir, bytes, max);
+  }
+
+  private async tooBig(dir: string, bytes: number, max: number): Promise<never> {
     await fs.rm(dir, { recursive: true, force: true });
-    throw new Error(`This repository takes ${Math.round(bytes / MB)} MB on disk, over this indexer's limit of ${Math.round(max / MB)} MB.`);
+    throw new Error(`This repository takes more than ${Math.round(max / MB)} MB on disk (${Math.round(bytes / MB)} MB so far), over this indexer's limit.`);
   }
 
   /** Throws when the project already holds as many repositories as it may. */
@@ -508,14 +545,21 @@ export class Workspace {
         if (!cloned) {
           repo.status = 'cloning';
           await fs.rm(dir, { recursive: true, force: true });
-          await withToken(token, repo.source, async (auth) => {
+          try {
+            await this.bounded(dir, (signal) =>
+              withToken(token, repo.source, async (auth) => {
+                await fs.rm(dir, { recursive: true, force: true });
+                await git([...auth, 'clone', '--depth', '1', '--single-branch', '--', repo.source, dir], undefined, signal);
+              }),
+            );
+          } catch (err) {
+            // Whatever a failed clone wrote is nobody's: it would only take up the disk.
             await fs.rm(dir, { recursive: true, force: true });
-            await git([...auth, 'clone', '--depth', '1', '--single-branch', '--', repo.source, dir]);
-          });
-          await this.checkCloneSize(dir);
+            throw err;
+          }
         } else if (pull) {
           repo.status = 'cloning';
-          await withToken(token, repo.source, (auth) => git([...auth, '-C', dir, 'fetch', '--depth', '1', 'origin', 'HEAD']));
+          await this.bounded(dir, (signal) => withToken(token, repo.source, (auth) => git([...auth, '-C', dir, 'fetch', '--depth', '1', 'origin', 'HEAD'], undefined, signal)));
           await git(['-C', dir, 'reset', '--hard', 'FETCH_HEAD']);
           await this.checkCloneSize(dir);
         }

@@ -34,7 +34,9 @@ export function Privacy() {
         <h2>summaries and sorting</h2>
         <p>
           To sort files into layers and write the one-line summaries, Fiada sends parts of your code (file paths, names and file contents) to
-          OpenAI's API, under OpenAI's terms for API data. Summaries are kept so the same code isn't sent twice.
+          the model provider its indexer is set up with, under that provider's terms for API data. On fiada.tech that is OpenAI; an indexer set up
+          with Claude sends them to Anthropic instead, and one with neither sends them nowhere. Summaries are kept so the same code isn't sent
+          twice.
         </p>
 
         <h2>coding agents</h2>
@@ -52,8 +54,8 @@ export function Privacy() {
         <h2>who else handles it</h2>
         <p>
           GitHub signs you in and hosts the repositories you import. Vercel serves this site. Railway runs the indexer, which holds the clones.
-          MongoDB Atlas stores accounts and projects. OpenAI writes summaries and sorts. Google Fonts serves the typeface, so Google sees your
-          address when the page loads.
+          MongoDB Atlas stores accounts and projects. OpenAI (or Anthropic, for an indexer set up with Claude) writes summaries and sorts.
+          Google Fonts serves the typeface, so Google sees your address when the page loads.
         </p>
 
         <h2>making fiada forget</h2>

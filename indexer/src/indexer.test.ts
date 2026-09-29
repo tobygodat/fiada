@@ -79,8 +79,11 @@ test('a hosted indexer clones over https from the allowed hosts only', async () 
   ]) {
     await assert.rejects(parseSource(bad, false, hosts), /over https from github\.com, gitlab\.com only/, bad);
   }
-  // Any host, when the list says so, and on your own machine.
-  assert.equal((await parseSource('http://10.0.0.5/repo.git', false, null)).name, 'repo');
+  // Any host when the list says so, still over https only; and anything on your own machine.
+  assert.equal((await parseSource('https://git.example.org/repo.git', false, null)).name, 'repo');
+  for (const bad of ['http://10.0.0.5/repo.git', 'ssh://git@git.example.org/repo', 'https://user:pw@git.example.org/repo', 'https://git.example.org:8443/repo']) {
+    await assert.rejects(parseSource(bad, false, null), /over https only/, bad);
+  }
   assert.equal((await parseSource('http://10.0.0.5/repo.git', true, hosts)).name, 'repo');
   assert.deepEqual(gitHosts('GitHub.com, *'), null);
   assert.deepEqual(gitHosts(''), ['github.com', 'gitlab.com', 'bitbucket.org']);

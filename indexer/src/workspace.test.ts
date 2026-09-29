@@ -90,5 +90,16 @@ test('a clone larger than maxCloneBytes is removed and reported', async () => {
   await settled(ws);
   assert.equal(ws.repos[0].status, 'error');
   assert.match(ws.repos[0].error ?? '', /over this indexer's limit/);
+  assert.match(ws.repos[0].error ?? '', /more than 0 MB/);
+  assert.deepEqual(await fs.readdir(clones), []);
+});
+
+test('a clone that fails leaves nothing on disk', async () => {
+  const clones = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-'));
+  const flaky = flakyStore([{ id: 'gone', name: 'gone', source: `file://${path.join(clones, 'no-such-repo')}`, kind: 'git' }]);
+  const ws = new Workspace(flaky.store, 'default', undefined, undefined, { clones, maxCloneBytes: 1 << 20 });
+  await ws.init();
+  await settled(ws);
+  assert.equal(ws.repos[0].status, 'error');
   assert.deepEqual(await fs.readdir(clones), []);
 });
