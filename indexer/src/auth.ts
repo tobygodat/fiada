@@ -173,7 +173,9 @@ export class Auth {
 
   /** Revokes every agent token the account was given, and returns its new one. */
   async resetAgentToken(account: StoredAccount): Promise<string> {
-    const next = { ...account, agentEpoch: account.agentEpoch + 1, updatedAt: new Date(this.now()).toISOString() };
+    // Built on the stored account, not a cached one: another indexer may have reset it since.
+    const current = (await this.account(account.id, true)) ?? account;
+    const next = { ...current, agentEpoch: current.agentEpoch + 1, updatedAt: new Date(this.now()).toISOString() };
     await this.save(next);
     return this.agentToken(next);
   }
@@ -243,7 +245,8 @@ export class Auth {
     const { token, scopes } = await this.github.exchange(code, callbackUrl);
     const user = await this.github.user(token);
     const id = accountId(user.id);
-    const before = await this.account(id);
+    // Read fresh: a cached account could write back an agent epoch another indexer has since reset.
+    const before = await this.account(id, true);
     const at = new Date(this.now()).toISOString();
     const account: StoredAccount = {
       id,

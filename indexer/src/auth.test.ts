@@ -135,6 +135,24 @@ test('a token reset on another indexer sharing the store takes effect here too',
   assert.equal(await two.agent(newest), null, 'after the TTL, the reset applies');
 });
 
+test('signing in or resetting on an indexer with a stale read keeps the latest agent epoch', async () => {
+  const { auth: one, store } = await setup();
+  const { account } = await signIn(one);
+  const two = new Auth(store, CONFIG, fakeGitHub());
+  // `two` reads the account at epoch 0, then `one` resets it to 1.
+  assert.equal((await two.agent(one.agentToken(account)))?.id, 'gh-42');
+  const afterOne = await one.resetAgentToken(account);
+  // Signing in on `two` must not write epoch 0 back.
+  await signIn(two);
+  assert.equal((await store.loadAccount('gh-42'))?.agentEpoch, 1);
+  assert.equal((await one.agent(afterOne))?.id, 'gh-42');
+  // Resetting on `two` with its stale account moves past 1, not back to it.
+  const afterTwo = await two.resetAgentToken(account);
+  assert.equal((await store.loadAccount('gh-42'))?.agentEpoch, 2);
+  assert.equal((await two.agent(afterTwo))?.id, 'gh-42');
+  assert.equal(await two.agent(afterOne), null);
+});
+
 test('a sealed token opens only with the secret that sealed it', async () => {
   const { auth, store } = await setup();
   const sealed = auth.seal('gho_secret');

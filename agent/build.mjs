@@ -3,11 +3,13 @@
 // node_modules, and one file starts fastest for a hook that runs after
 // every edit. `npm run build -w @fiada/agent`; npm publish runs it first.
 
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 await build({
-  entryPoints: [new URL('src/cli.ts', import.meta.url).pathname],
-  outfile: new URL('dist/cli.js', import.meta.url).pathname,
+  // Paths, not URL pathnames, which keep %20 for a space and misplace a Windows drive letter.
+  entryPoints: [fileURLToPath(new URL('src/cli.ts', import.meta.url))],
+  outfile: fileURLToPath(new URL('dist/cli.js', import.meta.url)),
   bundle: true,
   platform: 'node',
   format: 'esm',
