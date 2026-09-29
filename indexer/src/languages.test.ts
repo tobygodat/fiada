@@ -181,6 +181,48 @@ test('Rust 2015: a use path from a nested module starts at the crate root', asyn
   assert.match(edge(g, 'old/src/api/mod.rs#get', 'old/src/model.rs#Item').reason!, /imported from "model::Item"/);
 });
 
+test('C#: global usings reach every file; minimal-API groups are local, and their line is evidence', async () => {
+  const g = await graphOf({
+    api: {
+      'GlobalUsings.cs': 'global using Acme.Models;\n',
+      'Models/Item.cs': 'namespace Acme.Models;\n\npublic record Item(int Id);\n',
+      'Services/Maker.cs': 'namespace Acme.Services;\n\npublic class Maker\n{\n    public Item Make() => new Item(1);\n}\n',
+      'Endpoints.cs':
+        'public static class Endpoints\n{\n' +
+        '    public static void Items(WebApplication app)\n    {\n        var group = app.MapGroup("/items");\n        group.MapGet("/{id}", () => "one");\n    }\n\n' +
+        '    public static void Users(WebApplication app)\n    {\n        var group = app.MapGroup("/users");\n        group.MapGet("/{id}", () => "one");\n    }\n}\n',
+    },
+    web: { 'src/api.ts': 'export const getItem = (id: string) => fetch(`/items/${id}`);\n' },
+  });
+  const made = edge(g, 'api/Services/Maker.cs#Maker.Make', 'api/Models/Item.cs#Item', 'calls');
+  assert.match(made.reason!, /imported from "Acme\.Models"/);
+  assert.ok(made.evidence!.some((x) => x.file === 'api/GlobalUsings.cs' && x.line === 1), 'cites the global using where it is declared');
+  const routes = g.nodes.filter((n) => n.id.startsWith('api/Endpoints.cs')).flatMap((n) => n.routes ?? []);
+  assert.deepEqual(routes.sort(), ['GET /items/{id}', 'GET /users/{id}']);
+  const http = edge(g, 'web/src/api.ts#getItem', 'api/Endpoints.cs', 'http');
+  assert.ok(http.evidence!.some((x) => x.file === 'api/Endpoints.cs' && x.line === 5), 'cites the MapGroup line');
+});
+
+test('Rust: full paths in calls, and a use inside an inline module binds only there', async () => {
+  const g = await graphOf({
+    app: {
+      'Cargo.toml': '[package]\nname = "app"\n',
+      'src/lib.rs':
+        'pub mod models;\npub mod other;\n\npub fn run() {\n    crate::models::Item::new();\n    models::helper();\n}\n\n' +
+        'mod a {\n    use crate::models::Item;\n    pub fn f() { Item::new(); }\n}\n\nmod b {\n    use crate::other::Item;\n    pub fn g() { Item::new(); }\n}\n',
+      'src/models.rs': 'pub struct Item;\nimpl Item { pub fn new() -> Self { Item } }\npub fn helper() {}\n\nmod tests {\n    use super::*;\n    fn t() { helper(); }\n}\n',
+      'src/other.rs': 'pub struct Item;\nimpl Item { pub fn new() -> Self { Item } }\n',
+    },
+  });
+  assert.match(edge(g, 'app/src/lib.rs#run', 'app/src/models.rs#Item.new', 'calls').reason!, /by its full path/);
+  edge(g, 'app/src/lib.rs#run', 'app/src/models.rs#helper', 'calls');
+  edge(g, 'app/src/lib.rs#a.f', 'app/src/models.rs#Item.new', 'calls');
+  edge(g, 'app/src/lib.rs#b.g', 'app/src/other.rs#Item.new', 'calls');
+  noEdge(g, 'app/src/lib.rs#a.f', 'app/src/other.rs#Item.new');
+  // `use super::*` in an inline module is the file's own module.
+  edge(g, 'app/src/models.rs#tests.t', 'app/src/models.rs#helper', 'calls');
+});
+
 test('Rust: use paths through crate, self, super and other crates; mod files; impl methods', async () => {
   const g = await graphOf({
     ws: {
@@ -198,8 +240,9 @@ test('Rust: use paths through crate, self, super and other crates; mod files; im
         '#[get("/items/{id}")]\npub async fn show(it: crate::Item) { ok(); }\n',
     },
   });
-  // A mod declaration pulls in the module's file.
-  assert.match(edge(g, 'ws/app/src/main.rs', 'ws/app/src/routes/mod.rs', 'imports').reason!, /imports "self::routes"/);
+  // A mod declaration pulls in the module's file, and `routes::serve()` calls through it.
+  assert.match(edge(g, 'ws/core/src/lib.rs', 'ws/core/src/model.rs', 'imports').reason!, /imports "self::model"/);
+  edge(g, 'ws/app/src/main.rs#main', 'ws/app/src/routes/mod.rs#serve', 'calls');
   assert.match(edge(g, 'ws/app/src/routes/items.rs#show', 'ws/app/src/routes/mod.rs#ok', 'calls').reason!, /imported from "super::ok"/);
   // Another crate of the workspace, by the name its Cargo.toml gives it.
   assert.match(edge(g, 'ws/app/src/routes/mod.rs#serve', 'ws/core/src/model.rs#Item.new', 'calls').reason!, /imported from "acme_core::model::Item"/);
@@ -348,6 +391,16 @@ test('Swift: files of one module see each other; another target comes in through
   // self.load() in an extension in another file reaches the extended type's method.
   edge(g, 'pkg/Sources/App/Store+Log.swift#Store.log', 'pkg/Sources/App/Store.swift#Store.load', 'calls');
   noEdge(g, 'pkg/Sources/Models/Item.swift#Item', 'pkg/Sources/App/Store.swift#Store');
+});
+
+test('Swift: a module found only in another repository is a guess', async () => {
+  const g = await graphOf({
+    lib: { 'Sources/Models/Item.swift': 'public struct Item {}\n' },
+    app: { 'Sources/App/Use.swift': 'import Models\n\nfunc use() -> Item { Item() }\n' },
+  });
+  const e = edge(g, 'app/Sources/App/Use.swift#use', 'lib/Sources/Models/Item.swift#Item', 'calls');
+  assert.equal(e.basis, 'inferred');
+  assert.match(e.reason!, /module Models isn't in this repository/);
 });
 
 test('every new grammar loads and parses, Ruby included (its scanner needs iswupper)', async () => {

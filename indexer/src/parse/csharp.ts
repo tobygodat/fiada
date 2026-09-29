@@ -3,7 +3,7 @@
 // (`app.MapGet("/x", …)`).
 
 import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
-import { annotationRoutes, capitalized, innermost, joinPath, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
+import { annotationRoutes, capitalized, innermost, joinPath, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const TYPE_KIND = {
@@ -138,17 +138,29 @@ const spec: LangSpec = {
   },
 };
 
-/** Minimal-API routes: `app.MapGet("/items/{id}", …)`, with the prefix of a `MapGroup("/api")` they're called on. */
+const LOCAL_SCOPE = new Set(['method_declaration', 'constructor_declaration', 'local_function_statement', 'lambda_expression', 'anonymous_method_expression']);
+
+/**
+ * Minimal-API routes: `app.MapGet("/items/{id}", …)`, with the prefix of a
+ * `var api = app.MapGroup("/api")` they're called on. A group variable is
+ * local to the method (or lambda) declaring it; its line is the prefix's evidence.
+ */
 function minimalApiRoutes(root: SyntaxNode): RouteDecl[] {
-  const groups = new Map<string, string>();
+  const groups = new Map<string, { path: string; line: number }>();
+  const scopesOf = (n: SyntaxNode) => {
+    const out: number[] = [];
+    for (let p = n.parent; p; p = p.parent) if (LOCAL_SCOPE.has(p.type)) out.push(p.id);
+    return [...out, root.id];
+  };
+  const group = (n: SyntaxNode, name: string) => scopesOf(n).map((s) => groups.get(`${s}:${name}`)).find(Boolean);
   for (const d of root.descendantsOfType('variable_declarator')) {
     const call = d.descendantsOfType('invocation_expression')[0];
     const fn = call?.childForFieldName('function');
     if (fn?.type !== 'member_access_expression' || fn.childForFieldName('name')?.text !== 'MapGroup') continue;
     const name = d.namedChildren[0]?.text;
     const p = literal(call!.childForFieldName('arguments')?.descendantsOfType('string_literal')[0]);
-    const parent = groups.get(fn.childForFieldName('expression')?.text ?? '') ?? '';
-    if (name && p != null) groups.set(name, joinPath(parent, p));
+    const parent = group(d, fn.childForFieldName('expression')?.text ?? '')?.path ?? '';
+    if (name && p != null) groups.set(`${scopesOf(d)[0]}:${name}`, { path: joinPath(parent, p), line: line(d) });
   }
   const out: RouteDecl[] = [];
   for (const call of root.descendantsOfType('invocation_expression')) {
@@ -162,8 +174,10 @@ function minimalApiRoutes(root: SyntaxNode): RouteDecl[] {
     if (!verb || p == null) continue;
     // `MapMethods("/x", new[] { "GET", "PUT" }, …)` names its verbs; any others it may name are unknown here.
     const listed = mapper === 'MapMethods' ? [...new Set(methodsIn((args[1]?.text ?? '').toUpperCase()))] : [];
-    const prefix = groups.get(fn.childForFieldName('expression')?.text ?? '') ?? '';
-    for (const method of listed.length ? listed : [verb]) out.push({ method, path: joinPath(prefix, p), line: line(call) });
+    const g = group(call, fn.childForFieldName('expression')?.text ?? '');
+    for (const method of listed.length ? listed : [verb]) {
+      out.push(g ? { method, path: joinPath(g.path, p), line: line(call), prefixLine: g.line } : { method, path: joinPath('', p), line: line(call) });
+    }
   }
   return out;
 }
@@ -191,6 +205,7 @@ export function extractCSharp(root: SyntaxNode, file: ParsedFile) {
     const s: ImportSpec = alias
       ? { source: target.text, level: 0, names: [{ imported: lastSegment(target.text), local: alias }], line: line(u) }
       : { source: target.text, level: 0, names: [], open: true, line: line(u) };
+    if (keywords(u).includes('global')) s.global = true;
     const block = u.parent?.parent?.type === 'namespace_declaration' ? innermost(blocks, line(u)) : undefined;
     (block ? block.specs : file.imports).push(s);
   }

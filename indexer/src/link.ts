@@ -149,7 +149,7 @@ interface Resolved {
   to: string;
   /** Import statement the name came through. */
   spec?: ImportSpec;
-  how: 'local' | 'package' | 'namespace' | 'import';
+  how: 'local' | 'package' | 'namespace' | 'import' | 'path';
   /** For `namespace`: how the reason names it. */
   label?: string;
   /** Set when a heuristic was involved. */
@@ -499,8 +499,12 @@ export function link(repos: ParsedRepo[]): LinkResult {
         hit = splitNamespaced(e, 'cs', spec.source.split('.'));
         break;
       case 'swift': {
-        const key = [e.repo, ...repos].map((r) => `swift:${r.info.id}:${spec.source}`).find((k) => namespaces.has(k));
-        hit = key ? { id: NS + key, rest: '' } : null;
+        // No manifest is read, so a module only another repository has is a guess.
+        const from = [e.repo, ...repos].find((r) => namespaces.has(`swift:${r.info.id}:${spec.source}`));
+        if (from) {
+          const id = `${NS}swift:${from.info.id}:${spec.source}`;
+          hit = from === e.repo ? { id, rest: '' } : { id, rest: '', guess: `module ${spec.source} isn't in this repository; found in ${from.info.name}` };
+        }
         break;
       }
       case 'rust':
@@ -547,7 +551,19 @@ export function link(repos: ParsedRepo[]): LinkResult {
     }
     return into;
   };
+  // C# `global using`s: every C# file of the repository sees them, and they're cited from the file that declares them.
+  const specHome = new Map<ImportSpec, FileEntry>();
+  const globalUsings = new Map<ParsedRepo, ImportSpec[]>();
   for (const e of files.values()) {
+    for (const spec of e.file.imports) {
+      if (!spec.global) continue;
+      specHome.set(spec, e);
+      globalUsings.set(e.repo, [...(globalUsings.get(e.repo) ?? []), spec]);
+    }
+  }
+  const globalsFor = (e: FileEntry) => (e.file.lang === 'csharp' ? (globalUsings.get(e.repo) ?? []).filter((s) => specHome.get(s) !== e) : []);
+  for (const e of files.values()) {
+    bind(e, globalsFor(e), e.bindings);
     bind(e, e.file.imports, e.bindings);
     if (e.file.symbols.some((s) => s.imports?.length)) e.symbolBindings = e.file.symbols.map((s) => (s.imports?.length ? bind(e, s.imports, new Map()) : undefined));
   }
@@ -555,7 +571,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const sym = i == null ? undefined : e.file.symbols[i];
     return {
       scopes: (i != null && e.symbolScopes?.[i]) || e.scopes,
-      imports: sym?.imports?.length ? [...sym.imports, ...e.file.imports] : e.file.imports,
+      imports: [...(sym?.imports ?? []), ...e.file.imports, ...globalsFor(e)],
       bindings: i == null ? undefined : e.symbolBindings?.[i],
       namespace: sym?.namespace,
     };
@@ -718,7 +734,26 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return found;
   };
 
+  /** Rust `crate::models::Item` or `models::run` (with `models` imported): a path the code spells out. */
+  const rustPath = (e: FileEntry, r: Pick<Ref, 'name' | 'member'>, at: At): Resolved | null => {
+    const [head, ...tail] = r.name.split('::');
+    const b = at.bindings?.get(head) ?? e.bindings.get(head);
+    const mod = b?.imported === '*' ? resolveModuleInfo(e, b.spec) : null;
+    const split: Split | null = mod ? { id: mod.id, rest: tail.join('.'), guess: mod.guess } : splitRust(e, r.name);
+    if (!split) return null;
+    const owner = split.rest ? resolveName(split.id, split.rest, 0, e.repo) : split.id;
+    if (!owner) return null;
+    const to = !owner.includes('#') && r.member ? (resolveName(owner, r.member, 0, e.repo) ?? owner) : owner;
+    const how = mod ? 'import' : 'path';
+    return { to, how, ...(mod ? { spec: b!.spec } : {}), ...(split.guess ? { guess: split.guess } : {}), modules: [split.id] };
+  };
+
   const resolveRefOwner = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At): Resolved | null => {
+    // `crate::a::B`, or `models::helper` through a module: in Rust a lowercase head names a module or crate.
+    if (e.file.lang === 'rust' && (r.name.includes('::') || (r.member && !/^[A-Z]/.test(r.name)))) {
+      const path = rustPath(e, r, at);
+      if (path || r.name.includes('::')) return path;
+    }
     const pkgSymbol = (name: string) => (e.pkg ? goPkgs.get(e.pkg)?.symbols.get(name) : undefined);
     // C and C++ weigh namespaces, which a file's first-declared name can't.
     if (C_FAMILY.has(e.file.lang)) {
@@ -800,7 +835,8 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const describe = (e: FileEntry, r: Ref, res: Resolved): Support => {
     const name = r.member ? `${r.name}.${r.member}` : r.name;
     const evidence = [ev(e, SOURCE_OF[r.kind], r.line, `${VERB_OF[r.kind]} ${name}`)];
-    if (res.spec) evidence.push(ev(e, 'import', res.spec.line));
+    if (res.spec) evidence.push(ev(specHome.get(res.spec) ?? e, 'import', res.spec.line));
+    if (res.how === 'path' && !res.guess) return { basis: 'evidenced', confidence: 0.9, reason: `${VERB_OF[r.kind]} ${name}, named by its full path`, evidence };
     if (res.guess && res.how === 'namespace') return { basis: 'inferred', confidence: 0.7, reason: `${VERB_OF[r.kind]} ${name}, declared in ${res.label}: ${res.guess}`, evidence };
     if (res.guess) return { basis: 'inferred', confidence: 0.6, reason: res.guess, evidence };
     if (res.unresolved) {

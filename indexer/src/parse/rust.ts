@@ -3,7 +3,7 @@
 // the routes of actix-web and Rocket attributes (`#[get("/x")]`).
 
 import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
-import { capitalized, enclosingFunction, literal, outline, type Decl, type LangSpec } from './outline.ts';
+import { capitalized, enclosingFunction, literal, outline, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const ITEM_KIND = {
@@ -70,25 +70,59 @@ function usePaths(n: SyntaxNode | null, prefix: string, out: { path: string; ali
   }
 }
 
-function imports(root: SyntaxNode): ImportSpec[] {
-  const out: ImportSpec[] = [];
+/** The inline modules (`mod a { … }`) around a node, outermost first. */
+function inlineModules(n: SyntaxNode): SyntaxNode[] {
+  const out: SyntaxNode[] = [];
+  for (let p = n.parent; p; p = p.parent) if (p.type === 'mod_item' && p.childForFieldName('body')) out.unshift(p);
+  return out;
+}
+
+/**
+ * `self::x` and `super::x` inside inline modules, as paths from the file's
+ * own module: inside `mod a { mod b { … } }`, `super::x` is `self::a::x`,
+ * which the linker finds as the symbol "a.x".
+ */
+function fromFileModule(path: string, inline: string[]): string {
+  const parts = path.split('::');
+  if (!inline.length || (parts[0] !== 'self' && parts[0] !== 'super')) return path;
+  if (parts[0] === 'self') return ['self', ...inline, ...parts.slice(1)].join('::');
+  let up = 0;
+  while (parts[up] === 'super') up++;
+  const rest = parts.slice(up);
+  return up <= inline.length ? ['self', ...inline.slice(0, inline.length - up), ...rest].join('::') : [...Array(up - inline.length).fill('super'), ...rest].join('::');
+}
+
+/** Each `use`, with the inline module it sits in directly, if any. */
+function imports(root: SyntaxNode): { spec: ImportSpec; mod?: SyntaxNode }[] {
+  const out: { spec: ImportSpec; mod?: SyntaxNode }[] = [];
   for (const u of root.descendantsOfType('use_declaration')) {
+    const mods = inlineModules(u);
+    const inline = mods.map((m) => m.childForFieldName('name')?.text ?? '');
     const paths: { path: string; alias?: string; glob?: boolean }[] = [];
     usePaths(u.childForFieldName('argument'), '', paths);
     for (const p of paths) {
-      if (p.glob) out.push({ source: p.path, level: 0, names: [], open: true, line: line(u) });
+      const source = fromFileModule(p.path, inline);
+      const mod = mods[mods.length - 1];
+      if (p.glob) out.push({ spec: { source, level: 0, names: [], open: true, line: line(u) }, mod });
       else {
         const last = p.path.slice(p.path.lastIndexOf(':') + 1);
-        out.push({ source: p.path, level: 0, names: [{ imported: last, local: p.alias ?? last }], line: line(u) });
+        out.push({ spec: { source, level: 0, names: [{ imported: last, local: p.alias ?? last }], line: line(u) }, mod });
       }
     }
   }
   // `mod routes;` pulls in routes.rs or routes/mod.rs.
   for (const m of root.descendantsOfType('mod_item')) {
     const name = m.childForFieldName('name')?.text;
-    if (name && !m.childForFieldName('body')) out.push({ source: `self::${name}`, level: 0, names: [], line: line(m) });
+    if (name && !m.childForFieldName('body')) out.push({ spec: { source: `self::${name}`, level: 0, names: [], line: line(m) } });
   }
   return out;
+}
+
+/** `crate::models::Item::new` as the path "crate::models::Item" with member "new". */
+function addPath(out: RefSink, n: SyntaxNode, kind: 'call' | 'ref' | 'type', at: SyntaxNode) {
+  const parts = n.text.replace(/::<[^>]*>/g, '').replace(/\s+/g, '').split('::').filter(Boolean);
+  if (parts.length < 2) return;
+  out.add(parts.slice(0, -1).join('::'), kind === 'call' && parts[parts.length - 1] === 'new' ? 'new' : kind, at, parts[parts.length - 1]);
 }
 
 const spec: LangSpec = {
@@ -119,6 +153,11 @@ const spec: LangSpec = {
         if (fn.type === 'identifier') {
           out.seen(fn);
           out.add(fn.text, 'call', n);
+        } else if (fn.type === 'scoped_identifier' && fn.childForFieldName('path')?.type === 'scoped_identifier') {
+          // `crate::models::Item::new()`: the path, resolved by the linker.
+          out.seen(fn);
+          addPath(out, fn, 'call', n);
+          return true;
         } else if (fn.type === 'scoped_identifier') {
           const path = fn.childForFieldName('path');
           const name = fn.childForFieldName('name')?.text;
@@ -150,16 +189,13 @@ const spec: LangSpec = {
         }
         return;
       }
-      case 'scoped_identifier': {
-        const path = n.childForFieldName('path');
-        const name = n.childForFieldName('name')?.text;
-        if (path?.type === 'identifier' && name) out.add(path.text, 'ref', n, name);
-        return true;
-      }
+      case 'scoped_identifier':
       case 'scoped_type_identifier': {
         const path = n.childForFieldName('path');
         const name = n.childForFieldName('name')?.text;
-        if (path?.type === 'identifier' && name) out.add(path.text, 'type', n, name);
+        const kind = n.type === 'scoped_identifier' ? 'ref' : 'type';
+        if (path?.type === 'identifier' && name) out.add(path.text, kind, n, name);
+        else if (path?.type === 'scoped_identifier' || path?.type === 'scoped_type_identifier') addPath(out, n, kind, n);
         return true;
       }
       case 'field_expression':
@@ -181,11 +217,14 @@ const spec: LangSpec = {
 export function extractRust(root: SyntaxNode, file: ParsedFile) {
   const specs = imports(root);
   outline(root, spec, file);
-  // A `use` inside a function binds only there.
-  for (const s of specs) {
+  // A `use` inside a function binds only there; one inside an inline module, only in that module.
+  for (const { spec: s, mod } of specs) {
     const owner = enclosingFunction(file, s.line);
     if (owner) (owner.imports ??= []).push(s);
-    else file.imports.push(s);
+    else if (mod) {
+      const [start, end] = [line(mod), mod.endPosition.row + 1];
+      for (const sym of file.symbols) if (start <= sym.lines[0] && sym.lines[1] <= end) (sym.imports ??= []).push(s);
+    } else file.imports.push(s);
   }
   // `impl Api for Service` makes Api a base of Service, when both are here.
   for (const impl of root.descendantsOfType('impl_item')) {

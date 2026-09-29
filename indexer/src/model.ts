@@ -29,6 +29,8 @@ export interface ImportSpec {
   open?: boolean;
   /** C/C++ `#include <…>`: looked for on the include path only, never beside the file. */
   system?: boolean;
+  /** C# `global using`: seen by every C# file of the repository. */
+  global?: boolean;
   line: number;
 }
 
