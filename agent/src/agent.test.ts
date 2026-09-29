@@ -11,7 +11,8 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { firstLine, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
 import { clientId, nowLines, FiadaMcp } from './mcp.ts';
-import { hooksBlock, mergeHooks } from './setup.ts';
+import { applyConfig, configPath } from './env.ts';
+import { commandsFor, flag, hooksBlock, mergeHooks, nextConfig } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -290,4 +291,42 @@ test('setup merges hooks without disturbing others and replaces its own', () => 
   assert.deepEqual(twice.hooks.PostToolUse[0].hooks, [mine]);
   assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/fiada-hook.mjs');
   assert.equal(twice.hooks.Stop.length, 1);
+});
+
+test('the saved config fills in the indexer and token, and never sends the token elsewhere', () => {
+  const saved = { url: 'https://indexer.test/', token: 'fa_x.y' };
+  const bare: NodeJS.ProcessEnv = {};
+  applyConfig(bare, saved);
+  assert.equal(bare.FIADA_URL, 'https://indexer.test/');
+  assert.equal(bare.FIADA_TOKEN, 'fa_x.y');
+  const elsewhere: NodeJS.ProcessEnv = { FIADA_URL: 'http://127.0.0.1:4178' };
+  applyConfig(elsewhere, saved);
+  assert.equal(elsewhere.FIADA_URL, 'http://127.0.0.1:4178');
+  assert.equal(elsewhere.FIADA_TOKEN, undefined);
+  const own: NodeJS.ProcessEnv = { FIADA_URL: 'https://indexer.test', FIADA_TOKEN: 'mine' };
+  applyConfig(own, saved);
+  assert.equal(own.FIADA_TOKEN, 'mine');
+  assert.equal(configPath({ FIADA_CONFIG: '/tmp/x.json' }), '/tmp/x.json');
+});
+
+test('setup keeps a token only for the indexer it was given for', () => {
+  assert.deepEqual(nextConfig({}, 'https://a.test/', 'fa_1'), { url: 'https://a.test', token: 'fa_1' });
+  assert.deepEqual(nextConfig({ url: 'https://a.test', token: 'fa_1' }, 'https://a.test'), { url: 'https://a.test', token: 'fa_1' });
+  assert.deepEqual(nextConfig({ url: 'https://a.test', token: 'fa_1' }, 'https://b.test'), { url: 'https://b.test' });
+  assert.equal(flag(['--write', '.', '--url', 'u'], '--url'), 'u');
+  assert.equal(flag(['--write', '.'], '--token'), undefined);
+  assert.equal(flag(['--write', '--url', 'u'], '--write'), undefined);
+});
+
+test('setup runs this copy by its path, or through npx when it lives in npx cache', () => {
+  const pkg = { name: '@fiada/agent', version: '1.2.3' };
+  const installed = commandsFor('/usr/lib/node_modules/@fiada/agent/bin', pkg);
+  assert.equal(installed.hook, 'node /usr/lib/node_modules/@fiada/agent/bin/fiada-hook.mjs');
+  assert.deepEqual(installed.mcp, ['node', '/usr/lib/node_modules/@fiada/agent/bin/fiada-mcp.mjs']);
+  const cached = commandsFor('/home/a/.npm/_npx/9f2c/node_modules/@fiada/agent/bin', pkg);
+  assert.equal(cached.hook, 'npx -y --prefer-offline @fiada/agent@1.2.3 hook');
+  assert.deepEqual(cached.mcp, ['npx', '-y', '--prefer-offline', '@fiada/agent@1.2.3', 'mcp']);
+  // Setting up again replaces the npx hook as it does a path to fiada-hook.
+  const merged = mergeHooks({ hooks: hooksBlock(cached.hook) }, hooksBlock(installed.hook));
+  assert.deepEqual(merged.hooks.Stop, hooksBlock(installed.hook).Stop);
 });

@@ -259,7 +259,8 @@ export class FiadaMcp {
 
 const exists = (p: string) => fs.stat(p).then(() => true, () => false);
 
-async function main() {
+/** Runs the MCP server (`fiada mcp`) on stdin and stdout until the client closes it. */
+export async function runMcp() {
   const server = new FiadaMcp();
   const inflight = new Set<Promise<void>>();
   let buf = '';
@@ -290,4 +291,3 @@ async function main() {
   log(`ready; sending to ${FIADA_URL}`);
 }
 
-if (process.argv[1] && /(fiada|strata)-mcp(\.mjs)?$|mcp\.ts$/.test(process.argv[1])) void main();

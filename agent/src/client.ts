@@ -12,8 +12,8 @@ const exec = promisify(execFile);
 
 export const FIADA_URL = (process.env.FIADA_URL ?? `http://127.0.0.1:${process.env.FIADA_INDEXER_PORT ?? 4178}`).replace(/\/+$/, '');
 
-/** The indexer's access key, for a hosted indexer that has one. */
-const KEY = process.env.FIADA_API_KEY;
+/** The person's agent token for an indexer people sign in to, or a shared indexer's access key. */
+const KEY = process.env.FIADA_TOKEN || process.env.FIADA_API_KEY;
 
 /** What the indexer made of the files in a batch. */
 export interface IngestReply {

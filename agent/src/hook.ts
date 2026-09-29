@@ -264,8 +264,7 @@ async function readStdin(): Promise<string> {
   return text;
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
+async function main(argv: string[]) {
   let result: { agent: AgentRef; out: Out } | null = null;
   if (argv.length) result = await fromCommand(argv);
   else {
@@ -284,9 +283,9 @@ async function main() {
   if (out.context && heard) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: out.context.event, additionalContext: out.context.text } }));
 }
 
-// Imported by the tests for `sweep`; run when started as the hook.
-if (process.argv[1] && /(fiada|strata)-hook(\.mjs)?$|hook\.ts$/.test(process.argv[1])) {
-  main()
+/** Runs the hook (`fiada hook`): with no arguments it reads a payload on stdin. Always exits 0. */
+export function runHook(argv: string[]) {
+  main(argv)
     .catch((err) => {
       if (process.env.FIADA_DEBUG) process.stderr.write(`fiada-hook: ${(err as Error).stack}\n`);
     })

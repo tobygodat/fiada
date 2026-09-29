@@ -9,6 +9,7 @@ import type { ExpandMode } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 import { canPickDirectory, collect, fromFileList, pack, pickDirectory, type Folder } from '../upload/folder.ts';
 import type { ThemeChoice } from '../useTheme.ts';
+import { Account } from './Account.tsx';
 import { Chevron } from './Icon.tsx';
 import { Mark, Wordmark } from './Logo.tsx';
 
@@ -107,6 +108,7 @@ export function Sidebar(p: Props) {
         </div>
       </section>
       {p.graph && p.workspace && <Layers {...p} graph={p.graph} workspace={p.workspace} />}
+      <Account workspace={p.workspace} />
       {p.tree && p.tree.root.children.length > 0 && <Outline {...p} tree={p.tree} />}
     </aside>
   );
@@ -369,7 +371,8 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
   };
   const repos = workspace?.repos ?? [];
   const editable = canEdit(workspace);
-  const suggestions = editable && !repos.length ? (workspace?.suggestions ?? []) : [];
+  // A signed-in person's own repositories stay on offer; the defaults only while nothing is imported.
+  const suggestions = editable && (!repos.length || workspace?.ownSuggestions) ? (workspace?.suggestions ?? []) : [];
   return (
     <section className="section">
       <div className="section-title">repositories</div>
@@ -456,7 +459,7 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
       {error && <Problem text={error} />}
       {!!suggestions.length && (
         <div className="suggestions">
-          try{' '}
+          {workspace?.ownSuggestions ? 'yours: ' : 'try '}
           {suggestions.map((s, i) => (
             <span key={s}>
               {i > 0 && ' · '}

@@ -1,22 +1,47 @@
 {
   "name": "@fiada/agent",
-  "private": true,
   "version": "0.1.0",
-  "description": "Tells Fiada what a coding agent is doing: a stdio MCP server and a tool-hook CLI.",
+  "description": "Shows what your coding agent is doing on Fiada's map of your codebase: a tool hook and an MCP server for Claude Code, Cursor and Codex.",
+  "keywords": [
+    "fiada",
+    "claude-code",
+    "mcp",
+    "coding-agent",
+    "codebase-map",
+    "hooks"
+  ],
+  "homepage": "https://fiada.tech",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tobygodat/hackgt13.git",
+    "directory": "agent"
+  },
   "type": "module",
   "bin": {
+    "fiada": "bin/fiada.mjs",
     "fiada-hook": "bin/fiada-hook.mjs",
     "fiada-mcp": "bin/fiada-mcp.mjs"
   },
+  "files": [
+    "bin/*.mjs",
+    "dist/cli.js"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "setup": "node bin/fiada-setup.mjs",
+    "build": "node build.mjs",
+    "prepack": "npm run build",
     "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
-  "dependencies": {
-    "@fiada/shared": "*",
-    "tsx": "^4.20.6"
-  },
   "devDependencies": {
-    "@types/node": "^22.18.0"
+    "@fiada/shared": "*",
+    "@types/node": "^22.18.0",
+    "esbuild": "~0.28.2",
+    "tsx": "^4.20.6"
   }
 }

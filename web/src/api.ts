@@ -1,4 +1,4 @@
-import type { ActivityState, ChangeKind, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
+import type { ActivityState, AgentConnection, AuthState, ChangeKind, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
 import { apiBase } from './apiBase.ts';
 
 /**
@@ -49,17 +49,88 @@ const accessKey: string | null = (() => {
 /** Whether this browser can change the project: the indexer needs no key, or we have it. */
 export const canEdit = (ws: Workspace | null) => !ws?.access?.keyRequired || !!accessKey;
 
+const SESSION_ITEM = 'fiada.session';
+
+/**
+ * Where the indexer sent us back after signing in with GitHub: the session
+ * (or why it failed) in the address's fragment, which never reaches a
+ * server. Taken out of the address bar at once.
+ */
+const returned = ((): { session?: string; error?: string } => {
+  if (typeof window === 'undefined') return {};
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const session = hash.get('fiada_session') ?? undefined;
+  const error = hash.get('fiada_error') ?? undefined;
+  if (!session && !error) return {};
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+  return { session, error };
+})();
+
+/** Why the last sign-in failed, to show on the sign-in screen. */
+export const signInError = returned.error ?? null;
+
+/** The signed-in session, on an indexer people sign in to; remembered in this browser. */
+let session: string | null = (() => {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (returned.session) window.localStorage.setItem(SESSION_ITEM, returned.session);
+    return returned.session ?? window.localStorage.getItem(SESSION_ITEM);
+  } catch {
+    // storage blocked: the session lasts until the page is reloaded
+    return returned.session ?? null;
+  }
+})();
+
+/** Told when the indexer says this browser has to sign in (again). */
+const signedOutListeners = new Set<() => void>();
+export const onSignedOut = (fn: () => void) => {
+  signedOutListeners.add(fn);
+  return () => void signedOutListeners.delete(fn);
+};
+
+/** Forgets the session in this browser, without saying so: an indexer without sign-in has no use for one. */
+export function dropSession() {
+  session = null;
+  try {
+    window.localStorage.removeItem(SESSION_ITEM);
+  } catch {
+    // nothing stored
+  }
+}
+
+/** Forgets the session in this browser and brings back the sign-in. */
+export function signOut() {
+  dropSession();
+  for (const fn of signedOutListeners) fn();
+}
+
+/** Where the browser goes to sign in with GitHub; the indexer brings it back to this page. */
+export const signInUrl = () => apiUrl(`/api/auth/github/login?return=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`);
+
+/** Headers that say who is asking: the session for everything, else the access key for changes. */
+export function authHeaders(method = 'GET'): Record<string, string> {
+  if (session) return { authorization: `Bearer ${session}` };
+  // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
+  if (accessKey && method !== 'GET') return { authorization: `Bearer ${accessKey}` };
+  return {};
+}
+
+/** The access key this browser has for a shared indexer, for the agent setup command. */
+export const sharedKey = () => accessKey;
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = authHeaders(init?.method);
   if (typeof init?.body === 'string') headers['content-type'] = 'application/json';
   else if (init?.body instanceof Blob) headers['content-type'] = init.body.type;
-  // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
-  if (accessKey && init?.method && init.method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
   const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
     throw new Error(UNREACHABLE);
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 401 && body.signIn) {
+      signOut();
+      throw new Error(body.error);
+    }
     // The indexer's own errors carry a message. A bare 404 is some other server answering for /api:
     // the static host itself when no VITE_API_URL was built in.
     if (body.error) throw new Error(body.error);
@@ -88,6 +159,9 @@ export interface AgentDiff {
 }
 
 export const api = {
+  auth: () => call<AuthState>('/api/auth'),
+  agentConnection: () => call<AgentConnection>('/api/auth/agent'),
+  resetAgentToken: () => call<AgentConnection>('/api/auth/agent/reset', { method: 'POST' }),
   workspace: () => call<Workspace>('/api/workspace'),
   graph: () => call<Graph>('/api/graph'),
   addRepo: (source: string) => call<Workspace>('/api/repos', { method: 'POST', body: JSON.stringify({ source }) }),
