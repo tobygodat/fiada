@@ -5,7 +5,7 @@ import { directZoom, enclose, frame, freeArea, smoothZoom, zoomAt, type Camera }
 import { fixtureGraph } from './fixture.test-util.ts';
 import { closedRadius, layoutExpanded, type Circle } from './layout.ts';
 import { buildCodeTree, buildFunctionTree, locate, type Tree } from './tree.ts';
-import { aggregateEdges, clickAction, contractLabel, crossRepo, direction, expandedNodes, indexEdges, meetingPoint, withCollapsed, withPathOpen, type Visible } from './view.ts';
+import { aggregateEdges, clickAction, contractLabel, crossRepo, direction, expandedNodes, indexEdges, meetingPoint, withCollapsed, withPathOpen, withPathsOpen, type Visible } from './view.ts';
 
 const graph = fixtureGraph();
 const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
@@ -49,6 +49,16 @@ test('opening and closing circles', () => {
   assert.deepEqual([...withPathOpen(code, new Set(), 'api/app/models.py#Item', true)].sort(), ['api', 'api/app', 'api/app/models.py']);
   // Closing a folder closes everything opened inside it.
   assert.deepEqual([...withCollapsed(code, open, 'web/src')].sort(), ['web']);
+});
+
+test('opening the way to several changes at once, down to their functions while that stays small', () => {
+  const ids = ['web/src/pages/items.tsx#ItemsPage', 'api/app/models.py#Item'];
+  // Deep: each function's file opens, so the functions show.
+  assert.deepEqual([...withPathsOpen(code, new Set(), ids, 16)].sort(), ['api', 'api/app', 'api/app/models.py', 'web', 'web/src', 'web/src/pages', 'web/src/pages/items.tsx']);
+  // Too many for that: down to the files, which stay closed.
+  assert.deepEqual([...withPathsOpen(code, new Set(), ids, 5)].sort(), ['api', 'api/app', 'web', 'web/src', 'web/src/pages']);
+  // Too many even then: nothing new opens, and what was open stays open.
+  assert.deepEqual([...withPathsOpen(code, new Set(['api']), ids, 2)], ['api']);
 });
 
 test('click mode: the first click selects, a second click on the selection opens', () => {

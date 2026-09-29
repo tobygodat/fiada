@@ -83,6 +83,24 @@ export function withPathOpen(tree: Tree, expanded: ReadonlySet<string>, id: stri
 }
 
 /**
+ * The open set that shows all of `ids` at once: down to the symbols when that
+ * opens at most `cap` more circles, else down to the files (or layers), else
+ * nothing new, and the closed circles round them stand in.
+ */
+export function withPathsOpen(tree: Tree, expanded: ReadonlySet<string>, ids: readonly string[], cap: number): Set<string> {
+  for (const deep of [true, false]) {
+    let next: Set<string> = new Set(expanded);
+    for (const id of ids) {
+      const n = tree.nodes.get(id);
+      if (!n) continue;
+      next = withPathOpen(tree, next, deep || n.kind !== 'symbol' ? id : (n.parent ?? id), false);
+    }
+    if (next.size - expanded.size <= cap) return next;
+  }
+  return new Set(expanded);
+}
+
+/**
  * Click mode: what a click on a circle does. The first click selects it, so
  * the detail panel shows what it is and what it talks to; a second click on
  * the selected circle opens it in place.

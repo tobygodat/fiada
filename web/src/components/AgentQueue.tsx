@@ -1,8 +1,9 @@
 // The task window: a floating panel at the top right with, for each coding
 // agent, a line or two on what it's doing right now, its task and plan folded
-// under that, and the files it has changed. Clicking a file takes the map to
-// it, where the detail panel shows the diff. While the detail panel is open
-// the window folds to one line above it.
+// under that, and the files it has changed. Clicking an agent lights up what
+// it changed on the map and dims the rest; clicking one of its files or
+// functions takes the map to it, where the detail panel shows the diff. While
+// the detail panel is open the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
 import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
@@ -12,7 +13,11 @@ interface Props {
   state: ActivityState | null;
   /** The detail panel is open below: fold to one line unless it's opened on purpose. */
   compact: boolean;
-  onSelect(nodeId: string): void;
+  /** The agent whose changes are lit on the map. */
+  lit: string | null;
+  /** Lights up one agent's changes on the map, or puts the map back when it's the lit one. */
+  onShow(agentId: string): void;
+  onSelect(nodeId: string, agentId: string): void;
   /** Dismisses an agent; absent when this browser can't change the project. */
   onClear?(agentId: string): void;
 }
@@ -22,6 +27,8 @@ const STATE_LABEL = { working: 'working', waiting: 'waiting for you', ended: 'se
 /** Said for a status line the agent didn't write itself. */
 const DERIVED = { plan: 'from the plan', prompt: 'from your prompt' } as const;
 const MAX_STEPS = 6;
+/** Changed functions listed under a file before "and N more". */
+const MAX_SYMBOLS = 5;
 
 const COLLAPSED_KEY = 'strata.queueCollapsed';
 const readCollapsed = () => {
@@ -32,7 +39,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -54,7 +61,7 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
   if (!agents.length) return null;
 
   if (collapsed) {
-    const lead = agents[0];
+    const lead = agents.find((a) => a.id === lit) ?? agents[0];
     const { state: word, text } = currentLine(lead);
     return (
       <button className="queue queue-folded" onClick={() => setCollapsed(false)} aria-expanded={false} title={`${agents.length > 1 ? `${agents.length} agents. ` : ''}Show what the agents are doing`}>
@@ -81,7 +88,14 @@ export function AgentQueue({ state, compact, onSelect, onClear }: Props) {
       </div>
       <div className="queue-list">
         {agents.map((a) => (
-          <AgentCard key={a.id} a={a} onSelect={onSelect} onClear={onClear && (() => onClear(a.id))} />
+          <AgentCard
+            key={a.id}
+            a={a}
+            lit={a.id === lit}
+            onShow={a.files.length ? () => onShow(a.id) : undefined}
+            onSelect={(id) => onSelect(id, a.id)}
+            onClear={onClear && (() => onClear(a.id))}
+          />
         ))}
       </div>
       <div className="queue-key" title="How the map marks what agents changed">
@@ -135,9 +149,22 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: string): void; onClear?(): void }) {
+interface CardProps {
+  a: AgentActivity;
+  lit: boolean;
+  /** Absent when it has changed nothing there is to show. */
+  onShow?(): void;
+  onSelect(id: string): void;
+  onClear?(): void;
+}
+
+function AgentCard({ a, lit, onShow, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  // Lit on the map: its files open, to go through one by one.
+  useEffect(() => {
+    if (lit) setShowFiles(true);
+  }, [lit]);
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const f of a.files) counts[f.kind]++;
   // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
@@ -146,7 +173,17 @@ function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: st
   const context = now?.from === 'prompt' ? null : (a.task ?? (a.prompt ? `asked: ${a.prompt}` : null));
   const from = now && now.from !== 'agent' ? DERIVED[now.from] : null;
   return (
-    <div className="queue-card">
+    // Anywhere on the entry but its own buttons lights it on the map; the "show on map" word below is the same for keyboards.
+    <div
+      className={`queue-card${lit ? ' lit' : ''}${onShow ? ' can-show' : ''}`}
+      onClick={
+        onShow &&
+        ((e) => {
+          // Not when the click ends selecting some of its words to copy.
+          if (!(e.target as Element).closest('button, a') && window.getSelection()?.type !== 'Range') onShow();
+        })
+      }
+    >
       <div className="queue-card-head">
         <StateDot a={a} />
         <span className="queue-name">{a.name}</span>
@@ -206,11 +243,18 @@ function AgentCard({ a, onSelect, onClear }: { a: AgentActivity; onSelect(id: st
         <span className="queue-meta-where" title={a.cwd}>
           {a.where} · {ago(a.updatedAt)}
         </span>
-        {onClear && (
-          <button className="queue-act" onClick={onClear} title="Dismiss this agent and clear its changes from the map">
-            dismiss
-          </button>
-        )}
+        <span className="queue-acts">
+          {onShow && (
+            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed on the map'}>
+              {lit ? 'show all' : 'show on map'}
+            </button>
+          )}
+          {onClear && (
+            <button className="queue-act" onClick={onClear} title="Dismiss this agent and clear its changes from the map">
+              dismiss
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );
@@ -255,26 +299,45 @@ function FileRow({ f, onSelect }: { f: AgentFile; onSelect(id: string): void }) 
   const base = f.path.slice(slash + 1);
   // A deleted file isn't on the map; selecting its id lands on the folder that stands in for it.
   const target = f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+  const symbols = f.symbols.slice(0, MAX_SYMBOLS);
   return (
-    <button
-      className="queue-file"
-      disabled={!target}
-      onClick={() => target && onSelect(target)}
-      title={`${f.path}${f.symbols.length ? `\n${f.symbols.map((s) => `${SIGN[s.kind]} ${s.name}`).join('\n')}` : ''}\n${ago(f.at)}`}
-    >
-      <span className={`chg ${f.kind}`}>{SIGN[f.kind]}</span>
-      <span className="queue-file-name">
-        <span className="queue-file-base">{base}</span>
-        {dir && <span className="queue-file-dir">{dir}</span>}
-      </span>
-      {!!(f.additions || f.deletions) && (
-        <span className="queue-file-stat">
-          {f.additions ? `+${f.additions}` : ''}
-          {f.additions && f.deletions ? ' ' : ''}
-          {f.deletions ? `−${f.deletions}` : ''}
+    <div className="queue-file-item">
+      <button
+        className="queue-file"
+        disabled={!target}
+        onClick={() => target && onSelect(target)}
+        title={`${f.path}${f.symbols.length ? `\n${f.symbols.map((s) => `${SIGN[s.kind]} ${s.name}`).join('\n')}` : ''}\n${ago(f.at)}`}
+      >
+        <span className={`chg ${f.kind}`}>{SIGN[f.kind]}</span>
+        <span className="queue-file-name">
+          <span className="queue-file-base">{base}</span>
+          {dir && <span className="queue-file-dir">{dir}</span>}
         </span>
+        {!!(f.additions || f.deletions) && (
+          <span className="queue-file-stat">
+            {f.additions ? `+${f.additions}` : ''}
+            {f.additions && f.deletions ? ' ' : ''}
+            {f.deletions ? `−${f.deletions}` : ''}
+          </span>
+        )}
+      </button>
+      {/* The functions it changed, each one a way onto the map too. */}
+      {!!symbols.length && (
+        <div className="queue-syms">
+          {symbols.map((s) => {
+            // A deleted function isn't on the map any more: its file is, with the diff.
+            const to = s.kind === 'deleted' ? target : s.id;
+            return (
+              <button key={s.id} className="queue-sym" disabled={!to} onClick={() => to && onSelect(to)} title={`${s.name}: ${s.kind}`}>
+                <span className={`chg ${s.kind}`}>{SIGN[s.kind]}</span>
+                {s.name}
+              </button>
+            );
+          })}
+          {f.symbols.length > symbols.length && <span className="queue-sym-more">and {f.symbols.length - symbols.length} more</span>}
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 

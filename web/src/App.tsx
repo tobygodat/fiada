@@ -6,7 +6,7 @@ import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TopBar } from './components/TopBar.tsx';
-import { rollupActivity } from './graph/activity.ts';
+import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
@@ -15,8 +15,10 @@ import {
   clickAction,
   expandedNodes,
   indexEdges,
+  meetingPoint,
   withCollapsed,
   withPathOpen,
+  withPathsOpen,
   type ExpandMode,
   type Visible,
 } from './graph/view.ts';
@@ -32,6 +34,8 @@ const SIDEBAR = 16 + 312;
 const DETAIL = 16 + 372;
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
 const CLICK_MAX_K = 3.5;
+/** Lighting an agent's changes opens the way down to them only while that opens at most this many circles. */
+const OPEN_CAP = 16;
 
 // How far "down" an open circle of each kind takes you, per view.
 const ALTITUDE: Record<View, Partial<Record<TKind, number>>> = {
@@ -68,7 +72,7 @@ interface Place {
   cam: Camera | null;
 }
 
-type CameraIntent = { focus: string; detail: boolean; from?: string | null } | { cam: Camera };
+type CameraIntent = { focus: string; detail: boolean; from?: string | null } | { fit: string[] } | { cam: Camera };
 
 export function App() {
   const ws = useWorkspace();
@@ -86,6 +90,8 @@ export function App() {
   const [zoomVis, setZoomVis] = useState<Visible | null>(null);
   const [from, setFrom] = useState<Map<string, Circle> | undefined>();
   const [history, setHistory] = useState<Place[]>([]);
+  /** The agent whose changes are lit on the map, picked in the agents window. */
+  const [litAgent, setLitAgent] = useState<string | null>(null);
   const renderer = useRef<MapRenderer | null>(null);
   const intent = useRef<CameraIntent | null>(null);
 
@@ -115,10 +121,19 @@ export function App() {
     [graph, shownTheme],
   );
 
-  const activity = useMemo(
-    () => (tree && agents.state && Object.keys(agents.state.nodes).length ? rollupActivity(tree, graphIndex, agents.state.nodes, agents.state.agents) : null),
-    [tree, graphIndex, agents.state],
+  const lit = litAgent && agents.state?.agents.some((a) => a.id === litAgent) ? litAgent : null;
+  const spot = useMemo(
+    () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit) : null),
+    [tree, graphIndex, agents.state, lit],
   );
+  const activity = useMemo(() => {
+    const s = agents.state;
+    if (!tree || !s) return null;
+    // One agent lit: the map marks only its changes.
+    const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
+    if (!Object.keys(nodes).length) return null;
+    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents);
+  }, [tree, graphIndex, agents.state, spot, lit]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;
@@ -129,8 +144,8 @@ export function App() {
   }, [agentGraph, loadedGraph, reload]);
 
   const scene = useMemo<Scene | null>(
-    () => (tree ? { tree, L, mode, vis: mode === 'click' ? clickVis : null, contracts, pal, colorBy, selected, selectedEdge, activity } : null),
-    [tree, L, mode, clickVis, contracts, pal, colorBy, selected, selectedEdge, activity],
+    () => (tree ? { tree, L, mode, vis: mode === 'click' ? clickVis : null, contracts, pal, colorBy, selected, selectedEdge, activity, lit: spot?.lit ?? null } : null),
+    [tree, L, mode, clickVis, contracts, pal, colorBy, selected, selectedEdge, activity, spot],
   );
 
   // ── camera ──
@@ -171,6 +186,25 @@ export function App() {
     [tree, mode, size, viewport],
   );
 
+  /** Where the camera goes to show all of `ids` at once, clear of the agents window on the right. */
+  const cameraForAll = useCallback(
+    (Lx: Map<string, Circle>, ids: readonly string[]): Camera | null => {
+      if (!tree || !size.w) return null;
+      // What stands for each on the map: itself, or the nearest circle round it that's laid out; a leaf with its parent round it.
+      const around = new Set<string>();
+      for (const id of ids) {
+        let n = tree.nodes.get(id);
+        while (n && !Lx.has(n.id)) n = n.parent ? tree.nodes.get(n.parent) : undefined;
+        if (n) around.add(n.children.length || !n.parent ? n.id : n.parent);
+      }
+      // All in one circle: framed the way selecting it would.
+      if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
+      const box = [...around].map((id) => Lx.get(id)!).reduce(enclose);
+      return mode === 'zoom' ? frame(box, viewport(true), 0.36) : frame(box, viewport(true), 0.44, CLICK_MAX_K);
+    },
+    [tree, size, mode, cameraFor, viewport],
+  );
+
   const fitAll = useCallback(
     (anim: boolean) => {
       const r = renderer.current;
@@ -188,7 +222,7 @@ export function App() {
     const r = renderer.current;
     if (!want || !r || !size.w) return;
     intent.current = null;
-    const cam = 'cam' in want ? want.cam : cameraFor(L, want.focus, want);
+    const cam = 'cam' in want ? want.cam : 'fit' in want ? cameraForAll(L, want.fit) : cameraFor(L, want.focus, want);
     if (cam) r.animateTo(cam, from ? 'direct' : 'smooth');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L]);
@@ -337,11 +371,54 @@ export function App() {
     setModeState(m);
   };
 
-  /** From the task queue: a changed file, or for one that's gone, the folder standing in for it. */
+  /** From the task queue: a changed file or symbol, or for one that's gone, the circle standing in for it. */
   const selectChange = useCallback(
-    (id: string) => select(graphIndex.has(id) ? id : (agents.state?.nodes[id]?.anchor ?? id)),
-    [select, graphIndex, agents.state],
+    (id: string, agentId: string) => {
+      // Another agent's changes are lit: light this one's, so what you picked isn't the one thing dimmed.
+      if (litAgent && litAgent !== agentId) setLitAgent(agentId);
+      select(graphIndex.has(id) ? id : (agents.state?.nodes[id]?.anchor ?? id));
+    },
+    [select, graphIndex, agents.state, litAgent],
   );
+
+  /**
+   * From the agents window: light up everything one agent changed and every
+   * circle round it, dim the rest, open the way down to the changes (click
+   * mode, while that stays small) and bring them all into view. The same
+   * agent again puts the map back.
+   */
+  const showAgent = useCallback(
+    (id: string) => {
+      if (spot && lit === id) return setLitAgent(null);
+      const s = tree && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, id) : null;
+      if (!tree || !s) return;
+      setLitAgent(id);
+      remember();
+      setSelected(null);
+      setSelectedEdge(null);
+      setFocus(s.targets.reduce((m, t) => meetingPoint(tree, m, t)));
+      if (mode === 'click') {
+        const next = withPathsOpen(tree, expanded, s.targets, OPEN_CAP);
+        if (!sameSet(next, expanded)) {
+          setFrom(L);
+          setExpandedBy((e) => ({ ...e, [view]: next }));
+          intent.current = { fit: s.targets };
+          return;
+        }
+      }
+      const cam = cameraForAll(L, s.targets);
+      if (cam) renderer.current?.animateTo(cam, 'smooth');
+    },
+    [spot, lit, tree, agents.state, graphIndex, remember, mode, expanded, L, view, cameraForAll],
+  );
+
+  /** Esc and a click on empty space: let go of the selection first, then of the lit agent. */
+  const clear = useCallback(() => {
+    if (selected || selectedEdge) {
+      setSelected(null);
+      setSelectedEdge(null);
+    } else setLitAgent(null);
+  }, [selected, selectedEdge]);
 
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
@@ -387,8 +464,7 @@ export function App() {
       const el = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
       if (e.key === 'Escape') {
-        setSelected(null);
-        setSelectedEdge(null);
+        clear();
       } else if (!typing && (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft'))) {
         e.preventDefault();
         back();
@@ -399,7 +475,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [back, selected, onNodeClick, clickVis]);
+  }, [back, selected, onNodeClick, clickVis, clear]);
 
   const altitude = useMemo(() => {
     if (!vis || !tree) return 0;
@@ -464,10 +540,7 @@ export function App() {
               setSelectedEdge((cur) => (cur === key ? null : key));
               setSelected(null);
             },
-            empty: () => {
-              setSelected(null);
-              setSelectedEdge(null);
-            },
+            empty: clear,
             visible: (v) => mode === 'zoom' && setZoomVis(v),
             resize: (w, h) => setSize({ w, h }),
           }}
@@ -517,8 +590,31 @@ export function App() {
             onSelect={select}
           />
         )}
-        <AgentQueue state={agents.state} compact={!!(selected || contract)} onSelect={selectChange} onClear={canEdit(ws.workspace) ? (id) => void agents.clear(id) : undefined} />
-        {!empty && <Legend colorBy={colorBy} pal={pal} layers={graph?.layers ?? []} mode={mode} besideDetail={detailOpen} />}
+        <AgentQueue
+          state={agents.state}
+          compact={!!(selected || contract)}
+          lit={spot ? lit : null}
+          onShow={showAgent}
+          onSelect={selectChange}
+          onClear={
+            canEdit(ws.workspace)
+              ? (id) => {
+                  if (id === litAgent) setLitAgent(null);
+                  void agents.clear(id);
+                }
+              : undefined
+          }
+        />
+        {!empty && (
+          <Legend
+            colorBy={colorBy}
+            pal={pal}
+            layers={graph?.layers ?? []}
+            mode={mode}
+            besideDetail={detailOpen}
+            lit={spot ? (agents.state?.agents.find((a) => a.id === lit)?.name ?? 'an agent') : null}
+          />
+        )}
       </div>
     </div>
   );
@@ -530,16 +626,24 @@ function Legend({
   layers,
   mode,
   besideDetail,
+  lit,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
   mode: ExpandMode;
   besideDetail: boolean;
+  /** Name of the agent whose changes are lit. */
+  lit: string | null;
 }) {
+  const hint = lit
+    ? `showing what ${lit} changed · esc for the whole map`
+    : mode === 'click'
+      ? 'point at a circle for its links · click for details, again to open it · scroll to zoom'
+      : 'point at a circle for its links · scroll to zoom and open circles';
   return (
     <div className={`legend${besideDetail ? ' beside-detail' : ''}`}>
-      <span>{mode === 'click' ? 'point at a circle for its links · click for details, again to open it · scroll to zoom' : 'point at a circle for its links · scroll to zoom and open circles'}</span>
+      <span>{hint}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo
       </span>

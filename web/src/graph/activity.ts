@@ -76,6 +76,37 @@ export function rollupActivity(
   return out;
 }
 
+/** The changes one agent made, out of every agent's. */
+export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): Record<string, NodeChange> {
+  const out: Record<string, NodeChange> = {};
+  for (const [id, c] of Object.entries(nodes)) if (c.agents.includes(agentId)) out[id] = c;
+  return out;
+}
+
+/** One agent's changes on the map: the circles that stand for them, and those plus every circle round them. */
+export interface Spotlight {
+  /** Tree ids of the changed nodes (for a deleted one, the nearest circle that's left), parents before children. */
+  targets: string[];
+  /** The targets and all their ancestors: what stays lit while the rest of the map dims. */
+  lit: Set<string>;
+}
+
+export function spotlight(tree: Tree, graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange>, agentId: string): Spotlight | null {
+  const targets = new Set<string>();
+  for (const [id, c] of Object.entries(nodes)) {
+    if (!c.agents.includes(agentId)) continue;
+    const at = tree.nodes.has(id) ? id : locate(tree, graphIndex, c.anchor ?? id);
+    if (at && at !== tree.root.id) targets.add(at);
+  }
+  if (!targets.size) return null;
+  const lit = new Set<string>();
+  for (const id of targets) {
+    for (let cur: string | null = id; cur && !lit.has(cur); cur = tree.nodes.get(cur)?.parent ?? null) lit.add(cur);
+  }
+  const depth = (id: string) => tree.nodes.get(id)?.depth ?? 0;
+  return { targets: [...targets].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : 1)), lit };
+}
+
 /** The ids that stand for a changed file in this view. */
 function hereIds(f: AgentFile, tree: Tree): string[] {
   const file = f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
