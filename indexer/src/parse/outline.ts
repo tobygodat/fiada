@@ -176,11 +176,12 @@ export const childOf = (n: SyntaxNode | null | undefined, ...types: string[]) =>
 /** The anonymous keyword children of a node ("class", "interface", "static", …). */
 export const keywords = (n: SyntaxNode) => n.children.filter((c) => !c.isNamed()).map((c) => c.type);
 
-/** An annotation or attribute: `@GetMapping("/x")`, `[HttpGet("{id}")]`, with the path and HTTP methods it names. */
+/** An annotation or attribute: `@GetMapping({"/x", "/y"})`, `[HttpGet("{id}")]`, with the paths and HTTP methods it names. */
 export interface Ann {
   name: string;
-  path: string | null;
+  paths: string[];
   methods: string[];
+  line: number;
 }
 
 const VERB_ANNOTATION: Record<string, string> = {
@@ -201,19 +202,26 @@ export const methodsIn = (text: string) => [...text.matchAll(/\b(GET|POST|PUT|DE
 export function annotationRoutes(own: Ann[], outer: Ann[], n: SyntaxNode, names: { type?: string; method?: string } = {}): RouteDecl[] {
   const fill = (p: string) =>
     p.replace(/\[controller\]/gi, (names.type ?? '').replace(/Controller$/, '')).replace(/\[action\]/gi, names.method ?? '');
-  const prefix = outer.find((a) => PATH_ANNOTATION.test(a.name))?.path ?? null;
-  const ownPath = own.find((a) => PATH_ANNOTATION.test(a.name) && a.name !== 'RequestMapping')?.path ?? null;
+  // Every path the class maps, each with every path the method maps; the class's annotation is the prefix's evidence.
+  const outerAnn = outer.find((a) => PATH_ANNOTATION.test(a.name));
+  const prefixes = outerAnn?.paths.length ? outerAnn.paths : [''];
+  const ownPaths = own.find((a) => PATH_ANNOTATION.test(a.name) && a.name !== 'RequestMapping')?.paths ?? [];
   const out: RouteDecl[] = [];
-  const add = (method: string, p: string | null, dotnet = false) => {
-    const absolute = dotnet && !!p && /^~?\//.test(p);
-    const full = joinPath(absolute ? '' : fill(prefix ?? ''), fill((p ?? '').replace(/^~/, '')));
-    out.push({ method, path: full, line: line(n) });
+  const add = (method: string, paths: string[], dotnet = false) => {
+    for (const p of paths.length ? paths : ['']) {
+      for (const prefix of prefixes) {
+        const absolute = dotnet && /^~?\//.test(p);
+        const full = joinPath(absolute ? '' : fill(prefix), fill(p.replace(/^~/, '')));
+        if (out.some((r) => r.method === method && r.path === full)) continue;
+        out.push(!absolute && prefix && outerAnn ? { method, path: full, line: line(n), prefixLine: outerAnn.line } : { method, path: full, line: line(n) });
+      }
+    }
   };
   for (const a of own) {
     const verb = VERB_ANNOTATION[a.name];
-    if (verb) add(verb, a.path ?? ownPath, a.name.startsWith('Http'));
-    else if (a.name === 'RequestMapping') for (const m of a.methods.length ? a.methods : ['*']) add(m, a.path);
-    else if (JAXRS_VERB.test(a.name)) add(a.name, ownPath);
+    if (verb) add(verb, a.paths.length ? a.paths : ownPaths, a.name.startsWith('Http'));
+    else if (a.name === 'RequestMapping') for (const m of a.methods.length ? a.methods : ['*']) add(m, a.paths);
+    else if (JAXRS_VERB.test(a.name)) add(a.name, ownPaths);
   }
   return out;
 }

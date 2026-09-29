@@ -13,22 +13,23 @@ const isPrivate = (n: SyntaxNode) => !!childOf(n, 'modifiers')?.descendantsOfTyp
 function annotation(a: SyntaxNode): Ann {
   const ctor = childOf(a, 'constructor_invocation');
   const name = (ctor ? childOf(ctor, 'user_type') : childOf(a, 'user_type'))?.text ?? '';
-  let path: string | null = null;
+  const paths: string[] = [];
   let methods: string[] = [];
   for (const arg of childOf(ctor, 'value_arguments')?.namedChildren ?? []) {
     const [first, second] = arg.namedChildren;
     const key = second && first?.type === 'simple_identifier' ? first.text : null;
     const value = key ? second : first;
     if (key === 'method') methods = methodsIn(value?.text ?? '');
-    else if (!key || key === 'value' || key === 'path') path ??= firstString(value);
+    else if (!key || key === 'value' || key === 'path') paths.push(...strings(value));
   }
   // A detached `@RequestMapping("/api")` the grammar reads as a prefix expression.
-  if (!ctor && a.nextNamedSibling?.type === 'parenthesized_expression') path = firstString(a.nextNamedSibling);
-  return { name: name.slice(name.lastIndexOf('.') + 1), path, methods };
+  if (!ctor && a.nextNamedSibling?.type === 'parenthesized_expression') paths.push(...strings(a.nextNamedSibling));
+  return { name: name.slice(name.lastIndexOf('.') + 1), paths: [...new Set(paths)], methods, line: line(a) };
 }
 
-const firstString = (n: SyntaxNode | null | undefined): string | null =>
-  !n ? null : n.type === 'string_literal' ? literal(n) : (n.descendantsOfType('string_literal').map((s) => literal(s)).find((s) => s != null) ?? null);
+/** `"/x"` or `["/x", "/y"]` → every path. */
+const strings = (n: SyntaxNode | null | undefined): string[] =>
+  !n ? [] : (n.type === 'string_literal' ? [n] : n.descendantsOfType('string_literal')).map((s) => literal(s)).filter((s): s is string => s != null);
 
 /** Annotations on a declaration, and those the grammar leaves in a prefix expression just before it. */
 function annotations(n: SyntaxNode): Ann[] {

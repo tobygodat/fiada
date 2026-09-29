@@ -26,8 +26,9 @@ function attributes(n: SyntaxNode): Ann[] {
   for (const list of n.namedChildren.filter((c) => c.type === 'attribute_list')) {
     for (const a of list.namedChildren.filter((c) => c.type === 'attribute')) {
       const name = lastSegment(a.childForFieldName('name')?.text ?? '').replace(/Attribute$/, '');
-      const strings = a.descendantsOfType(['string_literal', 'verbatim_string_literal']).map((s) => literal(s));
-      out.push({ name, path: strings.find((s) => s != null) ?? null, methods: methodsIn(a.text) });
+      // A route template attribute has one template.
+      const template = a.descendantsOfType(['string_literal', 'verbatim_string_literal']).map((s) => literal(s)).find((s) => s != null);
+      out.push({ name, paths: template != null ? [template] : [], methods: methodsIn(a.text), line: line(a) });
     }
   }
   return out;
@@ -100,6 +101,11 @@ const spec: LangSpec = {
           else if (expr?.type === 'identifier') {
             out.seen(expr);
             out.add(expr.text, 'call', n, name);
+          } else if (expr?.type === 'member_access_expression' && /^[A-Z][\w.]*$/.test(expr.text.replace(/\s+/g, ''))) {
+            // `External.Models.Util.Run()`, `Outer.Inner.Create()`: the type, what qualifies it, and the method.
+            const parts = expr.text.replace(/\s+/g, '').split('.');
+            for (const id of expr.descendantsOfType('identifier')) out.seen(id);
+            out.add(parts[parts.length - 1], 'call', n, name, parts.slice(0, -1).join('.'));
           }
         }
         return;

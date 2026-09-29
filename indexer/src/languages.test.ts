@@ -129,6 +129,30 @@ test('Java and C#: a qualified type is looked for where its qualifier says, not 
   edge(g, 'cs/Acme/Use.cs#Use.Make', 'cs/Acme/Models/Thing.cs#Thing.Part', 'calls');
 });
 
+test('Java and C#: qualified static calls; every mapped path, with the class prefix as evidence', async () => {
+  const g = await graphOf({
+    jv: {
+      'src/partner/api/Util.java': 'package partner.api;\n\npublic class Util {\n  public static void run() {}\n  public static class Inner {\n    public static void make() {}\n  }\n}\n',
+      'src/com/acme/Api.java':
+        'package com.acme;\n\n@RestController\n@RequestMapping(path = {"/api", "/v1"})\npublic class Api {\n' +
+        '  @GetMapping({"/current", "/legacy"})\n  public void get() {\n    partner.api.Util.run();\n    partner.api.Util.Inner.make();\n  }\n}\n',
+    },
+    cs: {
+      'Util.cs': 'namespace External.Models;\n\npublic static class Util\n{\n    public static void Run() { }\n    public static class Inner { public static void Create() { } }\n}\n',
+      'Use.cs': 'namespace Acme;\n\npublic class Use\n{\n    public void Go() { External.Models.Util.Run(); External.Models.Util.Inner.Create(); }\n}\n',
+    },
+    web: { 'src/api.ts': 'export const legacy = () => fetch(`/v1/legacy`);\n' },
+  });
+  const get = 'jv/src/com/acme/Api.java#Api.get';
+  edge(g, get, 'jv/src/partner/api/Util.java#Util.run', 'calls');
+  edge(g, get, 'jv/src/partner/api/Util.java#Util.Inner.make', 'calls');
+  assert.deepEqual(node(g, get).routes?.slice().sort(), ['GET /api/current', 'GET /api/legacy', 'GET /v1/current', 'GET /v1/legacy']);
+  const http = edge(g, 'web/src/api.ts#legacy', get, 'http');
+  assert.ok(http.evidence!.some((x) => x.line === 4 && x.code?.includes('@RequestMapping')), 'cites the class-level prefix');
+  edge(g, 'cs/Use.cs#Use.Go', 'cs/Util.cs#Util.Run', 'calls');
+  edge(g, 'cs/Use.cs#Use.Go', 'cs/Util.cs#Util.Inner.Create', 'calls');
+});
+
 test('Kotlin: sees Java in its package, aliases imports, and reads Spring routes', async () => {
   const g = await graphOf({
     app: {

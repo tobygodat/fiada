@@ -20,23 +20,23 @@ function annotations(n: SyntaxNode): Ann[] {
   return (modifiers(n)?.namedChildren ?? [])
     .filter((c) => c.type === 'annotation' || c.type === 'marker_annotation')
     .map((a) => {
-      let path: string | null = null;
+      const paths: string[] = [];
       let methods: string[] = [];
       for (const arg of a.childForFieldName('arguments')?.namedChildren ?? []) {
         if (arg.type === 'element_value_pair') {
           const key = arg.childForFieldName('key')?.text;
           const value = arg.childForFieldName('value');
           if (key === 'method') methods = methodsIn(value?.text ?? '');
-          else if ((key === 'value' || key === 'path') && path == null) path = firstString(value);
-        } else if (path == null) path = firstString(arg);
+          else if (key === 'value' || key === 'path') paths.push(...strings(value));
+        } else paths.push(...strings(arg));
       }
-      return { name: lastSegment(a.childForFieldName('name')?.text ?? ''), path, methods };
+      return { name: lastSegment(a.childForFieldName('name')?.text ?? ''), paths: [...new Set(paths)], methods, line: line(a) };
     });
 }
 
-/** `"/x"` or `{"/x", "/y"}` → "/x". */
-const firstString = (n: SyntaxNode | null | undefined): string | null =>
-  !n ? null : n.type === 'string_literal' ? literal(n) : (n.descendantsOfType('string_literal').map((s) => literal(s)).find((s) => s != null) ?? null);
+/** `"/x"` or `{"/x", "/y"}` → every path. */
+const strings = (n: SyntaxNode | null | undefined): string[] =>
+  !n ? [] : (n.type === 'string_literal' ? [n] : n.descendantsOfType('string_literal')).map((s) => literal(s)).filter((s): s is string => s != null);
 
 const isPrivate = (n: SyntaxNode) => !!modifiers(n) && keywords(modifiers(n)!).includes('private');
 
@@ -112,6 +112,13 @@ const spec: LangSpec = {
         else if (obj.type === 'identifier') {
           out.seen(obj);
           out.add(obj.text, 'call', n, name.text);
+        } else if (obj.type === 'field_access' && /^[\w.]+$/.test(obj.text.replace(/\s+/g, ''))) {
+          // `a.b.Util.run()`, `Outer.Inner.make()`: the package, the type and the rest.
+          const parts = obj.text.replace(/\s+/g, '').split('.');
+          const first = parts.findIndex((p) => /^[A-Z]/.test(p));
+          if (first < 0) return;
+          for (const id of obj.descendantsOfType('identifier')) out.seen(id);
+          out.add(parts[first], 'call', n, [...parts.slice(first + 1), name.text].join('.'), first > 0 ? parts.slice(0, first).join('.') : undefined);
         }
         return;
       }
