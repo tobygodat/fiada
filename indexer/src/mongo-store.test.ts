@@ -165,3 +165,21 @@ test('mongo store changes accounts in one step each, so a sign-in never undoes a
     assert.equal(saved?.createdAt, 't1');
   }),
 );
+
+test('mongo store deletes a project and an account, and a project made again starts afresh', needsMongo, () =>
+  withDb('delete', async (open) => {
+    const store = await open();
+    await store.saveRepos('gh-1', repos);
+    await store.saveGrouping('gh-1', grouping);
+    await store.saveSummaries('gh-1', { h: { text: 't', model: 'm', at: 'a' } });
+    await store.saveSignIn({ id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's', scopes: 'repo', updatedAt: 't' });
+    await store.deleteProject('gh-1');
+    await store.deleteAccount('gh-1');
+    assert.equal(await store.loadRepos('gh-1'), null);
+    assert.equal(await store.loadGrouping('gh-1'), null);
+    assert.equal(await store.loadSummaries('gh-1'), null);
+    assert.equal(await store.loadAccount('gh-1'), null);
+    await store.saveRepos('gh-1', []);
+    assert.deepEqual(await store.loadRepos('gh-1'), []);
+  }),
+);

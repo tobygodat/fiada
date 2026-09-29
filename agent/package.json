@@ -13,11 +13,6 @@
   "homepage": "https://fiada.tech",
   "license": "MIT",
   "author": "Toby Godat",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/tobygodat/hackgt13.git",
-    "directory": "agent"
-  },
   "type": "module",
   "bin": {
     "fiada": "bin/fiada.mjs",

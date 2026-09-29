@@ -105,6 +105,8 @@ export interface GitHubApi {
   user(token: string): Promise<{ id: number; login: string; name?: string; avatar?: string; scopes?: string }>;
   /** The person's repositories, most recently pushed first, as owner/name. */
   repos(token: string, limit: number): Promise<string[]>;
+  /** Withdraws the access the person granted this OAuth app, so GitHub lists it no more and the token stops working. */
+  revoke(token: string): Promise<void>;
 }
 
 export class Auth {
@@ -119,7 +121,7 @@ export class Auth {
     private github: GitHubApi = gitHubApi(config),
     private now: () => number = Date.now,
   ) {
-    if (!store.loadAccount || !store.saveSignIn || !store.bumpAgentEpoch) throw new Error('GitHub sign-in needs a store that keeps accounts.');
+    if (!store.loadAccount || !store.saveSignIn || !store.bumpAgentEpoch || !store.deleteAccount) throw new Error('GitHub sign-in needs a store that keeps accounts.');
     this.signKey = createHmac('sha256', config.secret).update('fiada sign').digest();
     this.sealKey = createHmac('sha256', config.secret).update('fiada seal').digest();
   }
@@ -211,6 +213,18 @@ export class Auth {
   async recentRepos(id: string, limit = 6): Promise<string[]> {
     const token = await this.githubToken(id);
     return token ? this.github.repos(token, limit).catch(() => []) : [];
+  }
+
+  /**
+   * Deletes the account: withdraws its grant at GitHub (as far as GitHub
+   * answers), then forgets it here, which ends its sessions and agent tokens.
+   * The project's own data is the caller's to delete.
+   */
+  async deleteAccount(account: StoredAccount): Promise<void> {
+    const token = this.unseal(account.sealedToken);
+    if (token) await this.github.revoke(token).catch((err) => console.warn(`[fiada] couldn't revoke ${account.login}'s GitHub grant: ${(err as Error).message}`));
+    await this.store.deleteAccount!(account.id);
+    this.accounts.set(account.id, { account: Promise.resolve(null), at: this.now() });
   }
 
   // ── signing in ──
@@ -315,6 +329,17 @@ export function gitHubApi(config: Pick<AuthConfig, 'clientId' | 'clientSecret'>,
     async repos(token, limit) {
       const { body } = await api(token, `/user/repos?sort=pushed&per_page=${limit}`);
       return Array.isArray(body) ? body.map((r: { full_name: string }) => r.full_name).filter(Boolean) : [];
+    },
+    async revoke(token) {
+      const basic = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64');
+      const res = await fetchImpl(`https://api.github.com/applications/${encodeURIComponent(config.clientId)}/grant`, {
+        method: 'DELETE',
+        headers: { accept: 'application/vnd.github+json', authorization: `Basic ${basic}`, 'content-type': 'application/json', 'user-agent': UA, 'x-github-api-version': '2022-11-28' },
+        body: JSON.stringify({ access_token: token }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      // 404: the grant is gone already.
+      if (!res.ok && res.status !== 404) throw new Error(`GitHub answered ${res.status}`);
     },
   };
 }

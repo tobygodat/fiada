@@ -17,9 +17,9 @@ import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
 import type { ParsedRepo } from './model.ts';
 import { Sorter, type SortHost } from './sorter.ts';
-import { loadRepo, reloadFiles } from './sources.ts';
+import { fileWithin, loadRepo, reloadFiles } from './sources.ts';
 import type { ProjectStore, SavedRepo } from './store.ts';
-import { folderName, unpackUpload, UPLOAD } from './upload.ts';
+import { folderName, unpackUpload, UPLOAD, UploadError } from './upload.ts';
 
 const exec = promisify(execFile);
 
@@ -47,11 +47,26 @@ const UPLOAD_GONE = "This indexer's copy of the folder is gone (a hosted indexer
 const UPLOAD_TMP = '.upload-';
 
 /**
+ * The hosts a hosted indexer clones from, from a comma-separated list
+ * (FIADA_GIT_HOSTS); null, for any host, when the list holds `*`.
+ */
+export function gitHosts(list = process.env.FIADA_GIT_HOSTS): string[] | null {
+  const hosts = (list?.trim() || 'github.com,gitlab.com,bitbucket.org').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+  return hosts.includes('*') ? null : hosts;
+}
+
+const GIT_HOSTS = gitHosts();
+
+/**
  * Accepts what people paste: "org/repo", "github.com/org/repo",
  * "https://…/repo.git", "git@host:org/repo.git", or a local directory
  * (unless `allowLocal` is false).
+ *
+ * A hosted indexer (`allowLocal` false) clones over https from `hosts` only:
+ * a clone URL is a request the indexer makes, and one to any address would
+ * let people reach what sits beside it on the host's network.
  */
-export async function parseSource(input: string, allowLocal = true): Promise<RepoSource> {
+export async function parseSource(input: string, allowLocal = true, hosts: string[] | null = GIT_HOSTS): Promise<RepoSource> {
   const raw = input.trim().replace(/\/+$/, '');
   if (!raw || raw.startsWith('-')) throw new Error(allowLocal ? 'Enter a git URL, org/repo, or a local path.' : 'Enter a git URL or org/repo.');
   if (/^(~|\.{1,2})?\//.test(raw) || /^[A-Za-z]:[\\/]/.test(raw)) {
@@ -65,6 +80,14 @@ export async function parseSource(input: string, allowLocal = true): Promise<Rep
   if (/^[\w.-]+\/[\w.-]+$/.test(raw)) url = `https://github.com/${raw}`;
   else if (/^(github\.com|gitlab\.com|bitbucket\.org)\//.test(raw)) url = `https://${raw}`;
   if (!/^(https?:\/\/|ssh:\/\/|git@)/.test(url)) throw new Error(`Not a git URL or path: ${input}`);
+  if (!allowLocal && hosts) {
+    // The indexer has no SSH key, so git@host:org/repo is the same repository over https.
+    url = url.replace(/^git@([\w.-]+):(?!\/)/, 'https://$1/');
+    const u = URL.canParse(url) ? new URL(url) : null;
+    if (!u || u.protocol !== 'https:' || u.username || u.password || u.port || !hosts.includes(u.hostname.toLowerCase())) {
+      throw new Error(`This indexer imports repositories over https from ${hosts.join(', ')} only.`);
+    }
+  }
   const name = url.split(/[/:]/).pop()!.replace(/\.git$/, '');
   if (!name) throw new Error(`Can't tell the repository name from ${input}`);
   return { kind: 'git', location: url, name };
@@ -75,6 +98,17 @@ function saved({ id, name, source, kind, remote, branch, commit, uploadedAt }: R
   if (kind !== 'upload') return { id, name, source, kind };
   const extra = Object.entries({ remote, branch, commit, uploadedAt }).filter(([, v]) => v !== undefined);
   return { id, name, source, kind, ...Object.fromEntries(extra) };
+}
+
+const MB = 1 << 20;
+
+/** Bytes the files under `dir` take, not following links. */
+async function diskUsage(dir: string): Promise<number> {
+  let total = 0;
+  for (const e of await fs.readdir(dir, { withFileTypes: true, recursive: true })) {
+    if (e.isFile()) total += (await fs.lstat(path.join(e.parentPath, e.name)).catch(() => null))?.size ?? 0;
+  }
+  return total;
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'repo';
@@ -114,6 +148,10 @@ const git = (args: string[], timeout = 300_000) =>
 export interface WorkspaceOptions {
   /** Where clones and uploads go; each project needs its own. */
   clones?: string;
+  /** How many repositories the project may hold; unlimited when unset. */
+  maxRepos?: number;
+  /** How large a clone may be on disk, in bytes; a larger one is removed and reported. Unlimited when unset. */
+  maxCloneBytes?: number;
   /** The GitHub token to clone and pull with, looked up for each command. */
   githubToken?: () => string | null | undefined | Promise<string | null | undefined>;
   /** The person's own repositories to offer, in place of the defaults; null while there are none. */
@@ -247,11 +285,15 @@ export class Workspace {
   /**
    * Text of one indexed file, for the map's code view. Only files the indexer
    * parsed can be read, so nothing else in a checkout (an .env, a key) is served.
+   * It is checked again as it is read: a refresh may have turned it into a
+   * link out of the repository since it was parsed.
    */
   async readSource(repoId: string, relPath: string): Promise<{ path: string; commit?: string; text: string } | null> {
     const parsed = this.parsed.get(repoId);
     if (!parsed || !parsed.files.some((f) => f.path === relPath)) return null;
-    const text = await fs.readFile(path.join(parsed.root, relPath), 'utf8');
+    const file = await fileWithin(await fs.realpath(parsed.root), relPath);
+    if (!file) return null;
+    const text = await fs.readFile(file.abs, 'utf8');
     return { path: relPath, commit: parsed.info.commit, text };
   }
 
@@ -304,6 +346,24 @@ export class Workspace {
     }
   }
 
+  /** Removes a clone larger than the project allows, and says so. */
+  private async checkCloneSize(dir: string) {
+    const max = this.options.maxCloneBytes;
+    if (max === undefined) return;
+    const bytes = await diskUsage(dir);
+    if (bytes <= max) return;
+    await fs.rm(dir, { recursive: true, force: true });
+    throw new Error(`This repository takes ${Math.round(bytes / MB)} MB on disk, over this indexer's limit of ${Math.round(max / MB)} MB.`);
+  }
+
+  /** Throws when the project already holds as many repositories as it may. */
+  private checkRoom() {
+    const max = this.options.maxRepos;
+    if (max !== undefined && this.repos.length >= max) {
+      throw new Error(`This map holds ${max} repositories at most. Remove one to import another.`);
+    }
+  }
+
   async add(input: string): Promise<RepoInfo> {
     const src = await parseSource(input, this.allowLocal);
     const existing = this.repos.find((r) => r.source === src.location);
@@ -311,6 +371,7 @@ export class Workspace {
       this.refresh(existing.id);
       return existing;
     }
+    this.checkRoom();
     let id = slug(src.name);
     for (let n = 2; this.repos.some((r) => r.id === id); n++) id = `${slug(src.name)}-${n}`;
     const info: RepoInfo = { id, name: src.name, source: src.location, kind: src.kind, status: 'queued' };
@@ -351,6 +412,14 @@ export class Workspace {
       uploads.find((r) => r.id === replace) ??
       (remote ? uploads.find((r) => r.remote && remoteKey(r.remote) === remoteKey(remote)) : undefined) ??
       uploads.find((r) => r.name === name && !(remote && r.remote));
+    if (!existing) {
+      try {
+        this.checkRoom();
+      } catch (err) {
+        await fs.rm(tmp, { recursive: true, force: true });
+        throw new UploadError((err as Error).message, 409);
+      }
+    }
     const fields = { name, source: name, remote, branch, commit: head?.slice(0, 7), uploadedAt: new Date().toISOString() };
     let info: RepoInfo;
     const before = existing && { ...existing };
@@ -432,6 +501,8 @@ export class Workspace {
       if (repo.kind === 'local' && !this.allowLocal) throw new Error(LOCAL_OFF);
       if (repo.kind === 'upload' && !(await fs.stat(path.join(dir, '.git')).then(() => true, () => false))) throw new Error(UPLOAD_GONE);
       if (repo.kind === 'git') {
+        // Saved before the hosts were limited: checked again before anything is fetched.
+        if (!this.allowLocal) await parseSource(repo.source, false);
         const token = await this.options.githubToken?.();
         const cloned = await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
         if (!cloned) {
@@ -441,10 +512,12 @@ export class Workspace {
             await fs.rm(dir, { recursive: true, force: true });
             await git([...auth, 'clone', '--depth', '1', '--single-branch', '--', repo.source, dir]);
           });
+          await this.checkCloneSize(dir);
         } else if (pull) {
           repo.status = 'cloning';
           await withToken(token, repo.source, (auth) => git([...auth, '-C', dir, 'fetch', '--depth', '1', 'origin', 'HEAD']));
           await git(['-C', dir, 'reset', '--hard', 'FETCH_HEAD']);
+          await this.checkCloneSize(dir);
         }
       }
       repo.status = 'indexing';

@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository. The [README](README.md) i
 
 ## What this is
 
-**Fiada** is a map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working. It turns real repositories into one zoomable map (repository → folder → file → symbol, drawn as nested circles), with links between them that are contracts (imports, calls, HTTP requests, shared types), each backed by the code that proves it. Hosted at https://fiada.tech (read-only unless you have the project key).
+**Fiada** is a map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working. It turns real repositories into one zoomable map (repository → folder → file → symbol, drawn as nested circles), with links between them that are contracts (imports, calls, HTTP requests, shared types), each backed by the code that proves it. Hosted at https://fiada.tech, where people sign in with GitHub and each get a map of their own.
 
 It was called Strata. Some names keep the old spelling on purpose; see [Names](#names).
 
@@ -74,8 +74,11 @@ npm run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent
 - **Persistence goes through `ProjectStore`** (`indexer/src/store.ts`): `FileProjectStore` under `.fiada/projects/`, or `MongoProjectStore` when `MONGODB_URI` is set. Anything new that a project keeps gets a method there, implemented in both. The graph is derived and never stored.
 - **Models go through `indexer/src/llm.ts`.** The project runs on OpenAI (`OPENAI_API_KEY`, default `gpt-5.5`, falling back to `gpt-5` then `gpt-4.1`). Don't call a provider directly or add a feature that needs another key. Everything must still work without a key: sorting falls back to the rules and summaries to the lines built from the graph.
 - **Each signed-in person's project is theirs alone.** With GitHub sign-in on (`FIADA_GITHUB_CLIENT_ID` and `_SECRET`), every route but `/api/auth*` needs a session, and handlers work only through `req.tenant` (its `ws`, `summaries`, `agents`). Never reach for a module-level workspace, a shared clone folder or `FIADA_GITHUB_TOKEN` in that mode. Agent tokens may only post `/api/agent/events`.
+- **Imported code is untrusted.** Read a file in a clone or upload only through `fileWithin` (`indexer/src/sources.ts`), which refuses links that lead out of the repository; a link to `/proc/self/environ` or another person's clone would otherwise be served by `/api/source`. A hosted indexer clones over https from `FIADA_GIT_HOSTS` only (`parseSource` in `workspace.ts`).
+- **People can leave.** `DELETE /api/auth/account` deletes the account, the project and its clones. Anything new a project keeps must be deleted by `deleteProject` in both stores, and `web/src/components/Privacy.tsx` must still say truthfully what is kept and who handles it.
+- **Nobody can use it up for everyone else.** A hosted indexer limits changes per minute (`RateLimit` in `access.ts`), repositories and clone size per project, and model requests per person per day (`LLMBudget` in `llm.ts`). A new route that does real work goes through them.
 - **Without sign-in, writes need the key.** When `FIADA_API_KEY` is set, anything that changes the project needs `Authorization: Bearer <key>`; reads stay open. The check lets GET, HEAD and OPTIONS through, so a route that changes anything must use another method.
-- **Deploys:** `main` deploys the map to Vercel (`vercel.json` installs only the `@fiada/web` workspace, so the web app can't depend on indexer packages). The indexer runs from the root `Dockerfile`, which copies every workspace's `package.json`; add a new workspace there too.
+- **Deploys:** `vercel.json` sends the site's Content-Security-Policy: a new script, font, image or API origin must be added there, and a change to `index.html`'s inline script needs its new hash (`web/src/csp.test.ts` says which). `main` deploys the map to Vercel (`vercel.json` installs only the `@fiada/web` workspace, so the web app can't depend on indexer packages). The indexer runs from the root `Dockerfile`, which copies every workspace's `package.json`; add a new workspace there too.
 
 ## Design system
 

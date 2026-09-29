@@ -162,6 +162,7 @@ export const api = {
   auth: () => call<AuthState>('/api/auth'),
   agentConnection: () => call<AgentConnection>('/api/auth/agent'),
   resetAgentToken: () => call<AgentConnection>('/api/auth/agent/reset', { method: 'POST' }),
+  deleteAccount: () => call<{ deleted: boolean }>('/api/auth/account', { method: 'DELETE' }),
   workspace: () => call<Workspace>('/api/workspace'),
   graph: () => call<Graph>('/api/graph'),
   addRepo: (source: string) => call<Workspace>('/api/repos', { method: 'POST', body: JSON.stringify({ source }) }),

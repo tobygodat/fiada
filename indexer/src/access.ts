@@ -59,3 +59,30 @@ export function hasKey(authorization: string | undefined, key: string): boolean 
   const want = Buffer.from(key);
   return given.length === want.length && timingSafeEqual(given, want);
 }
+
+/**
+ * How many requests each caller (an account, or an address) may make per
+ * window. Counts reset at the end of each caller's window; callers that have
+ * gone quiet are forgotten.
+ */
+export class RateLimit {
+  private hits = new Map<string, { n: number; until: number }>();
+
+  constructor(
+    readonly limit: number,
+    readonly windowMs = 60_000,
+    private now: () => number = Date.now,
+  ) {}
+
+  /** Counts a request from `key`: 0 when it is within the limit, else the seconds until the key may go again. */
+  take(key: string): number {
+    const t = this.now();
+    let h = this.hits.get(key);
+    if (!h || h.until <= t) {
+      if (this.hits.size >= 10_000) for (const [k, v] of this.hits) if (v.until <= t) this.hits.delete(k);
+      h = { n: 0, until: t + this.windowMs };
+      this.hits.set(key, h);
+    }
+    return ++h.n > this.limit ? Math.max(1, Math.ceil((h.until - t) / 1000)) : 0;
+  }
+}

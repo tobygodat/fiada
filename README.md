@@ -235,6 +235,8 @@ Set `FIADA_GITHUB_CLIENT_ID` and `FIADA_GITHUB_CLIENT_SECRET` on the indexer and
 - **Everyone signs in.** The map opens on a sign-in screen, and every API route answers only a signed-in browser. The shared project and `FIADA_API_KEY` aren't used.
 - **Each person has their own project.** Their repositories, clones (`$FIADA_HOME/clones/gh-<GitHub user id>/`), grouping, summaries and agent activity are theirs alone: what one person imports or has an agent do never shows on anyone else's map. A project opens on its owner's first request and is let go after 30 idle minutes; opening it again re-indexes from its clones.
 - **Private repositories work.** The sign-in asks GitHub for the `repo` scope, and the person's own token clones and pulls what they import (passed per git command, never written to disk). Their recently pushed repositories are offered under the import box. The token is kept on their account encrypted with AES-GCM; `FIADA_GITHUB_TOKEN` is never used for anyone's project.
+- **Nobody can use it up for everyone else.** Each person may make 60 changes a minute (agents 600 reports), hold 20 repositories of at most 500 MB each, and spend 200 model requests a day on sorting and summaries; past that, the map says so and summaries fall back to lines from the graph. Clones come over https from GitHub, GitLab and Bitbucket only, and nothing in a clone is read through a link that leads out of it. The variables are in [Configuration](#configuration).
+- **People can leave.** **delete account** in the sidebar withdraws Fiada's access at GitHub and deletes the account, the project, its clones and summaries. The map's [/privacy](https://fiada.tech/privacy) page says what is kept; change it with the code.
 - **Agents need one command.** **connect an agent** in the sidebar shows `npm run agent:setup -- --write <project> --url <indexer> --token <token>`. The token lets an agent report to that person's map and nothing else; **new token** revokes the old one.
 
 To set it up, create an OAuth app at GitHub under **Settings > Developer settings > OAuth Apps** with the callback URL `<indexer>/api/auth/github/callback`: `http://localhost:5178/api/auth/github/callback` for `npm run dev` (the dev server forwards the address it was reached at), or `https://<indexer>/api/auth/github/callback` hosted. Put its client id and a client secret in `.env` or the host's variables. The map's origin must be allowed to receive the session: its own origin, the fiada.tech domains, or one in `FIADA_ALLOWED_ORIGINS`. If a proxy in front of the indexer doesn't forward the scheme and host, set `FIADA_PUBLIC_URL`.
@@ -261,6 +263,12 @@ Fiada used to be called Strata. Every `FIADA_*` variable is also read under its 
 | `FIADA_GITHUB_SCOPE` | `read:user repo` | what the sign-in asks GitHub for; `repo` is what reading private repositories takes |
 | `FIADA_PUBLIC_URL` | the address the request came to | the indexer's public URL, for the sign-in callback and the agent setup command, when a proxy doesn't forward it |
 | `FIADA_GITHUB_TOKEN` | unset | without sign-in: token for private GitHub repos, passed per git command and never written to disk |
+| `FIADA_GIT_HOSTS` | `github.com,gitlab.com,bitbucket.org` | where an indexer others can reach may clone from, over https only; `*` for any host. Your own indexer clones from anywhere |
+| `FIADA_MAX_REPOS` | `20` | repositories one project may hold, on an indexer others can reach |
+| `FIADA_MAX_CLONE_MB` | `500` | largest clone kept on an indexer others can reach; a larger one is removed and its row says why |
+| `FIADA_RATE_LIMIT` | `60` | changes (imports, layers, removals) one person, or one address without sign-in, may make a minute; reads aren't limited, nor is an indexer on loopback |
+| `FIADA_AGENT_RATE_LIMIT` | `600` | agent reports one person may post a minute |
+| `FIADA_LLM_DAILY` | `200` | with sign-in: model requests (sorting and summaries) each person's map may make a UTC day |
 | `FIADA_UPLOAD_MB` | `50` | most megabytes of source one folder upload may carry (20,000 files at most) |
 | `OPENAI_API_KEY` | unset | lets the indexer sort each import with OpenAI and write [node summaries](#node-summaries); see [Sorted on import](#sorted-on-import) |
 | `ANTHROPIC_API_KEY` | unset | the same with Claude; with both keys set, OpenAI answers unless `FIADA_LLM_MODEL` names a Claude model |
@@ -320,6 +328,8 @@ On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly
 | `VITE_API_URL` | `https://<indexer>` (the domain from step 1, no trailing path) | Production and Preview |
 
 Vite writes it into the bundle at build time, so **redeploy** after setting it (Deployments > … > Redeploy, or push). Without it, the deployed map calls `/api` on Vercel, gets 404s and says it can't reach the indexer.
+
+`vercel.json` also sends the site's security headers. Its Content-Security-Policy lets the page call only its own origin and the indexer at `https://strataindexer-production.up.railway.app`, so **if the indexer moves, change `connect-src` there too**, or the map can't reach it. It allows `index.html`'s inline theme script by its hash; `web/src/csp.test.ts` fails when that script changes without a new hash.
 
 `https://fiada.tech` is the production domain, which Vercel's default Standard Protection leaves public; preview and per-deployment URLs ask for a Vercel login. Open the production URL in a private window before sharing it.
 

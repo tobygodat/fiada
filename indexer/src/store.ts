@@ -88,6 +88,10 @@ export interface ProjectStore {
   saveSignIn?(fields: SignedIn): Promise<StoredAccount>;
   /** Adds one to the account's agent epoch in one step, revoking its agent tokens. Null when there is no such account. */
   bumpAgentEpoch?(id: string, at: string): Promise<StoredAccount | null>;
+  /** Forgets everything the project kept: its repositories, grouping and summaries. */
+  deleteProject?(projectId: string): Promise<void>;
+  /** Forgets the account, sealed GitHub token and all. */
+  deleteAccount?(id: string): Promise<void>;
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -180,6 +184,18 @@ export class FileProjectStore implements ProjectStore {
 
   async bumpAgentEpoch(id: string, at: string): Promise<StoredAccount | null> {
     return this.changeAccount(id, (before) => before && { ...before, agentEpoch: before.agentEpoch + 1, updatedAt: at });
+  }
+
+  async deleteProject(id: string) {
+    await (this.summaryWrites.get(id) ?? Promise.resolve());
+    await fsp.rm(this.dir(id), { recursive: true, force: true });
+  }
+
+  async deleteAccount(id: string) {
+    const file = path.join(this.root, 'accounts', `${checkProjectId(id)}.json`);
+    const run = (this.accountWrites.get(id) ?? Promise.resolve()).then(() => fsp.rm(file, { force: true }));
+    this.accountWrites.set(id, run.catch(() => {}));
+    await run;
   }
 
   private changeAccount<T extends StoredAccount | null>(id: string, change: (before: StoredAccount | null) => T): Promise<T> {

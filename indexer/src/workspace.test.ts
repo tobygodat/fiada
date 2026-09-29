@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
@@ -57,4 +61,34 @@ test('a hosted indexer neither imports nor reads local folders', async () => {
   assert.deepEqual(flaky.saved().map((r) => r.id), ['laptop']);
   assert.ok(!ws.state().suggestions.some((s) => s.startsWith('/')), 'no local suggestion');
   assert.deepEqual(ws.state().access, { localPaths: false, keyRequired: true });
+});
+
+test('a project holds at most maxRepos repositories', async () => {
+  const dirs = await Promise.all([1, 2, 3].map(() => fs.mkdtemp(path.join(os.tmpdir(), 'fiada-cap-'))));
+  const flaky = flakyStore([]);
+  const ws = new Workspace(flaky.store, 'default', undefined, undefined, { clones: await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-')), maxRepos: 2 });
+  await ws.init();
+  await ws.add(dirs[0]);
+  await ws.add(dirs[1]);
+  // The same one again refreshes it rather than counting twice.
+  await ws.add(dirs[1]);
+  await assert.rejects(ws.add(dirs[2]), /2 repositories at most/);
+  assert.equal(ws.repos.length, 2);
+  await settled(ws);
+});
+
+test('a clone larger than maxCloneBytes is removed and reported', async () => {
+  const src = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-big-'));
+  await fs.writeFile(path.join(src, 'big.ts'), `export const big = "${'x'.repeat(4096)}";\n`);
+  execFileSync('git', ['init', '-q', src]);
+  execFileSync('git', ['-C', src, 'add', '.']);
+  execFileSync('git', ['-C', src, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'big']);
+  const clones = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-'));
+  const flaky = flakyStore([{ id: 'big', name: 'big', source: `file://${src}`, kind: 'git' }]);
+  const ws = new Workspace(flaky.store, 'default', undefined, undefined, { clones, maxCloneBytes: 1024 });
+  await ws.init();
+  await settled(ws);
+  assert.equal(ws.repos[0].status, 'error');
+  assert.match(ws.repos[0].error ?? '', /over this indexer's limit/);
+  assert.deepEqual(await fs.readdir(clones), []);
 });

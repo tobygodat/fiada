@@ -244,6 +244,44 @@ export function openaiLLM(apiKey: string, model?: string, opts: { post?: Post; r
   return llm;
 }
 
+/**
+ * One model shared by many accounts, each allowed `perDay` requests a UTC
+ * day, so one person's imports can't spend everyone's key. Past the limit a
+ * request fails at once, without reaching the provider, and features fall
+ * back as they do without a key's answer.
+ */
+export class LLMBudget {
+  private used = new Map<string, { day: string; n: number }>();
+
+  constructor(
+    readonly perDay: number,
+    private now: () => number = Date.now,
+  ) {}
+
+  /** `llm` as `key` may use it. */
+  for(key: string, llm: LLM): LLM {
+    const take = () => {
+      const day = new Date(this.now()).toISOString().slice(0, 10);
+      const u = this.used.get(key);
+      const n = u?.day === day ? u.n : 0;
+      if (n >= this.perDay) throw new Error(`This map has used its ${this.perDay} model requests for today. Summaries and sorting pick up again tomorrow (UTC).`);
+      this.used.set(key, { day, n: n + 1 });
+    };
+    return {
+      get label() {
+        return llm.label;
+      },
+      get model() {
+        return llm.model;
+      },
+      async json(req) {
+        take();
+        return llm.json(req);
+      },
+    };
+  }
+}
+
 /** A sentence for people about why a request failed. */
 export function describeLLMError(err: unknown): string {
   if (err instanceof OpenAIError) {
