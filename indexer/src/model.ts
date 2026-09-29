@@ -40,7 +40,10 @@ export type RefKind = 'call' | 'new' | 'jsx' | 'type' | 'ref';
 export interface Ref {
   name: string;
   member?: string;
-  /** C++: the namespace a qualified name gives (`b` in `b::Foo`; "" for `::Foo`). */
+  /**
+   * The namespace or package a qualified name gives: C++ `b` in `b::Foo` ("" for
+   * `::Foo`), Java `a.b` in `a.b.Widget`, C# `External.Models` in `External.Models.Item`.
+   */
   scope?: string;
   kind: RefKind;
   /** Line of the use that decided `kind` (the first call, else the first JSX use, …). */
@@ -227,7 +230,12 @@ export interface ParsedRepo {
   /** Go module paths from go.mod files, by the directory they're in ("" for the root). */
   goModules?: { dir: string; module: string }[];
   /** Rust crates from Cargo.toml files: their directory ("" for the root) and name as code writes it (dashes become underscores). */
-  rustCrates?: { dir: string; name: string }[];
+  rustCrates?: {
+    dir: string;
+    name: string;
+    /** Dependencies renamed in Cargo.toml (`util = { package = "acme-util" }`): the name code uses → the package's crate name. */
+    renames?: Record<string, string>;
+  }[];
   /** Absolute path on disk. */
   root: string;
   files: ParsedFile[];

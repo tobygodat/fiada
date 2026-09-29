@@ -107,6 +107,28 @@ test('Java: a nested type named with its outer one, from the same package', asyn
   edge(g, 'app/src/com/acme/Use.java#Use.make', 'app/src/com/acme/Outer.java#Outer.Inner', 'calls');
 });
 
+test('Java and C#: a qualified type is looked for where its qualifier says, not taken for a same-named one', async () => {
+  const g = await graphOf({
+    jv: {
+      'src/external/api/Widget.java': 'package external.api;\n\npublic class Widget {}\n',
+      'src/com/acme/Widget.java': 'package com.acme;\n\npublic class Widget {}\n',
+      'src/com/acme/Use.java': 'package com.acme;\n\npublic class Use {\n  Object make() { java.util.List<String> l = null; return new external.api.Widget(); }\n}\n',
+    },
+    cs: {
+      'External/Item.cs': 'namespace External.Models;\n\npublic class Item { }\n',
+      'Acme/Item.cs': 'namespace Acme;\n\npublic class Item { }\n',
+      'Acme/Models/Thing.cs': 'namespace Acme.Models;\n\npublic class Thing { public class Part { } }\n',
+      'Acme/Use.cs': 'namespace Acme;\n\npublic class Use\n{\n    public object Make() { var t = new Models.Thing.Part(); return new External.Models.Item(); }\n}\n',
+    },
+  });
+  assert.match(edge(g, 'jv/src/com/acme/Use.java#Use.make', 'jv/src/external/api/Widget.java#Widget', 'calls').reason!, /by its full path/);
+  noEdge(g, 'jv/src/com/acme/Use.java#Use.make', 'jv/src/com/acme/Widget.java#Widget');
+  edge(g, 'cs/Acme/Use.cs#Use.Make', 'cs/External/Item.cs#Item', 'calls');
+  noEdge(g, 'cs/Acme/Use.cs#Use.Make', 'cs/Acme/Item.cs#Item');
+  // Relative to the namespace the code is in, and nested in a type.
+  edge(g, 'cs/Acme/Use.cs#Use.Make', 'cs/Acme/Models/Thing.cs#Thing.Part', 'calls');
+});
+
 test('Kotlin: sees Java in its package, aliases imports, and reads Spring routes', async () => {
   const g = await graphOf({
     app: {
@@ -318,6 +340,21 @@ test('Rust: src/main.rs beside src/lib.rs is its own crate; crate:: and super:: 
   // super::helper() in `mod inner` is the file's helper, not inner's own.
   edge(g, 'app/src/lib.rs#inner.go', 'app/src/lib.rs#helper', 'calls');
   noEdge(g, 'app/src/lib.rs#inner.go', 'app/src/lib.rs#inner.helper');
+});
+
+test('Rust: a module both the library and the binary declare, and a renamed dependency', async () => {
+  const g = await graphOf({
+    ws: {
+      'acme-util/Cargo.toml': '[package]\nname = "acme-util"\n',
+      'acme-util/src/lib.rs': 'pub fn go() {}\n',
+      'app/Cargo.toml': '[package]\nname = "app"\n\n[dependencies]\nutil = { package = "acme-util", path = "../acme-util" }\n',
+      'app/src/lib.rs': 'pub mod common;\n',
+      'app/src/main.rs': 'mod common;\nuse util::go;\n\nfn main() {\n    crate::common::run();\n    go();\n}\n',
+      'app/src/common.rs': 'pub fn run() {}\n',
+    },
+  });
+  edge(g, 'ws/app/src/main.rs#main', 'ws/app/src/common.rs#run', 'calls');
+  assert.match(edge(g, 'ws/app/src/main.rs#main', 'ws/acme-util/src/lib.rs#go', 'calls').reason!, /imported from "util::go"/);
 });
 
 test('Rust: a crate name two repositories share means the referring repository\'s crate', async () => {

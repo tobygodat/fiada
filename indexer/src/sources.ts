@@ -101,7 +101,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
   const pyDeps = new Set<string>();
   const goDeps = new Set<string>();
   const goModules: { dir: string; module: string }[] = [];
-  const rustCrates: { dir: string; name: string }[] = [];
+  const rustCrates: NonNullable<ParsedRepo['rustCrates']> = [];
   for (const rel of all) {
     const base = rel.slice(rel.lastIndexOf('/') + 1);
     const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
@@ -130,9 +130,18 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
       }
     } else if (base === 'Cargo.toml') {
       // The [package] name, as `use` paths write it; a workspace-only manifest has none.
-      const pkg = ((await readText(path.join(root, rel))) ?? '').split(/^\s*\[/m).find((sec) => /^package\s*\]/.test(sec));
+      const text = (await readText(path.join(root, rel))) ?? '';
+      const crateName = (s: string) => s.replace(/-/g, '_');
+      const pkg = text.split(/^\s*\[/m).find((sec) => /^package\s*\]/.test(sec));
       const name = pkg?.match(/^\s*name\s*=\s*["']([^"']+)["']/m)?.[1];
-      if (name) rustCrates.push({ dir, name: name.replace(/-/g, '_') });
+      // Renamed dependencies: `util = { package = "acme-util" }`, or a `[dependencies.util]` table saying `package = …`.
+      const renames: Record<string, string> = {};
+      for (const m of text.matchAll(/^\s*([\w-]+)\s*=\s*\{[^}\n]*\bpackage\s*=\s*["']([^"']+)["']/gm)) renames[crateName(m[1])] = crateName(m[2]);
+      for (const m of text.matchAll(/^\s*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.([\w-]+)\]([^[]*)/gm)) {
+        const real = m[2].match(/^\s*package\s*=\s*["']([^"']+)["']/m)?.[1];
+        if (real) renames[crateName(m[1])] = crateName(real);
+      }
+      if (name) rustCrates.push(Object.keys(renames).length ? { dir, name: crateName(name), renames } : { dir, name: crateName(name) });
     } else if (base === 'pyproject.toml' || /^requirements.*\.txt$/.test(base) || base === 'setup.py') {
       const text = (await readText(path.join(root, rel))) ?? '';
       if (base.endsWith('.txt')) {

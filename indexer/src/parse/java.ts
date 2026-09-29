@@ -61,14 +61,17 @@ const enclosingType = (n: SyntaxNode) => {
 };
 
 /**
- * `Outer.Inner` keeps its qualifier, to reach the nested type's own symbol;
- * a package-qualified `java.util.List` is just its last part.
+ * `Outer.Inner` keeps its qualifier, to reach the nested type's own symbol,
+ * and `external.api.Widget` its package, which the linker looks in rather
+ * than for any Widget in sight.
  */
 function addType(out: RefSink, id: SyntaxNode, kind: 'new' | 'type', at: SyntaxNode) {
+  for (const t of id.descendantsOfType('type_identifier')) out.seen(t);
   const parts = id.text.replace(/<.*$/s, '').split('.').map((p) => p.trim());
   const first = parts.findIndex((p) => /^[A-Z]/.test(p));
-  if (first >= 0 && first < parts.length - 1) out.add(parts[first], kind, at, parts.slice(first + 1).join('.'));
-  else out.add(parts[parts.length - 1], kind, at);
+  if (first < 0) return void out.add(parts[parts.length - 1], kind, at);
+  const scope = first > 0 ? parts.slice(0, first).join('.') : undefined;
+  out.add(parts[first], kind, at, parts.slice(first + 1).join('.') || undefined, scope);
 }
 
 const spec: LangSpec = {

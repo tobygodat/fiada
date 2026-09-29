@@ -289,6 +289,8 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return seen;
   };
   const rootOf = new Map<string, { crate: string; dir: string; root: string }>();
+  /** Modules both the library and a binary declare: registered under the binary too. */
+  const alsoIn = new Map<string, { crate: string; dir: string }[]>();
   for (const repo of repos) {
     for (const c of repo.rustCrates ?? [{ dir: '', name: '' }]) {
       const src = c.dir ? `${c.dir}/src` : 'src';
@@ -298,7 +300,10 @@ export function link(repos: ParsedRepo[]): LinkResult {
       const inLib = lib ? tree(lib) : new Set<string>();
       for (const bin of [...(lib && main ? [main] : []), ...bins]) {
         const crate = `${repo.info.id}/${c.dir}#${posix.basename(bin.file.path, '.rs')}`;
-        for (const id of tree(bin)) if (!inLib.has(id) && !rootOf.has(id)) rootOf.set(id, { crate, dir: posix.dirname(bin.file.path), root: bin.id });
+        for (const id of tree(bin)) {
+          if (inLib.has(id)) alsoIn.set(id, [...(alsoIn.get(id) ?? []), { crate, dir: posix.dirname(bin.file.path) }]);
+          else if (!rootOf.has(id)) rootOf.set(id, { crate, dir: posix.dirname(bin.file.path), root: bin.id });
+        }
       }
     }
   }
@@ -318,6 +323,16 @@ export function link(repos: ParsedRepo[]): LinkResult {
     }
     rustCrateOf.set(e.id, { crate, mod });
   }
+  for (const [id, crates] of alsoIn) {
+    const path = files.get(id)!.file.path;
+    for (const c of crates) {
+      const key = [c.crate, ...path.slice(c.dir.length + 1).replace(/\.rs$/, '').replace(/(^|\/)mod$/, '').split('/')].join('::');
+      if (!rustMods.has(key)) rustMods.set(key, id);
+    }
+  }
+  /** Renamed dependencies of each crate, by the library crate's key a binary's key starts with. */
+  const renamesOf = new Map<string, Record<string, string>>();
+  for (const repo of repos) for (const c of repo.rustCrates ?? []) if (c.renames) renamesOf.set(`${repo.info.id}/${c.dir}`, c.renames);
 
   const ev = (e: FileEntry, source: EdgeEvidenceSource, line: number, note?: string): EdgeEvidence => {
     const out: EdgeEvidence = { source, file: e.id, line };
@@ -446,7 +461,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const here = [at.crate, ...(at.mod ?? [])];
     let base: string[];
     let guess: string | undefined;
-    const crates = cratesByName.get(parts[0]);
+    const crates = cratesByName.get(renamesOf.get(at.crate.split('#')[0])?.[parts[0]] ?? parts[0]);
     if (parts[0] === 'crate') [base, parts] = [[at.crate], parts.slice(1)];
     else if (parts[0] === 'self') [base, parts] = [here, parts.slice(1)];
     else if (parts[0] === 'super') {
@@ -783,7 +798,30 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return { to, how, ...(mod ? { spec: b!.spec } : {}), ...(split.guess ? { guess: split.guess } : {}), modules: [split.id] };
   };
 
+  /**
+   * Java `external.api.Widget` and C# `External.Models.Item`: looked for in
+   * the package or namespace the code names (a C# one may be relative to the
+   * namespace the code is in), or, in C#, as a type nested in a visible one.
+   * A qualified name found nowhere isn't taken for a same-named type in sight.
+   */
+  const qualifiedRef = (e: FileEntry, r: Pick<Ref, 'name' | 'scope'>, at: At): Resolved | null => {
+    const family = e.file.lang === 'csharp' ? 'cs' : 'jvm';
+    const parts = [...r.scope!.split('.'), r.name];
+    const around = family === 'cs' && at.namespace ? at.namespace.split('.') : [];
+    for (let i = around.length; i >= 0; i--) {
+      const split = splitNamespaced(e, family, [...around.slice(0, i), ...parts]);
+      const sid = split?.rest ? resolveName(split.id, split.rest, 0, e.repo) : null;
+      if (sid) return { to: sid, how: 'path', ...(split!.guess ? { guess: split!.guess } : {}), modules: [split!.id] };
+    }
+    if (family !== 'cs') return null;
+    const outer = resolveRefOwner(e, { name: parts[0] }, at);
+    if (!outer?.to.includes('#')) return null;
+    const nested = memberOf(outer.to, parts.slice(1).join('.'));
+    return nested === outer.to ? null : { ...outer, to: nested };
+  };
+
   const resolveRefOwner = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At): Resolved | null => {
+    if ((e.file.lang === 'java' || e.file.lang === 'kotlin' || e.file.lang === 'csharp') && r.scope) return qualifiedRef(e, r, at);
     // `crate::a::B`, or `models::helper` through a module: in Rust a lowercase head names a module or crate.
     if (e.file.lang === 'rust' && (r.name.includes('::') || (r.member && !/^[A-Z]/.test(r.name)))) {
       const path = rustPath(e, r, at);

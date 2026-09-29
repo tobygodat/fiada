@@ -3,7 +3,7 @@
 // (`app.MapGet("/x", …)`).
 
 import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
-import { annotationRoutes, capitalized, innermost, joinPath, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
+import { annotationRoutes, capitalized, innermost, joinPath, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const TYPE_KIND = {
@@ -45,6 +45,13 @@ const typeName = (n: SyntaxNode | null | undefined): string | null => {
   if (n.type === 'qualified_name') return typeName(n.namedChildren[n.namedChildren.length - 1]);
   return null;
 };
+
+/** `External.Models.Item` keeps what qualifies it, a namespace or an outer type, for the linker to look in. */
+function addQualified(out: RefSink, n: SyntaxNode, kind: 'new' | 'type', at: SyntaxNode) {
+  for (const id of n.descendantsOfType('identifier')) out.seen(id);
+  const parts = n.text.replace(/^global::/, '').replace(/<.*$/s, '').split('.').map((p) => p.trim());
+  out.add(parts[parts.length - 1], kind, at, undefined, parts.slice(0, -1).join('.'));
+}
 
 const spec: LangSpec = {
   decl(n): Decl | null {
@@ -100,7 +107,10 @@ const spec: LangSpec = {
       case 'object_creation_expression': {
         const type = n.childForFieldName('type');
         const name = typeName(type);
-        if (name) {
+        if (type?.type === 'qualified_name') {
+          out.seen(type);
+          addQualified(out, type, 'new', n);
+        } else if (name) {
           out.seen(type);
           out.seen(type?.namedChildren[0]);
           out.add(name, 'new', n);
@@ -125,7 +135,7 @@ const spec: LangSpec = {
         return;
       }
       case 'qualified_name':
-        if (!n.parent?.type.endsWith('namespace_declaration')) out.add(typeName(n)!, 'type', n);
+        if (!n.parent?.type.endsWith('namespace_declaration')) addQualified(out, n, 'type', n);
         return true;
       case 'identifier': {
         if (!capitalized(n.text) || n.parent?.type.endsWith('namespace_declaration')) return;
