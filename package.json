@@ -14,10 +14,10 @@
     "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @fiada/web\"",
     "build": "npm run build -w @fiada/web",
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web && tsc -p agent",
-    "test": "npm test -w @strata/indexer -w @fiada/web -w @fiada/agent",
+    "test": "npm test -w @strata/indexer -w @fiada/web -w @fiadatech/agent",
     "index": "npm run index -w @strata/indexer --",
-    "agent:setup": "npm run setup -w @fiada/agent --",
-    "agent:build": "npm run build -w @fiada/agent"
+    "agent:setup": "npm run setup -w @fiadatech/agent --",
+    "agent:build": "npm run build -w @fiadatech/agent"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

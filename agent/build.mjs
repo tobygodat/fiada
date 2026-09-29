@@ -1,7 +1,7 @@
 // Bundles the agent into dist/cli.js for npm: one plain JavaScript file with
 // no dependencies, since Node won't strip types from a package in
 // node_modules, and one file starts fastest for a hook that runs after
-// every edit. `npm run build -w @fiada/agent`; npm publish runs it first.
+// every edit. `npm run build -w @fiadatech/agent`; npm publish runs it first.
 
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';

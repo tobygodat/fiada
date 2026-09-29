@@ -16,7 +16,7 @@ npm workspaces, TypeScript everywhere, ESM, no compile step (the indexer and age
 shared/   @fiada/shared    the graph contract both sides import: nodes, edges and their evidence, layers, grouping, agent events (src/index.ts)
 indexer/  @strata/indexer  Fastify server on 127.0.0.1:4178 and a CLI: clone → parse → link → facts → build → classify
 web/      @fiada/web       React 19 + Vite on :5178 (proxies /api to the indexer): canvas map, sidebar, detail panel, agent window
-agent/    @fiada/agent     what a coding agent runs: a tool-hook CLI and a stdio MCP server that report edits to the indexer; published to npm
+agent/    @fiadatech/agent what a coding agent runs: a tool-hook CLI and a stdio MCP server that report edits to the indexer; published to npm
 ```
 
 Where things live:
@@ -48,7 +48,7 @@ npm test             # node:test in indexer, web and agent
 npm run build        # the web app, into web/dist
 npm run index -- <repo-or-path> [more…] --layers --domains   # print classification without the UI
 npm run agent:setup -- --write /path/to/repo                 # hook a repo's Claude Code sessions up to Fiada
-npm run agent:build  # bundle the agent for npm; npm publish -w @fiada/agent runs it
+npm run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent runs it
 ```
 
 - The MongoDB store tests run only when `FIADA_TEST_MONGODB_URI` is set.
@@ -102,7 +102,7 @@ Every `FIADA_*` variable is also read as `STRATA_*` (the old name wins when both
 
 ## Names
 
-New code, copy and variables say **Fiada** (`@fiada/*`, `FIADA_*`, `.fiada/`, `fiada.grouping.json`, MCP server id `fiada`). These keep "strata" on purpose so existing hosts and checkouts keep working; don't rename them:
+New code, copy and variables say **Fiada** (`@fiada/*`; on npm the agent is `@fiadatech/agent`, since the `fiada` scope isn't ours; `FIADA_*`, `.fiada/`, `fiada.grouping.json`, MCP server id `fiada`). These keep "strata" on purpose so existing hosts and checkouts keep working; don't rename them:
 
 - the indexer package `@strata/indexer` (the Dockerfile and root scripts name it, and the Railway service may too);
 - the `STRATA_*` aliases, an existing `.strata/` folder and `strata.grouping.json`;

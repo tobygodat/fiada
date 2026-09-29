@@ -1,5 +1,5 @@
 {
-  "name": "@fiada/agent",
+  "name": "@fiadatech/agent",
   "version": "0.1.0",
   "description": "Shows what your coding agent is doing on Fiada's map of your codebase: a tool hook and an MCP server for Claude Code, Cursor and Codex.",
   "keywords": [
@@ -11,6 +11,8 @@
     "hooks"
   ],
   "homepage": "https://fiada.tech",
+  "license": "MIT",
+  "author": "Toby Godat",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tobygodat/hackgt13.git",

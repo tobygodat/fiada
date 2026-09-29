@@ -1,10 +1,10 @@
 // fiada setup [--write <project dir>] [--url <indexer> --token <agent token>]
-// (npx -y --package=@fiada/agent fiada setup …, or npm run agent:setup -- … in a checkout)
+// (npx -y --package=@fiadatech/agent fiada setup …, or npm run agent:setup -- … in a checkout)
 //
 // Prints the Claude Code configuration that connects an agent to Fiada: the
 // MCP server command and the hooks block. From a checkout or an installed
 // package they run this copy by its absolute path; from npx's cache, which
-// npm may clear, they run `npx --package=@fiada/agent@<version> fiada` instead.
+// npm may clear, they run `npx --package=@fiadatech/agent@<version> fiada` instead.
 // With --write it merges the hooks into <project>/.claude/settings.local.json
 // (Claude Code's per-user, git-ignored settings) and registers the MCP server
 // for that project with `claude mcp add`.
@@ -62,7 +62,7 @@ export function mergeHooks(settings: Record<string, any>, block = hooksBlock()):
   const hooks: Record<string, HookEntry[]> = { ...(settings.hooks ?? {}) };
   for (const [event, entries] of Object.entries(block)) {
     const kept = (hooks[event] ?? [])
-      .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !String(h.command ?? '').match(/(fiada|strata)-hook|@fiada\/agent/)) }))
+      .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !String(h.command ?? '').match(/(fiada|strata)-hook|@fiada(tech)?\/agent/)) }))
       .filter((e) => e.hooks.length);
     hooks[event] = [...kept, ...entries];
   }
@@ -133,7 +133,7 @@ export async function runSetup(args: string[]) {
 
 ${JSON.stringify({ hooks: hooksBlock() }, null, 2).replace(/^/gm, '   ')}
 
-Or let this do both, in your project:  npx -y --package=@fiada/agent fiada setup --write .
+Or let this do both, in your project:  npx -y --package=@fiadatech/agent fiada setup --write .
 
 To report to a hosted map, add --url <indexer> --token <token>; the map's "connect an agent" gives the whole command.
 `);
