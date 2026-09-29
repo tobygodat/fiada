@@ -12,13 +12,14 @@
 //     carrying the key can change anything.
 
 import './env.ts';
+import fs from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
-import Fastify, { type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import type { AccountInfo, AgentConnection, AgentEvent, AuthState, LayerPreset } from '@fiada/shared';
-import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, READS } from './access.ts';
+import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, RateLimit, READS } from './access.ts';
 import { accountInfo, Auth, authConfigFromEnv, bearer, CALLBACK_PATH, cookie, NONCE_COOKIE, returnAllowed } from './auth.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
-import { KEY_HINT, llmFromEnv } from './llm.ts';
+import { KEY_HINT, LLMBudget, llmFromEnv } from './llm.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { clonesOf, openTenant, Tenants, type Tenant } from './tenants.ts';
 import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
@@ -46,6 +47,19 @@ const summaryLlm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim(
 const authConfig = authConfigFromEnv();
 const auth = authConfig ? new Auth(store, authConfig) : null;
 
+/** A whole number from the environment, or the fallback when it is unset or not one. */
+const count = (name: string, fallback: number) => {
+  const n = Number(process.env[name]);
+  return process.env[name]?.trim() && Number.isInteger(n) && n >= 0 ? n : fallback;
+};
+// What one caller may do, so nobody can use up the indexer, its disk or its model key for everyone else.
+const changes = new RateLimit(count('FIADA_RATE_LIMIT', 60));
+const agentReports = new RateLimit(count('FIADA_AGENT_RATE_LIMIT', 600));
+/** Model requests each signed-in person's map may make a day. */
+const budget = new LLMBudget(count('FIADA_LLM_DAILY', 200));
+const MAX_REPOS = count('FIADA_MAX_REPOS', 20);
+const MAX_CLONE_BYTES = count('FIADA_MAX_CLONE_MB', 500) * (1 << 20);
+
 /** Without sign-in: the one project everybody shares. */
 const shared = auth
   ? null
@@ -57,6 +71,8 @@ const shared = auth
       summaryLlm,
       clones: CLONES,
       githubToken: () => process.env.FIADA_GITHUB_TOKEN,
+      // Limits only for an indexer others can reach; your own is yours to fill.
+      ...(isLoopback(HOST) ? {} : { maxRepos: MAX_REPOS, maxCloneBytes: MAX_CLONE_BYTES }),
     });
 
 /** With sign-in: each person's own project, as they last signed in. */
@@ -69,9 +85,11 @@ const tenants = new Tenants(async (projectId) => {
     projectId,
     // Local folders would be the indexer's own disk, which is nobody's project.
     access: { localPaths: false, keyRequired: false },
-    sortLlm,
-    summaryLlm,
+    sortLlm: sortLlm && budget.for(projectId, sortLlm),
+    summaryLlm: summaryLlm && budget.for(projectId, summaryLlm),
     clones: clonesOf(FIADA_HOME, projectId),
+    maxRepos: MAX_REPOS,
+    maxCloneBytes: MAX_CLONE_BYTES,
     githubToken: () => auth!.githubToken(projectId),
     suggestions: () => (recent.length ? recent : null),
     account: () => people.get(projectId),
@@ -79,6 +97,10 @@ const tenants = new Tenants(async (projectId) => {
 });
 
 const SIGN_IN = 'Sign in with GitHub to use this map.';
+const DELETING = 'This account is being deleted.';
+
+/** Accounts whose deletion is under way: their project can't be opened again until it is done. */
+const deleting = new Set<string>();
 const AGENT_SIGN_IN = 'This agent token is not valid (it may have been reset). Copy the command from the map again.';
 
 /** The indexer's URL as the caller reached it: behind the dev server's proxy, or the host's. */
@@ -88,10 +110,22 @@ const publicUrl = (req: FastifyRequest) => PUBLIC_URL ?? `${req.protocol}://${re
 const app = Fastify({ logger: { level: 'warn' }, trustProxy: true });
 app.decorateRequest('tenant', null as unknown as Tenant);
 
+/** Answers 429 when `key` has made too many requests of this kind lately. */
+function limited(limit: RateLimit, key: string, reply: FastifyReply) {
+  const wait = limit.take(key);
+  if (!wait) return false;
+  reply.header('retry-after', String(wait));
+  reply.code(429).send({ error: `Too many requests. Try again in ${wait} second${wait === 1 ? '' : 's'}.` });
+  return true;
+}
+
 // CORS for the map served from another origin, then who is asking and which project that is.
 app.addHook('onRequest', async (req, reply) => {
   const origin = req.headers.origin;
   reply.header('vary', 'origin');
+  // Answers are data for the map, never pages to render or frame.
+  reply.header('x-content-type-options', 'nosniff');
+  reply.header('x-frame-options', 'DENY');
   if (allowedOrigin(origin)) reply.header('access-control-allow-origin', origin);
   if (req.method === 'OPTIONS') {
     reply.header('access-control-allow-methods', 'GET, POST, PUT, DELETE');
@@ -103,6 +137,7 @@ app.addHook('onRequest', async (req, reply) => {
   // Signing in answers for itself.
   if (route === '/api/auth' || route.startsWith('/api/auth/')) return;
   if (!auth) {
+    if (!READS.has(req.method) && !isLoopback(HOST) && limited(changes, req.ip, reply)) return;
     if (KEY && !READS.has(req.method) && !hasKey(req.headers.authorization, KEY)) {
       return reply.code(401).send({ error: "This map is read-only without the indexer's access key. Open it once with ?key=<key> to make changes." });
     }
@@ -114,6 +149,8 @@ app.addHook('onRequest', async (req, reply) => {
   const token = bearer(req.headers.authorization);
   const account = agentRoute ? await auth.agent(token) : await auth.session(token);
   if (!account) return reply.code(401).send({ error: agentRoute ? AGENT_SIGN_IN : SIGN_IN, signIn: !agentRoute });
+  if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
+  if (!READS.has(req.method) && limited(agentRoute ? agentReports : changes, account.id, reply)) return;
   const info = accountInfo(account);
   people.set(account.id, info);
   req.tenant = await tenants.get(account.id, info);
@@ -179,6 +216,27 @@ app.post('/api/auth/agent/reset', async (req, reply): Promise<AgentConnection | 
   const account = await signedIn(req);
   if (!auth || !account) return reply.code(401).send({ error: SIGN_IN, signIn: true });
   return { url: publicUrl(req), token: await auth.resetAgentToken(account) };
+});
+
+// Deletes the person's account and everything their project kept: repositories, clones, grouping, summaries.
+app.delete('/api/auth/account', async (req, reply) => {
+  const account = await signedIn(req);
+  if (!auth || !account) return reply.code(401).send({ error: SIGN_IN, signIn: true });
+  if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
+  // The project first and the account last, so a step that fails leaves the person
+  // signed in to try again. Meanwhile nothing signed in as them may reopen the project.
+  deleting.add(account.id);
+  try {
+    await tenants.drop(account.id);
+    await store.deleteProject?.(account.id);
+    await fs.rm(clonesOf(FIADA_HOME, account.id), { recursive: true, force: true });
+    await auth.deleteAccount(account);
+  } finally {
+    deleting.delete(account.id);
+  }
+  people.delete(account.id);
+  console.log(`[fiada] ${account.login} deleted their account`);
+  return { deleted: true };
 });
 
 // ── the project ──

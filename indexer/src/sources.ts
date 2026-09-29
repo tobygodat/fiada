@@ -81,6 +81,27 @@ export function parseJsonc(text: string): any {
 
 const readText = (p: string) => fs.readFile(p, 'utf8').catch(() => null);
 
+/**
+ * A repository file as it really is on disk: its path once links are
+ * followed, and its size, when that is a regular file still inside the
+ * repository (`realRoot`, itself with links resolved). Null otherwise. An
+ * imported repository is someone else's content, and a link in it could
+ * point anywhere on the indexer's disk: its environment, another project's
+ * clones.
+ */
+export async function fileWithin(realRoot: string, rel: string): Promise<{ abs: string; size: number } | null> {
+  const abs = await fs.realpath(path.join(realRoot, rel)).catch(() => null);
+  if (!abs || !abs.startsWith(realRoot + path.sep)) return null;
+  const stat = await fs.stat(abs).catch(() => null);
+  return stat?.isFile() ? { abs, size: stat.size } : null;
+}
+
+/** A repository file's text, when it is a regular file inside the repository (see fileWithin). */
+const readWithin = async (realRoot: string, rel: string) => {
+  const f = await fileWithin(realRoot, rel);
+  return f ? readText(f.abs) : null;
+};
+
 const FRAMEWORKS: [RegExp, string][] = [
   [/^react$/, 'react'], [/^next$/, 'next'], [/^vue$/, 'vue'], [/^svelte$/, 'svelte'], [/^@angular\/core$/, 'angular'],
   [/^react-native$/, 'react-native'], [/^express$/, 'express'], [/^fastify$/, 'fastify'], [/^hono$/, 'hono'],
@@ -95,6 +116,7 @@ const FRAMEWORKS: [RegExp, string][] = [
 
 export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions = DEFAULT_LOAD): Promise<ParsedRepo> {
   const all = (await listFiles(root)).filter((f) => !isIgnored(f));
+  const realRoot = await fs.realpath(root);
 
   const packages: PackageManifest[] = [];
   const tsconfigs = new Map<string, TsConfigPaths>();
@@ -105,7 +127,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
     const base = rel.slice(rel.lastIndexOf('/') + 1);
     const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
     if (base === 'package.json') {
-      const text = await readText(path.join(root, rel));
+      const text = await readWithin(realRoot, rel);
       try {
         const pj = JSON.parse(text ?? '{}');
         const deps = Object.keys({ ...pj.dependencies, ...pj.devDependencies, ...pj.peerDependencies });
@@ -113,14 +135,14 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
       } catch { /* malformed manifest: skip */ }
     } else if (/^[tj]sconfig(\..+)?\.json$/.test(base)) {
       try {
-        const co = parseJsonc((await readText(path.join(root, rel))) ?? '{}').compilerOptions ?? {};
+        const co = parseJsonc((await readWithin(realRoot, rel)) ?? '{}').compilerOptions ?? {};
         const cur = tsconfigs.get(dir) ?? { dir, paths: {} };
         if (co.baseUrl) cur.baseUrl = co.baseUrl;
         Object.assign(cur.paths, co.paths ?? {});
         tsconfigs.set(dir, cur);
       } catch { /* unreadable tsconfig: skip */ }
     } else if (base === 'go.mod') {
-      const text = (await readText(path.join(root, rel))) ?? '';
+      const text = (await readWithin(realRoot, rel)) ?? '';
       const mod = text.match(/^module\s+(\S+)/m)?.[1];
       if (mod) goModules.push({ dir, module: mod.replace(/^"|"$/g, '') });
       // require lines, in a block or one per line; indirect ones say nothing about the code.
@@ -128,7 +150,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
         if (!m[2]) goDeps.add(m[1]);
       }
     } else if (base === 'pyproject.toml' || /^requirements.*\.txt$/.test(base) || base === 'setup.py') {
-      const text = (await readText(path.join(root, rel))) ?? '';
+      const text = (await readWithin(realRoot, rel)) ?? '';
       if (base.endsWith('.txt')) {
         for (const l of text.split('\n')) {
           const name = l.trim().split(/[<>=~!\[; #]/)[0];
@@ -152,10 +174,9 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
 
   const files: ParsedFile[] = [];
   for (const rel of candidates) {
-    const abs = path.join(root, rel);
-    const stat = await fs.stat(abs).catch(() => null);
-    if (!stat || stat.size > opts.maxFileBytes) continue;
-    const text = await readText(abs);
+    const file = await fileWithin(realRoot, rel);
+    if (!file || file.size > opts.maxFileBytes) continue;
+    const text = await readText(file.abs);
     if (text == null) continue;
     try {
       const f = await parseFile(rel, text);
@@ -222,11 +243,11 @@ async function gitIgnored(root: string, paths: string[]): Promise<Set<string>> {
 export async function reloadFiles(repo: ParsedRepo, paths: string[], opts: LoadOptions = DEFAULT_LOAD): Promise<boolean> {
   if (paths.some((p) => MANIFEST.test(p))) return false;
   const ignored = await gitIgnored(repo.root, paths);
+  const realRoot = await fs.realpath(repo.root);
   for (const rel of new Set(paths)) {
     const counts = !!langOf(rel) && !rel.endsWith('.min.js') && !isIgnored(rel) && !ignored.has(rel) && (opts.includeTests || !TEST_PATH.test(rel));
-    const abs = path.join(repo.root, rel);
-    const stat = counts ? await fs.stat(abs).catch(() => null) : null;
-    const text = stat?.isFile() && stat.size <= opts.maxFileBytes ? await readText(abs) : null;
+    const file = counts ? await fileWithin(realRoot, rel) : null;
+    const text = file && file.size <= opts.maxFileBytes ? await readText(file.abs) : null;
     let parsed: ParsedFile | null = null;
     if (text != null) {
       try {

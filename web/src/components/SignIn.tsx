@@ -7,10 +7,17 @@ import { useEffect, useState } from 'react';
 import { api, dropSession, onSignedOut, signInError, signInUrl } from '../api.ts';
 import { App } from '../App.tsx';
 import { Wordmark } from './Logo.tsx';
+import { Privacy } from './Privacy.tsx';
 
 type Door = 'checking' | 'open' | 'sign-in';
 
 export function Gate() {
+  // The privacy page needs no indexer and no sign-in.
+  if (window.location.pathname.replace(/\/+$/, '') === '/privacy') return <Privacy />;
+  return <Doorway />;
+}
+
+function Doorway() {
   const [door, setDoor] = useState<Door>('checking');
   useEffect(() => {
     const off = onSignedOut(() => setDoor('sign-in'));
@@ -50,7 +57,10 @@ function SignIn({ error }: { error: string | null }) {
         </a>
         <p className="small muted">
           GitHub asks you to let Fiada read your repositories. Fiada clones only the ones you import, and keeps your GitHub token encrypted on
-          the indexer.
+          the indexer.{' '}
+          <a className="link" href="/privacy">
+            what fiada keeps
+          </a>
         </p>
       </div>
     </main>

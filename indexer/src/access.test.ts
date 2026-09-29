@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowLocalPaths, defaultHost, hasKey, originMatcher } from './access.ts';
+import { allowLocalPaths, defaultHost, hasKey, originMatcher, RateLimit } from './access.ts';
 
 test('allowed origins: exact entries, preview wildcards, and none by default', () => {
   const allowed = originMatcher('https://hackgt13.vercel.app, https://hackgt13-*-toby-godats-projects.vercel.app/');
@@ -41,4 +41,17 @@ test('the access key must match exactly', () => {
   assert.equal(hasKey('Bearer s3cretx', 's3cret'), false);
   assert.equal(hasKey('s3cret', 's3cret'), false);
   assert.equal(hasKey(undefined, 's3cret'), false);
+});
+
+test('a rate limit counts each caller apart and resets after its window', () => {
+  let t = 0;
+  const limit = new RateLimit(2, 60_000, () => t);
+  assert.equal(limit.take('a'), 0);
+  assert.equal(limit.take('a'), 0);
+  assert.equal(limit.take('a'), 60);
+  assert.equal(limit.take('b'), 0);
+  t = 59_500;
+  assert.equal(limit.take('a'), 1);
+  t = 60_000;
+  assert.equal(limit.take('a'), 0);
 });

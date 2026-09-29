@@ -100,6 +100,14 @@ export class Tenants {
     return e.tenant;
   }
 
+  /** Closes the person's project if it is open, and forgets it, so their next request would open it afresh. */
+  async drop(projectId: string) {
+    const e = this.open.get(projectId);
+    if (!e) return;
+    this.open.delete(projectId);
+    await (await e.tenant.catch(() => null))?.close();
+  }
+
   get size(): number {
     return this.open.size;
   }

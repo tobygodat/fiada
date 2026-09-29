@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { anthropicLLM, describeLLMError, llmFromEnv, OpenAIError, openaiLLM, type JsonRequest, type Post } from './llm.ts';
+import { anthropicLLM, describeLLMError, LLMBudget, llmFromEnv, OpenAIError, openaiLLM, type JsonRequest, type Post } from './llm.ts';
 
 const req: JsonRequest = {
   label: 'leftovers 1/1',
@@ -175,4 +175,25 @@ test('describeLLMError: Anthropic errors name their own key', async () => {
   const t = claudeFetch(() => new Response(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }), { status: 401, headers: { 'content-type': 'application/json' } }));
   const err = await anthropicLLM('k', 'claude-opus-5', { fetch: t.fetch }).json(req).catch((e) => e);
   assert.equal(describeLLMError(err), 'The Anthropic API key was rejected. Check ANTHROPIC_API_KEY on the indexer.');
+});
+
+test('a budget allows each account so many model requests a day', async () => {
+  let t = Date.parse('2026-09-29T23:00:00Z');
+  let calls = 0;
+  const llm = { label: 'OpenAI', model: 'gpt-5.5', json: async () => ++calls };
+  const budget = new LLMBudget(2, () => t);
+  const a = budget.for('gh-1', llm);
+  const b = budget.for('gh-2', llm);
+  const req: JsonRequest = { label: 'test', system: [], prompt: '', schema: {} };
+  await a.json(req);
+  await a.json(req);
+  await assert.rejects(a.json(req), /used its 2 model requests for today/);
+  await b.json(req);
+  // Another budget.for() for the same account shares its count, as a reopened project would.
+  await assert.rejects(budget.for('gh-1', llm).json(req), /for today/);
+  assert.equal(calls, 3);
+  assert.equal(a.model, 'gpt-5.5');
+  t += 2 * 3600_000;
+  await a.json(req);
+  assert.equal(calls, 4);
 });

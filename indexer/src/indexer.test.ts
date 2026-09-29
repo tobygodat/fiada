@@ -12,7 +12,7 @@ import { importMatches } from './classify/layers.ts';
 import { matchRoute, segments } from './link.ts';
 import { loadRepo } from './sources.ts';
 import { FileProjectStore } from './store.ts';
-import { parseSource } from './workspace.ts';
+import { gitHosts, parseSource } from './workspace.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-'));
@@ -60,6 +60,33 @@ test('parseSource understands what people paste', async () => {
   assert.equal((await parseSource('git@github.com:org/repo.git')).name, 'repo');
   assert.equal((await parseSource(os.tmpdir())).kind, 'local');
   await assert.rejects(parseSource('--upload-pack=evil'));
+});
+
+test('a hosted indexer clones over https from the allowed hosts only', async () => {
+  const hosts = ['github.com', 'gitlab.com'];
+  assert.equal((await parseSource('org/repo', false, hosts)).location, 'https://github.com/org/repo');
+  assert.equal((await parseSource('https://gitlab.com/group/sub/repo.git', false, hosts)).name, 'repo');
+  assert.equal((await parseSource('git@github.com:org/repo.git', false, hosts)).location, 'https://github.com/org/repo.git');
+  for (const bad of [
+    'http://github.com/org/repo',
+    'https://169.254.169.254/latest/meta-data',
+    'https://indexer.railway.internal:8080/x.git',
+    'https://github.com@evil.example/org/repo',
+    'https://github.com:444/org/repo',
+    'https://github.com.evil.example/org/repo',
+    'ssh://git@github.com/org/repo',
+    'git@evil.example:org/repo.git',
+  ]) {
+    await assert.rejects(parseSource(bad, false, hosts), /over https from github\.com, gitlab\.com only/, bad);
+  }
+  // Any host when the list says so, still over https only; and anything on your own machine.
+  assert.equal((await parseSource('https://git.example.org/repo.git', false, null)).name, 'repo');
+  for (const bad of ['http://10.0.0.5/repo.git', 'ssh://git@git.example.org/repo', 'https://user:pw@git.example.org/repo', 'https://git.example.org:8443/repo']) {
+    await assert.rejects(parseSource(bad, false, null), /over https only/, bad);
+  }
+  assert.equal((await parseSource('http://10.0.0.5/repo.git', true, hosts)).name, 'repo');
+  assert.deepEqual(gitHosts('GitHub.com, *'), null);
+  assert.deepEqual(gitHosts(''), ['github.com', 'gitlab.com', 'bitbucket.org']);
 });
 
 test('links a web client to an API in another repo, and classifies both', async () => {

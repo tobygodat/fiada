@@ -178,6 +178,14 @@ a { color: inherit; }
 }
 .sign-in-button:hover { color: var(--accent); }
 
+/* A page of prose (privacy): the sign-in's column, scrolling from the top. */
+.page { position: fixed; inset: 0; overflow: auto; padding: var(--space-lg) var(--space-md); background: var(--ground); }
+.page-body { width: min(var(--measure), 100%); margin: 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); }
+.page-body svg { display: block; }
+.page-body h2 { margin: var(--space-md) 0 0; font-size: var(--size-heading); line-height: var(--leading-tight); font-weight: var(--weight-bold); }
+.page-body p { margin: 0; font-size: var(--size-body); line-height: var(--leading); color: var(--muted); }
+.page-body p.small { font-size: var(--size-fine); line-height: var(--leading-fine); }
+
 /* ── floating panels: raised paper, a 1px rule, 6px corners; no shadow, blur or translucency ── */
 .panel {
   position: absolute; z-index: 4; display: flex; flex-direction: column; overflow: hidden;

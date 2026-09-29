@@ -50,4 +50,17 @@ The environment wins over the saved config.
 | `FIADA_CONFIG` | where setup saves the config; default `~/.config/fiada/agent.json` |
 | `FIADA_HOOK_LOG` | append every payload the hook receives to this file |
 
-Cursor, Codex and other agents: see [Watching a coding agent](https://github.com/tobygodat/hackgt13#watching-a-coding-agent).
+## Cursor, Codex and other agents
+
+Install it once and save where to report, with the URL and token from **connect an agent** on your map (without `--write`, setup touches no project):
+
+```sh
+npm install -g @fiadatech/agent
+fiada setup --url=https://<indexer> --token=<token>
+```
+
+- **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "fiada": { "command": "fiada-mcp" } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "fiada-hook" }], … } }`).
+- **Codex CLI**: add the MCP server under `[mcp_servers.fiada]` in `~/.codex/config.toml` (`command = "fiada-mcp"`), and set `notify = ["fiada-hook", "codex"]` so each finished turn sweeps the working tree for changes.
+- **Anything else**, scripts included: `fiada-hook changed <file>…`, `fiada-hook status "<what it's doing>"`, `fiada-hook sweep` and `fiada-hook done`, with `--client <name>` to name the agent.
+
+The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end.

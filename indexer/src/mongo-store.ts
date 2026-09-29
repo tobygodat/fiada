@@ -145,6 +145,19 @@ export class MongoProjectStore implements ProjectStore {
     return doc && fromDoc(doc);
   }
 
+  async deleteProject(projectId: string) {
+    await Promise.all([this.projects.deleteOne({ _id: projectId }), this.summaries.deleteMany({ project: projectId })]);
+    // A project made again under this id starts from nothing, as a new one does.
+    for (const field of ['repos', 'grouping'] as const) {
+      this.revs.delete(`${projectId}\0${field}`);
+      this.stored.delete(`${projectId}\0${field}`);
+    }
+  }
+
+  async deleteAccount(id: string) {
+    await this.accounts.deleteOne({ _id: id });
+  }
+
   async close() {
     await this.client.close();
   }

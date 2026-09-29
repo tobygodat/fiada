@@ -9,10 +9,12 @@ import { FileProjectStore, type StoredAccount } from './store.ts';
 const CONFIG = { clientId: 'id', clientSecret: 'shh', secret: 'shh', scope: 'read:user repo' };
 const CALLBACK = 'https://indexer.test/api/auth/github/callback';
 
-function fakeGitHub(user = { id: 42, login: 'ada', name: 'Ada' }): GitHubApi & { codes: string[] } {
+function fakeGitHub(user = { id: 42, login: 'ada', name: 'Ada' }): GitHubApi & { codes: string[]; revoked: string[] } {
   const codes: string[] = [];
+  const revoked: string[] = [];
   return {
     codes,
+    revoked,
     async exchange(code, redirectUri) {
       assert.equal(redirectUri, CALLBACK);
       codes.push(code);
@@ -23,6 +25,9 @@ function fakeGitHub(user = { id: 42, login: 'ada', name: 'Ada' }): GitHubApi & {
     },
     async repos() {
       return ['ada/private-thing', 'ada/notes'];
+    },
+    async revoke(token) {
+      revoked.push(token);
     },
   };
 }
@@ -205,4 +210,30 @@ test('accounts round-trip through the file store', async () => {
   // Signing in again keeps the epoch and when the account was made.
   assert.deepEqual(await store.saveSignIn({ ...signIn, login: 'y', updatedAt: 'v' }), { ...a, login: 'y', agentEpoch: 1, updatedAt: 'v' });
   await assert.rejects(store.loadAccount('../etc'), /Invalid project id/);
+});
+
+test('deleting an account revokes its GitHub grant and ends its sessions and agent tokens', async () => {
+  const { auth, store, github } = await setup();
+  const { account, session } = await signIn(auth);
+  const agent = auth.agentToken(account);
+  await auth.deleteAccount(account);
+  assert.deepEqual(github.revoked, ['gho_code1']);
+  assert.equal(await store.loadAccount(account.id), null);
+  assert.equal(await auth.session(session), null);
+  assert.equal(await auth.agent(agent), null);
+  // Signing in again makes a new account.
+  assert.equal((await signIn(auth)).account.agentEpoch, 0);
+});
+
+test('the file store forgets a deleted project and account', async () => {
+  const { store } = await setup();
+  await store.saveRepos('gh-7', [{ id: 'r', name: 'r', source: 'https://github.com/o/r', kind: 'git' }]);
+  await store.saveSummaries('gh-7', { h: { text: 't', model: 'm', at: 'a' } });
+  await store.saveSignIn({ id: 'gh-7', githubId: 7, login: 'x', sealedToken: 's', scopes: '', updatedAt: 't' });
+  await store.deleteProject('gh-7');
+  await store.deleteAccount('gh-7');
+  assert.equal(await store.loadRepos('gh-7'), null);
+  assert.equal(await store.loadSummaries('gh-7'), null);
+  assert.equal(await store.loadAccount('gh-7'), null);
+  await store.deleteProject('never-was');
 });
