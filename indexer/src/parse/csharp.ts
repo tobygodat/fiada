@@ -154,12 +154,16 @@ function minimalApiRoutes(root: SyntaxNode): RouteDecl[] {
   for (const call of root.descendantsOfType('invocation_expression')) {
     const fn = call.childForFieldName('function');
     if (fn?.type !== 'member_access_expression') continue;
-    const verb = MAP_VERB[fn.childForFieldName('name')?.text ?? ''];
-    const first = call.childForFieldName('arguments')?.namedChildren[0]?.namedChildren[0];
+    const mapper = fn.childForFieldName('name')?.text ?? '';
+    const verb = MAP_VERB[mapper];
+    const args = call.childForFieldName('arguments')?.namedChildren ?? [];
+    const first = args[0]?.namedChildren[0];
     const p = first?.type === 'string_literal' ? literal(first) : null;
     if (!verb || p == null) continue;
+    // `MapMethods("/x", new[] { "GET", "PUT" }, …)` names its verbs; any others it may name are unknown here.
+    const listed = mapper === 'MapMethods' ? [...new Set(methodsIn((args[1]?.text ?? '').toUpperCase()))] : [];
     const prefix = groups.get(fn.childForFieldName('expression')?.text ?? '') ?? '';
-    out.push({ method: verb, path: joinPath(prefix, p), line: line(call) });
+    for (const method of listed.length ? listed : [verb]) out.push({ method, path: joinPath(prefix, p), line: line(call) });
   }
   return out;
 }

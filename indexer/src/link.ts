@@ -267,8 +267,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
   /** "<crate>::a::b" → the file that is that module. */
   const rustMods = new Map<string, string>();
   const rustCrateOf = new Map<string, { crate: string; mod: string[] | null }>();
-  const cratesByName = new Map<string, string>();
-  for (const repo of repos) for (const c of repo.rustCrates ?? []) if (!cratesByName.has(c.name)) cratesByName.set(c.name, `${repo.info.id}/${c.dir}`);
+  /** Crates by the name `use` writes, every repository's, so the referring repository's comes first. */
+  const cratesByName = new Map<string, { repo: ParsedRepo; key: string }[]>();
+  for (const repo of repos) for (const c of repo.rustCrates ?? []) cratesByName.set(c.name, [...(cratesByName.get(c.name) ?? []), { repo, key: `${repo.info.id}/${c.dir}` }]);
   for (const e of files.values()) {
     if (e.file.lang !== 'rust') continue;
     const crates = (e.repo.rustCrates ?? []).filter((c) => c.dir === '' || e.file.path.startsWith(c.dir + '/')).sort((a, b) => b.dir.length - a.dir.length);
@@ -411,19 +412,25 @@ export function link(repos: ParsedRepo[]): LinkResult {
     let parts = source.split('::').filter(Boolean);
     const here = [at.crate, ...(at.mod ?? [])];
     let base: string[];
+    let guess: string | undefined;
+    const crates = cratesByName.get(parts[0]);
     if (parts[0] === 'crate') [base, parts] = [[at.crate], parts.slice(1)];
     else if (parts[0] === 'self') [base, parts] = [here, parts.slice(1)];
     else if (parts[0] === 'super') {
       base = here;
       while (parts[0] === 'super') [base, parts] = [base.length > 1 ? base.slice(0, -1) : base, parts.slice(1)];
     } else if (rustMods.has([...here, parts[0]].join('::'))) base = here;
-    else if (cratesByName.has(parts[0])) [base, parts] = [[cratesByName.get(parts[0])!], parts.slice(1)];
+    else if (crates) {
+      const own = crates.find((c) => c.repo === e.repo);
+      if (!own) guess = `crate ${parts[0]} isn't in this repository; found in ${crates[0].repo.info.name}`;
+      [base, parts] = [[(own ?? crates[0]).key], parts.slice(1)];
+    }
     // Rust 2015 reads `use model::Item` from the crate root, in any module.
     else if (rustMods.has([at.crate, parts[0]].join('::'))) base = [at.crate];
     else return null;
     for (let i = parts.length; i >= 0; i--) {
       const id = rustMods.get([...base, ...parts.slice(0, i)].join('::'));
-      if (id) return { id, rest: parts.slice(i).join('.') };
+      if (id) return guess ? { id, rest: parts.slice(i).join('.'), guess } : { id, rest: parts.slice(i).join('.') };
     }
     return null;
   };

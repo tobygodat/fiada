@@ -39,6 +39,7 @@ const EXT: Record<string, Lang> = {
   '.hh': 'cpp',
   '.hpp': 'cpp',
   '.hxx': 'cpp',
+  '.inl': 'cpp',
   '.rb': 'ruby',
   '.rake': 'ruby',
   '.swift': 'swift',

@@ -124,14 +124,16 @@ test('C#: namespaces and their parents, usings, controller and minimal-API route
         'using Acme.Models;\nusing Microsoft.AspNetCore.Mvc;\n\nnamespace Acme.Controllers;\n\n' +
         '[ApiController]\n[Route("api/[controller]")]\npublic class ItemsController : ControllerBase\n{\n' +
         '    [HttpGet("{id}")]\n    public Item Get(int id) { Clock.Now(); return new Item(id); }\n}\n',
-      'Program.cs': 'var app = WebApplication.Create();\nvar api = app.MapGroup("/v2");\napi.MapGet("/health", () => "ok");\napp.Run();\n',
+      'Program.cs':
+        'var app = WebApplication.Create();\nvar api = app.MapGroup("/v2");\napi.MapGet("/health", () => "ok");\n' +
+        'app.MapMethods("/items", new[] { "GET", HttpMethods.Put }, () => "ok");\napp.Run();\n',
     },
   });
   assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Models/Item.cs#Item', 'calls').reason!, /imported from "Acme\.Models"/);
   // Acme.Controllers sees Acme without a using.
   assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Core/Clock.cs#Clock', 'calls').reason!, /namespace Acme\b/);
   assert.deepEqual(node(g, 'api/Controllers/ItemsController.cs#ItemsController.Get').routes, ['GET /api/Items/{id}']);
-  assert.deepEqual(node(g, 'api/Program.cs').routes, ['GET /v2/health']);
+  assert.deepEqual(node(g, 'api/Program.cs').routes, ['GET /v2/health', 'GET /items', 'PUT /items']);
   assert.ok(g.edges.every((e) => !e.to.startsWith('ns:')), 'namespaces reach edges as their folders');
 });
 
@@ -228,6 +230,16 @@ test('C++: a namespace keeps same-named declarations apart', async () => {
   // Inside namespace a, a bare Foo is a::Foo.
   edge(g, 'app/src/main.cpp#useA', aFoo, 'type');
   noEdge(g, 'app/src/main.cpp#useA', bFoo);
+});
+
+test('Rust: a crate name two repositories share means the referring repository\'s crate', async () => {
+  const crate = { 'common/Cargo.toml': '[package]\nname = "common"\n', 'common/src/lib.rs': 'pub fn hello() {}\n' };
+  const app = { 'app/Cargo.toml': '[package]\nname = "app"\n', 'app/src/main.rs': 'use common::hello;\n\nfn main() { hello(); }\n' };
+  const g = await graphOf({ first: crate, second: { ...crate, ...app }, third: app });
+  assert.equal(edge(g, 'second/app/src/main.rs#main', 'second/common/src/lib.rs#hello', 'calls').basis, 'evidenced');
+  noEdge(g, 'second/app/src/main.rs#main', 'first/common/src/lib.rs#hello');
+  // Only in another repository: linked, but as a guess.
+  assert.match(edge(g, 'third/app/src/main.rs#main', 'first/common/src/lib.rs#hello', 'calls').reason!, /crate common isn't in this repository/);
 });
 
 test('C: includes make a header\'s declarations visible, directly or through another header', async () => {
@@ -331,4 +343,5 @@ test('every new grammar loads and parses, Ruby included (its scanner needs iswup
   }
   assert.equal((await parseFile('x.h', 'int f(void);'))?.lang, 'c');
   assert.equal((await parseFile('x.h', 'namespace a { class B {}; }'))?.lang, 'cpp');
+  assert.equal((await parseFile('x.inl', 'inline int f() { return 1; }'))?.lang, 'cpp');
 });
