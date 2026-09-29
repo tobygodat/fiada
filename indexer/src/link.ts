@@ -194,14 +194,24 @@ export function link(repos: ParsedRepo[]): LinkResult {
         break;
       case 'csharp': {
         // A namespace sees its parents' names, and the global namespace's.
-        const parents = new Set<string>();
-        for (const n of file.namespaces ?? []) {
-          joinNs(`cs:${n}`, dirNode(e), `namespace ${n}`, e);
-          const parts = n.split('.');
-          for (let i = parts.length - 1; i > 0; i--) parents.add(parts.slice(0, i).join('.'));
+        // Each symbol belongs to the namespace that encloses it; outside any, to the global one.
+        const byNs = new Map<string, [string, string][]>();
+        file.symbols.forEach((s, i) => {
+          const key = s.namespace ? `cs:${s.namespace}` : `cs:@${repo.info.id}`;
+          byNs.set(key, [...(byNs.get(key) ?? []), [s.name, e.ids[i]]]);
+        });
+        for (const [key, symbols] of byNs) {
+          const global = key === `cs:@${repo.info.id}`;
+          joinNs(key, global ? repo.info.id : dirNode(e), global ? 'the global namespace' : `namespace ${key.slice(3)}`, e, symbols);
         }
-        if (!file.namespaces?.length) joinNs(`cs:@${repo.info.id}`, repo.info.id, 'the global namespace', e);
-        else e.scopes.push(`cs:@${repo.info.id}`, ...[...parents].map((n) => `cs:${n}`));
+        // Code in a namespace also sees its parents' names, and the global namespace's.
+        const parents = new Set<string>([`cs:@${repo.info.id}`]);
+        for (const n of file.namespaces ?? []) {
+          parents.add(`cs:${n}`);
+          const parts = n.split('.');
+          for (let i = parts.length - 1; i > 0; i--) parents.add(`cs:${parts.slice(0, i).join('.')}`);
+        }
+        e.scopes.push(...[...parents].filter((k) => !e.scopes.includes(k)));
         break;
       }
       case 'swift': {
@@ -376,6 +386,8 @@ export function link(repos: ParsedRepo[]): LinkResult {
       while (parts[0] === 'super') [base, parts] = [base.length > 1 ? base.slice(0, -1) : base, parts.slice(1)];
     } else if (rustMods.has([...here, parts[0]].join('::'))) base = here;
     else if (cratesByName.has(parts[0])) [base, parts] = [[cratesByName.get(parts[0])!], parts.slice(1)];
+    // Rust 2015 reads `use model::Item` from the crate root, in any module.
+    else if (rustMods.has([at.crate, parts[0]].join('::'))) base = [at.crate];
     else return null;
     for (let i = parts.length; i >= 0; i--) {
       const id = rustMods.get([...base, ...parts.slice(0, i)].join('::'));
@@ -399,14 +411,19 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return hits[0] ?? null;
   };
   const found = (e: FileEntry, what: string, f: FileEntry | null): Split | null =>
-    f && { id: f.id, rest: '', guess: `found "${what}" by path at ${f.repo === e.repo ? f.file.path : `${f.repo.info.name}/${f.file.path}`}; include and load paths aren't read from the build` };
+    f && { id: f.id, rest: '', guess: `found "${what}" at ${f.repo === e.repo ? f.file.path : `${f.repo.info.name}/${f.file.path}`}; include and load paths aren't read from the build` };
 
-  /** `#include "util.h"`: beside the file, then from the repository root and the usual include folders, then anywhere by path. */
+  /**
+   * `#include "util.h"`: beside the file, which is certain; then from the
+   * repository root and the usual include folders, then anywhere by path,
+   * which are guesses, as the build's include paths may say otherwise.
+   */
   const resolveInclude = (e: FileEntry, source: string): Split | null => {
-    const dir = posix.dirname(e.file.path);
-    for (const p of [posix.join(dir, source), source, ...['include', 'inc', 'src', 'lib'].map((r) => posix.join(r, source))]) {
+    const beside = exists(e.repo, posix.join(posix.dirname(e.file.path), source));
+    if (beside) return { id: beside, rest: '' };
+    for (const p of [source, ...['include', 'inc', 'src', 'lib'].map((r) => posix.join(r, source))]) {
       const id = exists(e.repo, p);
-      if (id) return { id, rest: '' };
+      if (id) return found(e, source, files.get(id)!);
     }
     return found(e, source, bySuffix(e, posix.normalize(source)));
   };

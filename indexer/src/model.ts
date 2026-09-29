@@ -163,6 +163,8 @@ export interface ParsedSymbol {
   orm?: OrmRef[];
   /** Go: the receiver type of a method (`func (m *ArticleModel) Update()` → "ArticleModel"). */
   receiver?: string;
+  /** C#: the namespace declaring it, nested ones joined ("A.B"), when a file may hold several. */
+  namespace?: string;
 }
 
 export interface ParsedFile {

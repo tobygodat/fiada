@@ -165,11 +165,18 @@ function minimalApiRoutes(root: SyntaxNode): RouteDecl[] {
 }
 
 export function extractCSharp(root: SyntaxNode, file: ParsedFile) {
-  const namespaces = root
-    .descendantsOfType(['namespace_declaration', 'file_scoped_namespace_declaration'])
-    .map((n) => n.childForFieldName('name')?.text)
-    .filter((n): n is string => !!n);
-  if (namespaces.length) file.namespaces = [...new Set(namespaces)];
+  // Every namespace, nested ones by their full name, and the lines it spans; a file-scoped one runs to the end.
+  const spans = root.descendantsOfType(['namespace_declaration', 'file_scoped_namespace_declaration']).flatMap((n) => {
+    const own = n.childForFieldName('name')?.text;
+    if (!own) return [];
+    const outer: string[] = [];
+    for (let p = n.parent; p; p = p.parent) {
+      if (p.type === 'namespace_declaration') outer.unshift(p.childForFieldName('name')?.text ?? '');
+    }
+    const end = n.type === 'file_scoped_namespace_declaration' ? root.endPosition.row + 1 : n.endPosition.row + 1;
+    return [{ name: [...outer, own].filter(Boolean).join('.'), start: line(n), end }];
+  });
+  if (spans.length) file.namespaces = [...new Set(spans.map((s) => s.name))];
   for (const u of root.descendantsOfType('using_directive')) {
     const target = u.namedChildren.find((c) => c.type === 'qualified_name' || c.type === 'identifier');
     if (!target) continue;
@@ -179,6 +186,10 @@ export function extractCSharp(root: SyntaxNode, file: ParsedFile) {
     else file.imports.push({ source: target.text, level: 0, names: [], open: true, line: line(u) });
   }
   outline(root, spec, file);
+  for (const sym of file.symbols) {
+    const inside = spans.filter((ns) => ns.start <= sym.lines[0] && sym.lines[1] <= ns.end).sort((a, b) => b.start - a.start)[0];
+    if (inside) sym.namespace = inside.name;
+  }
   // Routes mapped in top-level statements or a Program.Main belong to the file.
   const mapped = minimalApiRoutes(root);
   if (mapped.length) file.routes.push(...mapped);

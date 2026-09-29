@@ -116,6 +116,31 @@ test('C#: namespaces and their parents, usings, controller and minimal-API route
   assert.ok(g.edges.every((e) => !e.to.startsWith('ns:')), 'namespaces reach edges as their folders');
 });
 
+test('C#: each type belongs to the namespace around it, nested ones included', async () => {
+  const g = await graphOf({
+    api: {
+      'Shapes.cs': 'namespace A\n{\n    namespace B\n    {\n        public class Circle { }\n    }\n    public class Square { }\n}\nnamespace C\n{\n    public class Circle { }\n}\n',
+      'Use.cs': 'using A.B;\n\nnamespace D;\n\npublic class Use\n{\n    public void Run() { new Circle(); }\n}\n',
+      'Other.cs': 'namespace A;\n\npublic class Other\n{\n    public void Run() { new Square(); }\n}\n',
+    },
+  });
+  // A.B's Circle, not C's, and not one filed under A or a top-level B.
+  assert.match(edge(g, 'api/Use.cs#Use.Run', 'api/Shapes.cs#Circle', 'calls').reason!, /imported from "A\.B"/);
+  assert.match(edge(g, 'api/Other.cs#Other.Run', 'api/Shapes.cs#Square', 'calls').reason!, /namespace A\b/);
+});
+
+test('Rust 2015: a use path from a nested module starts at the crate root', async () => {
+  const g = await graphOf({
+    old: {
+      'Cargo.toml': '[package]\nname = "old"\nedition = "2015"\n',
+      'src/lib.rs': 'mod model;\nmod api;\n',
+      'src/model.rs': 'pub struct Item;\n',
+      'src/api/mod.rs': 'use model::Item;\n\npub fn get() -> Item { Item }\n',
+    },
+  });
+  assert.match(edge(g, 'old/src/api/mod.rs#get', 'old/src/model.rs#Item').reason!, /imported from "model::Item"/);
+});
+
 test('Rust: use paths through crate, self, super and other crates; mod files; impl methods', async () => {
   const g = await graphOf({
     ws: {
@@ -156,11 +181,15 @@ test('C: includes make a header\'s declarations visible, directly or through ano
         'int main(void) {\n  item_t it = make_item(helper());\n  printf("%d", acme_version());\n  return 0;\n}\n',
     },
   });
-  // Found under include/, then item.h through acme.h.
-  assert.match(edge(g, 'lib/src/main.c#main', 'lib/include/acme/acme.h#acme_version', 'calls').reason!, /imported from "acme\/acme\.h"/);
+  // Found under include/, a usual include folder but not one the build was read for: a guess. Then item.h through acme.h.
+  const version = edge(g, 'lib/src/main.c#main', 'lib/include/acme/acme.h#acme_version', 'calls');
+  assert.equal(version.basis, 'inferred');
+  assert.match(version.reason!, /found "acme\/acme\.h" at include\/acme\/acme\.h; include and load paths aren't read/);
   edge(g, 'lib/src/main.c#main', 'lib/include/acme/item.h#make_item', 'calls');
   edge(g, 'lib/src/main.c#main', 'lib/include/acme/item.h#item_t', 'type');
   edge(g, 'lib/src/main.c#main', 'lib/src/main.c#helper', 'calls');
+  // An include beside the including file is certain.
+  assert.equal(edge(g, 'lib/include/acme/acme.h', 'lib/include/acme/item.h', 'imports').basis, 'evidenced');
   assert.equal(node(g, 'lib/src/main.c#helper').exported, false);
 });
 
