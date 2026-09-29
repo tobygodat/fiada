@@ -270,18 +270,51 @@ export function link(repos: ParsedRepo[]): LinkResult {
   /** Crates by the name `use` writes, every repository's, so the referring repository's comes first. */
   const cratesByName = new Map<string, { repo: ParsedRepo; key: string }[]>();
   for (const repo of repos) for (const c of repo.rustCrates ?? []) cratesByName.set(c.name, [...(cratesByName.get(c.name) ?? []), { repo, key: `${repo.info.id}/${c.dir}` }]);
+  // Each Cargo package's library (src/lib.rs) is one crate; src/main.rs beside it and each src/bin/*.rs
+  // are crates of their own, holding the modules they declare that the library doesn't.
+  const modChildren = (f: FileEntry, root: boolean): FileEntry[] => {
+    const dir = root || /(^|\/)(lib|main|mod)\.rs$/.test(f.file.path) ? posix.dirname(f.file.path) : f.file.path.replace(/\.rs$/, '');
+    return f.file.imports
+      .map((s) => (!s.names.length && !s.open ? s.source.match(/^self::(\w+)$/)?.[1] : undefined))
+      .flatMap((name) => (name ? [files.get(fileId(f.repo.info.id, posix.join(dir, `${name}.rs`))) ?? files.get(fileId(f.repo.info.id, posix.join(dir, name, 'mod.rs')))] : []))
+      .filter((x): x is FileEntry => !!x);
+  };
+  const tree = (root: FileEntry) => {
+    const seen = new Set([root.id]);
+    const queue = [root];
+    while (queue.length) {
+      const f = queue.shift()!;
+      for (const c of modChildren(f, f === root)) if (!seen.has(c.id)) (seen.add(c.id), queue.push(c));
+    }
+    return seen;
+  };
+  const rootOf = new Map<string, { crate: string; dir: string; root: string }>();
+  for (const repo of repos) {
+    for (const c of repo.rustCrates ?? [{ dir: '', name: '' }]) {
+      const src = c.dir ? `${c.dir}/src` : 'src';
+      const lib = files.get(fileId(repo.info.id, `${src}/lib.rs`));
+      const main = files.get(fileId(repo.info.id, `${src}/main.rs`));
+      const bins = [...files.values()].filter((f) => f.repo === repo && posix.dirname(f.file.path) === `${src}/bin` && f.file.path.endsWith('.rs'));
+      const inLib = lib ? tree(lib) : new Set<string>();
+      for (const bin of [...(lib && main ? [main] : []), ...bins]) {
+        const crate = `${repo.info.id}/${c.dir}#${posix.basename(bin.file.path, '.rs')}`;
+        for (const id of tree(bin)) if (!inLib.has(id) && !rootOf.has(id)) rootOf.set(id, { crate, dir: posix.dirname(bin.file.path), root: bin.id });
+      }
+    }
+  }
   for (const e of files.values()) {
     if (e.file.lang !== 'rust') continue;
     const crates = (e.repo.rustCrates ?? []).filter((c) => c.dir === '' || e.file.path.startsWith(c.dir + '/')).sort((a, b) => b.dir.length - a.dir.length);
     const dir = crates[0]?.dir ?? '';
-    const crate = crates[0] ? `${e.repo.info.id}/${dir}` : `${e.repo.info.id}/`;
-    const src = dir ? `${dir}/src/` : 'src/';
+    const bin = rootOf.get(e.id);
+    const crate = bin?.crate ?? (crates[0] ? `${e.repo.info.id}/${dir}` : `${e.repo.info.id}/`);
+    const src = `${bin?.dir ?? (dir ? `${dir}/src` : 'src')}/`;
     let mod: string[] | null = null;
     if (e.file.path.startsWith(src)) {
       const rel = e.file.path.slice(src.length).replace(/\.rs$/, '').replace(/(^|\/)mod$/, '');
-      mod = rel === 'lib' || rel === 'main' || rel === '' ? [] : rel.split('/');
+      mod = (bin ? bin.root === e.id : rel === 'lib' || rel === 'main' || rel === '') ? [] : rel.split('/');
       const key = [crate, ...mod].join('::');
-      if (!rustMods.has(key) || /(^|\/)lib\.rs$/.test(e.file.path)) rustMods.set(key, e.id);
+      if (!rustMods.has(key) || mod.length === 0) rustMods.set(key, e.id);
     }
     rustCrateOf.set(e.id, { crate, mod });
   }
@@ -741,7 +774,9 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const mod = b?.imported === '*' ? resolveModuleInfo(e, b.spec) : null;
     const split: Split | null = mod ? { id: mod.id, rest: tail.join('.'), guess: mod.guess } : splitRust(e, r.name);
     if (!split) return null;
-    const owner = split.rest ? resolveName(split.id, split.rest, 0, e.repo) : split.id;
+    // The member by its own name first ("a.helper" in an inline module `a`, "Item.new"), else its owner.
+    const whole = split.rest && r.member ? resolveName(split.id, `${split.rest}.${r.member}`, 0, e.repo) : null;
+    const owner = whole ?? (split.rest ? resolveName(split.id, split.rest, 0, e.repo) : split.id);
     if (!owner) return null;
     const to = !owner.includes('#') && r.member ? (resolveName(owner, r.member, 0, e.repo) ?? owner) : owner;
     const how = mod ? 'import' : 'path';

@@ -31,7 +31,7 @@ export const IGNORED_DIR = new Set([
 ]);
 
 export const TEST_PATH =
-  /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.(py|go)$|(^|\/)conftest\.py$|(^|\/)test_helpers?\.go$|[a-z0-9]Tests?\.(java|kt|cs|swift)$|(^|\/)[\w.]+\.Tests?\/|_(spec|test)\.rb$|_test\.(c|cc|cpp)$/;
+  /(^|\/)(__tests__|__mocks__|tests?|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$|_test\.(py|go)$|(^|\/)conftest\.py$|(^|\/)test_helpers?\.go$|[A-Za-z0-9]Tests?\.(java|kt|cs|swift)$|(^|\/)[\w.]+\.Tests?\/|_(spec|test)\.rb$|_test\.(c|cc|cpp)$/;
 
 const isIgnored = (rel: string) => rel.split('/').some((seg) => IGNORED_DIR.has(seg));
 

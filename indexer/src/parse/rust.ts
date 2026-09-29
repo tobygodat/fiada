@@ -120,7 +120,8 @@ function imports(root: SyntaxNode): { spec: ImportSpec; mod?: SyntaxNode }[] {
 
 /** `crate::models::Item::new` as the path "crate::models::Item" with member "new". */
 function addPath(out: RefSink, n: SyntaxNode, kind: 'call' | 'ref' | 'type', at: SyntaxNode) {
-  const parts = n.text.replace(/::<[^>]*>/g, '').replace(/\s+/g, '').split('::').filter(Boolean);
+  const inline = inlineModules(n).map((m) => m.childForFieldName('name')?.text ?? '');
+  const parts = fromFileModule(n.text.replace(/::<[^>]*>/g, '').replace(/\s+/g, ''), inline).split('::').filter(Boolean);
   if (parts.length < 2) return;
   out.add(parts.slice(0, -1).join('::'), kind === 'call' && parts[parts.length - 1] === 'new' ? 'new' : kind, at, parts[parts.length - 1]);
 }
@@ -166,7 +167,8 @@ const spec: LangSpec = {
           out.seen(fn);
           out.seen(path);
           if (owner) out.add(owner, name === 'new' ? 'new' : 'call', n, name);
-          else if (path?.type === 'self' || path?.type === 'crate' || path?.type === 'super') out.add(name, 'call', n);
+          // `crate::helper()`, `super::helper()`: the qualifier says where helper is.
+          else if (path?.type === 'self' || path?.type === 'crate' || path?.type === 'super') addPath(out, fn, 'call', n);
         } else if (fn.type === 'field_expression') {
           const value = fn.childForFieldName('value');
           const field = fn.childForFieldName('field')?.text;
@@ -195,7 +197,7 @@ const spec: LangSpec = {
         const name = n.childForFieldName('name')?.text;
         const kind = n.type === 'scoped_identifier' ? 'ref' : 'type';
         if (path?.type === 'identifier' && name) out.add(path.text, kind, n, name);
-        else if (path?.type === 'scoped_identifier' || path?.type === 'scoped_type_identifier') addPath(out, n, kind, n);
+        else if (path && /^(scoped_identifier|scoped_type_identifier|self|crate|super)$/.test(path.type)) addPath(out, n, kind, n);
         return true;
       }
       case 'field_expression':

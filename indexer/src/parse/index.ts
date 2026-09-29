@@ -121,6 +121,7 @@ function keepEvidenceLines(file: ParsedFile, text: string) {
   for (const s of file.symbols) {
     add(s.lines[0]);
     for (const r of s.refs) add(r.line);
+    for (const i of s.imports ?? []) add(i.line);
     for (const o of s.orm ?? []) add(o.line);
     add(s.clientBase?.line);
     decls(s);

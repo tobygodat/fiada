@@ -11,7 +11,7 @@ import type { Graph, GraphEdge, RepoInfo } from '@fiada/shared';
 import { buildGraph } from './build.ts';
 import { defaultGrouping } from './classify/index.ts';
 import { parseFile } from './parse/index.ts';
-import { loadRepo } from './sources.ts';
+import { loadRepo, TEST_PATH } from './sources.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-lang-'));
@@ -262,7 +262,8 @@ test('Rust: a use inside a function binds only there', async () => {
       'src/b.rs': 'pub struct Item;\nimpl Item { pub fn make() {} }\n',
     },
   });
-  edge(g, 'app/src/lib.rs#one', 'app/src/a.rs#Item.make', 'calls');
+  const one = edge(g, 'app/src/lib.rs#one', 'app/src/a.rs#Item.make', 'calls');
+  assert.ok(one.evidence!.some((x) => x.source === 'import' && x.code === 'use crate::a::Item;'), 'the scoped use line is shown as code');
   edge(g, 'app/src/lib.rs#two', 'app/src/b.rs#Item.make', 'calls');
   noEdge(g, 'app/src/lib.rs#one', 'app/src/b.rs#Item.make');
 });
@@ -298,6 +299,25 @@ test('Rust: an inline module keeps its declarations apart from another\'s', asyn
   noEdge(g, 'app/src/lib.rs#b.make', 'app/src/lib.rs#a.Item');
   edge(g, 'app/src/lib.rs#both', 'app/src/lib.rs#a.make', 'calls');
   edge(g, 'app/src/lib.rs#both', 'app/src/lib.rs#b.Item');
+});
+
+test('Rust: src/main.rs beside src/lib.rs is its own crate; crate:: and super:: paths keep their qualifier', async () => {
+  const g = await graphOf({
+    app: {
+      'Cargo.toml': '[package]\nname = "app"\n',
+      'src/lib.rs': 'pub fn run() {}\npub fn helper() {}\n\nmod inner {\n    fn helper() {}\n    fn go() { super::helper(); }\n}\n',
+      'src/main.rs': 'mod cli;\n\nfn run() {}\n\nfn main() {\n    crate::run();\n    app::run();\n}\n',
+      'src/cli.rs': 'pub fn parse() { crate::run(); }\n',
+    },
+  });
+  // The binary's crate:: is main.rs; the library is reached by its name.
+  assert.match(edge(g, 'app/src/main.rs#main', 'app/src/main.rs#run', 'calls').reason!, /by its full path/);
+  edge(g, 'app/src/main.rs#main', 'app/src/lib.rs#run', 'calls');
+  edge(g, 'app/src/cli.rs#parse', 'app/src/main.rs#run', 'calls');
+  noEdge(g, 'app/src/cli.rs#parse', 'app/src/lib.rs#run');
+  // super::helper() in `mod inner` is the file's helper, not inner's own.
+  edge(g, 'app/src/lib.rs#inner.go', 'app/src/lib.rs#helper', 'calls');
+  noEdge(g, 'app/src/lib.rs#inner.go', 'app/src/lib.rs#inner.helper');
 });
 
 test('Rust: a crate name two repositories share means the referring repository\'s crate', async () => {
@@ -422,4 +442,7 @@ test('every new grammar loads and parses, Ruby included (its scanner needs iswup
   assert.equal((await parseFile('x.h', 'int f(void);'))?.lang, 'c');
   assert.equal((await parseFile('x.h', 'namespace a { class B {}; }'))?.lang, 'cpp');
   assert.equal((await parseFile('x.inl', 'inline int f() { return 1; }'))?.lang, 'cpp');
+  // Test files by name, acronyms included; words that merely end in "test" aren't.
+  for (const p of ['src/URLTest.java', 'HTTPTests.cs', 'ATest.kt', 'ItemTests.swift', 'spec/user_spec.rb']) assert.ok(TEST_PATH.test(p), p);
+  for (const p of ['src/Contest.java', 'src/Latest.kt', 'src/Test.java']) assert.ok(!TEST_PATH.test(p), p);
 });
