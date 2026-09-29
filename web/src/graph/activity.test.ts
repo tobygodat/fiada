@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
-import { describeMarks, rollupActivity } from './activity.ts';
+import { agentNodes, describeMarks, rollupActivity, spotlight } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree, buildFunctionTree } from './tree.ts';
 
@@ -78,6 +78,33 @@ test('By function: the agent is at the symbols it changed in that file', () => {
   const a = rollupActivity(tree, graphIndex, nodes, [agent('working', [file('src/pages/items.tsx', '2026-09-27T10:00:20Z', [sym])])]);
   assert.equal(a.get(sym.id)?.here, 'self');
   assert.equal(a.get('domain:items')?.here, 'inside');
+});
+
+test("one agent's changes: the circles standing for them, and every circle round them", () => {
+  const tree = buildCodeTree(graph);
+  const mixed: Record<string, NodeChange> = {
+    ...nodes,
+    'web/src/client/api.ts': { ...change('modified', 'file', 40), agents: ['b'] },
+    'web/src/pages/about.tsx': { ...change('modified', 'file', 50), agents: ['a', 'b'] },
+  };
+  assert.deepEqual(Object.keys(agentNodes(mixed, 'b')).sort(), ['web/src/client/api.ts', 'web/src/pages/about.tsx']);
+  const s = spotlight(tree, graphIndex, mixed, 'b');
+  assert.deepEqual(s?.targets, ['web/src/client/api.ts', 'web/src/pages/about.tsx']);
+  assert.deepEqual([...s!.lit].sort(), ['root', 'web', 'web/src', 'web/src/client', 'web/src/client/api.ts', 'web/src/pages', 'web/src/pages/about.tsx']);
+  assert.ok(!s!.lit.has('api'), "another agent's changes stay dim");
+  // A file that isn't indexed yet, or was deleted, stands in at the nearest circle that's left.
+  const a = spotlight(tree, graphIndex, nodes, 'a');
+  assert.ok(a?.targets.includes('web/src/pages') && a.targets.includes('api/app/routes'));
+  assert.ok(a?.targets.includes('web/src/pages/items.tsx#ItemsPage'));
+  assert.equal(spotlight(tree, graphIndex, nodes, 'nobody'), null);
+});
+
+test('By function: an agent lights up the symbols it changed, their layers and domains', () => {
+  const tree = buildFunctionTree(graph);
+  const s = spotlight(tree, graphIndex, nodes, 'a');
+  assert.ok(s?.lit.has('web/src/pages/items.tsx#ItemsPage'));
+  assert.ok(s?.lit.has('domain:items'));
+  assert.ok(!s?.lit.has('web/src/pages/items.tsx#useItems'), 'an unchanged symbol stays dim');
 });
 
 const pick = (m: ReturnType<ReturnType<typeof rollupActivity>['get']>) => m && { self: m.self, added: m.added, modified: m.modified, deleted: m.deleted, at: m.at };

@@ -49,6 +49,11 @@
 
 /* ── One agent: a list row between hairlines ── */
 .queue-card { padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--hairline); }
+/* The whole row lights its changes on the map; its name turns green under the pointer, as a word you can press does. */
+.queue-card.can-show { cursor: pointer; }
+.queue-card.can-show:hover .queue-name { color: var(--accent); }
+/* Lit on the map: a rule in ink down its left edge. */
+.queue-card.lit { border-left: 2px solid var(--text); padding-left: calc(var(--space-md) - 2px); }
 .queue-card-head { display: flex; align-items: baseline; gap: var(--space-8); min-width: 0; }
 .queue-name { font-weight: var(--weight-bold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-state { flex: none; margin-left: auto; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
@@ -117,10 +122,19 @@
 .queue-file:disabled { cursor: default; }
 .queue-file:disabled .queue-file-base { color: var(--muted); }
 .queue-file-stat { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The functions a file's change touched, under its name. */
+.queue-syms {
+  display: flex; flex-wrap: wrap; gap: 0 var(--space-sm); padding: 0 0 2px calc(10px + var(--space-8));
+  font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted);
+}
+.queue-sym { display: inline-block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.queue-sym:hover:not(:disabled) { color: var(--accent); }
+.queue-sym:disabled { cursor: default; }
+.queue-sym .chg { margin-right: 3px; }
 
 .queue-meta { display: flex; align-items: baseline; gap: var(--space-8); margin-top: var(--space-8); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 .queue-meta-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue-meta .queue-act { margin-left: auto; }
+.queue-acts { display: flex; gap: var(--space-sm); margin-left: auto; }
 
 /* What the marks on the map mean: words beside their marks, no box. */
 .queue-key {

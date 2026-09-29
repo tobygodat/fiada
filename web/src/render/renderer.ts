@@ -23,6 +23,8 @@ const MAX_TAGS = 40;
 const LABEL_MIN_R = 16;
 /** Below this radius a closed circle is labelled only if its whole name fits. */
 const LABEL_FULL_R = 34;
+/** How strongly the rest of the map is drawn while one agent's changes are lit. */
+const UNLIT = 0.22;
 
 /**
  * Literata's sizes (DESIGN.md, Type): fine, small, body, title, display. A
@@ -60,6 +62,8 @@ export interface Scene {
   selectedEdge: string | null;
   /** What coding agents changed, placed on this tree (the agent overlay). */
   activity?: TreeActivity | null;
+  /** One agent's changes and every circle round them, shown at full strength while the rest dims. */
+  lit?: ReadonlySet<string> | null;
 }
 
 export interface RendererEvents {
@@ -87,6 +91,8 @@ interface DrawnNode {
   y: number;
   r: number;
   open: boolean;
+  /** Drawn faint: an agent's changes are lit and this is neither one of them nor round one. */
+  unlit?: boolean;
 }
 interface DrawnEdge {
   g: Contract;
@@ -493,6 +499,9 @@ export class MapRenderer {
     const drawn = [...resting, ...focusEdges.slice(0, MAX_EDGES)];
     const inFocus = focusEdges.length > 0 || anyEdgeSel;
     const heaviest = Math.max(1, ...drawn.map((e) => e.g.items.length));
+    const lit = scene.lit?.size ? scene.lit : null;
+    // While an agent's changes are lit, a resting link stays in full only if both its ends are lit.
+    const unlitEdge = (g: Contract) => !!lit && !(lit.has(g.a) && lit.has(g.b));
     const tagQueue: { g: Contract; pts: [number, number, number, number, number, number]; isSel: boolean }[] = [];
     const tagBox = this.free();
     ctx.lineCap = 'round';
@@ -511,6 +520,7 @@ export class MapRenderer {
       let op = role === 'rest' ? (inFocus ? this.policy.restFade : cross ? 0.75 : 0.6) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.85;
       if (guess && !isSel) op *= 0.8;
       if (isHover && !isSel) op = Math.max(op, 0.75);
+      if (role === 'rest' && !isHover && unlitEdge(g)) op *= UNLIT;
       // Width follows the log of the number of interactions, relative to the heaviest on screen.
       const sw = 1 + 4.5 * (Math.log(n) / Math.log(Math.max(2, heaviest))) + (isSel ? 0.5 : 0);
       ctx.globalAlpha = op;
@@ -548,8 +558,11 @@ export class MapRenderer {
       const leaf = n.kind === 'symbol' || (n.kind === 'file' && !n.children.length);
       const sel = n.id === sv;
       const hovered = n.id === hoverId;
+      // One agent's changes lit: the rest of the map steps back, and each closed circle holding one takes an ink rim.
+      const unlit = !!lit && !lit.has(n.id);
+      const marked = !!lit && !unlit && !isOpen;
       // Fade in circles that are new in this layout.
-      ctx.globalAlpha = anim && !anim.from.has(n.id) ? lt : 1;
+      ctx.globalAlpha = (anim && !anim.from.has(n.id) ? lt : 1) * (unlit && !sel && !hovered ? UNLIT : 1);
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
       // A closed circle is its colour at 12% (a leaf at 30%) inside a rim of the colour itself. An open
@@ -558,10 +571,10 @@ export class MapRenderer {
         ctx.fillStyle = sel ? ink.selection : this.nodeColor(n, leaf ? 0.3 : 0.12);
         ctx.fill();
       }
-      ctx.lineWidth = sel ? 2 : hovered ? 1.5 : 1;
-      ctx.strokeStyle = sel || hovered ? ink.text : this.nodeColor(n, isOpen ? 0.45 : 0.85);
+      ctx.lineWidth = sel ? 2 : hovered || marked ? 1.5 : 1;
+      ctx.strokeStyle = sel || hovered || marked ? ink.text : this.nodeColor(n, isOpen ? 0.45 : 0.85);
       ctx.stroke();
-      this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen });
+      this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen, unlit: unlit && !sel && !hovered });
     }
     ctx.globalAlpha = 1;
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now());
@@ -574,6 +587,9 @@ export class MapRenderer {
     for (const d of this.drawnNodes) {
       const { n, x, y, r } = d;
       const big = n.kind === 'repo' || n.kind === 'domain';
+      // Names of unlit circles stay just readable.
+      const nameAlpha = d.unlit ? UNLIT + 0.18 : 1;
+      ctx.globalAlpha = nameAlpha;
       if (d.open) {
         // An open circle's name sits in a gap cut from its rim, then "−" to close it (click mode).
         // Pointing at it turns the words green, as a pointed-at word does.
@@ -588,8 +604,11 @@ export class MapRenderer {
         const by = Math.round(y - r - bh / 2);
         if (by + bh < 0 || by > h || bx + bw < 0 || bx > w) continue;
         const hot = n.id === hoverTab;
+        // The gap in the rim is cut in full, whatever strength the name is drawn at.
+        ctx.globalAlpha = 1;
         ctx.fillStyle = ink.ground;
         ctx.fillRect(bx, by, bw, bh);
+        ctx.globalAlpha = nameAlpha;
         ctx.textAlign = 'left';
         this.font(600, size);
         ctx.fillStyle = hot ? ink.accent : ink.text;
@@ -637,6 +656,7 @@ export class MapRenderer {
         }
       }
     }
+    ctx.globalAlpha = 1;
 
     // ── edge tags ──
     // Mid-curve, or the nearest point along it that isn't off screen, under a
