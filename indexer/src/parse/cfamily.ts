@@ -149,9 +149,10 @@ function includes(root: SyntaxNode, file: ParsedFile) {
   for (const inc of root.descendantsOfType('preproc_include')) {
     const p = inc.childForFieldName('path');
     if (!p) continue;
-    const source = p.type === 'system_lib_string' ? p.text.slice(1, -1) : p.text.replace(/^"|"$/g, '');
+    const system = p.type === 'system_lib_string';
+    const source = system ? p.text.slice(1, -1) : p.text.replace(/^"|"$/g, '');
     // An include makes everything the header declares visible here, and whatever it includes in turn.
-    file.imports.push({ source, level: 0, names: [], open: true, line: line(inc) });
+    file.imports.push(system ? { source, level: 0, names: [], open: true, system, line: line(inc) } : { source, level: 0, names: [], open: true, line: line(inc) });
   }
 }
 

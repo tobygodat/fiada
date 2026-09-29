@@ -27,6 +27,8 @@ export interface ImportSpec {
    * `import a.b.*`, C#'s `using A.B;`, Rust's `use a::*`, a C `#include`.
    */
   open?: boolean;
+  /** C/C++ `#include <…>`: looked for on the include path only, never beside the file. */
+  system?: boolean;
   line: number;
 }
 

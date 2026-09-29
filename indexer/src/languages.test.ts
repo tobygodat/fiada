@@ -78,6 +78,25 @@ test('Java: packages, imports, wildcards, Spring routes, and a client request th
   assert.equal(http.detail, 'GET /api/items/{id}');
 });
 
+test('Java: static wildcard imports bring in members; a package in two repositories prefers the referring one', async () => {
+  const g = await graphOf({
+    one: {
+      'src/com/acme/util/Strings.java': 'package com.acme.util;\n\npublic final class Strings {\n  public static String trim(String s) { return s; }\n}\n',
+      'src/com/acme/Item.java': 'package com.acme;\n\npublic class Item {}\n',
+      'src/com/acme/Use.java':
+        'package com.acme;\n\nimport static com.acme.util.Strings.*;\n\npublic class Use {\n  String run() { new Item(); return trim("x"); }\n}\n',
+    },
+    two: {
+      'src/com/acme/Item.java': 'package com.acme;\n\npublic class Item {}\n',
+      'src/com/acme/Other.java': 'package com.acme;\n\npublic class Other {\n  Item make() { return new Item(); }\n}\n',
+    },
+  });
+  assert.match(edge(g, 'one/src/com/acme/Use.java#Use.run', 'one/src/com/acme/util/Strings.java#Strings.trim', 'calls').reason!, /imported from "com\.acme\.util\.Strings"/);
+  assert.equal(edge(g, 'two/src/com/acme/Other.java#Other.make', 'two/src/com/acme/Item.java#Item', 'calls').basis, 'evidenced');
+  noEdge(g, 'two/src/com/acme/Other.java#Other.make', 'one/src/com/acme/Item.java#Item');
+  edge(g, 'one/src/com/acme/Use.java#Use.run', 'one/src/com/acme/Item.java#Item', 'calls');
+});
+
 test('Kotlin: sees Java in its package, aliases imports, and reads Spring routes', async () => {
   const g = await graphOf({
     app: {
@@ -122,8 +141,13 @@ test('C#: each type belongs to the namespace around it, nested ones included', a
       'Shapes.cs': 'namespace A\n{\n    namespace B\n    {\n        public class Circle { }\n    }\n    public class Square { }\n}\nnamespace C\n{\n    public class Circle { }\n}\n',
       'Use.cs': 'using A.B;\n\nnamespace D;\n\npublic class Use\n{\n    public void Run() { new Circle(); }\n}\n',
       'Other.cs': 'namespace A;\n\npublic class Other\n{\n    public void Run() { new Square(); }\n}\n',
+      'Foo.cs': 'namespace B;\n\npublic class Foo { }\n',
+      'Mixed.cs': 'namespace A\n{\n    public class Mixed { Foo f; }\n}\nnamespace B\n{\n    public class Late { Foo f; }\n}\n',
     },
   });
+  // Code in namespace A of a file that also declares namespace B doesn't see B's names.
+  noEdge(g, 'api/Mixed.cs#Mixed', 'api/Foo.cs#Foo');
+  edge(g, 'api/Mixed.cs#Late', 'api/Foo.cs#Foo', 'type');
   // A.B's Circle, not C's, and not one filed under A or a top-level B.
   assert.match(edge(g, 'api/Use.cs#Use.Run', 'api/Shapes.cs#Circle', 'calls').reason!, /imported from "A\.B"/);
   assert.match(edge(g, 'api/Other.cs#Other.Run', 'api/Shapes.cs#Square', 'calls').reason!, /namespace A\b/);
@@ -177,8 +201,9 @@ test('C: includes make a header\'s declarations visible, directly or through ano
       'include/acme/acme.h': '#include "item.h"\nint acme_version(void);\n',
       'src/item.c': '#include "acme/item.h"\n\nitem_t make_item(int id) { item_t it = { id }; return it; }\n',
       'src/main.c':
-        '#include <stdio.h>\n#include "acme/acme.h"\n\nstatic int helper(void) { return 1; }\n\n' +
-        'int main(void) {\n  item_t it = make_item(helper());\n  printf("%d", acme_version());\n  return 0;\n}\n',
+        '#include <stdio.h>\n#include <config.h>\n#include "acme/acme.h"\n\nstatic int helper(void) { return 1; }\n\n' +
+        'int main(void) {\n  item_t it = make_item(helper());\n  printf("%d %d", acme_version(), VERSION);\n  return 0;\n}\n',
+      'src/config.h': 'typedef int VERSION;\n',
     },
   });
   // Found under include/, a usual include folder but not one the build was read for: a guess. Then item.h through acme.h.
@@ -188,6 +213,8 @@ test('C: includes make a header\'s declarations visible, directly or through ano
   edge(g, 'lib/src/main.c#main', 'lib/include/acme/item.h#make_item', 'calls');
   edge(g, 'lib/src/main.c#main', 'lib/include/acme/item.h#item_t', 'type');
   edge(g, 'lib/src/main.c#main', 'lib/src/main.c#helper', 'calls');
+  // `#include <…>` isn't looked for beside the file, so a header there is only a guess.
+  assert.equal(edge(g, 'lib/src/main.c#main', 'lib/src/config.h#VERSION', 'references').basis, 'inferred');
   // An include beside the including file is certain.
   assert.equal(edge(g, 'lib/include/acme/acme.h', 'lib/include/acme/item.h', 'imports').basis, 'evidenced');
   assert.equal(node(g, 'lib/src/main.c#helper').exported, false);
