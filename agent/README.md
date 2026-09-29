@@ -7,7 +7,7 @@ Shows what your coding agent is doing on [Fiada](https://fiada.tech), a live map
 Sign in at your Fiada map, open **agents** in the sidebar and choose **connect an agent**. It gives you one command with your indexer and token filled in. Run it in your project's folder:
 
 ```sh
-npx -y --package=@fiada/agent fiada setup --write . --url https://<indexer> --token <token>
+npx -y --package=@fiada/agent fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
 That does three things:
@@ -22,7 +22,7 @@ The package has several commands, so npx is told which one to run (`--package=@f
 
 ```sh
 npm install -g @fiada/agent
-fiada setup --write . --url https://<indexer> --token <token>
+fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
 ## Commands

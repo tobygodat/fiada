@@ -315,7 +315,11 @@ test('setup keeps a token only for the indexer it was given for', () => {
   assert.deepEqual(nextConfig({ url: 'https://a.test', token: 'fa_1' }, 'https://b.test'), { url: 'https://b.test' });
   assert.equal(flag(['--write', '.', '--url', 'u'], '--url'), 'u');
   assert.equal(flag(['--write', '.'], '--token'), undefined);
-  assert.equal(flag(['--write', '--url', 'u'], '--write'), undefined);
+  assert.equal(flag(['--write', '--url', 'u'], '--write', true), undefined);
+  // A key may start with dashes: after --token it's the value, and --token= says so outright.
+  assert.equal(flag(['--url', 'u', '--token', '--odd-key'], '--token'), '--odd-key');
+  assert.equal(flag(['--token=--odd=key', '--write', '.'], '--token'), '--odd=key');
+  assert.equal(flag(['--url=https://a.test'], '--url'), 'https://a.test');
 });
 
 test('setup runs this copy by its path, or through npx when it lives in npx cache', () => {

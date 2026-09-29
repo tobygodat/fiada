@@ -57,7 +57,7 @@ cd /path/to/your/repo && claude
 `--write` adds Fiada's hooks to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. For a map you signed in to, open **agents** in the sidebar and choose **connect an agent**: it gives one command to run in your project, no checkout of Fiada needed, which runs the published [`@fiada/agent`](agent/README.md) package:
 
 ```sh
-npx -y --package=@fiada/agent fiada setup --write . --url https://<indexer> --token <token>
+npx -y --package=@fiada/agent fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
 It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiada/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).

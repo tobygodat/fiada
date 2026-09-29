@@ -69,11 +69,18 @@ export function mergeHooks(settings: Record<string, any>, block = hooksBlock()):
   return { ...settings, hooks };
 }
 
-/** The value after a flag, or undefined when the flag isn't given or is followed by another flag. */
-export function flag(args: string[], name: string): string | undefined {
+/**
+ * A flag's value, as `--name=value` or `--name value`; undefined when it isn't
+ * given. The next argument is the value whatever it starts with (a key may
+ * begin with "--"), unless `optional` says the flag may stand alone, as
+ * `--write` does, and the next argument is another flag.
+ */
+export function flag(args: string[], name: string, optional = false): string | undefined {
+  const joined = args.find((a) => a.startsWith(`${name}=`));
+  if (joined !== undefined) return joined.slice(name.length + 1);
   const at = args.indexOf(name);
   const value = at < 0 ? undefined : args[at + 1];
-  return value?.startsWith('--') ? undefined : value;
+  return optional && value?.startsWith('--') ? undefined : value;
 }
 
 /** The config setup saves: a new URL drops a token that was for another indexer. */
@@ -133,7 +140,7 @@ To report to a hosted map, add --url <indexer> --token <token>; the map's "conne
     return;
   }
   // npm run and npx start in another folder; INIT_CWD is where the command was typed.
-  const dir = path.resolve(process.env.INIT_CWD ?? process.cwd(), flag(args, '--write') ?? '.');
+  const dir = path.resolve(process.env.INIT_CWD ?? process.cwd(), flag(args, '--write', true) ?? '.');
   const file = path.join(dir, '.claude', 'settings.local.json');
   let settings: Record<string, any> = {};
   try {

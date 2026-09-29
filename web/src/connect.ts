@@ -15,5 +15,6 @@ export function shellWord(s: string): string {
 /** The command that sets an agent up to report here, run in the project's own folder. */
 export function setupCommand(c: AgentConnection, token = c.token): string {
   // Several bins and none named after the package, so npx is told which to run.
-  return ['npx -y --package=@fiada/agent fiada setup', '--write .', '--url', shellWord(c.url), ...(token ? ['--token', shellWord(token)] : [])].join(' ');
+  // --name=value, so a value starting with dashes can't be taken for another flag.
+  return ['npx -y --package=@fiada/agent fiada setup', '--write .', `--url=${shellWord(c.url)}`, ...(token ? [`--token=${shellWord(token)}`] : [])].join(' ');
 }
