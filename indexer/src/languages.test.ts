@@ -147,6 +147,26 @@ test('Kotlin: sees Java in its package, aliases imports, and reads Spring routes
   assert.deepEqual(node(g, `${dir}/Service.kt#Service.list`).routes, ['GET /items']);
 });
 
+test('Kotlin fully qualified calls, and C# namespace aliases', async () => {
+  const g = await graphOf({
+    kt: {
+      'src/partner/api/Widget.kt': 'package partner.api\n\nclass Widget\n\nobject Util {\n    fun run() {}\n}\n',
+      'src/com/acme/Use.kt': 'package com.acme\n\nfun make() {\n    partner.api.Widget()\n    partner.api.Util.run()\n}\n',
+    },
+    cs: {
+      'External/Item.cs': 'namespace External.Models;\n\npublic class Item { }\n',
+      'Models/Item.cs': 'namespace Models;\n\npublic class Item { }\n',
+      'Use.cs': 'using Models = External.Models;\n\nnamespace Acme;\n\npublic class Use\n{\n    public object Make() => new Models.Item();\n}\n',
+    },
+  });
+  edge(g, 'kt/src/com/acme/Use.kt#make', 'kt/src/partner/api/Widget.kt#Widget', 'calls');
+  edge(g, 'kt/src/com/acme/Use.kt#make', 'kt/src/partner/api/Widget.kt#Util.run', 'calls');
+  noEdge(g, 'cs/Use.cs', 'cs/External');
+  // The alias, not the real namespace Models.
+  assert.match(edge(g, 'cs/Use.cs#Use.Make', 'cs/External/Item.cs#Item', 'calls').reason!, /imported from "External\.Models"/);
+  noEdge(g, 'cs/Use.cs#Use.Make', 'cs/Models/Item.cs#Item');
+});
+
 test('C#: namespaces and their parents, usings, controller and minimal-API routes', async () => {
   const g = await graphOf({
     api: {
@@ -357,6 +377,21 @@ test('Rust: a module both the library and the binary declare, and a renamed depe
   assert.match(edge(g, 'ws/app/src/main.rs#main', 'ws/acme-util/src/lib.rs#go', 'calls').reason!, /imported from "util::go"/);
 });
 
+test('Rust: a binary in src/bin/<name>/main.rs is its own crate', async () => {
+  const g = await graphOf({
+    app: {
+      'Cargo.toml': '[package]\nname = "app"\n',
+      'src/lib.rs': 'pub fn run() {}\n',
+      'src/bin/tool/main.rs': 'mod args;\n\nfn run() {}\n\nfn main() {\n    crate::run();\n    args::parse();\n}\n',
+      'src/bin/tool/args.rs': 'pub fn parse() { crate::run(); }\n',
+    },
+  });
+  edge(g, 'app/src/bin/tool/main.rs#main', 'app/src/bin/tool/main.rs#run', 'calls');
+  edge(g, 'app/src/bin/tool/main.rs#main', 'app/src/bin/tool/args.rs#parse', 'calls');
+  edge(g, 'app/src/bin/tool/args.rs#parse', 'app/src/bin/tool/main.rs#run', 'calls');
+  noEdge(g, 'app/src/bin/tool/args.rs#parse', 'app/src/lib.rs#run');
+});
+
 test('Rust: a crate name two repositories share means the referring repository\'s crate', async () => {
   const crate = { 'common/Cargo.toml': '[package]\nname = "common"\n', 'common/src/lib.rs': 'pub fn hello() {}\n' };
   const app = { 'app/Cargo.toml': '[package]\nname = "app"\n', 'app/src/main.rs': 'use common::hello;\n\nfn main() { hello(); }\n' };
@@ -413,20 +448,27 @@ test('Ruby: requires, and constants found across the repository as Rails autoloa
       'app/models/user.rb': 'class User < ApplicationRecord\n  def self.active\n    where(active: true)\n  end\nend\n',
       'app/models/application_record.rb': 'class ApplicationRecord\nend\n',
       'app/policies/admin/policy.rb': 'module Admin\n  class Policy\n    def initialize(user); end\n  end\nend\n',
+      'app/policies/policy.rb': 'class Policy\nend\n',
+      'app/services/reports/audit.rb': 'module Reports\n  class Audit\n  end\nend\n',
       'app/controllers/admin/users_controller.rb':
-        'module Admin\n  class UsersController\n    def index\n      users = User.active\n      Policy.new(users)\n      helper\n    end\n\n    private\n\n    def helper; end\n  end\nend\n',
+        'module Admin\n  class UsersController\n    def index\n      users = User.active\n      Policy.new(users)\n      helper\n    end\n\n    private\n\n    def helper; Audit.new; end\n  end\nend\n',
       'lib/tasks/report.rb': 'require_relative "../format"\nrequire_relative "helpers"\nrequire "json"\n\ndef report\n  Format.table\nend\n',
       'lib/tasks/helpers.rb': 'def shout(s) = s.upcase\n',
       'lib/format.rb': 'module Format\n  def self.table; end\nend\n',
     },
   });
-  assert.equal(g.repos[0].languages?.ruby, 7);
+  assert.equal(g.repos[0].languages?.ruby, 9);
   const users = 'shop/app/controllers/admin/users_controller.rb#Admin::UsersController';
   assert.match(edge(g, `${users}.index`, 'shop/app/models/user.rb#User.active', 'calls').reason!, /Ruby constants are global/);
-  // Inside module Admin, Policy is Admin::Policy: by the last part of its name, so a guess.
+  // Inside module Admin, Policy is Admin::Policy before the top-level one, as Ruby looks it up.
   const policy = edge(g, `${users}.index`, 'shop/app/policies/admin/policy.rb#Admin::Policy', 'calls');
-  assert.equal(policy.basis, 'inferred');
-  assert.match(policy.reason!, /last part of the constant name/);
+  assert.equal(policy.basis, 'evidenced');
+  assert.match(policy.reason!, /declared in Admin, which the code is inside/);
+  noEdge(g, `${users}.index`, 'shop/app/policies/policy.rb#Policy');
+  // Found only by the last part of its name elsewhere: a guess.
+  const audit = edge(g, `${users}.helper`, 'shop/app/services/reports/audit.rb#Reports::Audit', 'calls');
+  assert.equal(audit.basis, 'inferred');
+  assert.match(audit.reason!, /last part of the constant name/);
   edge(g, `${users}.index`, `${users}.helper`, 'calls');
   edge(g, 'shop/app/models/user.rb#User', 'shop/app/models/application_record.rb#ApplicationRecord', 'type');
   assert.match(edge(g, 'shop/lib/tasks/report.rb#report', 'shop/lib/format.rb#Format.table', 'calls').reason!, /Ruby constants/);
@@ -448,6 +490,17 @@ test('Swift: files of one module see each other; another target comes in through
   // self.load() in an extension in another file reaches the extended type's method.
   edge(g, 'pkg/Sources/App/Store+Log.swift#Store.log', 'pkg/Sources/App/Store.swift#Store.load', 'calls');
   noEdge(g, 'pkg/Sources/Models/Item.swift#Item', 'pkg/Sources/App/Store.swift#Store');
+});
+
+test('Swift: a member declared in an extension in another file', async () => {
+  const g = await graphOf({
+    pkg: {
+      'Sources/App/Thing.swift': 'struct Thing {}\n',
+      'Sources/App/Thing+Make.swift': 'extension Thing {\n  static func make() -> Thing { Thing() }\n}\n',
+      'Sources/App/main.swift': 'let made = Thing.make()\n',
+    },
+  });
+  edge(g, 'pkg/Sources/App/main.swift#made', 'pkg/Sources/App/Thing+Make.swift#Thing.make', 'calls');
 });
 
 test('Swift: a module found only in another repository is a guess', async () => {

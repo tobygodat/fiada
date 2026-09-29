@@ -58,6 +58,8 @@ interface At {
   bindings?: Map<string, Binding>;
   /** C++: the namespace the code sits in. */
   namespace?: string;
+  /** The symbol the code is in ("Admin::Users.index"), for Ruby's lexical lookup. */
+  symbol?: string;
 }
 
 interface GoPackage {
@@ -296,10 +298,14 @@ export function link(repos: ParsedRepo[]): LinkResult {
       const src = c.dir ? `${c.dir}/src` : 'src';
       const lib = files.get(fileId(repo.info.id, `${src}/lib.rs`));
       const main = files.get(fileId(repo.info.id, `${src}/main.rs`));
-      const bins = [...files.values()].filter((f) => f.repo === repo && posix.dirname(f.file.path) === `${src}/bin` && f.file.path.endsWith('.rs'));
+      // src/bin/tool.rs, or src/bin/tool/main.rs with its modules beside it.
+      const bins = [...files.values()].filter(
+        (f) => f.repo === repo && ((posix.dirname(f.file.path) === `${src}/bin` && f.file.path.endsWith('.rs')) || (posix.dirname(posix.dirname(f.file.path)) === `${src}/bin` && posix.basename(f.file.path) === 'main.rs')),
+      );
       const inLib = lib ? tree(lib) : new Set<string>();
       for (const bin of [...(lib && main ? [main] : []), ...bins]) {
-        const crate = `${repo.info.id}/${c.dir}#${posix.basename(bin.file.path, '.rs')}`;
+        const target = posix.basename(bin.file.path) === 'main.rs' && posix.dirname(bin.file.path) !== src ? posix.basename(posix.dirname(bin.file.path)) : posix.basename(bin.file.path, '.rs');
+        const crate = `${repo.info.id}/${c.dir}#${target}`;
         for (const id of tree(bin)) {
           if (inLib.has(id)) alsoIn.set(id, [...(alsoIn.get(id) ?? []), { crate, dir: posix.dirname(bin.file.path) }]);
           else if (!rootOf.has(id)) rootOf.set(id, { crate, dir: posix.dirname(bin.file.path), root: bin.id });
@@ -622,6 +628,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
       imports: [...(sym?.imports ?? []), ...e.file.imports, ...globalsFor(e)],
       bindings: i == null ? undefined : e.symbolBindings?.[i],
       namespace: sym?.namespace,
+      symbol: sym?.name,
     };
   };
 
@@ -773,7 +780,16 @@ export function link(repos: ParsedRepo[]): LinkResult {
   const memberOf = (sid: string, member: string | undefined): string => {
     if (!member || !sid.includes('#')) return sid;
     const owner = sid.slice(sid.indexOf('#') + 1).replace(/~\d+$/, '');
-    return files.get(fileOf(sid))?.symbols.get(`${owner}.${member}`) ?? sid;
+    const home = files.get(fileOf(sid));
+    const own = home?.symbols.get(`${owner}.${member}`);
+    if (own || !home) return own ?? sid;
+    // A Swift extension or C# partial class elsewhere in the module or namespace.
+    for (const key of home.scopes) {
+      const ns = namespaces.get(key);
+      const hit = ns && pick(ns, `${owner}.${member}`, home.repo);
+      if (hit) return hit;
+    }
+    return sid;
   };
 
   const resolveRef = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At = atOf(e)): Resolved | null => {
@@ -806,7 +822,14 @@ export function link(repos: ParsedRepo[]): LinkResult {
    */
   const qualifiedRef = (e: FileEntry, r: Pick<Ref, 'name' | 'scope'>, at: At): Resolved | null => {
     const family = e.file.lang === 'csharp' ? 'cs' : 'jvm';
-    const parts = [...r.scope!.split('.'), r.name];
+    let parts = [...r.scope!.split('.'), r.name];
+    // `using Models = External.Models;` makes `Models.Item` mean `External.Models.Item`.
+    const alias = family === 'cs' ? (at.bindings?.get(parts[0]) ?? e.bindings.get(parts[0])) : undefined;
+    if (alias?.imported === '*' && resolveModule(e, alias.spec)?.startsWith(NS)) {
+      const split = splitNamespaced(e, 'cs', [...alias.spec.source.split('.'), ...parts.slice(1)]);
+      const sid = split?.rest ? resolveName(split.id, split.rest, 0, e.repo) : null;
+      return sid ? { to: sid, spec: alias.spec, how: 'import', modules: [split!.id, resolveModule(e, alias.spec)!] } : null;
+    }
     const around = family === 'cs' && at.namespace ? at.namespace.split('.') : [];
     for (let i = around.length; i >= 0; i--) {
       const split = splitNamespaced(e, family, [...around.slice(0, i), ...parts]);
@@ -820,7 +843,27 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return nested === outer.to ? null : { ...outer, to: nested };
   };
 
+  /**
+   * Ruby looks a constant up through the modules the code is written in,
+   * innermost first, before the top level: `Policy` inside `module Admin` is
+   * `Admin::Policy` when there is one.
+   */
+  const rubyNested = (e: FileEntry, name: string, at: At): Resolved | null => {
+    const ns = namespaces.get(`rb:${e.repo.info.id}`);
+    if (!ns || !at.symbol || name.startsWith('::')) return null;
+    const nesting = at.symbol.replace(/\.[^.:]*$/, '').split('::');
+    for (let i = nesting.length; i > 0; i--) {
+      const sid = pick(ns, `${nesting.slice(0, i).join('::')}::${name}`, e.repo);
+      if (sid) return { to: sid, how: 'namespace', label: `${nesting.slice(0, i).join('::')}, which the code is inside`, modules: [] };
+    }
+    return null;
+  };
+
   const resolveRefOwner = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At): Resolved | null => {
+    if (e.file.lang === 'ruby' && /^[A-Z]/.test(r.name)) {
+      const nested = rubyNested(e, r.name, at);
+      if (nested) return nested;
+    }
     if ((e.file.lang === 'java' || e.file.lang === 'kotlin' || e.file.lang === 'csharp') && r.scope) return qualifiedRef(e, r, at);
     // `crate::a::B`, or `models::helper` through a module: in Rust a lowercase head names a module or crate.
     if (e.file.lang === 'rust' && (r.name.includes('::') || (r.member && !/^[A-Z]/.test(r.name)))) {

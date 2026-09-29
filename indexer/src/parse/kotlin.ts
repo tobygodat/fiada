@@ -3,7 +3,7 @@
 // The grammar has few named fields, so declarations are read by child type.
 
 import type { ParsedFile } from '../model.ts';
-import { annotationRoutes, capitalized, childOf, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
+import { annotationRoutes, capitalized, childOf, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const nameOf = (n: SyntaxNode, type: string) => childOf(n, type)?.text ?? null;
@@ -44,6 +44,23 @@ const enclosingClass = (n: SyntaxNode) => {
   for (let p = n.parent; p; p = p.parent) if (p.type === 'class_declaration' || p.type === 'object_declaration') return p;
   return null;
 };
+
+/**
+ * `external.api.Widget()` or `external.api.Util.run()`: the package, the
+ * type (or function) and any member, for the linker to look for in that
+ * package. A chain through calls (`a().b()`) names no package.
+ */
+function addQualified(out: RefSink, callee: SyntaxNode, at: SyntaxNode) {
+  for (const id of callee.descendantsOfType('simple_identifier')) out.seen(id);
+  const text = callee.text.replace(/\s+/g, '');
+  if (!/^[\w.]+$/.test(text)) return;
+  const parts = text.split('.');
+  const first = parts.findIndex((p) => /^[A-Z]/.test(p));
+  const at0 = first < 0 ? parts.length - 1 : first;
+  if (at0 === 0) return;
+  const member = parts.slice(at0 + 1).join('.') || undefined;
+  out.add(parts[at0], first >= 0 && !member ? 'new' : 'call', at, member, parts.slice(0, at0).join('.'));
+}
 
 const spec: LangSpec = {
   decl(n): Decl | null {
@@ -109,10 +126,11 @@ const spec: LangSpec = {
           out.seen(callee);
           out.seen(member);
           if (target?.type === 'this_expression') out.self(member.text, 'call', n);
+          else if (target?.type === 'simple_identifier' && !capitalized(target.text) && capitalized(member.text)) addQualified(out, callee, n);
           else if (target?.type === 'simple_identifier') {
             out.seen(target);
             out.add(target.text, 'call', n, member.text);
-          }
+          } else if (target?.type === 'navigation_expression') addQualified(out, callee, n);
         }
         return;
       }
