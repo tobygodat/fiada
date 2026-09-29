@@ -43,7 +43,7 @@ const PUBLIC_URL = process.env.FIADA_PUBLIC_URL?.trim().replace(/\/+$/, '') || u
 
 const store = await createStore(FIADA_HOME);
 const sortLlm = llmFromEnv();
-const summaryLlm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv();
+const summaryLlm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv(process.env, 'summaries');
 const authConfig = authConfigFromEnv();
 const auth = authConfig ? new Auth(store, authConfig) : null;
 

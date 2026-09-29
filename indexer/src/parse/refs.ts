@@ -10,17 +10,19 @@ export class RefSet {
   private map = new Map<string, Ref>();
   constructor(private readonly self?: string) {}
 
-  add(name: string, kind: RefKind, line: number, member?: string) {
+  add(name: string, kind: RefKind, line: number, member?: string, scope?: string) {
     if (!name || name === this.self) return;
-    const key = member ? `${name}.${member}` : name;
+    const key = `${scope != null ? `${scope}::` : ''}${member ? `${name}.${member}` : name}`;
     const prev = this.map.get(key);
     if (!prev || RANK[kind] > RANK[prev.kind] || (RANK[kind] === RANK[prev.kind] && line < prev.line)) {
-      this.map.set(key, member ? { name, member, kind, line } : { name, kind, line });
+      const ref: Ref = member ? { name, member, kind, line } : { name, kind, line };
+      if (scope != null) ref.scope = scope;
+      this.map.set(key, ref);
     }
   }
 
   merge(refs: Ref[]) {
-    for (const r of refs) this.add(r.name, r.kind, r.line, r.member);
+    for (const r of refs) this.add(r.name, r.kind, r.line, r.member, r.scope);
   }
 
   list(): Ref[] {

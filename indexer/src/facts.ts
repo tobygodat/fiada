@@ -34,7 +34,7 @@ export interface FactContext {
 
 /** UI framework the file's nearest package depends on, if any. */
 function frontendOf(repo: ParsedRepo, file: ParsedFile): string | undefined {
-  if (file.lang === 'python' || file.lang === 'go') return undefined;
+  if (file.lang !== 'typescript' && file.lang !== 'tsx' && file.lang !== 'javascript') return undefined;
   let best: { dir: string; fw: string } | undefined;
   for (const p of repo.packages) {
     if (p.dir !== '' && !file.path.startsWith(p.dir + '/')) continue;
