@@ -57,6 +57,9 @@ export interface StoredAccount {
   updatedAt: string;
 }
 
+/** What signing in writes: everything but the agent epoch and when the account was made, which it never touches. */
+export type SignedIn = Omit<StoredAccount, 'agentEpoch' | 'createdAt'>;
+
 export interface ProjectStore {
   /** Where this project's data lives, for display ("…/fiada.grouping.json", "mongodb: fiada.projects"). */
   describe(projectId: string): string;
@@ -77,7 +80,14 @@ export interface ProjectStore {
   saveSummaries?(projectId: string, entries: Record<string, StoredSummary>): Promise<void>;
   /** A signed-in account, or null when there is none with this id. Both stores have accounts; a store for tests may not. */
   loadAccount?(id: string): Promise<StoredAccount | null>;
-  saveAccount?(account: StoredAccount): Promise<void>;
+  /**
+   * Records a sign-in in one step: creates the account (agent epoch 0) or
+   * updates its profile and GitHub token, never its agent epoch, so a sign-in
+   * can't undo a reset made at the same moment. Returns the account as stored.
+   */
+  saveSignIn?(fields: SignedIn): Promise<StoredAccount>;
+  /** Adds one to the account's agent epoch in one step, revoking its agent tokens. Null when there is no such account. */
+  bumpAgentEpoch?(id: string, at: string): Promise<StoredAccount | null>;
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -98,6 +108,8 @@ export class FileProjectStore implements ProjectStore {
   private written = new Map<string, string>();
   /** Summary saves in flight per project, so each merge reads the one before it. */
   private summaryWrites = new Map<string, Promise<unknown>>();
+  /** Account changes in flight per account, so each reads the one before it. */
+  private accountWrites = new Map<string, Promise<unknown>>();
 
   constructor(private root: string) {}
 
@@ -161,9 +173,24 @@ export class FileProjectStore implements ProjectStore {
     return text == null ? null : (JSON.parse(text) as StoredAccount);
   }
 
-  async saveAccount(account: StoredAccount) {
-    // Only the indexer reads it: the token in it is sealed, but still.
-    await this.write(path.join(this.root, 'accounts', `${checkProjectId(account.id)}.json`), JSON.stringify(account, null, 2) + '\n', 0o600);
+  // Files belong to one indexer, so queuing each account's changes in this process makes them atomic.
+  saveSignIn(fields: SignedIn): Promise<StoredAccount> {
+    return this.changeAccount(fields.id, (before) => ({ ...before, ...fields, agentEpoch: before?.agentEpoch ?? 0, createdAt: before?.createdAt ?? fields.updatedAt }));
+  }
+
+  async bumpAgentEpoch(id: string, at: string): Promise<StoredAccount | null> {
+    return this.changeAccount(id, (before) => before && { ...before, agentEpoch: before.agentEpoch + 1, updatedAt: at });
+  }
+
+  private changeAccount<T extends StoredAccount | null>(id: string, change: (before: StoredAccount | null) => T): Promise<T> {
+    const run = (this.accountWrites.get(id) ?? Promise.resolve()).then(async () => {
+      const next = change(await this.loadAccount(id));
+      // Only the indexer reads it: the token in it is sealed, but still.
+      if (next) await this.write(path.join(this.root, 'accounts', `${checkProjectId(id)}.json`), JSON.stringify(next, null, 2) + '\n', 0o600);
+      return next;
+    });
+    this.accountWrites.set(id, run.catch(() => {}));
+    return run;
   }
 
   watchGrouping(id: string, onChange: () => void): () => void {

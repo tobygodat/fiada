@@ -3,8 +3,17 @@
 
 import type { AgentConnection } from '@fiada/shared';
 
+/**
+ * One word for a POSIX shell: left bare when it's plainly safe, else in
+ * single quotes, so a shared indexer's key with spaces, `;` or `$` stays one
+ * argument and runs nothing.
+ */
+export function shellWord(s: string): string {
+  return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 /** The command that sets an agent up to report here, run in the project's own folder. */
 export function setupCommand(c: AgentConnection, token = c.token): string {
   // Several bins and none named after the package, so npx is told which to run.
-  return ['npx -y --package=@fiada/agent fiada setup', '--write .', '--url', c.url, ...(token ? ['--token', token] : [])].join(' ');
+  return ['npx -y --package=@fiada/agent fiada setup', '--write .', '--url', shellWord(c.url), ...(token ? ['--token', shellWord(token)] : [])].join(' ');
 }

@@ -119,7 +119,7 @@ export class Auth {
     private github: GitHubApi = gitHubApi(config),
     private now: () => number = Date.now,
   ) {
-    if (!store.loadAccount || !store.saveAccount) throw new Error('GitHub sign-in needs a store that keeps accounts.');
+    if (!store.loadAccount || !store.saveSignIn || !store.bumpAgentEpoch) throw new Error('GitHub sign-in needs a store that keeps accounts.');
     this.signKey = createHmac('sha256', config.secret).update('fiada sign').digest();
     this.sealKey = createHmac('sha256', config.secret).update('fiada seal').digest();
   }
@@ -173,10 +173,10 @@ export class Auth {
 
   /** Revokes every agent token the account was given, and returns its new one. */
   async resetAgentToken(account: StoredAccount): Promise<string> {
-    // Built on the stored account, not a cached one: another indexer may have reset it since.
-    const current = (await this.account(account.id, true)) ?? account;
-    const next = { ...current, agentEpoch: current.agentEpoch + 1, updatedAt: new Date(this.now()).toISOString() };
-    await this.save(next);
+    // One step in the store, so a reset on another indexer at the same time counts too.
+    const next = await this.store.bumpAgentEpoch!(account.id, new Date(this.now()).toISOString());
+    if (!next) throw new Error(`No account ${account.id} to reset.`);
+    this.remember(next);
     return this.agentToken(next);
   }
 
@@ -244,23 +244,18 @@ export class Auth {
     if (!code) throw new Error('GitHub did not sign you in.');
     const { token, scopes } = await this.github.exchange(code, callbackUrl);
     const user = await this.github.user(token);
-    const id = accountId(user.id);
-    // Read fresh: a cached account could write back an agent epoch another indexer has since reset.
-    const before = await this.account(id, true);
-    const at = new Date(this.now()).toISOString();
-    const account: StoredAccount = {
-      id,
+    // The store keeps the agent epoch as it is: signing in never revokes or restores an agent token.
+    const account = await this.store.saveSignIn!({
+      id: accountId(user.id),
       githubId: user.id,
       login: user.login,
       ...(user.name ? { name: user.name } : {}),
       ...(user.avatar ? { avatar: user.avatar } : {}),
       sealedToken: this.seal(token),
       scopes: user.scopes ?? scopes,
-      agentEpoch: before?.agentEpoch ?? 0,
-      createdAt: before?.createdAt ?? at,
-      updatedAt: at,
-    };
-    await this.save(account);
+      updatedAt: new Date(this.now()).toISOString(),
+    });
+    this.remember(account);
     return { account, returnTo: c.r, session: this.sessionToken(account) };
   }
 
@@ -279,8 +274,7 @@ export class Auth {
     return entry.account;
   }
 
-  private async save(account: StoredAccount) {
-    await this.store.saveAccount!(account);
+  private remember(account: StoredAccount) {
     this.accounts.set(account.id, { account: Promise.resolve(account), at: this.now() });
   }
 }

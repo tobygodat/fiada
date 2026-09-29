@@ -11,6 +11,8 @@
 //   { _id: "default:Qm3…", project: "default", text, model, at }
 //
 // Signed-in accounts go in `accounts`, one document each, keyed by account id.
+// A sign-in and an agent-token reset each change their own fields in one
+// update, so indexers doing both at once can't undo each other.
 //
 // Each save touches only its own field, so saving repos never overwrites the
 // grouping. Each field also carries a revision: a save applies only on top of
@@ -22,7 +24,7 @@
 
 import { MongoClient, type Collection } from 'mongodb';
 import type { Grouping } from '@fiada/shared';
-import type { ProjectStore, SavedRepo, StoredAccount, StoredSummary } from './store.ts';
+import type { ProjectStore, SavedRepo, SignedIn, StoredAccount, StoredSummary } from './store.ts';
 
 interface ProjectDoc {
   _id: string;
@@ -125,14 +127,22 @@ export class MongoProjectStore implements ProjectStore {
 
   async loadAccount(id: string): Promise<StoredAccount | null> {
     const doc = await this.accounts.findOne({ _id: id });
-    if (!doc) return null;
-    const { _id, ...rest } = doc;
-    return { id: _id, ...rest };
+    return doc && fromDoc(doc);
   }
 
-  async saveAccount(account: StoredAccount) {
-    const { id, ...rest } = account;
-    await this.accounts.replaceOne({ _id: id }, rest, { upsert: true });
+  async saveSignIn(fields: SignedIn): Promise<StoredAccount> {
+    const { id, ...rest } = fields;
+    const doc = await this.accounts.findOneAndUpdate(
+      { _id: id },
+      { $set: rest, $setOnInsert: { agentEpoch: 0, createdAt: fields.updatedAt } },
+      { upsert: true, returnDocument: 'after' },
+    );
+    return fromDoc(doc!);
+  }
+
+  async bumpAgentEpoch(id: string, at: string): Promise<StoredAccount | null> {
+    const doc = await this.accounts.findOneAndUpdate({ _id: id }, { $inc: { agentEpoch: 1 }, $set: { updatedAt: at } }, { returnDocument: 'after' });
+    return doc && fromDoc(doc);
   }
 
   async close() {
@@ -188,6 +198,10 @@ export class MongoProjectStore implements ProjectStore {
     this.revs.set(key, seen + 1);
     this.stored.set(key, json);
   }
+}
+
+function fromDoc({ _id, ...rest }: AccountDoc): StoredAccount {
+  return { id: _id, ...rest };
 }
 
 /**

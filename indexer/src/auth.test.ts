@@ -153,6 +153,17 @@ test('signing in or resetting on an indexer with a stale read keeps the latest a
   assert.equal(await two.agent(afterOne), null);
 });
 
+test('a sign-in and a reset at the same moment on two indexers both count', async () => {
+  const { auth: one, store } = await setup();
+  const { account } = await signIn(one);
+  const two = new Auth(store, CONFIG, { ...fakeGitHub(), exchange: async () => ({ token: 'gho_newer', scopes: 'repo' }) });
+  const [reset] = await Promise.all([one.resetAgentToken(account), signIn(two)]);
+  const saved = await store.loadAccount('gh-42');
+  assert.equal(saved?.agentEpoch, 1, 'the sign-in did not undo the reset');
+  assert.equal(await two.githubToken('gh-42'), 'gho_newer', 'the reset did not undo the new GitHub token');
+  assert.equal((await one.agent(reset))?.id, 'gh-42');
+});
+
 test('a sealed token opens only with the secret that sealed it', async () => {
   const { auth, store } = await setup();
   const sealed = auth.seal('gho_secret');
@@ -186,7 +197,12 @@ test('accounts round-trip through the file store', async () => {
   const store = new FileProjectStore(home);
   const a: StoredAccount = { id: 'gh-1', githubId: 1, login: 'x', sealedToken: 's', scopes: 'repo', agentEpoch: 0, createdAt: 't', updatedAt: 't' };
   assert.equal(await store.loadAccount('gh-1'), null);
-  await store.saveAccount(a);
+  assert.equal(await store.bumpAgentEpoch('gh-1', 't'), null);
+  const { agentEpoch, createdAt, ...signIn } = a;
+  assert.deepEqual(await store.saveSignIn(signIn), a);
   assert.deepEqual(await store.loadAccount('gh-1'), a);
+  assert.equal((await store.bumpAgentEpoch('gh-1', 'u'))?.agentEpoch, 1);
+  // Signing in again keeps the epoch and when the account was made.
+  assert.deepEqual(await store.saveSignIn({ ...signIn, login: 'y', updatedAt: 'v' }), { ...a, login: 'y', agentEpoch: 1, updatedAt: 'v' });
   await assert.rejects(store.loadAccount('../etc'), /Invalid project id/);
 });
