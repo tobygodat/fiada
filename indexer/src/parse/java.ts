@@ -2,7 +2,7 @@
 // routes of Spring (`@GetMapping`, `@RequestMapping`) and JAX-RS (`@GET`, `@Path`).
 
 import type { ParsedFile } from '../model.ts';
-import { annotationRoutes, capitalized, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec } from './outline.ts';
+import { annotationRoutes, capitalized, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const TYPE_KIND = {
@@ -60,6 +60,17 @@ const enclosingType = (n: SyntaxNode) => {
   return null;
 };
 
+/**
+ * `Outer.Inner` keeps its qualifier, to reach the nested type's own symbol;
+ * a package-qualified `java.util.List` is just its last part.
+ */
+function addType(out: RefSink, id: SyntaxNode, kind: 'new' | 'type', at: SyntaxNode) {
+  const parts = id.text.replace(/<.*$/s, '').split('.').map((p) => p.trim());
+  const first = parts.findIndex((p) => /^[A-Z]/.test(p));
+  if (first >= 0 && first < parts.length - 1) out.add(parts[first], kind, at, parts.slice(first + 1).join('.'));
+  else out.add(parts[parts.length - 1], kind, at);
+}
+
 const spec: LangSpec = {
   decl(n): Decl | null {
     if (n.type === 'package_declaration' || n.type === 'import_declaration') return { as: 'skip' };
@@ -106,7 +117,7 @@ const spec: LangSpec = {
         const id = type?.type === 'generic_type' ? type.namedChildren[0] : type;
         if (id && (id.type === 'type_identifier' || id.type === 'scoped_type_identifier')) {
           out.seen(id);
-          out.add(lastSegment(id.text), 'new', n);
+          addType(out, id, 'new', n);
         }
         return;
       }
@@ -130,7 +141,7 @@ const spec: LangSpec = {
         return;
       }
       case 'scoped_type_identifier':
-        out.add(lastSegment(n.text), 'type', n);
+        addType(out, n, 'type', n);
         return true;
       case 'type_identifier':
         out.add(n.text, 'type', n);

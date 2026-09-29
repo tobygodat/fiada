@@ -68,7 +68,7 @@ test('Java: packages, imports, wildcards, Spring routes, and a client request th
   assert.match(same.reason!, /declared in package com\.acme\.shop/);
   // An explicit import, and a wildcard one.
   assert.match(edge(g, `${dir}/shop/ItemService.java#ItemService.find`, `${dir}/shop/model/Item.java#Item`, 'calls').reason!, /imported from "com\.acme\.shop\.model\.Item"/);
-  assert.match(edge(g, `${dir}/shop/ItemController.java#ItemController.get`, `${dir}/util/Strings.java#Strings`, 'calls').reason!, /imported from "com\.acme\.util"/);
+  assert.match(edge(g, `${dir}/shop/ItemController.java#ItemController.get`, `${dir}/util/Strings.java#Strings.trim`, 'calls').reason!, /imported from "com\.acme\.util"/);
   // this.save() is the sibling method.
   edge(g, `${dir}/shop/ItemController.java#ItemController.create`, `${dir}/shop/ItemController.java#ItemController.save`, 'calls');
 
@@ -95,6 +95,16 @@ test('Java: static wildcard imports bring in members; a package in two repositor
   assert.equal(edge(g, 'two/src/com/acme/Other.java#Other.make', 'two/src/com/acme/Item.java#Item', 'calls').basis, 'evidenced');
   noEdge(g, 'two/src/com/acme/Other.java#Other.make', 'one/src/com/acme/Item.java#Item');
   edge(g, 'one/src/com/acme/Use.java#Use.run', 'one/src/com/acme/Item.java#Item', 'calls');
+});
+
+test('Java: a nested type named with its outer one, from the same package', async () => {
+  const g = await graphOf({
+    app: {
+      'src/com/acme/Outer.java': 'package com.acme;\n\npublic class Outer {\n  public static class Inner {}\n}\n',
+      'src/com/acme/Use.java': 'package com.acme;\n\npublic class Use {\n  Outer.Inner make() { return new Outer.Inner(); }\n}\n',
+    },
+  });
+  edge(g, 'app/src/com/acme/Use.java#Use.make', 'app/src/com/acme/Outer.java#Outer.Inner', 'calls');
 });
 
 test('Kotlin: sees Java in its package, aliases imports, and reads Spring routes', async () => {
@@ -131,7 +141,7 @@ test('C#: namespaces and their parents, usings, controller and minimal-API route
   });
   assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Models/Item.cs#Item', 'calls').reason!, /imported from "Acme\.Models"/);
   // Acme.Controllers sees Acme without a using.
-  assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Core/Clock.cs#Clock', 'calls').reason!, /namespace Acme\b/);
+  assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Core/Clock.cs#Clock.Now', 'calls').reason!, /namespace Acme\b/);
   assert.deepEqual(node(g, 'api/Controllers/ItemsController.cs#ItemsController.Get').routes, ['GET /api/Items/{id}']);
   assert.deepEqual(node(g, 'api/Program.cs').routes, ['GET /v2/health', 'GET /items', 'PUT /items']);
   assert.ok(g.edges.every((e) => !e.to.startsWith('ns:')), 'namespaces reach edges as their folders');
@@ -192,7 +202,7 @@ test('Rust: use paths through crate, self, super and other crates; mod files; im
   assert.match(edge(g, 'ws/app/src/main.rs', 'ws/app/src/routes/mod.rs', 'imports').reason!, /imports "self::routes"/);
   assert.match(edge(g, 'ws/app/src/routes/items.rs#show', 'ws/app/src/routes/mod.rs#ok', 'calls').reason!, /imported from "super::ok"/);
   // Another crate of the workspace, by the name its Cargo.toml gives it.
-  assert.match(edge(g, 'ws/app/src/routes/mod.rs#serve', 'ws/core/src/model.rs#Item', 'calls').reason!, /imported from "acme_core::model::Item"/);
+  assert.match(edge(g, 'ws/app/src/routes/mod.rs#serve', 'ws/core/src/model.rs#Item.new', 'calls').reason!, /imported from "acme_core::model::Item"/);
   // A glob import from a child module.
   edge(g, 'ws/app/src/routes/mod.rs#serve', 'ws/app/src/routes/items.rs#show', 'calls');
   edge(g, 'ws/app/src/routes/items.rs#Handler.show', 'ws/app/src/routes/items.rs#Handler.log', 'calls');
@@ -209,9 +219,9 @@ test('Rust: a use inside a function binds only there', async () => {
       'src/b.rs': 'pub struct Item;\nimpl Item { pub fn make() {} }\n',
     },
   });
-  edge(g, 'app/src/lib.rs#one', 'app/src/a.rs#Item', 'calls');
-  edge(g, 'app/src/lib.rs#two', 'app/src/b.rs#Item', 'calls');
-  noEdge(g, 'app/src/lib.rs#one', 'app/src/b.rs#Item');
+  edge(g, 'app/src/lib.rs#one', 'app/src/a.rs#Item.make', 'calls');
+  edge(g, 'app/src/lib.rs#two', 'app/src/b.rs#Item.make', 'calls');
+  noEdge(g, 'app/src/lib.rs#one', 'app/src/b.rs#Item.make');
 });
 
 test('C++: a namespace keeps same-named declarations apart', async () => {
@@ -230,6 +240,21 @@ test('C++: a namespace keeps same-named declarations apart', async () => {
   // Inside namespace a, a bare Foo is a::Foo.
   edge(g, 'app/src/main.cpp#useA', aFoo, 'type');
   noEdge(g, 'app/src/main.cpp#useA', bFoo);
+});
+
+test('Rust: an inline module keeps its declarations apart from another\'s', async () => {
+  const g = await graphOf({
+    app: {
+      'Cargo.toml': '[package]\nname = "app"\n',
+      'src/lib.rs':
+        'mod a {\n    pub struct Item;\n    pub fn make() -> Item { Item }\n}\n\nmod b {\n    pub struct Item;\n    pub fn make() -> Item { Item }\n}\n\n' +
+        'pub fn both() {\n    a::make();\n    b::Item;\n}\n',
+    },
+  });
+  edge(g, 'app/src/lib.rs#b.make', 'app/src/lib.rs#b.Item');
+  noEdge(g, 'app/src/lib.rs#b.make', 'app/src/lib.rs#a.Item');
+  edge(g, 'app/src/lib.rs#both', 'app/src/lib.rs#a.make', 'calls');
+  edge(g, 'app/src/lib.rs#both', 'app/src/lib.rs#b.Item');
 });
 
 test('Rust: a crate name two repositories share means the referring repository\'s crate', async () => {
@@ -297,14 +322,14 @@ test('Ruby: requires, and constants found across the repository as Rails autoloa
   });
   assert.equal(g.repos[0].languages?.ruby, 7);
   const users = 'shop/app/controllers/admin/users_controller.rb#Admin::UsersController';
-  assert.match(edge(g, `${users}.index`, 'shop/app/models/user.rb#User', 'calls').reason!, /Ruby constants are global/);
+  assert.match(edge(g, `${users}.index`, 'shop/app/models/user.rb#User.active', 'calls').reason!, /Ruby constants are global/);
   // Inside module Admin, Policy is Admin::Policy: by the last part of its name, so a guess.
   const policy = edge(g, `${users}.index`, 'shop/app/policies/admin/policy.rb#Admin::Policy', 'calls');
   assert.equal(policy.basis, 'inferred');
   assert.match(policy.reason!, /last part of the constant name/);
   edge(g, `${users}.index`, `${users}.helper`, 'calls');
   edge(g, 'shop/app/models/user.rb#User', 'shop/app/models/application_record.rb#ApplicationRecord', 'type');
-  assert.match(edge(g, 'shop/lib/tasks/report.rb#report', 'shop/lib/format.rb#Format', 'calls').reason!, /Ruby constants/);
+  assert.match(edge(g, 'shop/lib/tasks/report.rb#report', 'shop/lib/format.rb#Format.table', 'calls').reason!, /Ruby constants/);
   // A require whose names aren't used still connects the files.
   assert.match(edge(g, 'shop/lib/tasks/report.rb', 'shop/lib/tasks/helpers.rb', 'imports').reason!, /imports "\.\/helpers"/);
 });
@@ -320,8 +345,8 @@ test('Swift: files of one module see each other; another target comes in through
   });
   assert.match(edge(g, 'pkg/Sources/App/main.swift#store', 'pkg/Sources/App/Store.swift#Store', 'calls').reason!, /Swift module App/);
   assert.match(edge(g, 'pkg/Sources/App/Store.swift#Store.load', 'pkg/Sources/Models/Item.swift#Item', 'calls').reason!, /imported from "Models"/);
-  // self.load() in an extension in another file points at the type it extends.
-  edge(g, 'pkg/Sources/App/Store+Log.swift#Store.log', 'pkg/Sources/App/Store.swift#Store', 'calls');
+  // self.load() in an extension in another file reaches the extended type's method.
+  edge(g, 'pkg/Sources/App/Store+Log.swift#Store.log', 'pkg/Sources/App/Store.swift#Store.load', 'calls');
   noEdge(g, 'pkg/Sources/Models/Item.swift#Item', 'pkg/Sources/App/Store.swift#Store');
 });
 

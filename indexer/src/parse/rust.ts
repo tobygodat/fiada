@@ -92,13 +92,15 @@ function imports(root: SyntaxNode): ImportSpec[] {
 }
 
 const spec: LangSpec = {
-  decl(n): Decl | null {
+  decl(n, owner): Decl | null {
     if (n.type === 'use_declaration' || n.type === 'attribute_item' || n.type === 'inner_attribute_item') return { as: 'skip' };
-    if (n.type === 'mod_item') return n.childForFieldName('body') ? { as: 'scope', body: n.childForFieldName('body') } : { as: 'skip' };
-    if (n.type === 'impl_item') {
-      const owner = typeName(n.childForFieldName('type'));
-      return { as: 'scope', body: n.childForFieldName('body'), owner: owner ?? undefined };
+    // An inline `mod a { … }` names what it declares "a.Item", as a type names its methods.
+    const within = (name: string | null | undefined) => (name ? (owner ? `${owner}.${name}` : name) : undefined);
+    if (n.type === 'mod_item') {
+      const body = n.childForFieldName('body');
+      return body ? { as: 'scope', body, owner: within(n.childForFieldName('name')?.text) } : { as: 'skip' };
     }
+    if (n.type === 'impl_item') return { as: 'scope', body: n.childForFieldName('body'), owner: within(typeName(n.childForFieldName('type'))) };
     if (n.type in ITEM_KIND) {
       const name = n.childForFieldName('name')?.text;
       if (!name) return null;
@@ -189,7 +191,7 @@ export function extractRust(root: SyntaxNode, file: ParsedFile) {
   for (const impl of root.descendantsOfType('impl_item')) {
     const trait = typeName(impl.childForFieldName('trait'));
     const owner = typeName(impl.childForFieldName('type'));
-    const sym = owner ? file.symbols.find((s) => s.name === owner && s.kind !== 'function') : undefined;
+    const sym = owner ? file.symbols.find((s) => (s.name === owner || s.name.endsWith(`.${owner}`)) && s.kind !== 'function') : undefined;
     if (trait && sym) sym.bases = [...(sym.bases ?? []), trait];
   }
 }

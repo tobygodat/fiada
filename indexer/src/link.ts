@@ -701,7 +701,24 @@ export function link(repos: ParsedRepo[]): LinkResult {
     return null;
   };
 
+  /**
+   * `Items.of`, `Outer.Inner`, `a::Item` once `Items`, `Outer` or `a` is
+   * found: the member's own symbol ("Items.of") when its file declares one,
+   * else the owner itself.
+   */
+  const memberOf = (sid: string, member: string | undefined): string => {
+    if (!member || !sid.includes('#')) return sid;
+    const owner = sid.slice(sid.indexOf('#') + 1).replace(/~\d+$/, '');
+    return files.get(fileOf(sid))?.symbols.get(`${owner}.${member}`) ?? sid;
+  };
+
   const resolveRef = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At = atOf(e)): Resolved | null => {
+    const found = resolveRefOwner(e, r, at);
+    if (found && r.member && found.to.includes('#')) found.to = memberOf(found.to, r.member);
+    return found;
+  };
+
+  const resolveRefOwner = (e: FileEntry, r: Pick<Ref, 'name' | 'member' | 'scope'>, at: At): Resolved | null => {
     const pkgSymbol = (name: string) => (e.pkg ? goPkgs.get(e.pkg)?.symbols.get(name) : undefined);
     // C and C++ weigh namespaces, which a file's first-declared name can't.
     if (C_FAMILY.has(e.file.lang)) {
@@ -718,7 +735,8 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const b = at.bindings?.get(r.name) ?? e.bindings.get(r.name);
     if (!b) {
       if (r.member) {
-        const own = e.symbols.get(r.name);
+        // An inline Rust module's `a::Item`, declared here as "a.Item".
+        const own = e.symbols.get(r.name) ?? e.symbols.get(`${r.name}.${r.member}`);
         if (own) return { to: own, how: 'local', modules: [] };
         const inPkg = pkgSymbol(r.name);
         if (inPkg) return { to: inPkg, how: 'package', modules: [] };
