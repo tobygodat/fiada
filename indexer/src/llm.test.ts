@@ -31,6 +31,33 @@ test('llmFromEnv: OpenAI first, Claude when it is the only key or the model asks
   assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'gpt-5' })!.model, 'claude-opus-5');
 });
 
+test('llmFromEnv: summaries take a smaller OpenAI model unless FIADA_SUMMARY_MODEL names one', () => {
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a' }, 'summaries')!.model, 'gpt-5-mini');
+  // FIADA_LLM_MODEL is the sorting model; summaries keep theirs.
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_LLM_MODEL: 'gpt-5.5' }, 'summaries')!.model, 'gpt-5-mini');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_LLM_MODEL: 'gpt-5.5' })!.model, 'gpt-5.5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_SUMMARY_MODEL: 'gpt-5.5' }, 'summaries')!.model, 'gpt-5.5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_SUMMARY_MODEL: 'gpt-5.5' })!.model, 'gpt-5.5');
+  // Claude keeps its default, and a Claude sorting model takes summaries to Claude too.
+  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b' }, 'summaries')!.model, 'claude-opus-5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'claude-sonnet-5' }, 'summaries')!.label, 'Claude');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_SUMMARY_MODEL: 'claude-sonnet-5' }, 'summaries')!.model, 'claude-sonnet-5');
+});
+
+test('OpenAI: a summaries key without gpt-5-mini moves on to the usual models', async () => {
+  const seen: string[] = [];
+  const post: Post = async (_url, _headers, body) => {
+    const model = JSON.parse(body).model;
+    seen.push(model);
+    if (model === 'gpt-5-mini') return { status: 404, headers: {}, body: JSON.stringify({ error: { message: 'no such model', code: 'model_not_found' } }) };
+    return { status: 200, headers: {}, body: JSON.stringify({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }] }) };
+  };
+  const llm = openaiLLM('k', ['gpt-5-mini', 'gpt-5.5'], { post, log: () => {} });
+  assert.deepEqual(await llm.json({ label: 'x', system: ['s'], prompt: 'p', schema: {} }), { ok: true });
+  assert.deepEqual(seen, ['gpt-5-mini', 'gpt-5.5']);
+  assert.equal(llm.model, 'gpt-5.5');
+});
+
 // ── OpenAI, with a mocked transport ──────────────────────────────────
 
 type Answer = { status: number; body: unknown; headers?: Record<string, string> };
@@ -105,7 +132,7 @@ test("openaiLLM: without a model, moves down the defaults when the key can't use
   const chosen = transport(apiError(404, 'model_not_found'));
   const err = await openaiLLM('k', 'gpt-9', { post: chosen.post, ...quiet }).json(req).catch((e) => e);
   assert.equal(chosen.calls.length, 1);
-  assert.equal(describeLLMError(err), "The OpenAI API key can't use gpt-9. Set FIADA_LLM_MODEL to a model it has.");
+  assert.equal(describeLLMError(err), "The OpenAI API key can't use gpt-9. Set FIADA_LLM_MODEL (or FIADA_SUMMARY_MODEL, for summaries) to a model it has.");
 });
 
 test('openaiLLM: refusals, cut-off answers and unreachable API read plainly', async () => {

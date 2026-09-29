@@ -32,22 +32,33 @@ export interface LLM {
 export const DEFAULT_MODEL = 'claude-opus-5';
 /** OpenAI's default model, then the ones to try when a key can't use it. */
 export const DEFAULT_OPENAI_MODELS = ['gpt-5.5', 'gpt-5', 'gpt-4.1'];
+/**
+ * OpenAI's default for summaries: short lines, many of them, written on
+ * every import, where a smaller model does as well for far less.
+ */
+export const SUMMARY_OPENAI_MODELS = ['gpt-5-mini', ...DEFAULT_OPENAI_MODELS];
 
 const providerOf = (model: string) => (/^claude/i.test(model) ? 'anthropic' : /^(gpt|chatgpt|o\d)/i.test(model) ? 'openai' : undefined);
 
 /**
  * OpenAI when OPENAI_API_KEY is set, else Claude when ANTHROPIC_API_KEY is;
- * null without either. FIADA_LLM_MODEL picks the model, and a Claude model
- * there picks Claude when both keys are set. A model of the other provider's
- * is ignored, so a leftover FIADA_LLM_MODEL=claude-… doesn't break an
- * OpenAI key.
+ * null without either. FIADA_LLM_MODEL picks the model that sorts, and a
+ * Claude model there picks Claude when both keys are set. Summaries use
+ * FIADA_SUMMARY_MODEL, else a smaller OpenAI model (Claude keeps its
+ * default), on the provider FIADA_LLM_MODEL picked. A model of the other
+ * provider's is ignored, so a leftover FIADA_LLM_MODEL=claude-… doesn't
+ * break an OpenAI key.
  */
-export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LLM | null {
+export function llmFromEnv(env: NodeJS.ProcessEnv = process.env, use: 'sort' | 'summaries' = 'sort'): LLM | null {
   const openai = unquote(env.OPENAI_API_KEY);
   const anthropic = unquote(env.ANTHROPIC_API_KEY);
-  const model = env.FIADA_LLM_MODEL?.trim() || undefined;
+  const own = (use === 'summaries' && env.FIADA_SUMMARY_MODEL?.trim()) || undefined;
+  const model = own ?? (env.FIADA_LLM_MODEL?.trim() || undefined);
   const wants = model && providerOf(model);
-  if (openai && !(wants === 'anthropic' && anthropic)) return openaiLLM(openai, wants === 'anthropic' ? undefined : model);
+  if (openai && !(wants === 'anthropic' && anthropic)) {
+    if (use === 'summaries' && !own) return openaiLLM(openai, SUMMARY_OPENAI_MODELS);
+    return openaiLLM(openai, wants === 'anthropic' ? undefined : model);
+  }
   if (anthropic) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL);
   return null;
 }
@@ -164,14 +175,14 @@ interface ChatCompletion {
  * OpenAI through the Chat Completions API, with plain HTTPS rather than the
  * SDK. Structured output in strict mode, so every answer parses against the
  * request's schema. Without a `model`, it starts with the newest default
- * and moves down DEFAULT_OPENAI_MODELS when the key can't use one. `post`
- * and `retryDelayMs` are for tests.
+ * and moves down DEFAULT_OPENAI_MODELS when the key can't use one; given a
+ * list, it moves down that. `post` and `retryDelayMs` are for tests.
  */
-export function openaiLLM(apiKey: string, model?: string, opts: { post?: Post; retries?: number; retryDelayMs?: number; log?: (line: string) => void } = {}): LLM {
+export function openaiLLM(apiKey: string, model?: string | string[], opts: { post?: Post; retries?: number; retryDelayMs?: number; log?: (line: string) => void } = {}): LLM {
   const post = opts.post ?? httpsPost();
   const retries = opts.retries ?? 3;
   const log = opts.log ?? ((l: string) => console.log(l));
-  const candidates = model ? [model] : DEFAULT_OPENAI_MODELS;
+  const candidates = Array.isArray(model) ? model : model ? [model] : DEFAULT_OPENAI_MODELS;
   let current = 0;
 
   async function once(model: string, body: string): Promise<ChatCompletion> {
@@ -249,7 +260,7 @@ export function describeLLMError(err: unknown): string {
   if (err instanceof OpenAIError) {
     if (err.status === undefined) return "Couldn't reach the OpenAI API.";
     if (err.status === 401) return 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.';
-    if (err.code === 'model_not_found' || err.status === 404) return `The OpenAI API key can't use ${err.model ?? 'this model'}. Set FIADA_LLM_MODEL to a model it has.`;
+    if (err.code === 'model_not_found' || err.status === 404) return `The OpenAI API key can't use ${err.model ?? 'this model'}. Set FIADA_LLM_MODEL (or FIADA_SUMMARY_MODEL, for summaries) to a model it has.`;
     if (err.code === 'insufficient_quota') return "The OpenAI API key's account is out of credit. Add some under Billing on platform.openai.com.";
     if (err.status === 403) return `The OpenAI API refused this key: ${err.message}`.slice(0, 300);
     if (err.status === 429) return 'The OpenAI API is rate limiting this key. Try again in a minute.';
