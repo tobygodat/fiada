@@ -57,7 +57,7 @@ cd /path/to/your/repo && claude
 `--write` adds Fiada's hooks to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. For a map you signed in to, open **agents** in the sidebar and choose **connect an agent**: it gives one command to run in your project, no checkout of Fiada needed, which runs the published [`@fiada/agent`](agent/README.md) package:
 
 ```sh
-npx -y @fiada/agent setup --write . --url https://<indexer> --token <token>
+npx -y --package=@fiada/agent fiada setup --write . --url https://<indexer> --token <token>
 ```
 
 It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiada/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
@@ -216,7 +216,7 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 
 Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
-The same package is on npm as [`@fiada/agent`](agent/README.md): `npx -y @fiada/agent setup --write .` in your project does what `npm run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
+The same package is on npm as [`@fiada/agent`](agent/README.md): `npx -y --package=@fiada/agent fiada setup --write .` in your project does what `npm run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
 
 To publish a new version: bump `version` in `agent/package.json`, then `npm publish -w @fiada/agent`. Publishing bundles `agent/src` into `agent/dist/cli.js` with esbuild (`npm run agent:build`): one file with no dependencies, since Node won't strip types from a package in `node_modules`. A checkout keeps running the TypeScript source.
 

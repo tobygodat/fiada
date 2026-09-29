@@ -21,6 +21,12 @@ import type { ProjectStore, StoredAccount } from './store.ts';
 
 /** How long a sign-in lasts in one browser. */
 export const SESSION_DAYS = 30;
+/**
+ * How long an account read from the store is trusted. Other indexers sharing
+ * the store may reset an agent token or save a new GitHub token; this is the
+ * longest a reset old token keeps working here.
+ */
+export const ACCOUNT_TTL_MS = 30_000;
 /** How long someone has to finish signing in at GitHub. */
 const LOGIN_MINUTES = 10;
 /** The cookie that ties a sign-in's return to the browser that started it. */
@@ -104,8 +110,8 @@ export interface GitHubApi {
 export class Auth {
   private signKey: Buffer;
   private sealKey: Buffer;
-  /** Accounts read this run, by id: every request checks one. */
-  private accounts = new Map<string, Promise<StoredAccount | null>>();
+  /** Accounts read recently, by id, and when: every request checks one. */
+  private accounts = new Map<string, { account: Promise<StoredAccount | null>; at: number }>();
 
   constructor(
     private store: ProjectStore,
@@ -159,7 +165,9 @@ export class Auth {
   async agent(token: string | undefined): Promise<StoredAccount | null> {
     const c = token ? this.open(token, 'a') : null;
     if (!c) return null;
-    const account = await this.account(c.u);
+    let account = await this.account(c.u);
+    // A token newer than what we read: another indexer reset it since, so read again.
+    if (account && c.e > account.agentEpoch) account = await this.account(c.u, true);
     return account && account.agentEpoch === c.e ? account : null;
   }
 
@@ -253,21 +261,24 @@ export class Auth {
     return { account, returnTo: c.r, session: this.sessionToken(account) };
   }
 
-  private account(id: string): Promise<StoredAccount | null> {
-    let p = this.accounts.get(id);
-    if (!p) {
-      p = this.store.loadAccount!(id).catch((err) => {
-        this.accounts.delete(id);
+  /** The account, from the store when what was read is older than ACCOUNT_TTL_MS (or `fresh` asks). */
+  private account(id: string, fresh = false): Promise<StoredAccount | null> {
+    const hit = this.accounts.get(id);
+    if (hit && !fresh && this.now() - hit.at < ACCOUNT_TTL_MS) return hit.account;
+    const entry = {
+      account: this.store.loadAccount!(id).catch((err) => {
+        if (this.accounts.get(id) === entry) this.accounts.delete(id);
         throw err;
-      });
-      this.accounts.set(id, p);
-    }
-    return p;
+      }),
+      at: this.now(),
+    };
+    this.accounts.set(id, entry);
+    return entry.account;
   }
 
   private async save(account: StoredAccount) {
     await this.store.saveAccount!(account);
-    this.accounts.set(account.id, Promise.resolve(account));
+    this.accounts.set(account.id, { account: Promise.resolve(account), at: this.now() });
   }
 }
 

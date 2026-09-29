@@ -1,10 +1,10 @@
 // fiada setup [--write <project dir>] [--url <indexer> --token <agent token>]
-// (npx @fiada/agent setup …, or npm run agent:setup -- … in a checkout)
+// (npx -y --package=@fiada/agent fiada setup …, or npm run agent:setup -- … in a checkout)
 //
 // Prints the Claude Code configuration that connects an agent to Fiada: the
 // MCP server command and the hooks block. From a checkout or an installed
 // package they run this copy by its absolute path; from npx's cache, which
-// npm may clear, they run `npx @fiada/agent@<version>` instead.
+// npm may clear, they run `npx --package=@fiada/agent@<version> fiada` instead.
 // With --write it merges the hooks into <project>/.claude/settings.local.json
 // (Claude Code's per-user, git-ignored settings) and registers the MCP server
 // for that project with `claude mcp add`.
@@ -31,8 +31,9 @@ export const PACKAGE: { name: string; version: string } = JSON.parse(readFileSyn
 /** The commands Claude Code runs for the hook and the MCP server, for this copy of the package in `bin`. */
 export function commandsFor(bin: string, pkg = PACKAGE): { hook: string; mcp: string[] } {
   // npx keeps packages in <cache>/_npx/<hash>/, which npm may clear: run through npx, pinned, offline when it can be.
+  // The package has several bins and none is named after it, so npx has to be told to run `fiada`.
   if (bin.split(/[\\/]/).includes('_npx')) {
-    const npx = ['npx', '-y', '--prefer-offline', `${pkg.name}@${pkg.version}`];
+    const npx = ['npx', '-y', '--prefer-offline', `--package=${pkg.name}@${pkg.version}`, 'fiada'];
     return { hook: [...npx, 'hook'].join(' '), mcp: [...npx, 'mcp'] };
   }
   return { hook: `node ${q(path.join(bin, 'fiada-hook.mjs'))}`, mcp: ['node', path.join(bin, 'fiada-mcp.mjs')] };
@@ -125,7 +126,7 @@ export async function runSetup(args: string[]) {
 
 ${JSON.stringify({ hooks: hooksBlock() }, null, 2).replace(/^/gm, '   ')}
 
-Or let this do both, in your project:  npx @fiada/agent setup --write .
+Or let this do both, in your project:  npx -y --package=@fiada/agent fiada setup --write .
 
 To report to a hosted map, add --url <indexer> --token <token>; the map's "connect an agent" gives the whole command.
 `);

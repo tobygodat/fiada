@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { accountInfo, Auth, authConfigFromEnv, bearer, cookie, returnAllowed, SESSION_DAYS, type GitHubApi } from './auth.ts';
+import { ACCOUNT_TTL_MS, accountInfo, Auth, authConfigFromEnv, bearer, cookie, returnAllowed, SESSION_DAYS, type GitHubApi } from './auth.ts';
 import { FileProjectStore, type StoredAccount } from './store.ts';
 
 const CONFIG = { clientId: 'id', clientSecret: 'shh', secret: 'shh', scope: 'read:user repo' };
@@ -111,6 +111,28 @@ test('a new agent token stops the old one', async () => {
   // Signing in again keeps the new token working.
   await signIn(auth);
   assert.equal((await auth.agent(fresh))?.id, 'gh-42');
+});
+
+test('a token reset on another indexer sharing the store takes effect here too', async () => {
+  let t = 1_000_000_000_000;
+  const { auth: one, store } = await setup(() => t);
+  const { account } = await signIn(one);
+  const old = one.agentToken(account);
+  // A second indexer on the same store, which has already read the account.
+  const two = new Auth(store, CONFIG, fakeGitHub(), () => t);
+  assert.equal((await two.agent(old))?.id, 'gh-42');
+
+  const fresh = await one.resetAgentToken(account);
+  // The new token is newer than what `two` read, so it reads again at once.
+  assert.equal((await two.agent(fresh))?.id, 'gh-42');
+  assert.equal(await two.agent(old), null);
+
+  // An old token that `two` has read the account for keeps working only until that read goes stale.
+  const newest = one.agentToken((await store.loadAccount('gh-42'))!);
+  await one.resetAgentToken((await store.loadAccount('gh-42'))!);
+  assert.equal((await two.agent(newest))?.id, 'gh-42', 'within the TTL, the read still stands');
+  t += ACCOUNT_TTL_MS + 1;
+  assert.equal(await two.agent(newest), null, 'after the TTL, the reset applies');
 });
 
 test('a sealed token opens only with the secret that sealed it', async () => {

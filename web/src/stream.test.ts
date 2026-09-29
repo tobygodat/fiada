@@ -13,7 +13,7 @@ test('server-sent events split off whole, with an unfinished one kept for the ne
 test('the setup command carries the indexer and the token, and nothing when there is no token', () => {
   assert.equal(
     setupCommand({ url: 'https://indexer.test', token: 'fa_abc.def' }),
-    'npx -y @fiada/agent setup --write . --url https://indexer.test --token fa_abc.def',
+    'npx -y --package=@fiada/agent fiada setup --write . --url https://indexer.test --token fa_abc.def',
   );
-  assert.equal(setupCommand({ url: 'http://localhost:5178' }), 'npx -y @fiada/agent setup --write . --url http://localhost:5178');
+  assert.equal(setupCommand({ url: 'http://localhost:5178' }), 'npx -y --package=@fiada/agent fiada setup --write . --url http://localhost:5178');
 });
