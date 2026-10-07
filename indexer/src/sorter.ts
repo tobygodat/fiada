@@ -47,7 +47,7 @@ export class Sorter {
     return !!this.llm;
   }
 
-  /** "OpenAI (gpt-5.5)" or "Claude (claude-opus-5)", for logs. */
+  /** "Claude (claude-haiku-5-5)" or "OpenAI (gpt-5.5)", for logs. */
   get describe(): string {
     return this.llm ? `${this.llm.label} (${this.llm.model})` : 'nothing';
   }

@@ -11,7 +11,7 @@ const req: JsonRequest = {
 
 // ── choosing a provider ──────────────────────────────────────────────
 
-test('llmFromEnv: OpenAI first, Claude when it is the only key or the model asks for it', () => {
+test('llmFromEnv: Claude first, OpenAI when it is the only key or the model asks for it', () => {
   assert.equal(llmFromEnv({}), null);
   assert.equal(llmFromEnv({ OPENAI_API_KEY: '  ' }), null);
 
@@ -21,14 +21,17 @@ test('llmFromEnv: OpenAI first, Claude when it is the only key or the model asks
 
   const claude = llmFromEnv({ ANTHROPIC_API_KEY: 'k' })!;
   assert.equal(claude.label, 'Claude');
-  assert.equal(claude.model, 'claude-opus-5');
+  assert.equal(claude.model, 'claude-haiku-5-5');
 
-  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b' })!.label, 'OpenAI');
+  const both = llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b' })!;
+  assert.equal(both.label, 'Claude');
+  assert.equal(both.model, 'claude-haiku-5-5');
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'claude-sonnet-5' })!.model, 'claude-sonnet-5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'gpt-5.5' })!.label, 'OpenAI');
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_LLM_MODEL: 'gpt-4.1' })!.model, 'gpt-4.1');
   // A Claude model left in .env doesn't break an OpenAI-only setup, nor the other way round.
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_LLM_MODEL: 'claude-opus-5' })!.model, 'gpt-5.5');
-  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'gpt-5' })!.model, 'claude-opus-5');
+  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'gpt-5' })!.model, 'claude-haiku-5-5');
 });
 
 test('llmFromEnv: summaries take a smaller OpenAI model unless FIADA_SUMMARY_MODEL names one', () => {
@@ -39,8 +42,11 @@ test('llmFromEnv: summaries take a smaller OpenAI model unless FIADA_SUMMARY_MOD
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_SUMMARY_MODEL: 'gpt-5.5' }, 'summaries')!.model, 'gpt-5.5');
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', FIADA_SUMMARY_MODEL: 'gpt-5.5' })!.model, 'gpt-5.5');
   // Claude keeps its default, and a Claude sorting model takes summaries to Claude too.
-  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b' }, 'summaries')!.model, 'claude-opus-5');
+  assert.equal(llmFromEnv({ ANTHROPIC_API_KEY: 'b' }, 'summaries')!.model, 'claude-haiku-5-5');
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b' }, 'summaries')!.model, 'claude-haiku-5-5');
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'claude-sonnet-5' }, 'summaries')!.label, 'Claude');
+  // An OpenAI sorting model takes summaries to OpenAI, at its smaller model.
+  assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_LLM_MODEL: 'gpt-5.5' }, 'summaries')!.model, 'gpt-5-mini');
   assert.equal(llmFromEnv({ OPENAI_API_KEY: 'a', ANTHROPIC_API_KEY: 'b', FIADA_SUMMARY_MODEL: 'claude-sonnet-5' }, 'summaries')!.model, 'claude-sonnet-5');
 });
 
@@ -182,6 +188,16 @@ test('anthropicLLM: structured output streamed and parsed, cached system context
   assert.deepEqual(c.body.system[1].cache_control, { type: 'ephemeral' });
   assert.equal(c.body.system[0].cache_control, undefined);
   assert.equal(c.body.fallbacks, 'default');
+});
+
+test('anthropicLLM: Haiku asks without fallbacks, which it has none of', async () => {
+  const t = claudeFetch(() => claudeStream('{"files":[]}'));
+  const llm = anthropicLLM('k', 'claude-haiku-5-5', { fetch: t.fetch });
+  assert.deepEqual(await llm.json(req), { files: [] });
+  assert.equal(t.calls.length, 1);
+  assert.equal(t.calls[0].body.model, 'claude-haiku-5-5');
+  assert.equal(t.calls[0].body.fallbacks, undefined);
+  assert.equal(t.calls[0].headers.get('anthropic-beta'), null);
 });
 
 test("anthropicLLM: asks again without fallbacks when the key can't use them, and reports refusals", async () => {

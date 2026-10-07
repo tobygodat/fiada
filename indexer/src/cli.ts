@@ -3,7 +3,7 @@
 //   npm run index -- ../some-repo org/other-repo --layers
 //   npm run index -- ../some-repo --grouping my.grouping.json --layers
 //   npm run index -- ../some-repo --preset by-repo --out graph.json
-//   npm run index -- org/repo --sort --save-grouping sorted.grouping.json   (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)
+//   npm run index -- org/repo --sort --save-grouping sorted.grouping.json   (needs ANTHROPIC_API_KEY or OPENAI_API_KEY)
 //   npm run index -- org/repo --summaries    (lines, and what generating summaries would cost; calls no model)
 
 import './env.ts';
