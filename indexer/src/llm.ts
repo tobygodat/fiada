@@ -1,8 +1,8 @@
 // The indexer's one way to ask a language model something, so features that
 // need one (sorting a project's leftovers, summaries) share the key, the
-// model and the error messages. Two providers: OpenAI, with the key in
-// OPENAI_API_KEY, and Claude through the Anthropic API, with the key in
-// ANTHROPIC_API_KEY. Without either key, llmFromEnv() is null and each
+// model and the error messages. Two providers: Claude through the Anthropic
+// API, with the key in ANTHROPIC_API_KEY, and OpenAI, with the key in
+// OPENAI_API_KEY. Without either key, llmFromEnv() is null and each
 // feature says it is unavailable rather than failing.
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -23,13 +23,13 @@ export interface JsonRequest {
 export interface LLM {
   /** Who answers, for people: "OpenAI" or "Claude". */
   label: string;
-  /** The model id, e.g. "gpt-5.5" or "claude-opus-5". */
+  /** The model id, e.g. "claude-haiku-5-5" or "gpt-5.5". */
   model: string;
   json(req: JsonRequest): Promise<unknown>;
 }
 
-/** Claude's default model. */
-export const DEFAULT_MODEL = 'claude-opus-5';
+/** Claude's default model, for sorting and summaries alike. */
+export const DEFAULT_MODEL = 'claude-haiku-5-5';
 /** OpenAI's default model, then the ones to try when a key can't use it. */
 export const DEFAULT_OPENAI_MODELS = ['gpt-5.5', 'gpt-5', 'gpt-4.1'];
 /**
@@ -41,13 +41,13 @@ export const SUMMARY_OPENAI_MODELS = ['gpt-5-mini', ...DEFAULT_OPENAI_MODELS];
 const providerOf = (model: string) => (/^claude/i.test(model) ? 'anthropic' : /^(gpt|chatgpt|o\d)/i.test(model) ? 'openai' : undefined);
 
 /**
- * OpenAI when OPENAI_API_KEY is set, else Claude when ANTHROPIC_API_KEY is;
- * null without either. FIADA_LLM_MODEL picks the model that sorts, and a
- * Claude model there picks Claude when both keys are set. Summaries use
+ * Claude when ANTHROPIC_API_KEY is set, else OpenAI when OPENAI_API_KEY is;
+ * null without either. FIADA_LLM_MODEL picks the model that sorts, and an
+ * OpenAI model there picks OpenAI when both keys are set. Summaries use
  * FIADA_SUMMARY_MODEL, else a smaller OpenAI model (Claude keeps its
  * default), on the provider FIADA_LLM_MODEL picked. A model of the other
- * provider's is ignored, so a leftover FIADA_LLM_MODEL=claude-… doesn't
- * break an OpenAI key.
+ * provider's is ignored, so a leftover FIADA_LLM_MODEL=gpt-… doesn't break
+ * an Anthropic key.
  */
 export function llmFromEnv(env: NodeJS.ProcessEnv = process.env, use: 'sort' | 'summaries' = 'sort'): LLM | null {
   const openai = unquote(env.OPENAI_API_KEY);
@@ -55,27 +55,27 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env, use: 'sort' | '
   const own = (use === 'summaries' && env.FIADA_SUMMARY_MODEL?.trim()) || undefined;
   const model = own ?? (env.FIADA_LLM_MODEL?.trim() || undefined);
   const wants = model && providerOf(model);
-  if (openai && !(wants === 'anthropic' && anthropic)) {
+  if (anthropic && !(wants === 'openai' && openai)) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL);
+  if (openai) {
     if (use === 'summaries' && !own) return openaiLLM(openai, SUMMARY_OPENAI_MODELS);
     return openaiLLM(openai, wants === 'anthropic' ? undefined : model);
   }
-  if (anthropic) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL);
   return null;
 }
 
 /** Where to set a key, for messages that say a feature is unavailable. */
-export const KEY_HINT = 'OPENAI_API_KEY or ANTHROPIC_API_KEY';
+export const KEY_HINT = 'ANTHROPIC_API_KEY or OPENAI_API_KEY';
 
 /**
  * Claude through the Anthropic API. Structured output, so every answer
  * parses against the request's schema; streamed, since answers can be long.
  * Opts into server-side fallbacks, so a declined request is retried on
  * another model; if the key's organisation can't use them, it asks again
- * without. `fetch` is for tests.
+ * without. Haiku has none to opt into. `fetch` is for tests.
  */
 export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: typeof fetch } = {}): LLM {
   const client = new Anthropic({ apiKey, maxRetries: 3, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
-  let fallbacks = true;
+  let fallbacks = !/haiku/i.test(model);
   return {
     label: 'Claude',
     model,

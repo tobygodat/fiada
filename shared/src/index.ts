@@ -180,7 +180,7 @@ export interface Grouping {
  * its place, and the user's own names, rules and pins win over all of it.
  */
 export interface SortedGrouping {
-  /** The model that sorted, e.g. "claude-opus-5". */
+  /** The model that sorted, e.g. "claude-haiku-5-5". */
   model: string;
   /** Who sorted, for people: the model client's label ("Claude"). */
   by?: string;
