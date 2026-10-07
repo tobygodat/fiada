@@ -129,4 +129,4 @@ Don't:
 - **CSS**: `var(--muted)`; to fade a token, `color-mix(in srgb, var(--layer-3) 12%, transparent)`.
 - **Canvas**: `token('--accent')`, `withAlpha(color, a)`, `layerColor(i, a)`, `repoColor(i, a)`, `changeColor('modified', a)`, and `fonts().serif` for `ctx.font`. Values follow the theme; call `onThemeChange(redraw)` to repaint on a switch.
 - **Theme**: `setTheme('light' | 'dark')` sets `data-theme` and remembers it; `index.html` restores it before first paint. Fiada stays dark unless light is chosen; once every surface is on tokens, it should follow the system preference until the person chooses.
-- **Checks**: `npm test -w @fiada/web` runs the palette test with the rest.
+- **Checks**: `bun run --cwd web test` runs the palette test with the rest.

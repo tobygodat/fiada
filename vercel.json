@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "installCommand": "npm ci --workspace @fiada/web",
-  "buildCommand": "npm run build",
+  "installCommand": "bun install --frozen-lockfile --filter @fiada/web",
+  "buildCommand": "bun run build",
   "outputDirectory": "web/dist",
   "rewrites": [{ "source": "/privacy", "destination": "/index.html" }],
   "headers": [

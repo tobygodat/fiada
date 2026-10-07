@@ -11,7 +11,7 @@ export const API_BASE = apiBase(import.meta.env.VITE_API_URL);
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
 /** Said when nothing answers at the indexer's address. */
-const UNREACHABLE = API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with npm run dev.";
+const UNREACHABLE = API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with bun run dev.";
 
 /** Said when /api on the page's own host is a plain 404: a deployed build without VITE_API_URL. */
 const NOT_SET_UP = 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in the README).';

@@ -26,12 +26,12 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 
 ## Run it locally
 
-Needs Node 20.19 or later and git.
+Needs Node 20.19 or later, [bun](https://bun.sh) 1.4 or later and git.
 
 ```sh
 git clone https://github.com/tobygodat/hackgt13 && cd hackgt13
-npm install
-npm run dev          # indexer on :4178, map on http://localhost:5178
+bun install
+bun run dev          # indexer on :4178, map on http://localhost:5178
 ```
 
 Open http://localhost:5178, type `fastapi/full-stack-fastapi-template` in the box under **repositories**, and press **import**. For a private repository, use **upload a folder** under the box instead: the browser sends only the source files (it honours `.gitignore` and skips `node_modules` and the git history), up to 50 MB. Then:
@@ -50,7 +50,7 @@ Optional, in a `.env` at the repo root (`.env.example` lists them):
 Import the repository you'll work in by its local path (so edits re-index in place), then:
 
 ```sh
-npm run agent:setup -- --write /path/to/your/repo
+bun run agent:setup --write /path/to/your/repo
 cd /path/to/your/repo && claude
 ```
 
@@ -136,13 +136,13 @@ With `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` set, a fresh import doesn't stop at
 
 The result is saved in the grouping as `sorted`, through the same `ProjectStore`, and the map redraws when it lands. It only fills gaps: code the classifier placed keeps its place, and your renames, rules and pins win over it, so you adjust from a sorted map exactly as before. Each placement the model made shows its reason in the detail panel, marked as inferred by Claude or OpenAI. A new repository or commit sorts again; the sidebar's **sort again** does it on demand (`POST /api/grouping/sort`). Delete `sorted` from the grouping to drop it. Without a key, imports keep the classifier's result and the sidebar says sorting is unavailable.
 
-`npm run index -- <repos> --sort` runs the same sort from the command line and prints how much was left unsorted before and after.
+`bun run index <repos> --sort` runs the same sort from the command line and prints how much was left unsorted before and after.
 
 ## Node summaries
 
 The first thing under a selected node's name in the detail panel is what it does. Every node gets a line straight away, built from what the indexer knows ("Handles POST /api/v1/items/. Called over HTTP by ItemsService.", "Defines list_items, create_item and unused. Used by items.py.") and led by the first sentence of the code's own docstring or doc comment when it has one. With `ANTHROPIC_API_KEY` set on the indexer, the model writes one or two sentences per node from its code and neighbours, through the same client the sort uses (`indexer/src/llm.ts`), with `claude-haiku-5-5` (or `FIADA_SUMMARY_MODEL`; on OpenAI, `gpt-5-mini` by default), marked "generated" with the model's name. Its uses and used-by lists sit folded under the summary with their counts.
 
-Generated summaries are written in batches, off the request path: after each import or re-index, files first, then folders (deepest first, each reading its children's summaries), domains and their layers, then repositories; a symbol's whole file is written in one request when one of its symbols is first selected. Each summary is cached under a hash of what the model read and saved through the `ProjectStore`, so a restart costs nothing and a re-index rewrites only what changed and what contains it. `npm run index -- <repo> --summaries` prints sample lines and how many requests a fresh import would make, without calling a model: the FastAPI template takes 11 requests for 197 summaries of files, folders, groups and the repository (about 29,000 input tokens), and outline 70 requests for 2,566 (about 430,000); symbols cost one request per file, only as files are opened. The code lives in `indexer/src/summaries/`.
+Generated summaries are written in batches, off the request path: after each import or re-index, files first, then folders (deepest first, each reading its children's summaries), domains and their layers, then repositories; a symbol's whole file is written in one request when one of its symbols is first selected. Each summary is cached under a hash of what the model read and saved through the `ProjectStore`, so a restart costs nothing and a re-index rewrites only what changed and what contains it. `bun run index <repo> --summaries` prints sample lines and how many requests a fresh import would make, without calling a model: the FastAPI template takes 11 requests for 197 summaries of files, folders, groups and the repository (about 29,000 input tokens), and outline 70 requests for 2,566 (about 430,000); symbols cost one request per file, only as files are opened. The code lives in `indexer/src/summaries/`.
 
 ## Storage
 
@@ -155,7 +155,7 @@ With Atlas, each project is one document in the `projects` collection, keyed by 
 1. In [Atlas](https://cloud.mongodb.com), create a free cluster, then a database user under **Database Access**.
 2. Under **Network Access**, allow your IP address.
 3. Under **Connect > Drivers**, copy the connection string, put your user's password in it, and save it as `MONGODB_URI=...` in a `.env` file at the repo root (gitignored; `.env.example` lists the variables).
-4. `npm run dev`. The indexer logs `saving projects to MongoDB at …`, never the password.
+4. `bun run dev`. The indexer logs `saving projects to MongoDB at …`, never the password.
 
 If Atlas can't be reached or read at startup, the indexer says why and saves under `.fiada/` for that run, so the map still works offline. Clones and parsed code stay on local disk either way.
 
@@ -164,9 +164,9 @@ Two indexers can serve one project. Saving the repo list never touches the group
 To see classification results without the UI:
 
 ```sh
-npm run index -- ../some-repo org/other-repo --layers --domains
-npm run index -- ../some-repo --preset by-repo
-npm run index -- ../some-repo --grouping my.grouping.json --layers
+bun run index ../some-repo org/other-repo --layers --domains
+bun run index ../some-repo --preset by-repo
+bun run index ../some-repo --grouping my.grouping.json --layers
 ```
 
 ## Watching a coding agent
@@ -185,8 +185,8 @@ Each session is its own card, even when two run in the same checkout. The MCP se
 ### Claude Code
 
 ```sh
-npm run agent:setup                                   # prints the two snippets below with this checkout's paths
-npm run agent:setup -- --write /path/to/your/project  # or writes them for you
+bun run agent:setup                                   # prints the two snippets below with this checkout's paths
+bun run agent:setup --write /path/to/your/project  # or writes them for you
 ```
 
 `--write` merges the hooks into `/path/to/your/project/.claude/settings.local.json` (your own, git-ignored settings; other hooks there are kept) and registers the MCP server for that project with `claude mcp add`. To do it by hand, add the server:
@@ -214,11 +214,11 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 }
 ```
 
-Then run `npm run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
+Then run `bun run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
-The same package is on npm as [`@fiadatech/agent`](agent/README.md): `npx -y --package=@fiadatech/agent fiada setup --write .` in your project does what `npm run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
+The same package is on npm as [`@fiadatech/agent`](agent/README.md): `npx -y --package=@fiadatech/agent fiada setup --write .` in your project does what `bun run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
 
-To publish a new version: bump `version` in `agent/package.json`, then `npm publish -w @fiadatech/agent`. Publishing bundles `agent/src` into `agent/dist/cli.js` with esbuild (`npm run agent:build`): one file with no dependencies, since Node won't strip types from a package in `node_modules`. A checkout keeps running the TypeScript source.
+To publish a new version: bump `version` in `agent/package.json`, then `npm publish -w @fiadatech/agent`. Publishing bundles `agent/src` into `agent/dist/cli.js` with esbuild (`bun run agent:build`): one file with no dependencies, since Node won't strip types from a package in `node_modules`. A checkout keeps running the TypeScript source.
 
 ### Other agents
 
@@ -237,9 +237,9 @@ Set `FIADA_GITHUB_CLIENT_ID` and `FIADA_GITHUB_CLIENT_SECRET` on the indexer and
 - **Private repositories work.** The sign-in asks GitHub for the `repo` scope, and the person's own token clones and pulls what they import (passed per git command, never written to disk). Their recently pushed repositories are offered under the import box. The token is kept on their account encrypted with AES-GCM; `FIADA_GITHUB_TOKEN` is never used for anyone's project.
 - **Nobody can use it up for everyone else.** Each person may make 60 changes a minute (agents 600 reports), hold 20 repositories of at most 500 MB each, and spend 200 model requests a day on sorting and summaries; past that, the map says so and summaries fall back to lines from the graph. Clones come over https from GitHub, GitLab and Bitbucket only, and nothing in a clone is read through a link that leads out of it. The variables are in [Configuration](#configuration).
 - **People can leave.** **delete account** in the sidebar withdraws Fiada's access at GitHub and deletes the account, the project, its clones and summaries. The map's [/privacy](https://fiada.tech/privacy) page says what is kept; change it with the code.
-- **Agents need one command.** **connect an agent** in the sidebar shows `npm run agent:setup -- --write <project> --url <indexer> --token <token>`. The token lets an agent report to that person's map and nothing else; **new token** revokes the old one.
+- **Agents need one command.** **connect an agent** in the sidebar shows `bun run agent:setup --write <project> --url <indexer> --token <token>`. The token lets an agent report to that person's map and nothing else; **new token** revokes the old one.
 
-To set it up, create an OAuth app at GitHub under **Settings > Developer settings > OAuth Apps** with the callback URL `<indexer>/api/auth/github/callback`: `http://localhost:5178/api/auth/github/callback` for `npm run dev` (the dev server forwards the address it was reached at), or `https://<indexer>/api/auth/github/callback` hosted. Put its client id and a client secret in `.env` or the host's variables. The map's origin must be allowed to receive the session: its own origin, the fiada.tech domains, or one in `FIADA_ALLOWED_ORIGINS`. If a proxy in front of the indexer doesn't forward the scheme and host, set `FIADA_PUBLIC_URL`.
+To set it up, create an OAuth app at GitHub under **Settings > Developer settings > OAuth Apps** with the callback URL `<indexer>/api/auth/github/callback`: `http://localhost:5178/api/auth/github/callback` for `bun run dev` (the dev server forwards the address it was reached at), or `https://<indexer>/api/auth/github/callback` hosted. Put its client id and a client secret in `.env` or the host's variables. The map's origin must be allowed to receive the session: its own origin, the fiada.tech domains, or one in `FIADA_ALLOWED_ORIGINS`. If a proxy in front of the indexer doesn't forward the scheme and host, set `FIADA_PUBLIC_URL`.
 
 Sessions and agent tokens are signed rather than stored, with a key derived from `FIADA_SESSION_SECRET`, or else the client secret. A session lasts 30 days in one browser; **sign out** forgets it there. Changing the secret signs everyone out and they sign in again, keeping their projects. Accounts go through `ProjectStore` like everything else (`$FIADA_HOME/accounts/<id>.json`, or the `accounts` collection in MongoDB).
 
@@ -322,7 +322,7 @@ On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly
 
 ### 2. The map (Vercel)
 
-`vercel.json` already has the build: install the web workspace, `npm run build`, serve `web/dist`. The one setting to add is in **Settings > Environment Variables**:
+`vercel.json` already has the build: install the web workspace, `bun run build`, serve `web/dist`. The one setting to add is in **Settings > Environment Variables**:
 
 | Variable | Value | Environments |
 | --- | --- | --- |
@@ -342,26 +342,26 @@ Without it, one shared project:
 
 - Open `https://fiada.tech/?key=<FIADA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
 - Everyone else gets the plain URL: the same map, read-only, without the import box, the layer presets or the dismiss buttons.
-- To show a coding agent on the hosted map, run `npm run agent:setup -- --url https://<indexer> --token <key>` once (or start it with `FIADA_URL` and `FIADA_API_KEY` in its environment). Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
+- To show a coding agent on the hosted map, run `bun run agent:setup --url https://<indexer> --token <key>` once (or start it with `FIADA_URL` and `FIADA_API_KEY` in its environment). Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD. Files and symbols it adds only appear as new circles on an indexer that reads the checkout in place, i.e. one on your own machine.
 
-To try the split locally: `docker build -t fiada-indexer . && docker run -p 4178:4178 -e FIADA_ALLOWED_ORIGINS=http://localhost:5199 -e FIADA_API_KEY=dev fiada-indexer`, then `VITE_API_URL=http://localhost:4178 npm run build && npm exec -w @fiada/web -- vite preview --port 5199`.
+To try the split locally: `docker build -t fiada-indexer . && docker run -p 4178:4178 -e FIADA_ALLOWED_ORIGINS=http://localhost:5199 -e FIADA_API_KEY=dev fiada-indexer`, then `VITE_API_URL=http://localhost:4178 bun run build && bun run --cwd web preview --port 5199`.
 
 ## Tests
 
 ```sh
-npm test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end,
+bun run test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end,
                      #          agent changes mapped to files and symbols with incremental re-indexing
                      # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
                      # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools
                      # sign-in: signed sessions and agent tokens, sealed GitHub tokens, one person's project apart from another's
-FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test   # also runs the MongoDB store tests
-npm run typecheck
+FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 bun run test   # also runs the MongoDB store tests
+bun run typecheck
 ```
 
 To measure how smoothly the map zooms and pans on a real graph (headless Chromium, both modes):
 
 ```sh
-npm run build
-npm run index -- vercel/next.js --out "$PWD/next.graph.json"
-npm run bench -w @fiada/web -- "$PWD/next.graph.json"   # needs npx playwright install chromium, or CHROMIUM_PATH
+bun run build
+bun run index vercel/next.js --out "$PWD/next.graph.json"
+bun run --cwd web bench "$PWD/next.graph.json"   # needs bunx playwright install chromium, or CHROMIUM_PATH
 ```

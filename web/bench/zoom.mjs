@@ -1,10 +1,10 @@
 // Zoom and pan smoothness of the map on a real graph, in headless Chromium.
 //
-//   npm run build
-//   npm run index -- vercel/next.js --out "$PWD/next.graph.json"
-//   npm run bench -w @fiada/web -- "$PWD/next.graph.json"
+//   bun run build
+//   bun run index vercel/next.js --out "$PWD/next.graph.json"
+//   bun run --cwd web bench "$PWD/next.graph.json"
 //
-// Needs a Chromium for Playwright (npx playwright install chromium), or set
+// Needs a Chromium for Playwright (bunx playwright install chromium), or set
 // CHROMIUM_PATH to one that's already installed.
 //
 // Serves web/dist, answers the indexer API from the saved graph, then drives
@@ -21,14 +21,14 @@ import { chromium } from 'playwright';
 
 const [graphFile, ...rest] = process.argv.slice(2);
 if (!graphFile) {
-  console.error('usage: npm run bench -w @fiada/web -- <graph.json> [--frames 80]');
+  console.error('usage: bun run --cwd web bench <graph.json> [--frames 80]');
   process.exit(1);
 }
 const opt = (name, d) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : d);
 const frames = Number(opt('--frames', 80));
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 if (!fs.existsSync(path.join(dist, 'index.html'))) {
-  console.error('web/dist is missing: run npm run build first');
+  console.error('web/dist is missing: run bun run build first');
   process.exit(1);
 }
 

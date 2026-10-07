@@ -10,7 +10,7 @@ It was called Strata. Some names keep the old spelling on purpose; see [Names](#
 
 ## Layout
 
-npm workspaces, TypeScript everywhere, ESM, no compile step (the indexer and agent run through `tsx` or Node's type stripping; the web app through Vite).
+bun workspaces, TypeScript everywhere, ESM, no compile step (the indexer and agent run through `tsx` or Node's type stripping; the web app through Vite).
 
 ```
 shared/   @fiada/shared    the graph contract both sides import: nodes, edges and their evidence, layers, grouping, agent events (src/index.ts)
@@ -38,22 +38,23 @@ Where things live:
 
 ## Commands
 
-Node 20.19 or later, and git.
+Node 20.19 or later, bun 1.4 or later, and git. bun installs and runs the scripts; Node still runs the indexer, the agent and the tests.
 
 ```sh
-npm install
-npm run dev          # indexer on :4178 and the map on http://localhost:5178
-npm run typecheck    # tsc over shared, indexer, web and agent
-npm test             # node:test in indexer, web and agent
-npm run build        # the web app, into web/dist
-npm run index -- <repo-or-path> [more…] --layers --domains   # print classification without the UI
-npm run agent:setup -- --write /path/to/repo                 # hook a repo's Claude Code sessions up to Fiada
-npm run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent runs it
+bun install
+bun run dev          # indexer on :4178 and the map on http://localhost:5178
+bun run typecheck    # tsc over shared, indexer, web and agent
+bun run test             # node:test in indexer, web and agent
+bun run build        # the web app, into web/dist
+bun run index <repo-or-path> [more…] --layers --domains   # print classification without the UI
+bun run agent:setup --write /path/to/repo                 # hook a repo's Claude Code sessions up to Fiada
+bun run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent runs it
 ```
 
 - The MongoDB store tests run only when `FIADA_TEST_MONGODB_URI` is set.
-- `npm run bench -w @fiada/web -- <graph.json>` measures zoom and pan in headless Chromium; set `CHROMIUM_PATH` if Playwright's browser isn't installed.
-- There is no CI. Before you push, `npm run typecheck && npm test && npm run build` must all pass.
+- `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium; set `CHROMIUM_PATH` if Playwright's browser isn't installed.
+- `bun run test`, not `bun test`: the tests use `node:test`, which bun's own runner doesn't run.
+- There is no CI. Before you push, `bun run typecheck && bun run test && bun run build` must all pass.
 
 ## Code conventions
 
@@ -99,7 +100,7 @@ Variables live in a gitignored `.env` at the repo root (`.env.example` lists the
 - `MONGODB_URI`: save projects to MongoDB Atlas instead of `.fiada/`. The database is still called `strata` (`FIADA_MONGODB_DB`).
 - `FIADA_PROJECT`, `FIADA_HOME`, `FIADA_ALLOWED_ORIGINS`, `FIADA_API_KEY`, `FIADA_GITHUB_TOKEN`, `FIADA_UPLOAD_MB`, `HOST`, `PORT`: the indexer.
 - `VITE_API_URL`: build time, the indexer's URL when the map is served apart from it.
-- `FIADA_URL`, `FIADA_TOKEN` (or `FIADA_API_KEY` for a shared indexer): where the agent hook and MCP server report. `npm run agent:setup -- --url … --token …` saves them to `~/.config/fiada/agent.json` (`agent/src/env.ts`); the environment wins.
+- `FIADA_URL`, `FIADA_TOKEN` (or `FIADA_API_KEY` for a shared indexer): where the agent hook and MCP server report. `bun run agent:setup --url … --token …` saves them to `~/.config/fiada/agent.json` (`agent/src/env.ts`); the environment wins.
 
 Every `FIADA_*` variable is also read as `STRATA_*` (the old name wins when both are set; `indexer/src/env.ts` and `agent/src/env.ts`). Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
 

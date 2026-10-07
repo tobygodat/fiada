@@ -13,16 +13,19 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
+# bun installs the dependencies; Node runs the indexer.
+COPY --from=oven/bun:1.4 /usr/local/bin/bun /usr/local/bin/bun
+
 WORKDIR /app
 
 # Only the indexer's dependencies. Every workspace's manifest comes along so
 # the lockfile still matches.
-COPY package.json package-lock.json tsconfig.base.json ./
+COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
 COPY shared/package.json shared/
 COPY indexer/package.json indexer/
 COPY web/package.json web/
 COPY agent/package.json agent/
-RUN npm ci --workspace @strata/indexer --omit=dev --no-audit --no-fund
+RUN bun install --frozen-lockfile --production --filter @strata/indexer
 
 COPY shared shared
 COPY indexer indexer

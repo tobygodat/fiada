@@ -1,5 +1,5 @@
 // fiada setup [--write <project dir>] [--url <indexer> --token <agent token>]
-// (npx -y --package=@fiadatech/agent fiada setup …, or npm run agent:setup -- … in a checkout)
+// (npx -y --package=@fiadatech/agent fiada setup …, or bun run agent:setup … in a checkout)
 //
 // Prints the Claude Code configuration that connects an agent to Fiada: the
 // MCP server command and the hooks block. From a checkout or an installed
@@ -139,8 +139,10 @@ To report to a hosted map, add --url <indexer> --token <token>; the map's "conne
 `);
     return;
   }
-  // npm run and npx start in another folder; INIT_CWD is where the command was typed.
-  const dir = path.resolve(process.env.INIT_CWD ?? process.cwd(), flag(args, '--write', true) ?? '.');
+  // Package scripts and npx start in another folder. Where the command was typed
+  // is INIT_CWD under npm and npx, npm_config_local_prefix under bun run.
+  const typedIn = process.env.INIT_CWD ?? process.env.npm_config_local_prefix ?? process.cwd();
+  const dir = path.resolve(typedIn, flag(args, '--write', true) ?? '.');
   const file = path.join(dir, '.claude', 'settings.local.json');
   let settings: Record<string, any> = {};
   try {
