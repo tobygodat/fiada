@@ -1,0 +1,4 @@
+# node_modules laid out as npm did, so `node --import tsx` and tools that
+# look for a package from the repo root keep finding it.
+[install]
+linker = "hoisted"

@@ -1,10 +1,10 @@
 // Index repositories without the UI. Handy for tuning layer matchers:
 //
-//   npm run index -- ../some-repo org/other-repo --layers
-//   npm run index -- ../some-repo --grouping my.grouping.json --layers
-//   npm run index -- ../some-repo --preset by-repo --out graph.json
-//   npm run index -- org/repo --sort --save-grouping sorted.grouping.json   (needs ANTHROPIC_API_KEY or OPENAI_API_KEY)
-//   npm run index -- org/repo --summaries    (lines, and what generating summaries would cost; calls no model)
+//   bun run index ../some-repo org/other-repo --layers
+//   bun run index ../some-repo --grouping my.grouping.json --layers
+//   bun run index ../some-repo --preset by-repo --out graph.json
+//   bun run index org/repo --sort --save-grouping sorted.grouping.json   (needs ANTHROPIC_API_KEY or OPENAI_API_KEY)
+//   bun run index org/repo --summaries    (lines, and what generating summaries would cost; calls no model)
 
 import './env.ts';
 import { execFile } from 'node:child_process';
@@ -34,7 +34,7 @@ const preset = (opt('--preset') ?? 'roles') as LayerPreset;
 
 if (!sources.length || !PRESETS.includes(preset)) {
   console.error(
-    'usage: npm run index -- <path | git url | org/repo>... [--preset roles|by-repo|empty] [--grouping file.json] [--sort] [--save-grouping file.json] [--layers] [--domains] [--summaries] [--out graph.json]',
+    'usage: bun run index <path | git url | org/repo>... [--preset roles|by-repo|empty] [--grouping file.json] [--sort] [--save-grouping file.json] [--layers] [--domains] [--summaries] [--out graph.json]',
   );
   process.exit(1);
 }

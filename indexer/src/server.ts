@@ -203,7 +203,7 @@ async function signedIn(req: FastifyRequest) {
   return auth ? auth.session(bearer(req.headers.authorization)) : null;
 }
 
-// What `npm run agent:setup` needs to report to this person's map.
+// What `bun run agent:setup` needs to report to this person's map.
 app.get('/api/auth/agent', async (req, reply): Promise<AgentConnection | void> => {
   if (!auth) return { url: publicUrl(req) };
   const account = await signedIn(req);

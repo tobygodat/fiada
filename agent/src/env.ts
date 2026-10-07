@@ -1,7 +1,7 @@
 // Where to report and with what token, settled before anything reads them.
 // Imported first by every entry point.
 //
-// `npm run agent:setup -- --url … --token …` saves both to a config file in
+// `bun run agent:setup --url … --token …` saves both to a config file in
 // the user's config folder, so an agent needs no variables set by hand.
 // FIADA_URL and FIADA_TOKEN in the environment still win. The saved token is
 // only sent to the saved URL: pointing FIADA_URL somewhere else never hands

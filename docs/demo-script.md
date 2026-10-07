@@ -8,8 +8,8 @@ Record on your own machine, not the hosted map: new files the agent creates only
 
 ```sh
 git clone https://github.com/fastapi/full-stack-fastapi-template ~/demo/fastapi
-cd ~/hackgt13 && npm run dev                      # map on http://localhost:5178
-npm run agent:setup -- --write ~/demo/fastapi     # hooks + MCP server for that checkout
+cd ~/hackgt13 && bun run dev                      # map on http://localhost:5178
+bun run agent:setup --write ~/demo/fastapi     # hooks + MCP server for that checkout
 ```
 
 1. Open http://localhost:5178, type the full path of `~/demo/fastapi` (for example `/Users/toby/demo/fastapi`) in the sidebar box under **repositories**, and press **import**. Wait for "124 files" to appear.
@@ -34,5 +34,5 @@ npm run agent:setup -- --write ~/demo/fastapi     # hooks + MCP server for that 
 ## If something goes wrong
 
 - The agent is slow to make its first edit: keep talking over the plan in the agents window, it appears before any file changes.
-- No rings: check the terminal where `npm run dev` runs for `POST /api/agent/events`. If nothing arrives, the hooks weren't written for this folder; rerun `npm run agent:setup -- --write ~/demo/fastapi` and restart `claude`.
+- No rings: check the terminal where `bun run dev` runs for `POST /api/agent/events`. If nothing arrives, the hooks weren't written for this folder; rerun `bun run agent:setup --write ~/demo/fastapi` and restart `claude`.
 - By function shows mostly Unsorted: record the 0:10 to 0:32 steps in the **code** view instead (frontend, then `src/client`, then backend `api/routes`), and cut the sorting line.

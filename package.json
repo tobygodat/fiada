@@ -11,13 +11,13 @@
     "agent"
   ],
   "scripts": {
-    "dev": "concurrently -k -n indexer,web -c yellow,cyan \"npm:dev -w @strata/indexer\" \"npm:dev -w @fiada/web\"",
-    "build": "npm run build -w @fiada/web",
+    "dev": "concurrently -k -n indexer,web -c yellow,cyan \"bun run --cwd indexer dev\" \"bun run --cwd web dev\"",
+    "build": "bun run --cwd web build",
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web && tsc -p agent",
-    "test": "npm test -w @strata/indexer -w @fiada/web -w @fiadatech/agent",
-    "index": "npm run index -w @strata/indexer --",
-    "agent:setup": "npm run setup -w @fiadatech/agent --",
-    "agent:build": "npm run build -w @fiadatech/agent"
+    "test": "bun run --cwd indexer test && bun run --cwd web test && bun run --cwd agent test",
+    "index": "bun run --cwd indexer index",
+    "agent:setup": "bun run --cwd agent setup",
+    "agent:build": "bun run --cwd agent build"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
