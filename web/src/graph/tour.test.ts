@@ -101,7 +101,7 @@ test('a file with no changed functions is one stop; deleted code stands on what 
       ['api/app/routes/old.py', 'api/app/routes', 'deleted'],
     ],
   );
-  assert.equal(stops[0].at, 9);
+  assert.equal(stops[0].at, Date.parse('2026-09-27T10:00:00Z'));
   assert.equal(stops[0].name, 'about.tsx');
 });
 
@@ -113,19 +113,48 @@ test('a loop of calls still visits every stop once', () => {
 });
 
 test('read marks last until the agent changes that code again', () => {
-  const a = agent([file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage'), sym('web/src/pages/items.tsx#useItems')])]);
-  const at = (t: number): Record<string, NodeChange> => ({
-    'web/src/pages/items.tsx#ItemsPage': { kind: 'modified', unit: 'symbol', at: t, agents: ['a'] },
-    'web/src/pages/items.tsx#useItems': { kind: 'modified', unit: 'symbol', at: 10, agents: ['a'] },
-  });
-  const stops = tourStops(graph, graphIndex, a, at(10));
-  const marks: ReadMarks = { 'web/src/pages/items.tsx#ItemsPage': 10 };
+  const a = (at: string) => agent([{ ...file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage'), sym('web/src/pages/items.tsx#useItems')]), at }]);
+  const t = Date.parse('2026-09-27T10:00:00Z');
+  const stops = tourStops(graph, graphIndex, a('2026-09-27T10:00:00Z'), NO_NODES);
+  const marks: ReadMarks = { 'web/src/pages/items.tsx#ItemsPage': t };
   assert.equal(isRead(marks, stops[0]), true);
   assert.equal(nextUnread(stops, marks), 1);
-  assert.equal(nextUnread(stops, { ...marks, 'web/src/pages/items.tsx#useItems': 10 }), -1);
-  // Changed again after it was read: unread again.
-  const again = tourStops(graph, graphIndex, a, at(20));
+  assert.equal(nextUnread(stops, { ...marks, 'web/src/pages/items.tsx#useItems': t }), -1);
+  // Changed again by this agent after it was read: unread again.
+  const again = tourStops(graph, graphIndex, a('2026-09-27T10:05:00Z'), NO_NODES);
   assert.equal(isRead(marks, again[0]), false);
+  // Another agent's later change to the same code doesn't count against this agent's tour.
+  const other: Record<string, NodeChange> = { 'web/src/pages/items.tsx#ItemsPage': { kind: 'modified', unit: 'symbol', at: t + 600_000, agents: ['b'] } };
+  assert.equal(isRead(marks, tourStops(graph, graphIndex, a('2026-09-27T10:00:00Z'), other)[0]), true);
   // Wraps round to find the first unread before where you are.
-  assert.equal(nextUnread(stops, { 'web/src/pages/items.tsx#useItems': 10 }, 1), 0);
+  assert.equal(nextUnread(stops, { 'web/src/pages/items.tsx#useItems': t }, 1), 0);
+});
+
+test('two deleted files in one folder are two stops, each its own', () => {
+  const gone = (path: string): AgentFile => ({ ...file('api', path, [], 'deleted'), node: 'api/app/routes' });
+  const stops = tourStops(graph, graphIndex, agent([gone('app/routes/old.py'), gone('app/routes/older.py')]), NO_NODES);
+  assert.deepEqual(
+    stops.map((s) => [s.id, s.target]),
+    [
+      ['api/app/routes/old.py', 'api/app/routes'],
+      ['api/app/routes/older.py', 'api/app/routes'],
+    ],
+  );
+});
+
+test('a loop of calls in an earlier layer comes before a later layer that is ready', () => {
+  const g = {
+    ...graph,
+    edges: [
+      ...graph.edges,
+      { from: 'web/src/pages/items.tsx#ItemsPage', to: 'web/src/pages/items.tsx#useItems', kind: 'calls' as const },
+      { from: 'web/src/pages/items.tsx#useItems', to: 'web/src/pages/items.tsx#ItemsPage', kind: 'calls' as const },
+    ],
+  };
+  const a = agent([
+    file('api', 'app/models.py', [sym('api/app/models.py#User')]),
+    file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#useItems'), sym('web/src/pages/items.tsx#ItemsPage')]),
+  ]);
+  const ids = tourStops(g, graphIndex, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['web/src/pages/items.tsx#ItemsPage', 'web/src/pages/items.tsx#useItems', 'api/app/models.py#User']);
 });

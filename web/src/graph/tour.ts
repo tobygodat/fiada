@@ -50,19 +50,21 @@ export function tourStops(
   };
   for (const f of agent.files) {
     if (!f.repo) continue;
-    const file = f.node ?? `${f.repo}/${f.path}`;
-    const at = (id: string) => nodes[id]?.at ?? Date.parse(f.at);
+    // The file's own id, even when the indexer stands it on a folder (deleted, or not indexed yet).
+    const file = `${f.repo}/${f.path}`;
+    // This agent's own latest change to the file: another agent's later edit doesn't unread it.
+    const at = Date.parse(f.at);
     // Something gone from the map is read on the nearest circle that's left, where its diff is.
-    const stand = graphIndex.has(file) ? file : (nodes[file]?.anchor ?? null);
+    const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : (nodes[file]?.anchor ?? null);
     const base = { path: f.path, repo: f.repo };
     if (f.symbols.length && f.kind !== 'deleted') {
       for (const s of f.symbols) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
-        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at: at(s.id) });
+        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at });
       }
     } else if (stand) {
-      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at: at(file) });
+      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
     }
   }
   return order(stops, graph, graphIndex);
@@ -126,12 +128,13 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   const out: number[] = [];
   let last = -1;
   while (out.length < stops.length) {
+    // The earliest layer with anything left goes first, whatever is ready further in.
     const left = stops.map((_, i) => i).filter((i) => !done.has(i));
-    const ready = left.filter((i) => [...waits[i]].every((w) => done.has(w)));
+    const top = Math.min(...left.map((i) => layerRank(stops[i])));
+    const layer = left.filter((i) => layerRank(stops[i]) === top);
+    const ready = layer.filter((i) => [...waits[i]].every((w) => done.has(w)));
     // A loop of calls: start it where the order would anyway.
-    const pool = ready.length ? ready : left;
-    const top = Math.min(...pool.map((i) => layerRank(stops[i])));
-    const here = pool.filter((i) => layerRank(stops[i]) === top);
+    const here = ready.length ? ready : layer;
     const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
     const pick = (follow.length ? follow : here).sort(before)[0];
     done.add(pick);

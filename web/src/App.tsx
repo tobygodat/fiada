@@ -436,6 +436,18 @@ export function App() {
     } else setLitAgent(null);
   }, [touring, selected, selectedEdge]);
 
+  /** What stands for a stop in the tree on show: its target, or for a file By function leaves out, a function in it. */
+  const onMap = useCallback(
+    (id: string) => {
+      if (!tree) return id;
+      // Every chain of parents ends at the root, which stands for nothing.
+      const at = locate(tree, graphIndex, id);
+      if (at && at !== tree.root.id) return id;
+      return graph?.nodes.find((n) => n.parent === id && tree.nodes.has(n.id))?.id ?? id;
+    },
+    [tree, graphIndex, graph],
+  );
+
   /**
    * From the agents window: walk through one agent's changes in the order
    * data flows, starting at the first you haven't read. Its changes are lit
@@ -453,9 +465,9 @@ export function App() {
       setMarks(m);
       setLitAgent(id);
       setTour({ agent: id, stop: list[i].id });
-      select(list[i].target);
+      select(onMap(list[i].target));
     },
-    [agents.state, graph, graphIndex, project, select],
+    [agents.state, graph, graphIndex, project, select, onMap],
   );
 
   const goStop = useCallback(
@@ -463,9 +475,9 @@ export function App() {
       const s = stops[i];
       if (!touring || !s) return;
       setTour({ agent: touring.agent, stop: s.id });
-      select(s.target);
+      select(onMap(s.target));
     },
-    [stops, touring, select],
+    [stops, touring, select, onMap],
   );
 
   /** Mark a change read (and go on to the next you haven't read) or unread again. */
@@ -487,10 +499,11 @@ export function App() {
 
   // Picking one of the tour's changes on the map or in the outline takes the tour there too.
   useEffect(() => {
-    if (!touring || !selected || stops[tourAt]?.target === selected) return;
-    const s = stops.find((x) => x.target === selected);
+    const cur = stops[tourAt];
+    if (!touring || !selected || (cur && onMap(cur.target) === selected)) return;
+    const s = stops.find((x) => onMap(x.target) === selected);
     if (s) setTour({ agent: touring.agent, stop: s.id });
-  }, [selected, touring, stops, tourAt]);
+  }, [selected, touring, stops, tourAt, onMap]);
 
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
