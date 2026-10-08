@@ -713,6 +713,17 @@ export class MapRenderer {
       const closed = this.drawnNodes.filter((d) => !d.open && d.r > 2);
       const overlaps = (b: Rect, o: Rect, m: number) => b.x < o.x + o.w + m && o.x < b.x + b.w + m && b.y < o.y + o.h + m && o.y < b.y + b.h + m;
       // A rule from the link to its words mustn't run over a closed circle.
+      // Nor through words already set: tags, open circles' names and other links' words.
+      const crossesWords = (a: { x: number; y: number }, z: { x: number; y: number }) => {
+        const n = Math.max(2, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
+        const rects = [...this.drawnTags, ...this.drawnTabs];
+        for (let i = 0; i < n; i++) {
+          const x = a.x + ((z.x - a.x) * i) / n;
+          const y = a.y + ((z.y - a.y) * i) / n;
+          if (rects.some((o) => x > o.x - 1 && x < o.x + o.w + 1 && y > o.y - 1 && y < o.y + o.h + 1)) return true;
+        }
+        return false;
+      };
       const crossesCircle = (a: { x: number; y: number }, z: { x: number; y: number }) => closed.some((d) => distToSegment(d.x, d.y, a.x, a.y, z.x, z.y) < d.r + 1);
       const inCircle = (b: Rect) =>
         closed.some((d) => {
@@ -730,7 +741,10 @@ export class MapRenderer {
         const box = (p: { x: number; y: number }): Rect => ({ x: Math.round(p.x - tw / 2 - 4), y: Math.round(p.y - 9), w: tw + 8, h: 18 });
         const clear = (p: { x: number; y: number }, from?: { x: number; y: number }) => {
           const b = box(p);
-          if (from && crossesCircle(from, { x: Math.max(b.x, Math.min(from.x, b.x + b.w)), y: Math.max(b.y, Math.min(from.y, b.y + b.h)) })) return false;
+          if (from) {
+            const end = { x: Math.max(b.x, Math.min(from.x, b.x + b.w)), y: Math.max(b.y, Math.min(from.y, b.y + b.h)) };
+            if (crossesCircle(from, end) || crossesWords(from, end)) return false;
+          }
           if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
           return !this.drawnTags.some((o) => overlaps(b, o, 4)) && !this.drawnTabs.some((o) => overlaps(b, o, 4)) && !inCircle(b);
         };
