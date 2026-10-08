@@ -10,7 +10,7 @@ import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
-import { loadRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
+import { loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
 import {
   aggregateEdges,
   clickAction,
@@ -148,9 +148,11 @@ export function App() {
   }, [selected, changedNodes, updateRead, read.project]);
   const readAll = useCallback(
     (agentId?: string) => {
-      if (changedNodes) updateRead((marks) => markAllRead(marks, changedNodes, agentId));
+      const a = agentId ? agents.state?.agents.find((x) => x.id === agentId) : null;
+      if (a) updateRead((marks) => markAgentRead(marks, a));
+      else if (changedNodes && !agentId) updateRead((marks) => markAllRead(marks, changedNodes));
     },
-    [changedNodes, updateRead],
+    [agents.state, changedNodes, updateRead],
   );
 
   const lit = litAgent && agents.state?.agents.some((a) => a.id === litAgent) ? litAgent : null;

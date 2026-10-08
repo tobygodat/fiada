@@ -93,14 +93,33 @@ export function markRead(marks: ReadMarks, id: string, nodes: Record<string, Nod
   return { ...marks, [id]: latest };
 }
 
-/** Every change marked read, or only one agent's. Returns the new marks, or null when everything was read already. */
-export function markAllRead(marks: ReadMarks, nodes: Record<string, NodeChange>, agentId?: string): ReadMarks | null {
+/** Every change marked read. Returns the new marks, or null when everything was read already. */
+export function markAllRead(marks: ReadMarks, nodes: Record<string, NodeChange>): ReadMarks | null {
   let out: ReadMarks | null = null;
   for (const [id, c] of Object.entries(nodes)) {
-    if (agentId && !c.agents.includes(agentId)) continue;
     if ((marks[id] ?? 0) >= c.at) continue;
     out ??= { ...marks };
     out[id] = c.at;
+  }
+  return out;
+}
+
+/**
+ * One agent's changes marked read, at the time of its own last change to each
+ * file: a node another agent changed after it stays unread. Returns the new
+ * marks, or null when there was nothing new to mark.
+ */
+export function markAgentRead(marks: ReadMarks, a: AgentActivity): ReadMarks | null {
+  let out: ReadMarks | null = null;
+  for (const f of a.files) {
+    const at = Date.parse(f.at);
+    const file = fileTarget(f);
+    if (!Number.isFinite(at) || !file) continue;
+    for (const id of [file, ...f.symbols.map((s) => s.id)]) {
+      if ((marks[id] ?? 0) >= at) continue;
+      out ??= { ...marks };
+      out[id] = at;
+    }
   }
   return out;
 }

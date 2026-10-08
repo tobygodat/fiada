@@ -4,7 +4,7 @@ import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/sha
 import { readWords, rollupActivity } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree } from './tree.ts';
-import { agentRead, loadRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
+import { agentRead, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
 
 const change = (kind: NodeChange['kind'], unit: NodeChange['unit'], at: number, agents = ['a'], anchor?: string): NodeChange => ({ kind, unit, at, agents, anchor });
 
@@ -53,13 +53,33 @@ test('opening the folder that stands in for a deleted file reads it', () => {
   assert.ok(!unreadIds(nodes, marks).has('api/app/routes/old.py'));
 });
 
-test('mark all read, for everyone or one agent', () => {
-  const one = markAllRead({}, nodes, 'b')!;
-  assert.deepEqual([...unreadIds(nodes, one)].includes('web/src/pages/tags.tsx'), false);
-  assert.equal(unreadIds(nodes, one).size, Object.keys(nodes).length - 1);
-  const all = markAllRead(one, nodes)!;
+test('mark all read', () => {
+  const all = markAllRead({}, nodes)!;
   assert.equal(unreadIds(nodes, all).size, 0);
   assert.equal(markAllRead(all, nodes), null, 'already read: nothing to save');
+});
+
+test("marking one agent read leaves another agent's later change to the same file unread", () => {
+  // Agent a changed items.tsx at 10; agent b changed it again at 20. The node keeps the newest time.
+  const shared: Record<string, NodeChange> = {
+    'web/src/pages/items.tsx': change('modified', 'file', 20, ['a', 'b']),
+    'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
+    'web/src/pages/tags.tsx': change('added', 'file', 15, ['a']),
+  };
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const a = {
+    id: 'a',
+    files: [
+      { repo: 'web', path: 'src/pages/items.tsx', node: 'web/src/pages/items.tsx', kind: 'modified', symbols: [{ id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' }], at: iso(10) },
+      { repo: 'web', path: 'src/pages/tags.tsx', node: 'web/src/pages/tags.tsx', kind: 'added', symbols: [], at: iso(15) },
+    ],
+  } as unknown as AgentActivity;
+  const marks = markAgentRead({}, a)!;
+  const u = unreadIds(shared, marks);
+  assert.ok(!u.has('web/src/pages/tags.tsx'), "a's own change is read");
+  assert.ok(u.has('web/src/pages/items.tsx'), "b's later change is still unread");
+  assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'));
+  assert.equal(markAgentRead(marks, a), null, 'nothing new to mark');
 });
 
 test('an agent says how many of its files you have read', () => {
