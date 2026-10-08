@@ -67,7 +67,7 @@ State as of 23:00 UTC on 2026-10-08:
 | Ripple rings (no PR yet) | Dotted rings on the code that depends on what an agent changed, rolled up onto closed circles, plus a sentence in the detail panel saying what reaches a changed contract. | At 22:56 UTC the thread was fixing a slowdown the render bench found in zoom-to-open mode, and the PR wasn't open yet. See its thread. |
 | Agents can ask Fiada (no PR yet) | MCP read tools `where_is`, `who_uses` and `impact`, so an agent can ask the map before editing, with a faint dotted "looked at" mark on the map. | At 22:57 UTC, typecheck, 210 tests, build and the Chromium end-to-end run passed, and the thread was taking before shots on `main`. The PR wasn't open yet. See its thread. |
 
-**Merging them.** Merged one after another onto `main` at 23:00 UTC, #47, #50, #48, #52 and #49 went in cleanly in that order. #51 then conflicts in `web/src/App.tsx` and `web/src/components/AgentQueue.tsx`. #53 conflicts in those two and in `web/src/render/renderer.ts`. #49, #51 and #53 all add controls to the agents window, so expect to merge their changes by hand. #48 and #53 both touch `styles.css`, and #47 and #53 both touch README and AGENTS.md. Run typecheck, test and build after each merge.
+**Merging them.** None of these is merged yet. In a trial run at 23:00 UTC (a scratch worktree off `main`, merging the branches one after another), #47, #50, #48, #52 and #49 went in cleanly in that order. #51 then conflicts in `web/src/App.tsx` and `web/src/components/AgentQueue.tsx`. #53 conflicts in those two and in `web/src/render/renderer.ts`. #49, #51 and #53 all add controls to the agents window, so expect to merge their changes by hand. #48 and #53 both touch `styles.css`, and #47 and #53 both touch README and AGENTS.md. Run typecheck, test and build after each merge.
 
 ### Older
 
@@ -102,7 +102,7 @@ npx -y --package=@fiadatech/agent fiada setup --write . --url=https://<indexer> 
 
 That saves the URL and token in `~/.config/fiada/agent.json` and checks the indexer accepts the token.
 
-**The shared hosted map without sign-in.** Run `bun run agent:setup --url https://strataindexer-production.up.railway.app --token <API key>` once, or start `claude` with `FIADA_URL` and `FIADA_API_KEY` in its environment.
+**The shared hosted map without sign-in.** From a checkout, run `bun run agent:setup --write /path/to/your/repo --url https://strataindexer-production.up.railway.app --token <API key>`. Without `--write`, setup only saves the URL and token and installs no hooks or MCP server. Alternatively, set the repo up with `--write` and start `claude` with `FIADA_URL` and `FIADA_API_KEY` in its environment.
 
 How it works:
 
