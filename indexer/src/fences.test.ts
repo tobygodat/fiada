@@ -134,6 +134,35 @@ test('a failed save leaves the fences as they were', async () => {
   assert.deepEqual(fences.all().map((f) => f.node), ['api/app']);
 });
 
+test('closing waits for saves under way and takes no more, so a deleted project stays deleted', async () => {
+  const saved: string[][] = [];
+  let release!: () => void;
+  const slow = new Promise<void>((r) => (release = r));
+  const store: ProjectStore = {
+    describe: () => 'memory',
+    loadRepos: async () => [],
+    saveRepos: async () => {},
+    loadGrouping: async () => null,
+    saveGrouping: async () => {},
+    saveFences: async (_id, list) => {
+      await slow;
+      saved.push(list.map((f) => f.node));
+    },
+  };
+  const fences = new Fences(store, 'p');
+  await fences.init();
+  const putting = fences.set('api/app/core', 'off', GRAPH);
+  let closed = false;
+  const closing = fences.close().then(() => (closed = true));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(closed, false);
+  release();
+  await Promise.all([putting, closing]);
+  assert.deepEqual(saved, [['api/app/core']]);
+  await assert.rejects(fences.set('api/app', 'ask', GRAPH), /closed/);
+  assert.deepEqual(saved, [['api/app/core']]);
+});
+
 test('collisions: the deepest file or folder two agents share, never a whole repository', () => {
   const nodes = new Map(GRAPH.nodes.map((n) => [n.id, n]));
   const agent = (id: string, ...files: string[]) => ({ id, files: files.map((f) => ({ node: f, path: f, kind: 'modified' as const, symbols: [], at: '', diff: false })) });
@@ -202,6 +231,12 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   const moved = await hub.check({ agent: away, files: [{ path: path.join(clone, 'app/routes/items.py'), lines: [[13, 14]] }] }, fences);
   assert.deepEqual([moved.decision, moved.fence?.node], ['ask', 'api/app/routes/items.py#create_item']);
   assert.equal((await hub.check({ agent: away, files: [{ path: path.join(clone, 'app/core/config.py') }] }, fences)).decision, 'deny');
+  // An agent working elsewhere edits a file in that checkout: the file says which checkout it's in.
+  const web = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-web-')));
+  const neighbour: AgentRef = { client: 'claude-code', session: 's5', cwd: web, root: web, remote: 'https://github.com/acme/web.git' };
+  const target = { path: path.join(clone, 'app/core/config.py') };
+  assert.equal((await hub.check({ agent: neighbour, files: [target] }, fences)).decision, 'allow');
+  assert.equal((await hub.check({ agent: neighbour, files: [{ ...target, checkout: { root: clone } }] }, fences)).decision, 'deny');
   // A checkout of some other repository that happens to share the folder name is not fenced.
   const stranger: AgentRef = { ...away, session: 's4', remote: 'https://github.com/someone/else.git' };
   assert.equal((await hub.check({ agent: stranger, files: [{ path: path.join(clone, 'app/core/config.py') }] }, fences)).decision, 'allow');

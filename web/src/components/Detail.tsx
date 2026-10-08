@@ -145,8 +145,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, fences
 type FenceChoice = FenceRule | 'none';
 const FENCE_OPTIONS: [FenceChoice, string, string][] = [
   ['none', 'none', 'Agents change it as usual.'],
-  ['ask', 'ask first', "Before an agent's edit inside lands, you're asked."],
-  ['off', 'off limits', "Agents' edits inside are refused."],
+  ['ask', 'ask first', "Before an agent's file edit inside lands, you're asked."],
+  ['off', 'off limits', "Agents' file edits inside are refused."],
 ];
 const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
 const KIND_INSIDE: Record<GraphNode['kind'], string> = { repo: 'in this repository', folder: 'in this module', file: 'in this file', symbol: 'to this symbol' };
@@ -177,9 +177,9 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
   const inside = KIND_INSIDE[g.kind];
   const sentence =
     value === 'off'
-      ? `Agents can't change anything ${inside}: the edit is refused before it lands.`
+      ? `Agents can't change anything ${inside} with their edit tools: the edit is refused before it lands. Shell commands aren't checked.`
       : value === 'ask'
-        ? `Agents ask you before they change anything ${inside}.`
+        ? `Agents ask you before they change anything ${inside} with their edit tools. Shell commands aren't checked.`
         : 'Agents change it as usual.';
   return (
     <div className="detail-block fence-block" aria-busy={busy}>
@@ -196,7 +196,7 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
           <button className="link" onClick={() => onSelect(around.node)}>
             {around.node}
           </button>
-          {around.rule === 'off' && value !== 'off' ? ", so agents can't change it either." : '.'}
+          {around.rule === 'off' && value !== 'off' ? ", so agents' edits to it are refused too." : '.'}
         </p>
       )}
       {error && (

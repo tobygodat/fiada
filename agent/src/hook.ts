@@ -26,7 +26,7 @@
 import './env.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FenceVerdict, FileChange, LineRange, StepStatus } from '@fiada/shared';
+import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FenceCheck, FenceVerdict, FileChange, LineRange, StepStatus } from '@fiada/shared';
 import { check, send, startedAt, whoAndWhere } from './client.ts';
 import { checkout, describe, real, type Checkout } from './git.ts';
 import { changedSince, compare, forget, load, save, take } from './snapshot.ts';
@@ -110,7 +110,7 @@ export function linesOf(text: string, needle: string, all = false): LineRange[] 
  * replaces when the tool says (Edit and MultiEdit name the text they replace).
  * Absent lines mean the whole file: Write, a notebook, or text not found.
  */
-export async function aboutToEdit(tool: string, input: Payload, cwd: string): Promise<{ path: string; lines?: LineRange[] } | null> {
+export async function aboutToEdit(tool: string, input: Payload, cwd: string): Promise<FenceCheck['files'][number] | null> {
   const file = input.file_path ?? input.notebook_path;
   if (!EDIT_TOOLS.has(tool) || typeof file !== 'string') return null;
   const abs = path.resolve(cwd, file);
@@ -126,6 +126,20 @@ export async function aboutToEdit(tool: string, input: Payload, cwd: string): Pr
     lines.push(...found);
   }
   return { path: abs, lines };
+}
+
+/**
+ * A file outside the agent's own checkout carries the checkout it is in, so
+ * the indexer can match that one by its remote, as the post-edit sweep does.
+ * A file that doesn't exist yet is placed by the nearest folder that does.
+ */
+export async function placed(file: FenceCheck['files'][number], co: Checkout | null): Promise<FenceCheck['files'][number]> {
+  const abs = await real(file.path);
+  if (co && (abs + path.sep).startsWith(co.root + path.sep)) return file;
+  let dir = path.dirname(abs);
+  while (dir !== path.dirname(dir) && !(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) dir = path.dirname(dir);
+  const theirs = await checkout(dir).catch(() => null);
+  return theirs ? { ...file, checkout: { root: theirs.root, remote: theirs.remote } } : file;
 }
 
 /** Claude Code's answer to PreToolUse for an edit inside a fence; nothing for one outside every fence. */
@@ -203,7 +217,7 @@ async function fromClaude(p: Payload): Promise<{ agent: AgentRef; out: Out }> {
     case 'PreToolUse': {
       // Before an edit lands: the fences on the map may stop it or have the person asked.
       const file = await aboutToEdit(String(p.tool_name ?? ''), (p.tool_input ?? {}) as Payload, p.cwd ?? process.cwd());
-      const stdout = file ? fenceAnswer(await check({ agent, tool: p.tool_name, files: [file] })) : undefined;
+      const stdout = file ? fenceAnswer(await check({ agent, tool: p.tool_name, files: [await placed(file, co)] })) : undefined;
       return { agent, out: { events, stdout } };
     }
     case 'PostToolUse':
@@ -301,7 +315,7 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
     case 'sweep':
       return { agent, out: { events: changes(await sweep(key, co)) } };
     case 'check': {
-      const v = await check({ agent, files: rest.map((f) => ({ path: path.resolve(cwd, f) })) });
+      const v = await check({ agent, files: await Promise.all(rest.map((f) => placed({ path: path.resolve(cwd, f) }, co))) });
       return { agent, out: { events: [], stdout: `${JSON.stringify(v ?? { decision: 'allow', reason: "Fiada didn't answer." })}\n` } };
     }
     case 'done':

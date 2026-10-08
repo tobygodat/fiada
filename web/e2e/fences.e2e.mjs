@@ -174,7 +174,7 @@ try {
   await fence.getByRole('radio', { name: 'off limits' }).click();
   await until('the off-limits fence', async () => (await api('GET', '/api/fences')).fences.some((f) => f.node === CORE && f.rule === 'off'));
   await fence.locator('.fence-words.off').waitFor();
-  assert.match(await fence.locator('.fence-words.off').innerText(), /Agents can't change anything in this module/);
+  assert.match(await fence.locator('.fence-words.off').innerText(), /Agents can't change anything in this module with their edit tools/);
   await pause(800);
   await shot('after-fence-off');
   step('a file inside says which fence it is in');

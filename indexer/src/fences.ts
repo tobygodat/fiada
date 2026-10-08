@@ -86,6 +86,7 @@ export function verdict(fences: Fence[], files: FencedFile[], graph: Graph): Fen
 export class Fences {
   private list: Fence[] = [];
   private saving: Promise<unknown> = Promise.resolve();
+  private closed = false;
 
   constructor(
     private store: ProjectStore,
@@ -103,6 +104,8 @@ export class Fences {
 
   /** Puts up, changes or (rule null) takes down the fence round one node of the graph. Returns them all. */
   async set(node: unknown, rule: unknown, graph: Graph): Promise<Fence[]> {
+    // A project being closed (its account deleted, say) takes no more fences that would save it again.
+    if (this.closed) throw new FenceError('This project is closed.');
     if (typeof node !== 'string' || !node) throw new FenceError('Body must be { "node": "<graph node id>", "rule": "ask" | "off" | null }');
     if (rule !== null && !RULES.includes(rule as FenceRule)) throw new FenceError('rule must be "ask", "off" or null');
     const rest = this.list.filter((f) => f.node !== node);
@@ -126,6 +129,12 @@ export class Fences {
       throw err;
     }
     return this.list;
+  }
+
+  /** Takes no more changes and waits for the saves already under way, so nothing is written after this. */
+  async close() {
+    this.closed = true;
+    await this.saving;
   }
 
   verdict(files: FencedFile[], graph: Graph): FenceVerdict {

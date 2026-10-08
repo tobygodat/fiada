@@ -65,7 +65,7 @@ export async function openTenant(o: OpenOptions): Promise<Tenant> {
       off();
       agents.close();
       ws.close();
-      await summaries.close();
+      await Promise.all([summaries.close(), fences.close()]);
     },
   };
 }

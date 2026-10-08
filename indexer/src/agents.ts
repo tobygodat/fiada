@@ -502,7 +502,9 @@ export class AgentHub {
     const files: FencedFile[] = [];
     for (const f of req.files ?? []) {
       if (!f || typeof f.path !== 'string') continue;
-      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified' }, false);
+      // A file in another checkout than the agent's says which, as the post-edit sweep does.
+      const co = f.checkout && typeof f.checkout.root === 'string' && path.isAbsolute(f.checkout.root) ? { root: f.checkout.root, remote: typeof f.checkout.remote === 'string' ? f.checkout.remote : undefined } : undefined;
+      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified', checkout: co }, false);
       if (!where.repo) continue;
       const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : [];
       // The hook counted lines in the agent's own copy of the file. They place an edit against a

@@ -9,7 +9,7 @@ import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { aboutToEdit, fenceAnswer, firstLine, linesOf, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
+import { aboutToEdit, fenceAnswer, placed, firstLine, linesOf, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
 import { clientId, nowLines, FiadaMcp } from './mcp.ts';
 import { applyConfig, configPath } from './env.ts';
 import { commandsFor, EDIT_MATCHER, flag, hooksBlock, mergeHooks, nextConfig } from './setup.ts';
@@ -356,6 +356,20 @@ test('an edit is placed on the lines it replaces; a write, or text not in the fi
   assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'not there' }, dir), { path: path.join(dir, 'app.py') });
   assert.deepEqual(await aboutToEdit('Write', { file_path: 'new.py', content: 'x' }, dir), { path: path.join(dir, 'new.py') });
   assert.equal(await aboutToEdit('Bash', { command: 'rm -rf app.py' }, dir), null);
+});
+
+test("a file in another checkout than the agent's says which, even one not written yet", async () => {
+  const own = await repo({ 'a.py': 'x\n' });
+  const other = await repo({ 'lib/b.py': 'y\n' });
+  git(other, 'remote', 'add', 'origin', 'https://github.com/acme/other.git');
+  const co = await checkout(own);
+  assert.deepEqual(await placed({ path: path.join(own, 'a.py') }, co), { path: path.join(own, 'a.py') });
+  const theirs = { root: other, remote: 'https://github.com/acme/other.git' };
+  assert.deepEqual(await placed({ path: path.join(other, 'lib/b.py'), lines: [[1, 1]] }, co), { path: path.join(other, 'lib/b.py'), lines: [[1, 1]], checkout: theirs });
+  assert.deepEqual(await placed({ path: path.join(other, 'new/deep/c.py') }, co), { path: path.join(other, 'new/deep/c.py'), checkout: theirs });
+  // Outside any checkout: nothing to say.
+  const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
+  assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
 });
 
 test("the hook's answer to an edit inside a fence is Claude Code's own decision; outside, it says nothing", () => {
