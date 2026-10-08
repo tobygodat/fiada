@@ -19,6 +19,8 @@ export function Search({ nodes, onPick }: Props) {
   const list = useId();
   const hits = useMemo(() => searchNodes(nodes, query), [nodes, query]);
   const shown = open && query.trim() !== '';
+  // The matches can change under the same query (another view, a fresh graph): never point past them.
+  const at = active < hits.length ? active : 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,8 +38,8 @@ export function Search({ nodes, onPick }: Props) {
 
   // Keep the row the arrows reach in sight when the list scrolls.
   useEffect(() => {
-    if (shown) document.getElementById(`${list}-${active}`)?.scrollIntoView({ block: 'nearest' });
-  }, [shown, list, active]);
+    if (shown) document.getElementById(`${list}-${at}`)?.scrollIntoView({ block: 'nearest' });
+  }, [shown, list, at]);
 
   const pick = (h: SearchHit | undefined) => {
     if (!h) return;
@@ -51,11 +53,11 @@ export function Search({ nodes, onPick }: Props) {
       e.preventDefault();
       if (!hits.length) return;
       setOpen(true);
-      setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
+      setActive((at + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      pick(hits[active]);
+      pick(hits[at]);
     } else if (e.key === 'Escape') {
       // Let go of the search, not the map's selection.
       e.stopPropagation();
@@ -74,7 +76,7 @@ export function Search({ nodes, onPick }: Props) {
         aria-label="Search the map"
         aria-expanded={shown}
         aria-controls={list}
-        aria-activedescendant={shown && hits[active] ? `${list}-${active}` : undefined}
+        aria-activedescendant={shown && hits[at] ? `${list}-${at}` : undefined}
         aria-autocomplete="list"
         placeholder="search  /"
         spellCheck={false}
@@ -97,8 +99,8 @@ export function Search({ nodes, onPick }: Props) {
               key={h.id}
               id={`${list}-${i}`}
               role="option"
-              aria-selected={i === active}
-              className={i === active ? 'on' : ''}
+              aria-selected={i === at}
+              className={i === at ? 'on' : ''}
               // Before the input's blur, so the click lands.
               onMouseDown={(e) => {
                 e.preventDefault();

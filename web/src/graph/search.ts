@@ -21,9 +21,8 @@ const KIND_ORDER: Record<string, number> = { repo: 0, folder: 1, file: 2, symbol
 
 /** Where a node lives, without its own name: `repo/src/pages` for `repo/src/pages/items.tsx`. */
 export function whereOf(n: GraphNode): string {
-  if (n.kind === 'repo') return '';
-  const id = n.kind === 'symbol' ? n.id.slice(0, n.id.lastIndexOf('#')) : n.id.slice(0, n.id.lastIndexOf('/'));
-  return id;
+  // The real parent, not the id cut at a slash: a collapsed chain like `src/main/java` hangs straight off its repo.
+  return n.kind === 'repo' || n.parent === 'root' ? '' : n.parent;
 }
 
 const isWordStart = (s: string, i: number) => i === 0 || /[^a-z0-9]/i.test(s[i - 1]) || (/[A-Z]/.test(s[i]) && /[a-z]/.test(s[i - 1]));

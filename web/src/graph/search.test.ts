@@ -56,6 +56,12 @@ test('every hit can be found on the map in both views', () => {
   }
 });
 
+test('a collapsed folder chain says where it really hangs', () => {
+  const n = { id: 'svc/src/main/java', kind: 'folder', name: 'src/main/java', parent: 'svc', repo: 'svc' } as const;
+  assert.equal(whereOf(n), 'svc');
+  assert.equal(searchNodes([n], 'java')[0].where, 'svc');
+});
+
 test('the by-function view searches only what it draws', () => {
   const code = onMap(graph.nodes, buildCodeTree(graph)).map((n) => n.id);
   assert.equal(code.length, graph.nodes.length);
