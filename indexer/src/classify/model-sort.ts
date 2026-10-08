@@ -399,7 +399,10 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
   const byPath = new Map<string, LeftoverFile | null>();
   const byName = new Map<string, LeftoverFile | null>();
   const put = (m: Map<string, LeftoverFile | null>, key: string, lf: LeftoverFile) => m.set(key, m.has(key) && m.get(key) !== lf ? null : lf);
-  for (const lf of byRef.values()) {
+  for (const [ref, lf] of byRef) {
+    // The labels go in too, so a file whose path is "F1" and the file labelled F1 pick neither.
+    put(exact, ref, lf);
+    put(byPath, ref.toLowerCase(), lf);
     put(exact, lf.file.id, lf);
     if (lf.file.path) put(exact, lf.file.path, lf);
     put(byPath, lf.file.id.toLowerCase(), lf);
@@ -412,10 +415,9 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
     if (exact.has(str(ref))) return exact.get(str(ref)) ?? undefined;
     const s = clean(str(ref));
     if (!s) return undefined;
-    const lower = byPath.get(s);
-    if (lower) return lower;
+    if (byPath.has(s)) return byPath.get(s) ?? undefined;
     const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
-    if (label && byRef.has(`F${label[1]}`)) return byRef.get(`F${label[1]}`);
+    if (label && byRef.has(`F${label[1]}`)) return byPath.get(`f${label[1]}`) ?? undefined;
     const first = clean(s.split(/\s/)[0]);
     if (byPath.has(first)) return byPath.get(first) ?? undefined;
     return byName.get(first.split('/').pop()!) ?? undefined;
