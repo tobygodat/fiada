@@ -368,3 +368,20 @@ test('matchRef: a shared file name or a folder that starts like a ref picks noth
   assert.equal(match(7), undefined);
   assert.equal(match(''), undefined);
 });
+
+test('matchRef: a path two repositories share, or two files differing only in case, picks neither', () => {
+  const lf = (repo: string, path: string) => ({ file: { id: `${repo}/${path}`, kind: 'file', name: path.split('/').pop()!, parent: repo, repo, path } as GraphNode, needsLayer: true, needsDomain: [], placed: [] });
+  const web = lf('web', 'src/index.ts');
+  const api = lf('api', 'src/index.ts');
+  const upper = lf('api', 'src/Foo.ts');
+  const lower = lf('api', 'src/foo.ts');
+  const match = matchRef(new Map([['F1', web], ['F2', api], ['F3', upper], ['F4', lower]]));
+  assert.equal(match('src/index.ts'), undefined, 'in both repositories');
+  assert.equal(match('./src/index.ts (typescript, 3 lines)'), undefined);
+  assert.equal(match('web/src/index.ts'), web);
+  assert.equal(match('api/src/index.ts'), api);
+  assert.equal(match('api/src/Foo.ts'), upper, 'the exact id still picks its file');
+  assert.equal(match('api/src/foo.ts'), lower);
+  assert.equal(match('API/SRC/FOO.TS'), undefined, 'in any case it could be either');
+  assert.equal(match('F2'), api);
+});

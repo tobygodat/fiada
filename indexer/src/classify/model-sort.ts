@@ -394,16 +394,21 @@ function answersIn(answer: unknown): FileAnswer[] {
  * list of labelled paths often answer with the path.
  */
 export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => LeftoverFile | undefined {
-  const byPath = new Map<string, LeftoverFile>();
+  // A path or name two files share (src/index.ts in two repositories, Foo.ts and foo.ts) picks neither.
+  const byId = new Map<string, LeftoverFile>();
+  const byPath = new Map<string, LeftoverFile | null>();
   const byName = new Map<string, LeftoverFile | null>();
+  const put = (m: Map<string, LeftoverFile | null>, key: string, lf: LeftoverFile) => m.set(key, m.has(key) && m.get(key) !== lf ? null : lf);
   for (const lf of byRef.values()) {
-    byPath.set(lf.file.id.toLowerCase(), lf);
-    if (lf.file.path) byPath.set(lf.file.path.toLowerCase(), lf);
-    const name = lf.file.id.split('/').pop()!.toLowerCase();
-    byName.set(name, byName.has(name) ? null : lf);
+    byId.set(lf.file.id, lf);
+    put(byPath, lf.file.id.toLowerCase(), lf);
+    if (lf.file.path) put(byPath, lf.file.path.toLowerCase(), lf);
+    put(byName, lf.file.id.split('/').pop()!.toLowerCase(), lf);
   }
   const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
   return (ref) => {
+    const id = byId.get(str(ref));
+    if (id) return id;
     const s = clean(str(ref));
     if (!s) return undefined;
     const exact = byPath.get(s);
@@ -411,7 +416,8 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
     const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
     if (label && byRef.has(`F${label[1]}`)) return byRef.get(`F${label[1]}`);
     const first = clean(s.split(/\s/)[0]);
-    return byPath.get(first) ?? byName.get(first.split('/').pop()!) ?? undefined;
+    if (byPath.has(first)) return byPath.get(first) ?? undefined;
+    return byName.get(first.split('/').pop()!) ?? undefined;
   };
 }
 
