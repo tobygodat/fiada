@@ -4,7 +4,7 @@ import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/sha
 import { readWords, rollupActivity } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree } from './tree.ts';
-import { agentRead, forgetRead, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
+import { agentRead, agentUnreadIds, forgetRead, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
 
 const change = (kind: NodeChange['kind'], unit: NodeChange['unit'], at: number, agents = ['a'], anchor?: string): NodeChange => ({ kind, unit, at, agents, anchor });
 
@@ -83,6 +83,9 @@ test("marking one agent read leaves another agent's later change to the same fil
   assert.deepEqual(agentRead(a, u, marks, shared), { read: 2, total: 2 }, "a counts its own changes read; b's is b's to read");
   const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as unknown as AgentActivity;
   assert.deepEqual(agentRead(b, u, marks, shared), { read: 0, total: 1 });
+  // Lit on the map, each agent shows only what is unread for it.
+  assert.deepEqual([...agentUnreadIds(a, u, marks, shared)], []);
+  assert.deepEqual([...agentUnreadIds(b, u, marks, shared)].sort(), ['web/src/pages/items.tsx', 'web/src/pages/items.tsx#ItemsPage']);
 });
 
 test('an agent says how many of its files you have read', () => {

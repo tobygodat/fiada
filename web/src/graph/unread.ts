@@ -155,6 +155,18 @@ export function agentFileUnread(f: AgentFile, unread: ReadonlySet<string>, marks
   return !(f.symbols.length && f.symbols.every((s) => (marks[s.id] ?? 0) >= at));
 }
 
+/** The changed nodes unread for one agent: its files unread for it, and their unread functions. For the map while that agent is lit. */
+export function agentUnreadIds(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): Set<string> {
+  const out = new Set<string>();
+  for (const f of a.files) {
+    const id = fileTarget(f);
+    if (!id || !agentFileUnread(f, unread, marks, nodes)) continue;
+    out.add(id);
+    for (const s of f.symbols) if (unread.has(s.id)) out.add(s.id);
+  }
+  return out;
+}
+
 /** How many of an agent's changed files you've read: "12 of 19 changes read". */
 export function agentRead(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): { read: number; total: number } {
   let read = 0;

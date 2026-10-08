@@ -10,7 +10,7 @@ import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
-import { loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
+import { agentUnreadIds, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
 import {
   aggregateEdges,
   clickAction,
@@ -164,11 +164,13 @@ export function App() {
   const activity = useMemo(() => {
     const s = agents.state;
     if (!tree || !s) return null;
-    // One agent lit: the map marks only its changes.
+    // One agent lit: the map marks only its changes, unread by its own times.
     const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
     if (!Object.keys(nodes).length) return null;
-    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents, unread);
-  }, [tree, graphIndex, agents.state, spot, lit, unread]);
+    const one = spot ? s.agents.find((a) => a.id === lit) : undefined;
+    const unreadHere = one && unread && readMarks ? agentUnreadIds(one, unread, readMarks, s.nodes) : unread;
+    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere);
+  }, [tree, graphIndex, agents.state, spot, lit, unread, readMarks]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;
