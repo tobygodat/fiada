@@ -73,6 +73,46 @@ if (mode === 'before') {
   assert((await page.locator('.search-none').innerText()) === 'nothing called that', 'says when nothing matches');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
+  // The active row stays in sight as the arrows go down a long list.
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await input.click();
+  await page.keyboard.type('item', { delay: 40 });
+  await page.waitForTimeout(300);
+  for (let i = 0; i < 11; i++) await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(200);
+  const inView = await page.evaluate(() => {
+    const ul = document.querySelector('.search-hits'), li = document.querySelector('.search-hits li[aria-selected=true]');
+    const a = ul.getBoundingClientRect(), b = li.getBoundingClientRect();
+    return ul.scrollHeight > ul.clientHeight && b.top >= a.top - 1 && b.bottom <= a.bottom + 1;
+  });
+  assert(inView, 'the twelfth match is scrolled into view in a short window');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Keyboard focus keeps the focus ring.
+  await page.keyboard.press('/');
+  const ring = await input.evaluate((el) => getComputedStyle(el).outlineStyle);
+  assert(ring === 'solid', 'the focus ring shows on keyboard focus');
+  await page.keyboard.press('Escape');
+  // By function: only what that view draws, and a pick lands.
+  await page.getByRole('button', { name: 'by function' }).click().catch(() => page.getByText('by function', { exact: true }).click());
+  await page.waitForTimeout(1500);
+  await input.click();
+  await page.keyboard.type('backend', { delay: 40 });
+  await page.waitForTimeout(300);
+  const kinds = await page.locator('.search-hits .search-kind').allInnerTexts();
+  assert(!kinds.some((k) => k === 'folder' || k === 'repo'), 'by function lists no repos or folders: ' + kinds.join(','));
+  await page.keyboard.press('Escape');
+  await page.keyboard.type('create_item', { delay: 40 });
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1600);
+  const d3 = await page.evaluate(() => document.querySelector('.detail')?.textContent ?? '');
+  assert(d3.includes('create_item'), 'by function: Enter selects create_item');
+  await page.screenshot({ path: out + '/after-by-function.png' });
+  await page.keyboard.press('Escape');
+  await page.getByText('code', { exact: true }).first().click();
+  await page.waitForTimeout(1200);
   // Light theme.
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
   await input.click();

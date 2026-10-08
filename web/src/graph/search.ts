@@ -3,6 +3,7 @@
 // in the path, letters in order), then repos before folders before files before symbols.
 
 import type { GraphNode } from '@fiada/shared';
+import type { Tree } from './tree.ts';
 
 export interface SearchHit {
   id: string;
@@ -62,4 +63,9 @@ export function searchNodes(nodes: Iterable<GraphNode>, query: string, limit = 1
       a.id.localeCompare(b.id),
   );
   return hits.slice(0, limit);
+}
+
+/** The nodes the current view draws: the by-function view has no repos or folders, and files only where they hold no symbols. */
+export function onMap(nodes: GraphNode[], tree: Tree): GraphNode[] {
+  return nodes.filter((n) => tree.nodes.has(n.id));
 }

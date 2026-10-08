@@ -125,7 +125,7 @@ a { color: inherit; }
 }
 .search input::placeholder { color: var(--muted); opacity: 1; }
 .search input::-webkit-search-cancel-button { display: none; }
-.search input:focus { outline: none; border-color: var(--accent); }
+.search input:focus { border-color: var(--accent); }
 .search-hits {
   position: absolute; right: 0; top: calc(100% + var(--space-xs)); width: 420px; max-height: 60vh; overflow-y: auto;
   margin: 0; padding: var(--space-xs) 0; list-style: none; z-index: 6;

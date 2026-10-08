@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { searchNodes, whereOf } from './search.ts';
+import { onMap, searchNodes, whereOf } from './search.ts';
 import { buildCodeTree, buildFunctionTree, locate } from './tree.ts';
 
 const graph = fixtureGraph();
@@ -54,4 +54,16 @@ test('every hit can be found on the map in both views', () => {
   for (const tree of [buildCodeTree(graph), buildFunctionTree(graph)]) {
     for (const h of searchNodes(graph.nodes, 'i', 100)) assert.ok(locate(tree, index, h.id), h.id);
   }
+});
+
+test('the by-function view searches only what it draws', () => {
+  const code = onMap(graph.nodes, buildCodeTree(graph)).map((n) => n.id);
+  assert.equal(code.length, graph.nodes.length);
+  const fn = onMap(graph.nodes, buildFunctionTree(graph)).map((n) => n.id);
+  // No repos or folders, and files only where they hold no symbols.
+  assert.ok(!fn.includes('web'));
+  assert.ok(!fn.includes('web/src/client'));
+  assert.ok(!fn.includes('web/src/pages/items.tsx'));
+  assert.ok(fn.includes('web/src/pages/about.tsx'));
+  assert.ok(fn.includes('web/src/client/api.ts#ItemsService'));
 });

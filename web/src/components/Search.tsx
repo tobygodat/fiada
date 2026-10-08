@@ -34,6 +34,11 @@ export function Search({ nodes, onPick }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Keep the row the arrows reach in sight when the list scrolls.
+  useEffect(() => {
+    if (shown) document.getElementById(`${list}-${active}`)?.scrollIntoView({ block: 'nearest' });
+  }, [shown, list, active]);
+
   const pick = (h: SearchHit | undefined) => {
     if (!h) return;
     onPick(h.id);
