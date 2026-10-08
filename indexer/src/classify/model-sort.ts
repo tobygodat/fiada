@@ -344,8 +344,7 @@ Answer every file.`;
         placements[lf.file.id] = { ...p, reason };
       }
       for (const s of Array.isArray(a.symbols) ? a.symbols : []) {
-        const name = symbolName(s?.name);
-        const target = lf.needsDomain.find((x) => (x.name === name || x.id === str(s?.name)) && !placements[x.id]);
+        const target = symbolFor(lf.needsDomain.filter((x) => !placements[x.id]), s?.name);
         const sd = domainOf(s?.domain);
         if (target && target.kind === 'symbol' && sd && sd !== p.domain && str(s?.reason)) placements[target.id] = { domain: sd, reason: str(s.reason) };
       }
@@ -411,7 +410,10 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
   const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
   return (ref) => {
     // As written first, so Foo.ts and foo.ts stay apart; one file's id that is another's path in its repository picks neither.
-    if (exact.has(str(ref))) return exact.get(str(ref)) ?? undefined;
+    // A label counts in any case, though, so "f1" as written is no surer than "F1" when a file's path is either.
+    const w = str(ref);
+    const anyCaseLabel = byRef.has(w.toUpperCase()) && byPath.get(w.toLowerCase()) === null;
+    if (exact.has(w) && !anyCaseLabel) return exact.get(w) ?? undefined;
     const s = clean(str(ref));
     if (!s) return undefined;
     if (byPath.has(s)) return byPath.get(s) ?? undefined;
@@ -442,8 +444,22 @@ function pickId(entries: (readonly [string, string])[]): (v: unknown) => string 
   };
 }
 
-/** "Settings (class, 40 lines)" → "Settings": a symbol named the way the prompt lists it. */
-const symbolName = (v: unknown) => str(v).replace(/\s*\(.*$/, '').split('#').pop()!;
+/**
+ * The symbol a model named, by its id, its name, or its name as the prompt
+ * lists it ("Settings (class, 40 lines)"). The longest name that fits wins,
+ * so "Widget (default) (function, 4 lines)" is Widget (default), not Widget.
+ */
+export function symbolFor<T extends { id: string; name: string }>(symbols: T[], v: unknown): T | undefined {
+  const raw = str(v).trim();
+  const byId = symbols.find((x) => x.id === raw);
+  if (byId) return byId;
+  const tail = raw.split('#').pop()!;
+  let best: T | undefined;
+  for (const x of symbols) {
+    if ((tail === x.name || tail.startsWith(`${x.name} (`)) && x.name.length > (best?.name.length ?? -1)) best = x;
+  }
+  return best;
+}
 
 /** What an answer held, for a log line. */
 function describeAnswer(answer: unknown, answers: FileAnswer[]): string {

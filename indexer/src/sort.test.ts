@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@fiada/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
-import { matchRef, sortProject, type Ask } from './classify/model-sort.ts';
+import { matchRef, sortProject, symbolFor, type Ask } from './classify/model-sort.ts';
 import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';
 import { defaultGrouping, leftoverFiles, normalizeGrouping, sortStats } from './classify/index.ts';
 import { Sorter, type SortHost } from './sorter.ts';
@@ -420,6 +420,12 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   const labels = matchRef(new Map([['F1', web], ['F2', f1]]));
   for (const ref of ['F1', 'f1', '[F1]', 'F01', 'F1 web/src/index.ts']) assert.equal(labels(ref), undefined, ref);
   assert.equal(labels('F2'), f1);
+  // The same with the root file's path in lower case, answered in lower case.
+  const lowerF1 = lf('tools', 'f1');
+  const lowerLabels = matchRef(new Map([['F1', web], ['F2', lowerF1]]));
+  for (const ref of ['F1', 'f1', '[f1]', 'f01']) assert.equal(lowerLabels(ref), undefined, ref);
+  assert.equal(lowerLabels('F2'), lowerF1);
+  assert.equal(lowerLabels('tools/f1'), lowerF1);
 
   // A file at a repository's root named index.ts, and src/index.ts, whose name is the same.
   const top = lf('web', 'index.ts');
@@ -430,4 +436,20 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   assert.equal(names('src/index.ts'), web);
   assert.equal(labels('web/src/index.ts'), web);
   assert.equal(labels('tools/F1'), f1);
+});
+
+test('symbolFor: a symbol named as the prompt lists it, parentheses in its name and all', () => {
+  const widget = { id: 'r/src/Widget.tsx#default', name: 'Widget (default)' };
+  const plainWidget = { id: 'r/src/Widget.tsx#Widget', name: 'Widget' };
+  const settings = { id: 'r/src/Widget.tsx#Settings', name: 'Settings' };
+  const symbols = [plainWidget, widget, settings];
+  assert.equal(symbolFor(symbols, 'Widget (default)'), widget);
+  assert.equal(symbolFor(symbols, 'Widget (default) (function, 4 lines)'), widget);
+  assert.equal(symbolFor(symbols, 'Widget'), plainWidget);
+  assert.equal(symbolFor(symbols, 'Widget (function, 9 lines)'), plainWidget);
+  assert.equal(symbolFor(symbols, 'Settings (class, 40 lines; route GET /x (y))'), settings);
+  assert.equal(symbolFor(symbols, 'r/src/Widget.tsx#default'), widget, 'by id');
+  assert.equal(symbolFor(symbols, 'r/src/Widget.tsx#Settings'), settings);
+  assert.equal(symbolFor(symbols, 'Other'), undefined);
+  assert.equal(symbolFor(symbols, undefined), undefined);
 });
