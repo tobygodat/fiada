@@ -60,7 +60,9 @@ export function tourStops(
     // This agent's own latest change to the file: another agent's later edit doesn't unread it.
     const at = Date.parse(f.at);
     // Something gone from the map is read on the nearest circle that's left, where its diff is.
-    const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : (nodes[file]?.anchor ?? null);
+    // (Only a circle the map still has: a removed repository leaves an anchor that isn't.)
+    const anchor = nodes[file]?.anchor;
+    const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : anchor && graphIndex.has(anchor) ? anchor : null;
     const base = { path: f.path, repo: f.repo };
     if (f.symbols.length && f.kind !== 'deleted') {
       for (const s of f.symbols) {

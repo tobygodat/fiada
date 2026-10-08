@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diffRows, hunksFor } from './diff.ts';
+import { diffRows, hunksFor, hunksRemoving } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -28,6 +28,25 @@ test('with the lines of the changed symbols, a symbol also sees the hunks none o
   assert.equal(hunksFor(diff, [41, 45], [[41, 45]]).length, 8);
   // When another changed symbol covers it, it stays with that symbol.
   assert.equal(hunksFor(diff, [41, 45], [[41, 45], [1, 3]]).length, 4);
+});
+
+test('a deleted symbol sees the hunks that take away a line naming it', () => {
+  const gone = [
+    '@@ -1,3 +1,2 @@',
+    ' import uuid',
+    '-import csv',
+    ' from typing import Any',
+    '@@ -20,4 +19,0 @@',
+    '-def export_items(items):',
+    '-    return csv.writer(items)',
+    '-',
+    '-',
+    '@@ -40,1 +36,1 @@',
+    '-    return items  # was export_items_old',
+    '+    return list(items)',
+  ].join('\n');
+  assert.deepEqual(hunksRemoving(gone, 'export_items'), ['@@ -20,4 +19,0 @@', '-def export_items(items):', '-    return csv.writer(items)', '-', '-']);
+  assert.equal(hunksRemoving(gone, 'nowhere').length, 12, 'none names it: every hunk');
 });
 
 test('diff rows: the sign in its own gutter, each hunk as the line it starts at', () => {

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
-import { diffRows, hunksFor } from './diff.ts';
+import { diffRows, hunksFor, hunksRemoving } from './diff.ts';
 import './agent.css';
 
 interface Props {
@@ -14,8 +14,10 @@ interface Props {
   lines?: [number, number];
   /** The lines of every changed symbol in the file: also show the hunks none of them touches. */
   rest?: readonly [number, number][];
-  /** The changed file's path, when the panel is on something else standing in for it (a deleted file's folder). */
+  /** The changed file's path or function's name, when the panel is on something standing in for it (a deleted file's folder). */
   what?: string;
+  /** A deleted function: show the hunks that take away a line naming it. */
+  named?: string;
   /** Changes when the agent changes the file again, to refetch. */
   rev: number;
   kind: ChangeKind;
@@ -32,7 +34,7 @@ const ago = (iso: string) => {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
-export function AgentChange({ node, lines, rest, what, rev, kind, agent }: Props) {
+export function AgentChange({ node, lines, rest, what, named, rev, kind, agent }: Props) {
   const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
   useEffect(() => {
@@ -59,7 +61,7 @@ export function AgentChange({ node, lines, rest, what, rev, kind, agent }: Props
       {!mine && <div className="agent-note">loading the diff…</div>}
       {mine && !list.length && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d) => {
-        const shown = d.diff ? diffRows(hunksFor(d.diff, lines, rest)) : [];
+        const shown = d.diff ? diffRows(named ? hunksRemoving(d.diff, named) : hunksFor(d.diff, lines, rest)) : [];
         return (
           <div key={d.agent} className="agent-diff">
             <div className="agent-diff-head">

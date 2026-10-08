@@ -212,3 +212,11 @@ test("the first of a file's function stops also carries the file's other hunks",
   assert.equal(rest['web/src/client/api.ts#UsersService'], undefined, 'once per file');
   assert.deepEqual(rest['web/src/pages/items.tsx#ItemsPage'], ['web/src/pages/items.tsx#ItemsPage']);
 });
+
+test('a change whose repository is gone from the map is not on the tour', () => {
+  const nodes: Record<string, NodeChange> = {
+    'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },
+  };
+  const a = agent([{ ...file('gone', 'app/x.py'), node: undefined }, file('web', 'src/pages/about.tsx')]);
+  assert.deepEqual(tourStops(graph, graphIndex, a, nodes).map((s) => s.id), ['web/src/pages/about.tsx']);
+});

@@ -197,9 +197,11 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   // On a review tour, the reviewed agent's diff and its own kind of change, not the latest of any agent's.
   const tour = reviewing?.stop.target === g.id ? reviewing : null;
   const code = g.kind === 'file' || g.kind === 'symbol';
-  // A deleted file on the tour stands on the folder that's left: the file's own diff, under the folder.
-  if (tour && tour.stop.id !== g.id && !code) {
-    return <AgentChange node={tour.stop.id} rev={tour.stop.at} kind={tour.stop.kind} agent={tour.agent} what={tour.stop.path} />;
+  // Something deleted on the tour stands on what's left (a file on its folder, a function on its
+  // file): its own diff under it, and for a function only the hunks that take it away.
+  if (tour && tour.stop.id !== g.id) {
+    const fn = tour.stop.id.includes('#');
+    return <AgentChange node={tour.stop.id} rev={tour.stop.at} kind={tour.stop.kind} agent={tour.agent} what={fn ? tour.stop.name : tour.stop.path} named={fn ? tour.stop.name : undefined} />;
   }
   const own = code ? activity?.nodes[g.id] : null;
   if (!own) return null;

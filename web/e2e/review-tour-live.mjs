@@ -3,7 +3,8 @@
 // imported, web/e2e/agent-session.sh played on it). A second agent edits the
 // file under review: the detail panel still shows only the reviewed agent's
 // diff. A function's stop also shows its file's hunks outside every changed
-// function (crud.py's import). The agent deletes a file: its stop, on the
+// function (crud.py's import). The agent deletes a function: its stop, on
+// the file, shows only the hunk that takes it away. The agent deletes a file: its stop, on the
 // folder that's left, shows the deleted file's diff. Then the reviewed agent
 // takes a file back: the tour goes on to the change now in its place. Puts
 // the files and the session back as they were.
@@ -12,7 +13,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -23,6 +24,7 @@ const url = process.argv.slice(3).find((a) => /^https?:/.test(a)) ?? 'http://loc
 const here = dirname(fileURLToPath(import.meta.url));
 const FILE = 'frontend/src/routes/_layout/items.tsx';
 const GONE = 'backend/app/utils.py';
+const CRUD = 'backend/app/crud.py';
 const hook = (session, file = FILE) =>
   execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, file]);
 
@@ -74,6 +76,22 @@ try {
   assert.equal((await hunks()).length, 2, 'two hunks: the function and the import');
   assert.match(await page.locator('.agent-diff').innerText(), /from sqlmodel import Session, col, select/, 'the import hunk comes with the function');
 
+  // The agent deletes a function from crud.py: its stop stands on the file, with only the hunk that takes it away.
+  const crudPath = join(repo, CRUD);
+  const src = readFileSync(crudPath, 'utf8');
+  writeFileSync(crudPath, src.replace(/\ndef update_user\([\s\S]*?\n(?=\n\ndef )/, '\n'));
+  hook('demo-review', CRUD);
+  await page.waitForTimeout(1500);
+  await goTo('update_user');
+  assert.equal(await page.locator('.detail-title').innerText(), 'crud.py', 'a deleted function is read on its file');
+  assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by an agent · update_user/);
+  assert.equal(await page.locator('.agent-diff').count(), 1);
+  assert.match(await page.locator('.agent-diff').innerText(), /def update_user\(/, 'the hunk that takes it away');
+  assert.doesNotMatch(await page.locator('.agent-diff').innerText(), /col, select/, 'and not the file’s other hunks');
+  writeFileSync(crudPath, src);
+  hook('demo-review', CRUD);
+  await page.waitForTimeout(1500);
+
   // The agent deletes a file: its stop stands on the folder left, with the deleted file's diff.
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', GONE]);
   execFileSync('rm', [join(repo, GONE)]);
@@ -108,8 +126,10 @@ try {
   await browser.close();
   // Put things back: the other agent gone, the reviewed agent's edit to the page made again.
   await fetch(`http://localhost:4178/api/agent?id=${encodeURIComponent(`claude-code@${repo}#zz-other`)}`, { method: 'DELETE' }).catch(() => {});
-  execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', FILE, GONE]);
+  execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', FILE, GONE, CRUD]);
   hook('demo-review', GONE);
+  execFileSync('python3', [join(here, 'agent-edits.py'), repo, 'crud']);
+  hook('demo-review', CRUD);
   execFileSync('python3', [join(here, 'agent-edits.py'), repo, 'page']);
   hook('demo-review');
 }

@@ -3,6 +3,32 @@
 
 /** Hunks of a unified diff whose new side overlaps `lines`; all of them when none does. */
 export function hunksFor(diff: string, lines?: [number, number], rest?: readonly [number, number][]): string[] {
+  const hunks = split(diff);
+  if (!Array.isArray(hunks[0])) return hunks as string[];
+  if (!lines) return hunks.flat();
+  const touches = (h: string[], [a, b]: readonly [number, number]) => {
+    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
+    if (!m) return true;
+    const s = Number(m[1]);
+    const e = s + Math.max(1, m[2] == null ? 1 : Number(m[2])) - 1;
+    return s <= b && e >= a;
+  };
+  // With `rest` (the lines of every changed symbol in the file), also the hunks none of them touches: an import, a constant.
+  const hit = (hunks as string[][]).filter((h) => touches(h, lines) || (rest && !rest.some((r) => touches(h, r))));
+  return (hit.length ? hit : hunks).flat();
+}
+
+/** For a deleted symbol, which has no lines left: the hunks that take away a line naming it; all of them when none does. */
+export function hunksRemoving(diff: string, name: string): string[] {
+  const hunks = split(diff);
+  if (!Array.isArray(hunks[0])) return hunks as string[];
+  const word = new RegExp(`(^|[^\\w$])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w$])`);
+  const hit = (hunks as string[][]).filter((h) => h.some((l, i) => i > 0 && l[0] === '-' && word.test(l.slice(1))));
+  return (hit.length ? hit : hunks).flat();
+}
+
+/** A diff's hunks, each its header line and body; the lines as they are when it has no hunk. */
+function split(diff: string): string[][] | string[] {
   const out = diff.split('\n');
   const start = out.findIndex((l) => l.startsWith('@@'));
   if (start < 0) return out;
@@ -13,17 +39,7 @@ export function hunksFor(diff: string, lines?: [number, number], rest?: readonly
   }
   const last = hunks[hunks.length - 1];
   if (last[last.length - 1] === '') last.pop();
-  if (!lines) return hunks.flat();
-  const touches = (h: string[], [a, b]: readonly [number, number]) => {
-    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
-    if (!m) return true;
-    const s = Number(m[1]);
-    const e = s + Math.max(1, m[2] == null ? 1 : Number(m[2])) - 1;
-    return s <= b && e >= a;
-  };
-  // With `rest` (the lines of every changed symbol in the file), also the hunks none of them touches: an import, a constant.
-  const hit = hunks.filter((h) => touches(h, lines) || (rest && !rest.some((r) => touches(h, r))));
-  return (hit.length ? hit : hunks).flat();
+  return hunks;
 }
 
 /** A diff line as the view draws it: the +/− in a gutter of its own, and each hunk's start in words. */
