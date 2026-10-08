@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { GraphNode } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { onMap, searchNodes, whereOf } from './search.ts';
 import { buildCodeTree, buildFunctionTree, locate } from './tree.ts';
@@ -66,6 +67,21 @@ test('two symbols with one name in one file say their lines', () => {
   const at = (line: number, suffix = '') => ({ id: `r/a.ts#render${suffix}`, kind: 'symbol', name: 'render', parent: 'r/a.ts', repo: 'r', lines: [line, line + 4] as [number, number] }) as const;
   const hits = searchNodes([at(3), at(20, '~2')], 'render');
   assert.deepEqual(hits.map((h) => h.where), ['r/a.ts:3', 'r/a.ts:20']);
+});
+
+test('two repos of one name say their ids', () => {
+  const repo = (id: string) => ({ id, kind: 'repo', name: 'app', parent: 'root', repo: id }) as const;
+  assert.deepEqual(searchNodes([repo('app'), repo('app-2')], 'app').map((h) => h.where), ['', 'app-2']);
+});
+
+test('keeping only the best while scanning gives the same order as sorting everything', () => {
+  // A big made-up project: the top 12 must match a full sort of every hit.
+  const nodes: GraphNode[] = [];
+  for (let i = 0; i < 3000; i++) nodes.push({ id: `r/f${i % 97}.ts#s${i}`, kind: 'symbol', name: `${['item', 'items', 'getItem', 'x'][i % 4]}${i % 7 ? i : ''}`, parent: `r/f${i % 97}.ts`, repo: 'r' });
+  for (const q of ['i', 'item', 'it', 'x1', 'gi']) {
+    const all = searchNodes(nodes, q, nodes.length).map((h) => h.id);
+    assert.deepEqual(searchNodes(nodes, q, 12).map((h) => h.id), all.slice(0, 12), q);
+  }
 });
 
 test('the by-function view searches only what it draws', () => {

@@ -22,7 +22,9 @@ const KIND_ORDER: Record<string, number> = { repo: 0, folder: 1, file: 2, symbol
 /** Where a node lives, without its own name: `repo/src/pages` for `repo/src/pages/items.tsx`, `repo/a.ts:12` for a symbol. */
 export function whereOf(n: GraphNode): string {
   // The real parent, not the id cut at a slash: a collapsed chain like `src/main/java` hangs straight off its repo.
-  if (n.kind === 'repo' || n.parent === 'root') return '';
+  // Two repos of one name (`app` from two owners) are told apart by their ids (`app`, `app-2`).
+  if (n.kind === 'repo') return n.id === n.name ? '' : n.id;
+  if (n.parent === 'root') return '';
   // Symbols say their line too, so two `render` in one file (overloads, repeats) can be told apart.
   return n.kind === 'symbol' && n.lines ? `${n.parent}:${n.lines[0]}` : n.parent;
 }
@@ -47,23 +49,30 @@ function rank(n: GraphNode, q: string): { score: number; span: [number, number] 
   return null;
 }
 
+const order = (a: SearchHit, b: SearchHit) =>
+  a.score - b.score ||
+  (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) ||
+  a.name.length - b.name.length ||
+  (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 /** The best `limit` matches for `query` among `nodes`. Empty for a blank query. */
 export function searchNodes(nodes: Iterable<GraphNode>, query: string, limit = 12): SearchHit[] {
   const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const hits: SearchHit[] = [];
+  if (!q || limit <= 0) return [];
+  // Keep only the best `limit` while scanning, so a one-letter query over a big project never sorts every match.
+  const best: SearchHit[] = [];
   for (const n of nodes) {
     const r = rank(n, q);
-    if (r) hits.push({ id: n.id, name: n.name, kind: n.kind, where: whereOf(n), score: r.score, span: r.span });
+    if (!r) continue;
+    const hit: SearchHit = { id: n.id, name: n.name, kind: n.kind, where: '', score: r.score, span: r.span };
+    if (best.length === limit && order(hit, best[limit - 1]) >= 0) continue;
+    let i = best.length;
+    while (i > 0 && order(hit, best[i - 1]) < 0) i--;
+    best.splice(i, 0, hit);
+    if (best.length > limit) best.pop();
+    hit.where = whereOf(n);
   }
-  hits.sort(
-    (a, b) =>
-      a.score - b.score ||
-      (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) ||
-      a.name.length - b.name.length ||
-      a.id.localeCompare(b.id),
-  );
-  return hits.slice(0, limit);
+  return best;
 }
 
 /** The nodes the current view draws: the by-function view has no repos or folders, and files only where they hold no symbols. */
