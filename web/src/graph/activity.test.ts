@@ -129,6 +129,29 @@ test('what an agent looked at marks the node, and every circle round it as looke
   assert.equal(byFunction.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
   assert.equal(byFunction.get('domain:items')?.looked, 'inside');
 
+  // By function draws no folders: a look at one marks what it holds that the view draws.
+  const folder = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], { 'web/src': { agents: ['a'], at: 40 } });
+  assert.equal(folder.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
+  assert.equal(folder.get('domain:items')?.looked, 'inside');
+  // A whole repository marks nothing By function, rather than every symbol in it.
+  const repo = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], { web: { agents: ['a'], at: 40 } });
+  assert.equal([...repo.values()].filter((m) => m.looked).length, 0);
+  assert.equal(rollupActivity(tree, graphIndex, {}, [], { web: { agents: ['a'], at: 40 } }).get('web')?.looked, 'self');
+
   assert.deepEqual(Object.keys(agentLooked(looked, 'b')), ['api/app/routes/old.py']);
   assert.deepEqual(agentLooked(undefined, 'b'), {});
+});
+
+test('lighting an agent lights what it looked at too; the camera goes to what it changed, or else to what it looked at', () => {
+  const tree = buildCodeTree(graph);
+  const looked = { 'web/src/client/api.ts': { agents: ['a'], at: 60 }, 'api/app/routes': { agents: ['b'], at: 60 } };
+  const s = spotlight(tree, graphIndex, nodes, 'a', looked);
+  assert.ok(s?.lit.has('web/src/client/api.ts') && s.lit.has('web/src/client'), 'looked at: lit, with the circles round it');
+  assert.ok(!s?.targets.includes('web/src/client/api.ts'), 'but the camera fits its changes');
+  // An agent that only looked: lit and brought into view by what it looked at.
+  const onlyLooked = spotlight(tree, graphIndex, {}, 'b', looked);
+  assert.deepEqual(onlyLooked?.targets, ['api/app/routes']);
+  assert.ok(onlyLooked?.lit.has('api'));
+  assert.ok(!onlyLooked?.lit.has('web/src/client/api.ts'), "another agent's looks stay dim");
+  assert.equal(spotlight(tree, graphIndex, {}, 'nobody', looked), null);
 });

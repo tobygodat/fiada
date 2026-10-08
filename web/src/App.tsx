@@ -90,7 +90,7 @@ export function App() {
   const [zoomVis, setZoomVis] = useState<Visible | null>(null);
   const [from, setFrom] = useState<Map<string, Circle> | undefined>();
   const [history, setHistory] = useState<Place[]>([]);
-  /** The agent whose changes are lit on the map, picked in the agents window. */
+  /** The agent whose changes, and what it looked at, are lit on the map, picked in the agents window. */
   const [litAgent, setLitAgent] = useState<string | null>(null);
   const renderer = useRef<MapRenderer | null>(null);
   const intent = useRef<CameraIntent | null>(null);
@@ -123,7 +123,7 @@ export function App() {
 
   const lit = litAgent && agents.state?.agents.some((a) => a.id === litAgent) ? litAgent : null;
   const spot = useMemo(
-    () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit) : null),
+    () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit, agents.state.looked) : null),
     [tree, graphIndex, agents.state, lit],
   );
   const activity = useMemo(() => {
@@ -383,15 +383,16 @@ export function App() {
   );
 
   /**
-   * From the agents window: light up everything one agent changed and every
-   * circle round it, dim the rest, open the way down to the changes (click
-   * mode, while that stays small) and bring them all into view. The same
-   * agent again puts the map back.
+   * From the agents window: light up everything one agent changed or looked at
+   * and every circle round it, dim the rest, open the way down to the changes
+   * (or, if it changed nothing, to what it looked at; click mode, while that
+   * stays small) and bring them all into view. The same agent again puts the
+   * map back.
    */
   const showAgent = useCallback(
     (id: string) => {
       if (spot && lit === id) return setLitAgent(null);
-      const s = tree && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, id) : null;
+      const s = tree && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, id, agents.state.looked) : null;
       if (!tree || !s) return;
       setLitAgent(id);
       remember();
@@ -634,11 +635,11 @@ function Legend({
   layers: { id: string; name: string }[];
   mode: ExpandMode;
   besideDetail: boolean;
-  /** Name of the agent whose changes are lit. */
+  /** Name of the agent whose changes, and what it looked at, are lit. */
   lit: string | null;
 }) {
   const hint = lit
-    ? `showing what ${lit} changed · esc for the whole map`
+    ? `showing what ${lit} changed or looked at · esc for the whole map`
     : mode === 'click'
       ? 'point at a circle for its links · click for details, again to open it · scroll to zoom'
       : 'point at a circle for its links · scroll to zoom and open circles';

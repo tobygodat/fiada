@@ -94,7 +94,7 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: P
             key={a.id}
             a={a}
             lit={a.id === lit}
-            onShow={a.files.length ? () => onShow(a.id) : undefined}
+            onShow={a.files.length || a.looked?.count ? () => onShow(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
           />
@@ -271,7 +271,7 @@ function AgentCard({ a, lit, onShow, onSelect, onClear }: CardProps) {
         </span>
         <span className="queue-acts">
           {onShow && (
-            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed on the map'}>
+            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed or looked at on the map'}>
               {lit ? 'show all' : 'show on map'}
             </button>
           )}
