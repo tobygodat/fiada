@@ -1,0 +1,52 @@
+/* The review tour's panel: floating at the foot of the map, between the sidebar and the detail
+   panel, while you walk through one agent's changes. Tokens only (DESIGN.md). */
+
+.tour {
+  position: absolute; z-index: 3; left: calc(var(--fiada-sidebar) + 2 * var(--space-md)); bottom: var(--space-md);
+  width: 440px; max-width: calc(100% - var(--fiada-sidebar) - 4 * var(--space-md));
+  padding: var(--space-sm) var(--space-md);
+  background: var(--ground-raised); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
+  color: var(--text); font-family: var(--font-serif); font-size: var(--size-small); line-height: var(--leading);
+  font-kerning: normal; font-variant-ligatures: common-ligatures;
+  animation: rise var(--fast) var(--ease) both;
+}
+.tour.beside-detail { max-width: calc(100% - var(--fiada-sidebar) - var(--fiada-detail) - 5 * var(--space-md)); }
+
+.tour-head { display: flex; align-items: baseline; gap: var(--space-8); min-width: 0; }
+.tour-title { margin: 0; font-size: var(--size-heading); line-height: var(--leading-tight); font-weight: var(--weight-bold); }
+.tour-title::before { content: '// '; color: var(--accent); }
+.tour-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.tour-head .queue-act { margin-left: auto; }
+
+/* One short rule per change: muted when unread, ink once read, the green line under the one you're on. */
+.tour-ticks { display: flex; gap: 2px; margin: var(--space-8) 0 0; }
+.tour-tick { flex: 1 1 0; min-width: 3px; max-width: 24px; height: 12px; padding: 5px 0; background-clip: content-box; background-color: var(--hairline-strong); }
+.tour-tick.read { background-color: var(--text); }
+.tour-tick.here { padding: 4px 0; background-color: var(--accent); }
+.tour-tick:hover:not(.here) { background-color: var(--muted); }
+
+.tour-stop { display: flex; align-items: baseline; gap: var(--space-8); min-width: 0; margin-top: var(--space-8); }
+.tour-stop .chg { flex: none; width: 10px; text-align: center; }
+.tour-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-bold); }
+.tour-layer { flex: none; margin-left: auto; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+/* The path under the name, cut from the left so the file's name stays. */
+.tour-path {
+  padding-left: calc(10px + var(--space-8)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+  font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted);
+}
+
+.tour-row { display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-8); }
+.tour-count { min-width: 0; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tour-read-word { color: var(--text); }
+.tour-acts { display: flex; align-items: center; gap: var(--space-sm); margin-left: auto; }
+.tour-acts .queue-act:disabled { color: var(--faint); text-decoration-color: var(--faint); cursor: default; }
+/* Going on is what the panel is for: the one button, as import is in the sidebar. */
+.tour-next {
+  flex: none; height: 32px; padding: 0 var(--space-md);
+  border: 1px solid var(--accent); border-radius: var(--radius); font-weight: var(--weight-bold); color: var(--text);
+}
+.tour-next:hover:not(:disabled) { color: var(--accent); }
+.tour-next:disabled { border-color: var(--hairline-strong); color: var(--faint); cursor: default; }
+
+.tour-keys { margin-top: var(--space-xs); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+@media (pointer: coarse) { .tour-keys { display: none; } }

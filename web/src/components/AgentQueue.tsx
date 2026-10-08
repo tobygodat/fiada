@@ -2,8 +2,9 @@
 // agent, a line or two on what it's doing right now, its task and plan folded
 // under that, and the files it has changed. Clicking an agent lights up what
 // it changed on the map and dims the rest; clicking one of its files or
-// functions takes the map to it, where the detail panel shows the diff. While
-// the detail panel is open the window folds to one line above it.
+// functions takes the map to it, where the detail panel shows the diff;
+// "review" walks through them all, one change at a time. While the detail
+// panel is open the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
 import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
@@ -17,6 +18,10 @@ interface Props {
   lit: string | null;
   /** Lights up one agent's changes on the map, or puts the map back when it's the lit one. */
   onShow(agentId: string): void;
+  /** The agent whose changes are being reviewed, one by one. */
+  reviewing: string | null;
+  /** Starts a review tour of one agent's changes. */
+  onReview(agentId: string): void;
   onSelect(nodeId: string, agentId: string): void;
   /** Dismisses an agent; absent when this browser can't change the project. */
   onClear?(agentId: string): void;
@@ -39,7 +44,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, reviewing, onShow, onReview, onSelect, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -93,6 +98,7 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: P
             a={a}
             lit={a.id === lit}
             onShow={a.files.length ? () => onShow(a.id) : undefined}
+            onReview={a.files.length && reviewing !== a.id ? () => onReview(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
           />
@@ -154,11 +160,13 @@ interface CardProps {
   lit: boolean;
   /** Absent when it has changed nothing there is to show. */
   onShow?(): void;
+  /** Absent with nothing to review, or while its review is on. */
+  onReview?(): void;
   onSelect(id: string): void;
   onClear?(): void;
 }
 
-function AgentCard({ a, lit, onShow, onSelect, onClear }: CardProps) {
+function AgentCard({ a, lit, onShow, onReview, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   // Lit on the map: its files open, to go through one by one.
@@ -244,6 +252,11 @@ function AgentCard({ a, lit, onShow, onSelect, onClear }: CardProps) {
           {a.where} · {ago(a.updatedAt)}
         </span>
         <span className="queue-acts">
+          {onReview && (
+            <button className="queue-act" onClick={onReview} title="Walk through what this agent changed, one change at a time, in the order data flows">
+              review
+            </button>
+          )}
           {onShow && (
             <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed on the map'}>
               {lit ? 'show all' : 'show on map'}

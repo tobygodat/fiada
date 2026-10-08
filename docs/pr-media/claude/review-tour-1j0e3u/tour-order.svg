@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="524" viewBox="0 0 980 524" font-family="Literata, Georgia, serif">
+<rect width="980" height="524" fill="#f4f1eb"/>
+<text x="24" y="34" font-size="17" font-weight="600" fill="#1b1a19"><tspan fill="#2e7d4f">// </tspan>the order the agent wrote it</text>
+<text x="252" y="34" font-size="17" font-weight="600" fill="#1b1a19"><tspan fill="#2e7d4f">// </tspan>the order the review tour reads it, by layer</text>
+<text x="24" y="91" font-size="13" fill="#6b665e">1. models.py</text>
+<text x="24" y="136" font-size="13" fill="#6b665e">2. b7c1…_add_item_priority.py</text>
+<text x="24" y="182" font-size="13" fill="#6b665e">3. crud.py</text>
+<text x="24" y="227" font-size="13" fill="#6b665e">4. routes/items.py</text>
+<text x="24" y="272" font-size="13" fill="#6b665e">5. types.gen.ts</text>
+<text x="24" y="318" font-size="13" fill="#6b665e">6. sdk.gen.ts</text>
+<text x="24" y="363" font-size="13" fill="#6b665e">7. _layout/items.tsx</text>
+<text x="24" y="408" font-size="13" fill="#6b665e">8. AddItem.tsx</text>
+<text x="24" y="454" font-size="13" fill="#6b665e">9. columns.tsx</text>
+<text x="350" y="66" font-size="13" text-anchor="middle" fill="#834f72" font-weight="600">UI</text>
+<line x1="350" y1="76" x2="350" y2="504" stroke="#d9d3c9" stroke-width="1"/>
+<text x="470" y="66" font-size="13" text-anchor="middle" fill="#6b588d" font-weight="600">Client</text>
+<line x1="470" y1="76" x2="470" y2="504" stroke="#d9d3c9" stroke-width="1"/>
+<text x="590" y="66" font-size="13" text-anchor="middle" fill="#486394" font-weight="600">API</text>
+<line x1="590" y1="76" x2="590" y2="504" stroke="#d9d3c9" stroke-width="1"/>
+<text x="710" y="66" font-size="13" text-anchor="middle" fill="#017273" font-weight="600">Data</text>
+<line x1="710" y1="76" x2="710" y2="504" stroke="#d9d3c9" stroke-width="1"/>
+<text x="830" y="66" font-size="13" text-anchor="middle" fill="#66707a" font-weight="600">Contract</text>
+<line x1="830" y1="76" x2="830" y2="504" stroke="#d9d3c9" stroke-width="1"/>
+<polyline fill="none" stroke="#2e7d4f" stroke-width="1.5" points="350,86 350,120 350,154 470,188 590,222 710,256 710,290 710,324 830,358 830,392 830,426 830,460"/>
+<circle cx="350" cy="86" r="9" fill="#fbf9f5" stroke="#834f72" stroke-width="1.5"/>
+<text x="350" y="90" font-size="11" text-anchor="middle" fill="#1b1a19">1</text>
+<text x="365" y="91" font-size="13" fill="#1b1a19">~ getItemsQueryOptions</text>
+<circle cx="350" cy="120" r="9" fill="#fbf9f5" stroke="#834f72" stroke-width="1.5"/>
+<text x="350" y="124" font-size="11" text-anchor="middle" fill="#1b1a19">2</text>
+<text x="365" y="125" font-size="13" fill="#1b1a19">~ AddItem.tsx</text>
+<circle cx="350" cy="154" r="9" fill="#fbf9f5" stroke="#834f72" stroke-width="1.5"/>
+<text x="350" y="158" font-size="11" text-anchor="middle" fill="#1b1a19">3</text>
+<text x="365" y="159" font-size="13" fill="#1b1a19">+ PriorityCell</text>
+<circle cx="470" cy="188" r="9" fill="#fbf9f5" stroke="#6b588d" stroke-width="1.5"/>
+<text x="470" y="192" font-size="11" text-anchor="middle" fill="#1b1a19">4</text>
+<text x="485" y="193" font-size="13" fill="#1b1a19">~ ItemsService</text>
+<circle cx="590" cy="222" r="9" fill="#fbf9f5" stroke="#486394" stroke-width="1.5"/>
+<text x="590" y="226" font-size="11" text-anchor="middle" fill="#1b1a19">5</text>
+<text x="605" y="227" font-size="13" fill="#1b1a19">~ read_items</text>
+<circle cx="710" cy="256" r="9" fill="#fbf9f5" stroke="#017273" stroke-width="1.5"/>
+<text x="710" y="260" font-size="11" text-anchor="middle" fill="#1b1a19">6</text>
+<text x="725" y="261" font-size="13" fill="#1b1a19">+ items_by_priority</text>
+<circle cx="710" cy="290" r="9" fill="#fbf9f5" stroke="#017273" stroke-width="1.5"/>
+<text x="710" y="294" font-size="11" text-anchor="middle" fill="#1b1a19">7</text>
+<text x="725" y="295" font-size="13" fill="#1b1a19">+ upgrade</text>
+<circle cx="710" cy="324" r="9" fill="#fbf9f5" stroke="#017273" stroke-width="1.5"/>
+<text x="710" y="328" font-size="11" text-anchor="middle" fill="#1b1a19">8</text>
+<text x="725" y="329" font-size="13" fill="#1b1a19">+ downgrade</text>
+<circle cx="830" cy="358" r="9" fill="#fbf9f5" stroke="#66707a" stroke-width="1.5"/>
+<text x="830" y="362" font-size="11" text-anchor="middle" fill="#1b1a19">9</text>
+<text x="845" y="363" font-size="13" fill="#1b1a19">~ ItemBase</text>
+<circle cx="830" cy="392" r="9" fill="#fbf9f5" stroke="#66707a" stroke-width="1.5"/>
+<text x="830" y="396" font-size="11" text-anchor="middle" fill="#1b1a19">10</text>
+<text x="845" y="397" font-size="13" fill="#1b1a19">~ ItemUpdate</text>
+<circle cx="830" cy="426" r="9" fill="#fbf9f5" stroke="#66707a" stroke-width="1.5"/>
+<text x="830" y="430" font-size="11" text-anchor="middle" fill="#1b1a19">11</text>
+<text x="845" y="431" font-size="13" fill="#1b1a19">~ ItemCreate</text>
+<circle cx="830" cy="460" r="9" fill="#fbf9f5" stroke="#66707a" stroke-width="1.5"/>
+<text x="830" y="464" font-size="11" text-anchor="middle" fill="#1b1a19">12</text>
+<text x="845" y="465" font-size="13" fill="#1b1a19">~ ItemPublic</text>
+</svg>

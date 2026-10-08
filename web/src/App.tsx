@@ -6,9 +6,11 @@ import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TopBar } from './components/TopBar.tsx';
+import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
+import { loadMarks, nextUnread, saveMarks, tourStops, type ReadMarks } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -92,6 +94,9 @@ export function App() {
   const [history, setHistory] = useState<Place[]>([]);
   /** The agent whose changes are lit on the map, picked in the agents window. */
   const [litAgent, setLitAgent] = useState<string | null>(null);
+  /** The review tour: whose changes, and the one you're on. */
+  const [tour, setTour] = useState<{ agent: string; stop: string } | null>(null);
+  const [marks, setMarks] = useState<ReadMarks>({});
   const renderer = useRef<MapRenderer | null>(null);
   const intent = useRef<CameraIntent | null>(null);
 
@@ -126,6 +131,16 @@ export function App() {
     () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit) : null),
     [tree, graphIndex, agents.state, lit],
   );
+  // The tour walks the lit agent's changes; lighting another agent, or none, ends it.
+  const touring = tour && tour.agent === lit && spot ? tour : null;
+  const tourAgent = touring ? agents.state?.agents.find((a) => a.id === touring.agent) : undefined;
+  const stops = useMemo(
+    () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes) : []),
+    [graph, graphIndex, tourAgent, agents.state],
+  );
+  const tourAt = touring ? Math.max(0, stops.findIndex((s) => s.id === touring.stop)) : -1;
+  const project = ws.workspace?.project.id ?? 'local';
+
   const activity = useMemo(() => {
     const s = agents.state;
     if (!tree || !s) return null;
@@ -412,13 +427,70 @@ export function App() {
     [spot, lit, tree, agents.state, graphIndex, remember, mode, expanded, L, view, cameraForAll],
   );
 
-  /** Esc and a click on empty space: let go of the selection first, then of the lit agent. */
+  /** Esc and a click on empty space: end the review first, then let go of the selection, then of the lit agent. */
   const clear = useCallback(() => {
-    if (selected || selectedEdge) {
+    if (touring) setTour(null);
+    else if (selected || selectedEdge) {
       setSelected(null);
       setSelectedEdge(null);
     } else setLitAgent(null);
-  }, [selected, selectedEdge]);
+  }, [touring, selected, selectedEdge]);
+
+  /**
+   * From the agents window: walk through one agent's changes in the order
+   * data flows, starting at the first you haven't read. Its changes are lit
+   * and each stop is selected as you go, so the map opens the way to it and
+   * the detail panel shows its summary and diff.
+   */
+  const startTour = useCallback(
+    (id: string) => {
+      const a = agents.state?.agents.find((x) => x.id === id);
+      if (!graph || !a || !agents.state) return;
+      const list = tourStops(graph, graphIndex, a, agents.state.nodes);
+      if (!list.length) return;
+      const m = loadMarks(project, id);
+      const i = Math.max(0, nextUnread(list, m));
+      setMarks(m);
+      setLitAgent(id);
+      setTour({ agent: id, stop: list[i].id });
+      select(list[i].target);
+    },
+    [agents.state, graph, graphIndex, project, select],
+  );
+
+  const goStop = useCallback(
+    (i: number) => {
+      const s = stops[i];
+      if (!touring || !s) return;
+      setTour({ agent: touring.agent, stop: s.id });
+      select(s.target);
+    },
+    [stops, touring, select],
+  );
+
+  /** Mark a change read (and go on to the next you haven't read) or unread again. */
+  const markRead = useCallback(
+    (i: number, read: boolean) => {
+      const s = stops[i];
+      if (!touring || !s) return;
+      const next = { ...marks };
+      if (read) next[s.id] = s.at;
+      else delete next[s.id];
+      setMarks(next);
+      saveMarks(project, touring.agent, next);
+      if (!read) return;
+      const after = nextUnread(stops, next, i + 1);
+      if (after >= 0 && after !== i) goStop(after);
+    },
+    [stops, touring, marks, project, goStop],
+  );
+
+  // Picking one of the tour's changes on the map or in the outline takes the tour there too.
+  useEffect(() => {
+    if (!touring || !selected || stops[tourAt]?.target === selected) return;
+    const s = stops.find((x) => x.target === selected);
+    if (s) setTour({ agent: touring.agent, stop: s.id });
+  }, [selected, touring, stops, tourAt]);
 
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
@@ -594,7 +666,9 @@ export function App() {
           state={agents.state}
           compact={!!(selected || contract)}
           lit={spot ? lit : null}
+          reviewing={touring?.agent ?? null}
           onShow={showAgent}
+          onReview={startTour}
           onSelect={selectChange}
           onClear={
             canEdit(ws.workspace)
@@ -605,7 +679,20 @@ export function App() {
               : undefined
           }
         />
-        {!empty && (
+        {touring && tourAgent && (
+          <TourBar
+            agent={tourAgent.name}
+            stops={stops}
+            at={tourAt}
+            marks={marks}
+            layers={graph?.layers ?? []}
+            besideDetail={detailOpen}
+            onGo={goStop}
+            onRead={markRead}
+            onEnd={() => setTour(null)}
+          />
+        )}
+        {!empty && !touring && (
           <Legend
             colorBy={colorBy}
             pal={pal}
