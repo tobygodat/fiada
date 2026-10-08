@@ -4,7 +4,7 @@ import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/sha
 import { readWords, rollupActivity } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree } from './tree.ts';
-import { agentRead, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
+import { agentRead, forgetRead, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
 
 const change = (kind: NodeChange['kind'], unit: NodeChange['unit'], at: number, agents = ['a'], anchor?: string): NodeChange => ({ kind, unit, at, agents, anchor });
 
@@ -80,14 +80,18 @@ test("marking one agent read leaves another agent's later change to the same fil
   assert.ok(u.has('web/src/pages/items.tsx'), "b's later change is still unread");
   assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'));
   assert.equal(markAgentRead(marks, a), null, 'nothing new to mark');
+  assert.deepEqual(agentRead(a, u, marks, shared), { read: 2, total: 2 }, "a counts its own changes read; b's is b's to read");
+  const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as unknown as AgentActivity;
+  assert.deepEqual(agentRead(b, u, marks, shared), { read: 0, total: 1 });
 });
 
 test('an agent says how many of its files you have read', () => {
   const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z' }) as unknown as AgentFile;
   const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as unknown as AgentActivity;
   a.files[2].repo = undefined;
-  const u = unreadIds(nodes, markRead({}, 'web/src/pages/items.tsx', nodes)!);
-  assert.deepEqual(agentRead(a, u), { read: 2, total: 3 }, 'a file off the map has nothing to read');
+  const marks = markRead({}, 'web/src/pages/items.tsx', nodes)!;
+  const u = unreadIds(nodes, marks);
+  assert.deepEqual(agentRead(a, u, marks, nodes), { read: 2, total: 3 }, 'a file off the map has nothing to read');
   assert.equal(readWords(12, 19), '12 of 19 changes read');
   assert.equal(readWords(1, 1), '1 of 1 change read');
 });
@@ -113,6 +117,11 @@ test('read marks are kept per project and survive bad storage', () => {
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => store.set(k, v),
+    removeItem: (k: string) => store.delete(k),
+    key: (i: number) => [...store.keys()][i] ?? null,
+    get length() {
+      return store.size;
+    },
   };
   try {
     saveRead('p1', { 'web/src/a.ts': 10 });
@@ -122,6 +131,9 @@ test('read marks are kept per project and survive bad storage', () => {
     assert.deepEqual(loadRead('p3'), { y: 3 });
     store.set('fiada.read.p4', 'not json');
     assert.deepEqual(loadRead('p4'), {});
+    store.set('strata-theme', 'dark');
+    forgetRead();
+    assert.deepEqual([...store.keys()], ['strata-theme'], 'deleting the account forgets every read mark, nothing else');
   } finally {
     delete (globalThis as { localStorage?: unknown }).localStorage;
   }

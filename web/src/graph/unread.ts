@@ -5,7 +5,7 @@
 // keeps its own). Times are the indexer's, as the changes carry them, so a
 // browser clock that runs fast or slow can't hide a change.
 
-import type { AgentActivity, NodeChange } from '@fiada/shared';
+import type { AgentActivity, AgentFile, NodeChange } from '@fiada/shared';
 
 /** Node id → the time (epoch ms, the indexer's clock) of the latest change seen there when it was last opened. */
 export type ReadMarks = Record<string, number>;
@@ -24,6 +24,18 @@ export function loadRead(project: string): ReadMarks {
     return out;
   } catch {
     return {};
+  }
+}
+
+/** Forgets every project's read marks in this browser: the account they belonged to is gone. */
+export function forgetRead(): void {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('fiada.read.')) localStorage.removeItem(key);
+    }
+  } catch {
+    // storage blocked: nothing was kept
   }
 }
 
@@ -125,14 +137,27 @@ export function markAgentRead(marks: ReadMarks, a: AgentActivity): ReadMarks | n
 }
 
 /** The map id a changed file is shown at. */
-export const fileTarget = (f: AgentActivity['files'][number]) => f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+export const fileTarget = (f: AgentFile) => f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+
+/**
+ * Whether one agent's change to a file is unread for that agent: its file is
+ * unread overall and you haven't opened it (or each function the agent changed
+ * in it, or the circle standing in for it) since this agent's own last change.
+ * Another agent's later change to the same file shows on that agent instead.
+ */
+export function agentFileUnread(f: AgentFile, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): boolean {
+  const id = fileTarget(f);
+  if (!id || !unread.has(id)) return false;
+  const at = Date.parse(f.at);
+  if (!Number.isFinite(at)) return true;
+  const anchor = nodes[id]?.anchor;
+  if (Math.max(marks[id] ?? 0, anchor ? (marks[anchor] ?? 0) : 0) >= at) return false;
+  return !(f.symbols.length && f.symbols.every((s) => (marks[s.id] ?? 0) >= at));
+}
 
 /** How many of an agent's changed files you've read: "12 of 19 changes read". */
-export function agentRead(a: AgentActivity, unread: ReadonlySet<string>): { read: number; total: number } {
+export function agentRead(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): { read: number; total: number } {
   let read = 0;
-  for (const f of a.files) {
-    const id = fileTarget(f);
-    if (!id || !unread.has(id)) read++;
-  }
+  for (const f of a.files) if (!agentFileUnread(f, unread, marks, nodes)) read++;
   return { read, total: a.files.length };
 }

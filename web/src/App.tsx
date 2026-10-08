@@ -141,6 +141,7 @@ export function App() {
     [],
   );
   const unread = useMemo(() => (agents.state && readMarks ? unreadIds(agents.state.nodes, readMarks) : null), [agents.state, readMarks]);
+  const readState = useMemo(() => (unread && readMarks ? { unread, marks: readMarks } : null), [unread, readMarks]);
   // Opening a node reads its changes, and keeps reading new ones while it stays open.
   const changedNodes = agents.state?.nodes;
   useEffect(() => {
@@ -628,7 +629,7 @@ export function App() {
           state={agents.state}
           compact={!!(selected || contract)}
           lit={spot ? lit : null}
-          unread={unread}
+          read={readState}
           onShow={showAgent}
           onSelect={selectChange}
           onMarkRead={readAll}

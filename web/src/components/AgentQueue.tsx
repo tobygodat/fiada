@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
 import { readWords } from '../graph/activity.ts';
-import { agentRead, fileTarget } from '../graph/unread.ts';
+import { agentFileUnread, fileTarget, type ReadMarks } from '../graph/unread.ts';
 import './agent.css';
 
 interface Props {
@@ -19,8 +19,8 @@ interface Props {
   compact: boolean;
   /** The agent whose changes are lit on the map. */
   lit: string | null;
-  /** Changed node ids you haven't opened since their latest change; null until known. */
-  unread: ReadonlySet<string> | null;
+  /** Changed node ids you haven't opened since their latest change, and what you've opened; null until known. */
+  read: { unread: ReadonlySet<string>; marks: ReadMarks } | null;
   /** Marks every change read, or one agent's. */
   onMarkRead(agentId?: string): void;
   /** Lights up one agent's changes on the map, or puts the map back when it's the lit one. */
@@ -47,7 +47,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, lit, unread, onShow, onSelect, onMarkRead, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, read, onShow, onSelect, onMarkRead, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -86,7 +86,10 @@ export function AgentQueue({ state, compact, lit, unread, onShow, onSelect, onMa
   }
 
   const working = agents.some((a) => a.state === 'working');
-  const anyUnread = !!unread && agents.some((a) => a.files.some((f) => isUnread(f, unread)));
+  const nodes = state?.nodes ?? {};
+  // One agent's file is unread for it when you haven't looked since its own change to it.
+  const unreadFor = read ? (f: AgentFile) => agentFileUnread(f, read.unread, read.marks, nodes) : null;
+  const anyUnread = !!unreadFor && agents.some((a) => a.files.some(unreadFor));
   return (
     <aside className={`queue${compact ? ' over' : ''}`} aria-label="Agents">
       <div className="queue-head">
@@ -108,7 +111,7 @@ export function AgentQueue({ state, compact, lit, unread, onShow, onSelect, onMa
             key={a.id}
             a={a}
             lit={a.id === lit}
-            unread={unread}
+            unreadFor={unreadFor}
             onMarkRead={() => onMarkRead(a.id)}
             onShow={a.files.length ? () => onShow(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
@@ -172,15 +175,10 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-const isUnread = (f: AgentFile, unread: ReadonlySet<string>) => {
-  const id = fileTarget(f);
-  return !!id && unread.has(id);
-};
-
 interface CardProps {
   a: AgentActivity;
   lit: boolean;
-  unread: ReadonlySet<string> | null;
+  unreadFor: ((f: AgentFile) => boolean) | null;
   onMarkRead(): void;
   /** Absent when it has changed nothing there is to show. */
   onShow?(): void;
@@ -188,7 +186,7 @@ interface CardProps {
   onClear?(): void;
 }
 
-function AgentCard({ a, lit, unread, onMarkRead, onShow, onSelect, onClear }: CardProps) {
+function AgentCard({ a, lit, unreadFor, onMarkRead, onShow, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   // Lit on the map: its files open, to go through one by one.
@@ -197,7 +195,7 @@ function AgentCard({ a, lit, unread, onMarkRead, onShow, onSelect, onClear }: Ca
   }, [lit]);
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const f of a.files) counts[f.kind]++;
-  const read = unread ? agentRead(a, unread) : null;
+  const read = unreadFor ? { read: a.files.filter((f) => !unreadFor(f)).length, total: a.files.length } : null;
   // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
   const asked = a.task ?? a.prompt;
   const now: AgentNow | null = a.now ?? (asked ? { text: asked, from: a.task ? 'agent' : 'prompt', at: a.updatedAt } : null);
@@ -274,7 +272,7 @@ function AgentCard({ a, lit, unread, onMarkRead, onShow, onSelect, onClear }: Ca
           {showFiles && (
             <div className="queue-file-list">
               {a.files.map((f) => (
-                <FileRow key={`${f.repo}|${f.path}`} f={f} unread={!!unread && isUnread(f, unread)} onSelect={onSelect} />
+                <FileRow key={`${f.repo}|${f.path}`} f={f} unread={!!unreadFor?.(f)} onSelect={onSelect} />
               ))}
             </div>
           )}
