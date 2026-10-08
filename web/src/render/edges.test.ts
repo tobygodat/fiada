@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { EdgeKind, GraphEdge } from '@fiada/shared';
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
-import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, restEdges } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, labelSpot, restEdges } from './edges.ts';
 
 const REST_EDGES = EDGE_POLICIES.key.restMax;
 
@@ -85,4 +85,33 @@ test('edges bend around circles in their way', () => {
   // Neighbours that almost touch get a short, nearly straight link.
   const near = curve({ x: 0, y: 0, r: 50 }, { x: 104, y: 0, r: 50 }, DEFAULT_BEND);
   assert.ok(Math.abs(near.my) < 1);
+});
+
+test('the resting overview says what its links are; the other presets keep their own look', () => {
+  assert.equal(EDGE_POLICIES.key.restLabels, true);
+  assert.equal(EDGE_POLICIES.key.restTags, false, 'words, not boxed tags, at rest');
+  // Every link already carries a tag, and no links means no words.
+  assert.equal(EDGE_POLICIES.all.restLabels, false);
+  assert.equal(EDGE_POLICIES.none.restLabels, false);
+});
+
+test('words go in a gap on a long link, beside a short one, and never where they are not clear', () => {
+  const half = { w: 30, h: 9 };
+  // Long and level: in the line, at its middle.
+  const long = labelSpot([0, 0, 100, 0, 200, 0], 200, half, 2, () => true)!;
+  assert.deepEqual([long.x, long.y, long.inline], [100, 0, true]);
+  // Short: beside it, the box clear of the stroke.
+  const short = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, () => true)!;
+  assert.equal(short.inline, false);
+  assert.ok(Math.abs(short.y) >= half.h + 1, 'the box clears the line');
+  assert.equal(short.from, undefined, 'right beside the line needs no rule');
+  // An upright link puts the words to one side, by their half width.
+  const upright = labelSpot([0, 0, 0, 25, 0, 50], 50, half, 2, () => true)!;
+  assert.ok(Math.abs(upright.x) >= half.w + 1);
+  // The middle is blocked: it moves along the line, or hangs further off on a rule.
+  const offMiddle = labelSpot([0, 0, 100, 0, 200, 0], 200, half, 2, (p) => Math.abs(p.x - 100) > 15)!;
+  assert.ok(offMiddle.inline && Math.abs(offMiddle.x - 100) > 15);
+  const far = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, (p) => Math.abs(p.y) > 30)!;
+  assert.ok(far.from && Math.abs(far.y) > 30, 'hung from the link by a rule');
+  assert.equal(labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, () => false), null);
 });

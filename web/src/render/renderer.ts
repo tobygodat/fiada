@@ -12,11 +12,11 @@ import type { Camera } from '../graph/camera.ts';
 import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/camera.ts';
 import type { Circle } from '../graph/layout.ts';
 import type { TNode, Tree } from '../graph/tree.ts';
-import { countKind, crossRepo, direction, kindCounts, meetingPoint, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
+import { countKind, crossRepo, direction, kindCounts, meetingPoint, restLabel, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
 import { type BadgeCache, drawBadges, drawRings } from './activity.ts';
-import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
@@ -158,6 +158,8 @@ export class MapRenderer {
   private drawnNodes: DrawnNode[] = [];
   private drawnEdges: DrawnEdge[] = [];
   private drawnTags: (Rect & { key: string })[] = [];
+  /** The words drawn on resting links last frame (also in `drawnTags`, so clicking one opens its contract). */
+  private drawnLabels: (Rect & { key: string; text: string })[] = [];
   private drawnTabs: (Rect & { id: string })[] = [];
   /** Where the agent badges went last frame (activity.ts), reused while the map holds still. */
   private badgeCache: BadgeCache = {};
@@ -432,6 +434,9 @@ export class MapRenderer {
     this.drawnNodes = [];
     this.drawnEdges = [];
     this.drawnTags = [];
+    // A resting link that had words last frame keeps them while pointed at, so they don't jump to a tag elsewhere.
+    const worded = new Set(this.drawnLabels.map((l) => l.key));
+    this.drawnLabels = [];
     this.drawnTabs = [];
     this.pulsing = false;
     const scene = this.scene;
@@ -503,6 +508,7 @@ export class MapRenderer {
     // While an agent's changes are lit, a resting link stays in full only if both its ends are lit.
     const unlitEdge = (g: Contract) => !!lit && !(lit.has(g.a) && lit.has(g.b));
     const tagQueue: { g: Contract; pts: [number, number, number, number, number, number]; isSel: boolean }[] = [];
+    const labelQueue: { g: Contract; pts: [number, number, number, number, number, number]; gap: number; sw: number; hot: boolean }[] = [];
     const tagBox = this.free();
     ctx.lineCap = 'round';
     drawn.forEach(({ g, A, B, role }, i) => {
@@ -541,8 +547,12 @@ export class MapRenderer {
         maxY: Math.max(y1, my, y2),
       });
       // Tags on what's in focus and the edge under the pointer; on the resting overview only if the policy asks.
-      const tagged = isSel || isHover || (role === 'focus' ? i - resting.length < MAX_TAGS : this.policy.restTags && !inFocus && i < MAX_TAGS);
+      // Words on the resting overview, while nothing is in focus. Pointed at, they stay put and turn green; a
+      // resting link pointed at that had no room for words gets its tag instead.
+      const words = role === 'rest' && this.policy.restLabels && !inFocus && (isHover ? worded.has(g.key) : !unlitEdge(g));
+      const tagged = !words && (isSel || isHover || (role === 'focus' ? i - resting.length < MAX_TAGS : this.policy.restTags && !inFocus && i < MAX_TAGS));
       if (tagged && c.gap > 36) tagQueue.push({ g, pts: [x1, y1, mx, my, x2, y2], isSel });
+      else if (words) labelQueue.push({ g, pts: [x1, y1, mx, my, x2, y2], gap: c.gap, sw, hot: isHover });
     });
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -692,6 +702,60 @@ export class MapRenderer {
     }
     ctx.globalAlpha = 1;
 
+    // ── words on resting links ──
+    // What a link is, said before anyone points at it: "12 calls", "3 requests".
+    // No box: muted Literata set in a gap cut from the line, the way an open
+    // circle's name sits in its rim. Only where the words fit along the link
+    // with room to spare, clear of every tag, name and closed circle; the
+    // strongest links get their words first, the one pointed at before them.
+    if (labelQueue.length) {
+      this.font(400, 13);
+      const closed = this.drawnNodes.filter((d) => !d.open && d.r > 2);
+      const overlaps = (b: Rect, o: Rect, m: number) => b.x < o.x + o.w + m && o.x < b.x + b.w + m && b.y < o.y + o.h + m && o.y < b.y + b.h + m;
+      const inCircle = (b: Rect) =>
+        closed.some((d) => {
+          const nx = Math.max(b.x, Math.min(d.x, b.x + b.w));
+          const ny = Math.max(b.y, Math.min(d.y, b.y + b.h));
+          return (nx - d.x) ** 2 + (ny - d.y) ** 2 < (d.r + 2) ** 2;
+        });
+      labelQueue.sort((p, q) => +q.hot - +p.hot || edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost));
+      ctx.lineJoin = 'round';
+      for (const t of labelQueue) {
+        const text = restLabel(t.g);
+        if (!text) continue;
+        const tw = Math.ceil(this.textWidth(text, 400, 13));
+        const box = (p: { x: number; y: number }): Rect => ({ x: Math.round(p.x - tw / 2 - 4), y: Math.round(p.y - 9), w: tw + 8, h: 18 });
+        const clear = (p: { x: number; y: number }) => {
+          const b = box(p);
+          if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
+          return !this.drawnTags.some((o) => overlaps(b, o, 4)) && !this.drawnTabs.some((o) => overlaps(b, o, 4)) && !inCircle(b);
+        };
+        const at = labelSpot(t.pts, t.gap, { w: tw / 2 + 4, h: 9 }, t.sw, clear);
+        if (!at) continue;
+        const r = box(at);
+        ctx.globalAlpha = 1;
+        if (at.from) {
+          // The rule from the link to the box's nearest edge.
+          const ex = Math.max(r.x, Math.min(at.from.x, r.x + r.w));
+          const ey = Math.max(r.y + 2, Math.min(at.from.y, r.y + r.h - 2));
+          ctx.strokeStyle = ink.strong;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(at.from.x, at.from.y);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = ink.ground;
+        ctx.lineWidth = 6;
+        ctx.strokeText(text, at.x, at.y + 0.5);
+        ctx.fillStyle = t.hot ? ink.accent : ink.muted;
+        ctx.fillText(text, at.x, at.y + 0.5);
+        this.drawnTags.push({ ...r, key: t.g.key });
+        this.drawnLabels.push({ ...r, key: t.g.key, text });
+      }
+      ctx.lineJoin = 'miter';
+    }
+
     // ── agent badges, last so they can keep clear of every link, tag and tab ──
     if (scene.activity?.size) {
       const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
@@ -701,6 +765,11 @@ export class MapRenderer {
   }
 
   /** How much of the web to draw: a preset name, or individual settings over the current ones. */
+  /** The words on resting links last frame, for scripted walks and tests. */
+  get restLabels(): readonly { key: string; text: string; x: number; y: number; w: number; h: number }[] {
+    return this.drawnLabels;
+  }
+
   setEdgePolicy(p: EdgePreset | Partial<EdgePolicy>) {
     this.policy = typeof p === 'string' ? (EDGE_POLICIES[p] ?? DEFAULT_EDGE_POLICY) : { ...this.policy, ...p };
     this.edgeCache = null;
