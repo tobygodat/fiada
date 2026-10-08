@@ -75,6 +75,11 @@ if (mode === 'before') {
   await input.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
   await page.waitForTimeout(200);
   assert((await page.locator('.search-hits').count()) === 1 && (await input.evaluate((el) => el === document.activeElement)), 'Enter during IME composition keeps typing instead of picking');
+  const before = await page.locator('.search-hits li[aria-selected=true]').innerText();
+  const prevented = await input.evaluate((el) => !el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', isComposing: true, bubbles: true, cancelable: true })));
+  await page.waitForTimeout(150);
+  const after = await page.locator('.search-hits li[aria-selected=true]').innerText();
+  assert(!prevented && before === after, 'arrows during IME composition go to the IME, not the list');
   await page.keyboard.press('Escape');
   // A bare click event (as assistive tech and switch devices send) picks too.
   await input.fill('');

@@ -465,6 +465,8 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // An IME's keys (Esc cancels a composition) are still typing.
+      if (e.isComposing) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
       if (e.key === 'Escape') {

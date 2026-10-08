@@ -49,14 +49,14 @@ export function Search({ nodes, onPick }: Props) {
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    // While an IME is composing, its keys (arrows to pick a candidate, Enter to commit, Esc to cancel) are still typing.
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (!hits.length) return;
       setOpen(true);
       setActive((at + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
     } else if (e.key === 'Enter') {
-      // Enter that commits an IME composition is still typing, not a pick.
-      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
       e.stopPropagation();
       pick(hits[at]);
