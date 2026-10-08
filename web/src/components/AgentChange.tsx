@@ -15,6 +15,8 @@ interface Props {
   /** Changes when the agent changes the file again, to refetch. */
   rev: number;
   kind: ChangeKind;
+  /** Only this agent's diff (on a review tour); otherwise every agent's that changed the file. */
+  agent?: string;
 }
 
 const MAX_LINES = 500;
@@ -26,7 +28,7 @@ const ago = (iso: string) => {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
-export function AgentChange({ node, lines, rev, kind }: Props) {
+export function AgentChange({ node, lines, rev, kind, agent }: Props) {
   const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
   useEffect(() => {
@@ -42,7 +44,7 @@ export function AgentChange({ node, lines, rev, kind }: Props) {
 
   // Only this node's diffs: the last node's stay in state until the new request lands.
   // (An older diff of this same node is fine to show while a newer one loads.)
-  const mine = diffs?.node === node ? diffs.list : null;
+  const mine = diffs?.node === node ? diffs.list.filter((d) => !agent || d.agent === agent) : null;
   const list = mine ?? [];
   return (
     <div className="detail-block agent-change">

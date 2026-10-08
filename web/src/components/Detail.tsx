@@ -24,6 +24,7 @@ import { AgentChange } from './AgentChange.tsx';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
+import type { TourStop } from '../graph/tour.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
@@ -55,6 +56,8 @@ interface Props {
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
+  /** The review tour's agent and the change it's on: its diff alone, not every agent's. */
+  reviewing?: { agent: string; stop: TourStop } | null;
   onSelect(id: string): void;
 }
 
@@ -67,7 +70,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, reviewing, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -90,7 +93,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
+      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} reviewing={reviewing} />}
 
       {repo && (
         <div className="detail-block">
@@ -190,11 +193,14 @@ const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
 /** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
-function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | null }) {
+function Changed({ g, activity, reviewing }: { g: GraphNode; activity?: ActivityState | null; reviewing?: Props['reviewing'] }) {
   const own = activity?.nodes[g.id];
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+  // On a review tour, the reviewed agent's diff and its own kind of change, not the latest of any agent's.
+  const tour = reviewing?.stop.target === g.id ? reviewing : null;
+  const kind = tour?.stop.id === g.id ? tour.stop.kind : own.kind;
+  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={kind} agent={tour?.agent} />;
 }
 
 /**

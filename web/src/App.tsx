@@ -516,6 +516,22 @@ export function App() {
     if (s) setTour({ agent: touring.agent, stop: s.id });
   }, [selected, touring, stops, tourAt]);
 
+  // A live agent can take back the change you're on (or a reindex renames it): go on to the
+  // change now in its place, and end the tour when nothing is left to review.
+  const lastStop = useRef(0);
+  useEffect(() => {
+    if (!touring) return;
+    const i = stops.findIndex((s) => s.id === touring.stop);
+    if (i >= 0) {
+      lastStop.current = i;
+      return;
+    }
+    if (!stops.length) return setTour(null);
+    const s = stops[Math.min(lastStop.current, stops.length - 1)];
+    setTour({ agent: touring.agent, stop: s.id });
+    showStop(s.target);
+  }, [touring, stops, showStop]);
+
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
   const lastTree = useRef(tree);
@@ -692,6 +708,7 @@ export function App() {
             selected={selected}
             contract={contract}
             activity={agents.state}
+            reviewing={touring && stops[tourAt] ? { agent: touring.agent, stop: stops[tourAt] } : null}
             onSelect={select}
           />
         )}

@@ -1,0 +1,82 @@
+// End-to-end check of the review tour while agents keep working, against the
+// same setup as review-tour.mjs (a running `bun run dev`, the FastAPI template
+// imported, web/e2e/agent-session.sh played on it). A second agent edits the
+// file under review: the detail panel still shows only the reviewed agent's
+// diff. Then the reviewed agent takes that file back: the tour goes on to the
+// change now in its place. Puts the file and the session back as they were.
+//
+//   node web/e2e/review-tour-live.mjs <fastapi clone> [url]
+
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const repo = process.argv[2];
+assert.ok(repo, 'usage: review-tour-live.mjs <fastapi clone> [url]');
+const url = process.argv.slice(3).find((a) => /^https?:/.test(a)) ?? 'http://localhost:5178/';
+const here = dirname(fileURLToPath(import.meta.url));
+const FILE = 'frontend/src/routes/_layout/items.tsx';
+const hook = (session) =>
+  execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, FILE]);
+
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+const page = await browser.newPage({ viewport: { width: 1600, height: 960 } });
+await page.route(/fonts\.(googleapis|gstatic)\.com/, async (r) => r.fulfill({ response: await r.fetch() }).catch(() => r.abort()));
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
+const count = async () => {
+  const m = /change (\d+) of (\d+)/.exec(await page.locator('.tour-count').innerText());
+  assert.ok(m, 'the tour says where you are');
+  return { at: +m[1], of: +m[2] };
+};
+
+try {
+  await page.goto(url);
+  await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('fiada.tour.')).forEach((k) => localStorage.removeItem(k)));
+  await page.reload();
+  await page.locator('.queue-card').first().waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'review', exact: true }).click();
+  await page.locator('.tour').waitFor();
+  await page.waitForTimeout(800);
+  const before = await count();
+  const name = await page.locator('.tour-name').innerText();
+  assert.match(await page.locator('.tour-path').innerText(), /items\.tsx$/, `the first stop is in ${FILE}`);
+  await page.locator('.agent-diff').first().waitFor();
+
+  // Another agent edits the same file: the review still shows only its own agent's diff.
+  appendFileSync(join(repo, FILE), '\n// touched by another agent\n');
+  hook('zz-other');
+  await page.waitForTimeout(1500);
+  const state = await (await fetch('http://localhost:4178/api/agent/state')).json();
+  assert.ok(state.agents.some((a) => a.id.endsWith('#zz-other')), 'the second agent reported its change');
+  const diffs = page.locator('.agent-diff');
+  await diffs.first().waitFor();
+  assert.equal(await diffs.count(), 1, 'one diff: the reviewed agent’s');
+  assert.match(await page.locator('.agent-diff-head').innerText(), /· demo/, 'and it is the reviewed agent’s');
+  assert.equal(await page.locator('.tour-name').innerText(), name, 'still on the same change');
+
+  // The reviewed agent takes the file back: the tour goes on to the change in its place.
+  execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);
+  hook('demo-review');
+  await page.waitForTimeout(1500);
+  assert.equal(await page.locator('.tour').count(), 1, 'the tour goes on');
+  const after = await count();
+  assert.ok(after.of < before.of, `fewer changes once the file is taken back (${before.of} → ${after.of})`);
+  const now = await page.locator('.tour-name').innerText();
+  assert.notEqual(now, name, 'no longer on the change that is gone');
+  assert.equal(await page.locator('.detail-title').innerText(), now, 'the detail panel shows the change the tour is on');
+  await page.getByRole('button', { name: 'end', exact: true }).click();
+
+  assert.deepEqual(errors, [], 'no page errors');
+  console.log(`review tour live: diff scoped to the reviewed agent; ${before.of} → ${after.of} changes, moved from ${name} to ${now}; all checks passed`);
+} finally {
+  await browser.close();
+  // Put things back: the other agent gone, the reviewed agent's edit to the page made again.
+  await fetch(`http://localhost:4178/api/agent?id=${encodeURIComponent(`claude-code@${repo}#zz-other`)}`, { method: 'DELETE' }).catch(() => {});
+  execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);
+  execFileSync('python3', [join(here, 'agent-edits.py'), repo, 'page']);
+  hook('demo-review');
+}
