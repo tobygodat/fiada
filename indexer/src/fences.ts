@@ -19,6 +19,12 @@ export interface FencedFile {
   rel: string;
   /** The lines the edit replaces, when the hook could tell; absent means the whole file. */
   lines?: LineRange[];
+  /**
+   * Where each symbol of the file is now, parsed from the very file the agent
+   * edits. `lines` count only with these: the graph's lines may be of another
+   * revision (a clone, another checkout, a file changed since it was indexed).
+   */
+  symbols?: Map<string, [number, number]>;
 }
 
 const RULES: FenceRule[] = ['ask', 'off'];
@@ -43,10 +49,13 @@ export function covers(fence: Fence, file: FencedFile, nodes: Map<string, GraphN
   const key = `${file.repo}/${file.rel}`;
   if (fence.node === file.repo || fence.node === key || key.startsWith(`${fence.node}/`)) return true;
   if (!fence.node.startsWith(`${key}#`)) return false;
-  // A symbol: only an edit that reaches its lines. Without lines the edit may rewrite any of the file.
-  const sym = nodes.get(fence.node);
-  if (!sym?.lines) return false;
-  return !file.lines || touches(sym.lines, file.lines);
+  // A symbol: only an edit that reaches its lines, placed in the file as it is now.
+  // Without both the edit may rewrite any of the file, the symbol with it.
+  if (!nodes.has(fence.node)) return false;
+  if (!file.lines || !file.symbols) return true;
+  // Not in the file as it is now (renamed under the fence): it can't be placed, so the fence holds.
+  const at = file.symbols.get(fence.node);
+  return !at || touches(at, file.lines);
 }
 
 /** Off limits first, then the nearest (longest id) fence. */

@@ -31,7 +31,9 @@ const GRAPH = {
 } as unknown as Graph;
 
 const fence = (n: string, rule: Fence['rule']): Fence => ({ node: n, rule, at: '2026-10-08T00:00:00.000Z' });
-const file = (rel: string, lines?: [number, number][]) => ({ repo: 'api', rel, lines });
+const file = (rel: string, lines?: [number, number][], symbols?: Record<string, [number, number]>) => ({ repo: 'api', rel, lines, symbols: symbols && new Map(Object.entries(symbols)) });
+/** create_item where the edited file has it now. */
+const at = (lines: [number, number]) => ({ 'api/app/routes/items.py#create_item': lines });
 
 test('a fence covers its own circle and everything inside it, and a symbol only the lines it spans', () => {
   const nodes = new Map(GRAPH.nodes.map((n) => [n.id, n]));
@@ -42,8 +44,14 @@ test('a fence covers its own circle and everything inside it, and a symbol only 
   assert.ok(!covers(fence('api/app/core', 'off'), file('app/core_utils.py'), nodes));
   assert.ok(!covers(fence('api/app/routes', 'off'), file('app/main.py'), nodes));
   const sym = fence('api/app/routes/items.py#create_item', 'off');
-  assert.ok(covers(sym, file('app/routes/items.py', [[15, 16]]), nodes));
-  assert.ok(!covers(sym, file('app/routes/items.py', [[30, 31]]), nodes));
+  assert.ok(covers(sym, file('app/routes/items.py', [[15, 16]], at([10, 20])), nodes));
+  assert.ok(!covers(sym, file('app/routes/items.py', [[30, 31]], at([10, 20])), nodes));
+  // Lines are placed against the symbol where the edited file has it now, not where the graph last saw it.
+  assert.ok(covers(sym, file('app/routes/items.py', [[30, 31]], at([28, 40])), nodes));
+  assert.ok(!covers(sym, file('app/routes/items.py', [[15, 16]], at([28, 40])), nodes));
+  // Lines that can't be placed in the file as it is now count for nothing: the whole file is covered.
+  assert.ok(covers(sym, file('app/routes/items.py', [[30, 31]]), nodes));
+  assert.ok(covers(sym, file('app/routes/items.py', [[30, 31]], {}), nodes));
   // Without lines the edit may rewrite the whole file, the symbol with it.
   assert.ok(covers(sym, file('app/routes/items.py'), nodes));
   assert.ok(!covers(sym, file('app/routes/users.py'), nodes));
@@ -64,7 +72,7 @@ test('off limits beats ask first, the nearest fence names the reason, and outsid
   assert.equal(verdict(fences, [file('app/main.py'), file('app/core/config.py')], GRAPH).decision, 'deny');
   assert.deepEqual(verdict(fences, [{ repo: 'web', rel: 'src/app.ts' }], GRAPH), { decision: 'allow' });
   assert.deepEqual(verdict([], [file('app/main.py')], GRAPH), { decision: 'allow' });
-  const sym = verdict([fence('api/app/routes/items.py#create_item', 'off')], [file('app/routes/items.py', [[12, 12]])], GRAPH);
+  const sym = verdict([fence('api/app/routes/items.py#create_item', 'off')], [file('app/routes/items.py', [[12, 12]], at([10, 20]))], GRAPH);
   assert.match(sym.reason!, /^This edit reaches create_item in api\/app\/routes\/items\.py, which is off limits/);
 });
 
@@ -183,10 +191,26 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   // Outside every imported repository: nothing to fence.
   assert.equal((await hub.check({ agent, files: [{ path: '/etc/hosts' }] }, fences)).decision, 'allow');
 
+  // Another checkout of the repository, where create_item has moved down. Its lines can't be
+  // placed against the copy Fiada read, so the edit counts as the whole file and the fence holds.
+  const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-checkout-')));
+  const clone = path.join(elsewhere, 'api');
+  execFileSync('git', ['clone', '-q', dir, clone]);
+  await fs.writeFile(path.join(clone, 'app/routes/items.py'), '# moved\n'.repeat(8) + 'def list_items():\n    return []\n\n\ndef create_item(item):\n    return item\n');
+  const away: AgentRef = { client: 'claude-code', session: 's3', cwd: clone, root: clone };
+  // Lines 13-14 are create_item in this checkout, and miss it in the copy Fiada indexed.
+  const moved = await hub.check({ agent: away, files: [{ path: path.join(clone, 'app/routes/items.py'), lines: [[13, 14]] }] }, fences);
+  assert.deepEqual([moved.decision, moved.fence?.node], ['ask', 'api/app/routes/items.py#create_item']);
+  assert.equal((await hub.check({ agent: away, files: [{ path: path.join(clone, 'app/core/config.py') }] }, fences)).decision, 'deny');
+  // A checkout of some other repository that happens to share the folder name is not fenced.
+  const stranger: AgentRef = { ...away, session: 's4', remote: 'https://github.com/someone/else.git' };
+  assert.equal((await hub.check({ agent: stranger, files: [{ path: path.join(clone, 'app/core/config.py') }] }, fences)).decision, 'allow');
+
   const s = hub.state();
-  assert.deepEqual(s.fenced[s.agents[0].id], { node: 'api/app/routes/items.py#create_item', rule: 'ask', decision: 'ask', file: 'api/app/routes/items.py', at: s.fenced[s.agents[0].id].at });
+  const mine = s.agents.find((a) => a.cwd === dir)!.id;
+  assert.deepEqual(s.fenced[mine], { node: 'api/app/routes/items.py#create_item', rule: 'ask', decision: 'ask', file: 'api/app/routes/items.py', at: s.fenced[mine].at });
   await hub.ingest([{ agent, type: 'prompt', text: 'Try something else' }]);
-  assert.deepEqual(hub.state().fenced, {});
+  assert.equal(hub.state().fenced[mine], undefined);
 
   // Two sessions changing files in one folder meet there.
   const other: AgentRef = { ...agent, session: 's2' };

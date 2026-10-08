@@ -399,7 +399,7 @@ export class AgentHub {
   }
 
   /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
-  private async resolve(ref: AgentRef, f: FileChange): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
+  private async resolve(ref: AgentRef, f: FileChange, byName = true): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
     for (const r of this.ws.repos) {
       if (r.kind !== 'local' || !this.ws.allowLocal) continue;
@@ -417,7 +417,8 @@ export class AgentHub {
           if (theirs && remoteKey(theirs) === want) return { abs, repo: r.id, rel, live: false };
         }
       }
-      const named = this.ws.repos.find((r) => r.name === path.basename(co.root));
+      // A checkout whose remote matched nothing is some other repository, whatever its folder is called.
+      const named = byName || !co.remote ? this.ws.repos.find((r) => r.name === path.basename(co.root)) : undefined;
       if (named) return { abs, repo: named.id, rel, live: false };
     }
     return { abs, live: false };
@@ -501,9 +502,13 @@ export class AgentHub {
     const files: FencedFile[] = [];
     for (const f of req.files ?? []) {
       if (!f || typeof f.path !== 'string') continue;
-      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified' });
-      const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : undefined;
-      if (where.repo) files.push({ repo: where.repo, rel: where.rel!, lines: lines?.length ? lines : undefined });
+      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified' }, false);
+      if (!where.repo) continue;
+      const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : [];
+      // The hook counted lines in the agent's own copy of the file. They place an edit against a
+      // fenced symbol only when that copy is the one Fiada reads, parsed as it is right now.
+      const symbols = lines.length && where.live ? await this.symbolsNow(where.repo, where.rel!) : null;
+      files.push({ repo: where.repo, rel: where.rel!, ...(symbols ? { lines, symbols } : {}) });
     }
     const v = fences.verdict(files, this.ws.getGraph());
     if (v.decision !== 'allow' && v.fence && v.file) {
@@ -514,6 +519,15 @@ export class AgentHub {
       this.push();
     }
     return v;
+  }
+
+  /** The symbols of a local repository's file as it is on disk now, by id; null when it can't be read or parsed. */
+  private async symbolsNow(repo: string, rel: string): Promise<Map<string, [number, number]> | null> {
+    const source = await this.ws.readSource(repo, rel).catch(() => null);
+    const parsed = source && (await parseFile(rel, source.text).catch(() => null));
+    if (!parsed) return null;
+    const ids = symbolIds(fileId(repo, rel), parsed);
+    return new Map(parsed.symbols.map((s, i) => [ids[i], s.lines]));
   }
 
   // ── reading ──
