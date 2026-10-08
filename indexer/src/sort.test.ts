@@ -331,6 +331,30 @@ test('a domain or layer given by name instead of id still counts', async () => {
   assert.equal(sorted.placements['typing/src/theme.ts'].layer, 'client');
 });
 
+test('a name two domains share, in any case, picks neither; the exact id still does', async () => {
+  const run = async (domain: string) => {
+    const { ask: answer } = haikuLike((ref) => ref, { domain });
+    const ask: Ask = async (req) =>
+      req.label === 'domains'
+        ? {
+            domains: [],
+            new_domains: [
+              { id: 'game', name: 'Typing', reason: 'the round' },
+              { id: 'drills', name: 'typing', reason: 'practice lists' },
+              { id: 'appearance', name: 'Game', reason: 'themes' },
+            ],
+          }
+        : answer(req);
+    return sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
+  };
+  for (const name of ['Typing', 'TYPING', 'GAME']) {
+    const sorted = await run(name);
+    assert.deepEqual(Object.values(sorted.placements).map((p) => p.domain), [undefined, undefined, undefined], name);
+  }
+  assert.equal((await run('game')).placements['typing/src/theme.ts'].domain, 'game', 'the id as written');
+  assert.equal((await run('Drills')).placements['typing/src/theme.ts'].domain, 'drills', 'an id in another case no name shares');
+});
+
 test('answers bare or keyed by ref are read too', async () => {
   const keyed: Ask = async (req) => {
     const a = (await haikuLike((ref) => ref).ask(req)) as { files?: { ref: string }[] };
@@ -396,6 +420,14 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   const labels = matchRef(new Map([['F1', web], ['F2', f1]]));
   for (const ref of ['F1', 'f1', '[F1]', 'F01', 'F1 web/src/index.ts']) assert.equal(labels(ref), undefined, ref);
   assert.equal(labels('F2'), f1);
+
+  // A file at a repository's root named index.ts, and src/index.ts, whose name is the same.
+  const top = lf('web', 'index.ts');
+  const names = matchRef(new Map([['F1', top], ['F2', web]]));
+  for (const ref of ['index.ts', 'INDEX.TS', './index.ts', 'index.ts (typescript, 3 lines)']) assert.equal(names(ref), undefined, ref);
+  assert.equal(names('web/index.ts'), top);
+  assert.equal(names('web/src/index.ts'), web);
+  assert.equal(names('src/index.ts'), web);
   assert.equal(labels('web/src/index.ts'), web);
   assert.equal(labels('tools/F1'), f1);
 });

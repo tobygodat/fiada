@@ -397,17 +397,16 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
   // A path or name two files share (src/index.ts in two repositories, Foo.ts and foo.ts in any case) picks neither.
   const exact = new Map<string, LeftoverFile | null>();
   const byPath = new Map<string, LeftoverFile | null>();
-  const byName = new Map<string, LeftoverFile | null>();
   const put = (m: Map<string, LeftoverFile | null>, key: string, lf: LeftoverFile) => m.set(key, m.has(key) && m.get(key) !== lf ? null : lf);
   for (const [ref, lf] of byRef) {
-    // The labels go in too, so a file whose path is "F1" and the file labelled F1 pick neither.
-    put(exact, ref, lf);
-    put(byPath, ref.toLowerCase(), lf);
-    put(exact, lf.file.id, lf);
-    if (lf.file.path) put(exact, lf.file.path, lf);
-    put(byPath, lf.file.id.toLowerCase(), lf);
-    if (lf.file.path) put(byPath, lf.file.path.toLowerCase(), lf);
-    put(byName, lf.file.id.split('/').pop()!.toLowerCase(), lf);
+    // Labels, ids, paths and names all go in together, so the file labelled F1 and a file whose path is "F1",
+    // or a root index.ts and src/index.ts answered as "index.ts", pick neither.
+    const name = lf.file.id.split('/').pop()!;
+    for (const key of [ref, lf.file.id, lf.file.path, name]) {
+      if (!key) continue;
+      put(exact, key, lf);
+      put(byPath, key.toLowerCase(), lf);
+    }
   }
   const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
   return (ref) => {
@@ -420,21 +419,26 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
     if (label && byRef.has(`F${label[1]}`)) return byPath.get(`f${label[1]}`) ?? undefined;
     const first = clean(s.split(/\s/)[0]);
     if (byPath.has(first)) return byPath.get(first) ?? undefined;
-    return byName.get(first.split('/').pop()!) ?? undefined;
+    return byPath.get(first.split('/').pop()!) ?? undefined;
   };
 }
 
-/** An id from a list the model picked from, by id or, failing that, by name, in any case. */
+/**
+ * An id from a list the model picked from: the id as written, or failing
+ * that its id or name in any case, when no other entry's id or name reads
+ * the same.
+ */
 function pickId(entries: (readonly [string, string])[]): (v: unknown) => string | undefined {
   const ids = new Set(entries.map(([id]) => id));
-  const lower = new Map<string, string>();
+  const lower = new Map<string, string | null>();
+  const put = (key: string, id: string) => lower.set(key, lower.has(key) && lower.get(key) !== id ? null : id);
   for (const [id, name] of entries) {
-    lower.set(id.toLowerCase(), id);
-    if (!lower.has(name.toLowerCase())) lower.set(name.toLowerCase(), id);
+    put(id.toLowerCase(), id);
+    put(name.toLowerCase(), id);
   }
   return (v) => {
     const s = str(v);
-    return ids.has(s) ? s : lower.get(s.toLowerCase());
+    return ids.has(s) ? s : (lower.get(s.toLowerCase()) ?? undefined);
   };
 }
 
