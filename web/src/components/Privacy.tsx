@@ -47,7 +47,8 @@ export function Privacy() {
 
         <h2>in your browser</h2>
         <p>
-          Your browser keeps your sign-in and a few preferences (the theme, which panels are open) in local storage. Signing in sets one cookie
+          Your browser keeps your sign-in, a few preferences (the theme, which panels are open) and which agent changes you have opened in
+          local storage; none of that is sent to the indexer. Signing in sets one cookie
           for the few minutes it takes. There are no analytics, no advertising, and nothing is sold.
         </p>
 
