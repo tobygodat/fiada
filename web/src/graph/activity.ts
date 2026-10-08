@@ -92,13 +92,34 @@ export function rollupActivity(
 }
 
 /**
+ * Changed files whose change is narrowed to symbols, each with those symbols:
+ * every agent that changed the file also named the symbols it touched there. A
+ * file another agent changed only at its top level stays whole, so what uses
+ * any of it is reached.
+ */
+function narrowedFiles(nodes: Record<string, NodeChange>): Map<string, string[]> {
+  const bySymbol = new Map<string, { ids: string[]; agents: Set<string> }>();
+  for (const [id, c] of Object.entries(nodes)) {
+    const hash = id.indexOf('#');
+    if (c.unit !== 'symbol' || hash < 0) continue;
+    const file = id.slice(0, hash);
+    let f = bySymbol.get(file);
+    if (!f) bySymbol.set(file, (f = { ids: [], agents: new Set() }));
+    f.ids.push(id);
+    for (const a of c.agents) f.agents.add(a);
+  }
+  const out = new Map<string, string[]>();
+  for (const [file, f] of bySymbol) if (!nodes[file] || nodes[file].agents.every((a) => f.agents.has(a))) out.set(file, f.ids);
+  return out;
+}
+
+/**
  * Whether an edge lands on something an agent changed: the node itself, or a
  * symbol in a changed file the change wasn't narrowed to symbols in (a change
  * to a file's top level reaches everything that uses the file).
  */
 function changedTarget(graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange>) {
-  const narrowed = new Set<string>();
-  for (const [id, c] of Object.entries(nodes)) if (c.unit === 'symbol') narrowed.add(graphIndex.get(id)?.parent ?? id.slice(0, id.indexOf('#')));
+  const narrowed = narrowedFiles(nodes);
   return (id: string) => {
     if (nodes[id]) return true;
     const g = graphIndex.get(id);
@@ -258,8 +279,8 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
   const inside = (id: string) => id === g.id || (g.kind === 'file' && id.startsWith(`${g.id}#`));
   // A file whose change was narrowed to some of its symbols reaches what the map rings: links to
   // the file itself and to those symbols, not to the symbols the agent left alone.
-  const touched = g.kind === 'file' ? Object.keys(nodes).filter((id) => nodes[id].unit === 'symbol' && id.startsWith(`${g.id}#`)) : [];
-  const target = touched.length ? (id: string) => id === g.id || touched.includes(id) : inside;
+  const touched = g.kind === 'file' ? narrowedFiles(nodes).get(g.id) : undefined;
+  const target = touched ? (id: string) => id === g.id || touched.includes(id) : inside;
   const requests: GraphEdge[] = [];
   // One per dependent: its strongest link, and whether any link from it is proven.
   const users = new Map<string, { kind: EdgeKind; sure: boolean }>();

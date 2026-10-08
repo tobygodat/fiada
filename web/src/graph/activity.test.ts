@@ -188,6 +188,21 @@ test('a file that imports a change is a dependent itself, not only the circle ro
   assert.equal(a.get('web/src/pages/items.tsx')?.direct, false);
 });
 
+test('a file another agent changed at its top level stays whole, however narrowly a second agent changed it', () => {
+  const by = (kind: NodeChange['kind'], unit: NodeChange['unit'], agents: string[]): NodeChange => ({ kind, unit, at: 10, agents });
+  const both = {
+    'api/app/routes/items.py': by('modified', 'file', ['a', 'b']),
+    'api/app/routes/items.py#read_items': by('modified', 'symbol', ['b']),
+  };
+  // Agent a touched only the top level, so the guessed request to create_item is reached too.
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], edges);
+  assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'evidenced');
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, both), ['2 requests from web call these routes, 1 of them inferred.']);
+  // With agent a's change gone, b's is narrowed to read_items.
+  const onlyB = { ...both, 'api/app/routes/items.py': by('modified', 'file', ['b']) };
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, onlyB), ['1 request from web calls this route.']);
+});
+
 test('without edges there is no ripple', () => {
   const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }));
   assert.ok([...a.values()].every((m) => m.reached === null && m.ripple === 0));
