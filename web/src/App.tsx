@@ -132,7 +132,8 @@ export function App() {
     [tree, graphIndex, agents.state, lit],
   );
   // The tour walks the lit agent's changes; lighting another agent, or none, ends it.
-  const touring = tour && tour.agent === lit && spot ? tour : null;
+  // (Not gated on the spotlight: By function has no circle for a deleted file's folder, yet the tour still has a stop for it.)
+  const touring = tour && tour.agent === lit ? tour : null;
   const tourAgent = touring ? agents.state?.agents.find((a) => a.id === touring.agent) : undefined;
   const stops = useMemo(
     () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes) : []),
@@ -436,16 +437,29 @@ export function App() {
     } else setLitAgent(null);
   }, [touring, selected, selectedEdge]);
 
-  /** What stands for a stop in the tree on show: its target, or for a file By function leaves out, a function in it. */
+  /**
+   * What stands for a stop in the tree on show: its target, or for a file or
+   * folder By function leaves out, the first function or file inside it.
+   */
+  const onMapCache = useMemo(() => new Map<string, string>(), [tree, graph]);
   const onMap = useCallback(
     (id: string) => {
-      if (!tree) return id;
+      if (!tree || !graph) return id;
       // Every chain of parents ends at the root, which stands for nothing.
       const at = locate(tree, graphIndex, id);
       if (at && at !== tree.root.id) return id;
-      return graph?.nodes.find((n) => n.parent === id && tree.nodes.has(n.id))?.id ?? id;
+      let found = onMapCache.get(id);
+      if (found === undefined) {
+        const inside = (n: GraphNode) => {
+          for (let p: string | undefined = n.parent; p; p = graphIndex.get(p)?.parent) if (p === id) return true;
+          return false;
+        };
+        found = graph.nodes.find((n) => tree.nodes.has(n.id) && inside(n))?.id ?? id;
+        onMapCache.set(id, found);
+      }
+      return found;
     },
-    [tree, graphIndex, graph],
+    [tree, graph, graphIndex, onMapCache],
   );
 
   /**

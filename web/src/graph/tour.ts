@@ -78,7 +78,8 @@ export function tourStops(
  */
 function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphIndex: Map<string, GraphNode>): TourStop[] {
   if (stops.length < 2) return stops;
-  const rank = new Map(graph.layers.map((l, i) => [l.id, l.rank ?? i]));
+  // The layers' own order, as the legend shows them: ranks can be partial and collide with positions.
+  const rank = new Map(graph.layers.map((l, i) => [l.id, i]));
   const layerRank = (s: TourStop) => (s.layer != null ? (rank.get(s.layer) ?? graph.layers.length) : graph.layers.length + 1);
   const line = (s: TourStop) => graphIndex.get(s.target)?.lines?.[0] ?? 0;
   const before = (a: number, b: number) => {
@@ -101,9 +102,11 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     else if (!l.includes(i)) l.push(i);
   };
   stops.forEach((s, i) => put(s.id, i));
+  // Every function stop answers for its file's own links, unless the file is a stop itself.
+  const own = new Set(stops.map((s) => s.id));
   stops.forEach((s, i) => {
     const n = graphIndex.get(s.id);
-    if (n?.kind === 'symbol' && !byId.has(n.parent)) put(n.parent, i);
+    if (n?.kind === 'symbol' && !own.has(n.parent)) put(n.parent, i);
   });
   const stopsOf = (id: string): number[] => {
     const own = byId.get(id);

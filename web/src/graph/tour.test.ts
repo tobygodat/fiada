@@ -158,3 +158,23 @@ test('a loop of calls in an earlier layer comes before a later layer that is rea
   const ids = tourStops(g, graphIndex, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['web/src/pages/items.tsx#ItemsPage', 'web/src/pages/items.tsx#useItems', 'api/app/models.py#User']);
 });
+
+test("a file's own links hold back every changed function in it, not only the first", () => {
+  // One layer for all, so only the links order them: about.tsx imports the client file.
+  const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
+  const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+  const a = agent([
+    file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
+    file('web', 'src/pages/about.tsx'),
+  ]);
+  const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['web/src/pages/about.tsx', 'web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService']);
+});
+
+test('layers go in their listed order even when a rank collides with a position', () => {
+  // Data's rank 0 equals UI's position: by repository, api/ would come before web/.
+  const g = { ...graph, layers: [{ id: 'ui', name: 'UI' }, { id: 'data', name: 'Data', rank: 0 }] };
+  const a = agent([file('api', 'app/models.py', [sym('api/app/models.py#User')]), file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')])]);
+  const ids = tourStops(g, graphIndex, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['web/src/pages/items.tsx#ItemsPage', 'api/app/models.py#User']);
+});
