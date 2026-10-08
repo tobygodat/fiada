@@ -2,7 +2,9 @@
 // agent package (its MCP server and tool hooks); this keeps one record per
 // agent (a client's session in a working tree), maps the files it changed onto graph
 // nodes, works out which symbols each change touched, re-indexes changed
-// files of local repositories, and pushes the result to the map.
+// files of local repositories, and pushes the result to the map. It also
+// answers an agent's hook before an edit lands (check, with fences.ts) and
+// says where two agents' changes meet (collisions).
 //
 // Nothing here is persisted: activity is live state, and a restarted indexer
 // starts with an empty queue.
@@ -21,12 +23,17 @@ import type {
   AgentState,
   AgentStep,
   ChangeKind,
+  Collision,
+  FenceCheck,
+  FenceHit,
+  FenceVerdict,
   FileChange,
   Graph,
   GraphNode,
   LineRange,
   NodeChange,
 } from '@fiada/shared';
+import type { Fences, FencedFile } from './fences.ts';
 import { fileId, symbolIds } from './link.ts';
 import { parseFile } from './parse/index.ts';
 import type { Workspace } from './workspace.ts';
@@ -77,6 +84,8 @@ interface AgentRec {
   /** When the plan's active step last changed, so the newer of it and `said` heads the entry. */
   stepAt: number;
   files: Map<string, FileRec>;
+  /** The latest edit it tried inside a fence this turn. */
+  fenced?: FenceHit;
   startedAt: number;
   updatedAt: number;
 }
@@ -149,6 +158,36 @@ export function touches(sym: [number, number], ranges: LineRange[]): boolean {
   return ranges.some(([a, b]) => (b >= a ? a <= e && b >= s : s < a && a <= e));
 }
 
+/**
+ * Where two or more agents' changes meet: each file or folder (never a whole
+ * repository) holding changes of more than one agent, deepest first. A folder
+ * is left out when a place inside it already says the same agents meet there.
+ */
+export function collisions(agents: Pick<AgentActivity, 'id' | 'files'>[], nodes: Map<string, Pick<GraphNode, 'id' | 'kind' | 'parent'>>): Collision[] {
+  const at = new Map<string, Map<string, Set<string>>>();
+  for (const a of agents) {
+    for (const f of a.files) {
+      if (!f.node) continue;
+      for (let n = nodes.get(f.node); n && (n.kind === 'file' || n.kind === 'folder'); n = nodes.get(n.parent)) {
+        let who = at.get(n.id);
+        if (!who) at.set(n.id, (who = new Map()));
+        let files = who.get(a.id);
+        if (!files) who.set(a.id, (files = new Set()));
+        files.add(f.node);
+      }
+    }
+  }
+  const met = [...at].filter(([, who]) => who.size > 1).sort((a, b) => b[0].length - a[0].length);
+  const out: Collision[] = [];
+  for (const [id, who] of met) {
+    const ids = [...who.keys()].sort();
+    const same = out.some((c) => c.node.startsWith(`${id}/`) && c.agents.join() === ids.join());
+    if (same) continue;
+    out.push({ node: id, unit: nodes.get(id)!.kind === 'file' ? 'file' : 'folder', agents: ids, files: Object.fromEntries(ids.map((a) => [a, [...who.get(a)!]])) });
+  }
+  return out;
+}
+
 export class AgentHub {
   private agents = new Map<string, AgentRec>();
   private version = 0;
@@ -205,6 +244,7 @@ export class AgentHub {
           rec.note = undefined;
           // A new turn: last turn's line no longer says what it's doing.
           rec.said = undefined;
+          rec.fenced = undefined;
           if (rec.steps.every((s) => s.status === 'done')) rec.steps = [];
           rec.state = 'working';
           break;
@@ -450,6 +490,32 @@ export class AgentHub {
     this.push();
   }
 
+  // ── fences ──
+
+  /**
+   * What the fences say about an edit the agent is about to make. Files
+   * outside every imported repository are never fenced. An edit that has to
+   * ask or is refused is shown on the agent's entry.
+   */
+  async check(req: FenceCheck, fences: Fences): Promise<FenceVerdict> {
+    const files: FencedFile[] = [];
+    for (const f of req.files ?? []) {
+      if (!f || typeof f.path !== 'string') continue;
+      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified' });
+      const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : undefined;
+      if (where.repo) files.push({ repo: where.repo, rel: where.rel!, lines: lines?.length ? lines : undefined });
+    }
+    const v = fences.verdict(files, this.ws.getGraph());
+    if (v.decision !== 'allow' && v.fence && v.file) {
+      const rec = this.agentFor(req.agent);
+      rec.fenced = { node: v.fence.node, rule: v.fence.rule, decision: v.decision, file: v.file, at: new Date().toISOString() };
+      rec.updatedAt = Date.now();
+      this.version++;
+      this.push();
+    }
+    return v;
+  }
+
   // ── reading ──
 
   clear(id?: string) {
@@ -498,7 +564,7 @@ export class AgentHub {
     }, 60);
   }
 
-  private indexCache: { graph: Graph; nodes: Set<string>; symbols: Map<string, GraphNode[]>; folders: Map<string, string> } | null = null;
+  private indexCache: { graph: Graph; nodes: Set<string>; symbols: Map<string, GraphNode[]>; folders: Map<string, string>; byId: Map<string, GraphNode> } | null = null;
 
   private index(graph: Graph) {
     if (this.indexCache?.graph === graph) return this.indexCache;
@@ -506,8 +572,10 @@ export class AgentHub {
     const symbols = new Map<string, GraphNode[]>();
     const folders = new Map<string, string>(); // `${repo}/${dir}` → folder node id, for every dir a collapsed folder covers
     const folderPath = new Map<string, string>();
+    const byId = new Map<string, GraphNode>();
     for (const n of graph.nodes) {
       nodes.add(n.id);
+      byId.set(n.id, n);
       if (n.kind === 'symbol') {
         const list = symbols.get(n.parent) ?? [];
         list.push(n);
@@ -520,7 +588,7 @@ export class AgentHub {
       const stop = folderPath.get(n.parent) ?? '';
       for (let d = n.path; d && d !== '.' && d !== stop; d = path.posix.dirname(d)) folders.set(`${n.repo}/${d}`, n.id);
     }
-    return (this.indexCache = { graph, nodes, symbols, folders });
+    return (this.indexCache = { graph, nodes, symbols, folders, byId });
   }
 
   /** Nearest folder (or the repo) in the graph for a path that isn't there itself. */
@@ -619,7 +687,9 @@ export class AgentHub {
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes };
+    const fenced: Record<string, FenceHit> = {};
+    for (const rec of this.agents.values()) if (rec.fenced) fenced[rec.id] = rec.fenced;
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, collisions: collisions(agents, ix.byId), fenced };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }

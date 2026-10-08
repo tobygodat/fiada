@@ -602,6 +602,67 @@ export interface ActivityState {
   agents: AgentActivity[];
   /** Graph node id → change: files and symbols agents touched. */
   nodes: Record<string, NodeChange>;
+  /** Places where two or more agents have changes: the same file, or files in the same folder. Deepest first. */
+  collisions: Collision[];
+  /** The latest edit each agent tried inside a fence, by agent id. */
+  fenced: Record<string, FenceHit>;
+}
+
+/** Two or more agents with changes in one file or folder. */
+export interface Collision {
+  /** Graph node id of the file or folder they share, e.g. "api/routes". */
+  node: string;
+  unit: 'file' | 'folder';
+  /** Agent ids, two or more. */
+  agents: string[];
+  /** Each agent's changed files under `node`, as graph node ids. */
+  files: Record<string, string[]>;
+}
+
+// ── Fences ──
+//
+// A person marks a circle on the map (repository, folder, file or symbol) as
+// "ask first" or "off limits". The agent's PreToolUse hook asks the indexer
+// before an edit lands: inside an "off limits" fence the edit is refused,
+// inside an "ask first" fence the agent's client asks the person. Fences are
+// kept per project, beside its grouping.
+
+export type FenceRule = 'ask' | 'off';
+
+export interface Fence {
+  /** Graph node id: a repository, folder, file or symbol. */
+  node: string;
+  rule: FenceRule;
+  /** ISO time it was set. */
+  at: string;
+}
+
+/** What the indexer says about an edit an agent is about to make. */
+export interface FenceVerdict {
+  decision: 'allow' | 'ask' | 'deny';
+  /** The fence that decided it: the strictest round any of the files, the nearest on a tie. */
+  fence?: Fence;
+  /** The file it was about, as the map names it ("api/app/main.py"). */
+  file?: string;
+  /** One line for the agent and the person: why, and what to do. */
+  reason?: string;
+}
+
+/** POST /api/agent/check: the files an agent is about to change, with the lines when it knows them. */
+export interface FenceCheck {
+  agent: AgentRef;
+  /** Claude Code's tool name, e.g. "Edit". */
+  tool?: string;
+  files: { path: string; lines?: LineRange[] }[];
+}
+
+/** An edit an agent tried inside a fence, for the agents window. */
+export interface FenceHit {
+  node: string;
+  rule: FenceRule;
+  decision: 'ask' | 'deny';
+  file: string;
+  at: string;
 }
 
 // ── Node summaries ──

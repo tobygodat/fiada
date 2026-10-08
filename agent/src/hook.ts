@@ -2,7 +2,7 @@
 // hooks, so the map is right even when the agent never calls the MCP tools.
 //
 // With no arguments it reads a hook payload on stdin and works out who sent it:
-//   Claude Code  SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd
+//   Claude Code  SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd
 //   Cursor       beforeSubmitPrompt, afterFileEdit, stop
 //
 // Commands, for other agents and scripts:
@@ -12,17 +12,22 @@
 //   fiada-hook sweep     report whatever changed in the working tree since the last call
 //   fiada-hook done      the agent finished its turn
 //   fiada-hook codex '<json>'   Codex's `notify` program (it appends the JSON)
+//   fiada-hook check <file>...  what the fences on the map say about changing these files
 // Options: --client <name> (default "cli"), --session <id>, --cwd <dir>
 //
 // It always exits 0, so a missing or broken Fiada never gets in the agent's
-// way. The one thing it prints for the agent is the status brief on Claude
-// Code's SessionStart and UserPromptSubmit, and only when Fiada answered.
+// way. What it prints for the agent: the status brief on Claude Code's
+// SessionStart and UserPromptSubmit, and on PreToolUse, when an edit is about
+// to land inside a fence on the map, Claude Code's own decision for it ("ask"
+// the person, or "deny" with the reason). Both only when Fiada answered; an
+// edit outside every fence gets no answer, so the person's own permission
+// settings decide as before.
 
 import './env.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FileChange, StepStatus } from '@fiada/shared';
-import { send, startedAt, whoAndWhere } from './client.ts';
+import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FenceVerdict, FileChange, LineRange, StepStatus } from '@fiada/shared';
+import { check, send, startedAt, whoAndWhere } from './client.ts';
 import { checkout, describe, real, type Checkout } from './git.ts';
 import { changedSince, compare, forget, load, save, take } from './snapshot.ts';
 
@@ -88,6 +93,46 @@ async function remember(key: string, co: Checkout | null) {
 }
 
 const changes = (files: FileChange[]): Out['events'] => (files.length ? [{ type: 'changes', files }] : []);
+
+/** 1-based line ranges where `needle` sits in `text`: the first place, or every place with `all`. */
+export function linesOf(text: string, needle: string, all = false): LineRange[] {
+  const out: LineRange[] = [];
+  if (!needle) return out;
+  const lineAt = (i: number) => text.slice(0, i).split('\n').length;
+  for (let i = text.indexOf(needle); i >= 0; i = all ? text.indexOf(needle, i + needle.length) : -1) {
+    out.push([lineAt(i), lineAt(i) + needle.split('\n').length - 1]);
+  }
+  return out;
+}
+
+/**
+ * The file a Claude Code edit tool is about to change, and the lines it
+ * replaces when the tool says (Edit and MultiEdit name the text they replace).
+ * Absent lines mean the whole file: Write, a notebook, or text not found.
+ */
+export async function aboutToEdit(tool: string, input: Payload, cwd: string): Promise<{ path: string; lines?: LineRange[] } | null> {
+  const file = input.file_path ?? input.notebook_path;
+  if (!EDIT_TOOLS.has(tool) || typeof file !== 'string') return null;
+  const abs = path.resolve(cwd, file);
+  const edits: Payload[] = tool === 'Edit' ? [input] : tool === 'MultiEdit' && Array.isArray(input.edits) ? input.edits : [];
+  if (!edits.length) return { path: abs };
+  const text = await fs.readFile(abs, 'utf8').catch(() => null);
+  if (text == null) return { path: abs };
+  const lines: LineRange[] = [];
+  for (const e of edits) {
+    const found = typeof e.old_string === 'string' ? linesOf(text, e.old_string, e.replace_all === true) : [];
+    // Text the file doesn't hold (yet: an earlier edit of the batch writes it) could be anywhere.
+    if (!found.length) return { path: abs };
+    lines.push(...found);
+  }
+  return { path: abs, lines };
+}
+
+/** Claude Code's answer to PreToolUse for an edit inside a fence; nothing for one outside every fence. */
+export function fenceAnswer(v: FenceVerdict | null): string | undefined {
+  if (!v || v.decision === 'allow') return undefined;
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: v.decision, permissionDecisionReason: v.reason ?? 'Fenced on the Fiada map.' } });
+}
 
 /** A Claude Code task id, wherever the tool's response keeps it. */
 function taskId(response: unknown): string | undefined {
@@ -155,6 +200,12 @@ async function fromClaude(p: Payload): Promise<{ agent: AgentRef; out: Out }> {
       await remember(key, co);
       events.push({ type: 'prompt', text: firstLine(p.prompt) });
       return { agent, out: { events, context: { event: 'UserPromptSubmit', text: STATUS_NUDGE } } };
+    case 'PreToolUse': {
+      // Before an edit lands: the fences on the map may stop it or have the person asked.
+      const file = await aboutToEdit(String(p.tool_name ?? ''), (p.tool_input ?? {}) as Payload, p.cwd ?? process.cwd());
+      const stdout = file ? fenceAnswer(await check({ agent, tool: p.tool_name, files: [file] })) : undefined;
+      return { agent, out: { events, stdout } };
+    }
     case 'PostToolUse':
       events.push({ type: 'state', state: 'working' }, ...(await claudeToolUse(p, key, co)));
       break;
@@ -249,10 +300,14 @@ async function fromCommand(argv: string[]): Promise<{ agent: AgentRef; out: Out 
     }
     case 'sweep':
       return { agent, out: { events: changes(await sweep(key, co)) } };
+    case 'check': {
+      const v = await check({ agent, files: rest.map((f) => ({ path: path.resolve(cwd, f) })) });
+      return { agent, out: { events: [], stdout: `${JSON.stringify(v ?? { decision: 'allow', reason: "Fiada didn't answer." })}\n` } };
+    }
     case 'done':
       return { agent, out: { events: [...changes(await sweep(key, co)), { type: 'state', state: 'waiting' }] } };
     default:
-      process.stderr.write(`fiada-hook: unknown command "${cmd}". Commands: changed, task, status, sweep, done, codex.\n`);
+      process.stderr.write(`fiada-hook: unknown command "${cmd}". Commands: changed, task, status, sweep, done, check, codex.\n`);
       return null;
   }
 }

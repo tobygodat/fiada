@@ -1,7 +1,7 @@
 // The projects this indexer serves at once. Without sign-in there is one,
 // shared by everyone who can reach the indexer. With GitHub sign-in (auth.ts)
-// each person has their own: its repositories, clones, grouping, summaries
-// and agent activity are theirs alone, so what one person imports or runs is
+// each person has their own: its repositories, clones, grouping, fences,
+// summaries and agent activity are theirs alone, so what one person imports or runs is
 // never on anyone else's map.
 //
 // A person's project opens on their first request and closes after it has
@@ -11,6 +11,7 @@
 import path from 'node:path';
 import type { AccountInfo, Workspace as WorkspaceState } from '@fiada/shared';
 import { AgentHub } from './agents.ts';
+import { Fences } from './fences.ts';
 import type { LLM } from './llm.ts';
 import { Sorter } from './sorter.ts';
 import type { ProjectStore } from './store.ts';
@@ -22,6 +23,8 @@ export interface Tenant {
   ws: Workspace;
   summaries: Summaries;
   agents: AgentHub;
+  /** Where agents must ask first or keep out. */
+  fences: Fences;
   close(): Promise<void>;
 }
 
@@ -35,7 +38,7 @@ export interface OpenOptions extends WorkspaceOptions {
   summaryLlm: LLM | null;
 }
 
-/** Opens one project: its workspace, summaries and agent hub, wired together as the server uses them. */
+/** Opens one project: its workspace, summaries, fences and agent hub, wired together as the server uses them. */
 export async function openTenant(o: OpenOptions): Promise<Tenant> {
   const ws = new Workspace(o.store, o.projectId, o.access, new Sorter(o.sortLlm), o);
   const summaries = new Summaries({
@@ -49,12 +52,15 @@ export async function openTenant(o: OpenOptions): Promise<Tenant> {
   const off = ws.onGraph(() => summaries.setGraph(ws.getGraph()));
   await ws.init();
   summaries.setGraph(ws.getGraph());
+  const fences = new Fences(o.store, o.projectId);
+  await fences.init();
   const agents = new AgentHub(ws);
   return {
     projectId: o.projectId,
     ws,
     summaries,
     agents,
+    fences,
     async close() {
       off();
       agents.close();

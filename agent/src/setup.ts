@@ -43,6 +43,8 @@ const { hook: HOOK, mcp: MCP } = commandsFor(fileURLToPath(new URL('../bin/', im
 
 /** Tools whose results can change files or the plan. Read-only tools are left out so they cost nothing. */
 export const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate';
+/** Tools that name the file they're about to change, so the fences on the map can be checked first. */
+export const EDIT_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 
 type HookEntry = { matcher?: string; hooks: { type: 'command'; command: string; timeout?: number }[] };
 
@@ -51,6 +53,7 @@ export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
   return {
     SessionStart: [{ hooks: run }],
     UserPromptSubmit: [{ hooks: run }],
+    PreToolUse: [{ matcher: EDIT_MATCHER, hooks: run }],
     PostToolUse: [{ matcher: MATCHER, hooks: run }],
     Stop: [{ hooks: run }],
     SessionEnd: [{ hooks: run }],

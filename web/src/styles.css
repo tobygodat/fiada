@@ -364,3 +364,11 @@ a { color: inherit; }
 .code > div.hl { background: var(--selection); }
 .code .ln { display: inline-block; width: 44px; padding-right: var(--space-sm); text-align: right; color: var(--muted); user-select: none; }
 
+
+/* The fence block in the detail panel: the choice, then what it means in a sentence. */
+.fence-block .choice { margin-bottom: var(--space-xs); }
+.fence-rule { color: var(--text); }
+.fence-words { margin: var(--space-xs) 0 0; font-size: var(--size-small); color: var(--muted); }
+.fence-words.off, .fence-words.ask { color: var(--text); }
+.fence-words.error { color: var(--danger); }
+.fence-block[aria-busy='true'] .choice { cursor: progress; }

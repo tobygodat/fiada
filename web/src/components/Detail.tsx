@@ -1,6 +1,6 @@
 // Right-hand panel: what the selected node is and does (its summary, then why
-// it landed in its layer and domain), what it depends on, or the contract
-// behind an edge.
+// it landed in its layer and domain), whether agents may change it (its
+// fence), what it depends on, or the contract behind an edge.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -11,6 +11,8 @@ import {
   type EdgeEvidence,
   type EdgeEvidenceSource,
   type EdgeKind,
+  type Fence,
+  type FenceRule,
   type Graph,
   type GraphEdge,
   type GraphNode,
@@ -22,6 +24,8 @@ import {
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { Chevron } from './Icon.tsx';
+import { Choice } from './Sidebar.tsx';
+import { fenceAround } from '../graph/fences.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
@@ -55,6 +59,10 @@ interface Props {
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
+  /** Circles marked "ask first" or "off limits". */
+  fences?: readonly Fence[];
+  /** Puts up or takes down a fence; absent when this browser can't change the project. */
+  onFence?(node: string, rule: FenceRule | null): Promise<void>;
   onSelect(id: string): void;
 }
 
@@ -67,7 +75,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, fences, onFence, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -91,6 +99,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
       {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
+
+      {g && <FenceBlock key={g.id} g={g} fences={fences ?? []} onFence={onFence} onSelect={onSelect} />}
 
       {repo && (
         <div className="detail-block">
@@ -129,6 +139,72 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
         <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} rev={activity?.nodes[g.kind === 'symbol' ? g.parent : g.id]?.at ?? 0} />
       )}
     </aside>
+  );
+}
+
+type FenceChoice = FenceRule | 'none';
+const FENCE_OPTIONS: [FenceChoice, string, string][] = [
+  ['none', 'none', 'Agents change it as usual.'],
+  ['ask', 'ask first', "Before an agent's edit inside lands, you're asked."],
+  ['off', 'off limits', "Agents' edits inside are refused."],
+];
+const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
+const KIND_INSIDE: Record<GraphNode['kind'], string> = { repo: 'in this repository', folder: 'in this module', file: 'in this file', symbol: 'to this symbol' };
+
+/**
+ * Whether agents may change what's inside this circle: none, ask first or off
+ * limits, kept for the project. The agent's hook asks the indexer before each
+ * edit (agent/src/hook.ts). A fence round an ancestor is said, with the way to it.
+ */
+function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: readonly Fence[]; onFence?: Props['onFence']; onSelect(id: string): void }) {
+  const own = fences.find((f) => f.node === g.id);
+  const around = fenceAround(fences, g.id);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value: FenceChoice = own?.rule ?? 'none';
+  const choose = async (rule: FenceChoice) => {
+    if (!onFence || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onFence(g.id, rule === 'none' ? null : rule);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const inside = KIND_INSIDE[g.kind];
+  const sentence =
+    value === 'off'
+      ? `Agents can't change anything ${inside}: the edit is refused before it lands.`
+      : value === 'ask'
+        ? `Agents ask you before they change anything ${inside}.`
+        : 'Agents change it as usual.';
+  return (
+    <div className="detail-block fence-block" aria-busy={busy}>
+      <div className="block-title">fence</div>
+      {onFence ? (
+        <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
+      ) : (
+        <div className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</div>
+      )}
+      <p className={`fence-words${value === 'none' ? '' : ' ' + value}`}>{sentence}</p>
+      {around && (
+        <p className="fence-words">
+          Inside the {FENCE_WORDS[around.rule]} fence round{' '}
+          <button className="link" onClick={() => onSelect(around.node)}>
+            {around.node}
+          </button>
+          {around.rule === 'off' && value !== 'off' ? ", so agents can't change it either." : '.'}
+        </p>
+      )}
+      {error && (
+        <p className="fence-words error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

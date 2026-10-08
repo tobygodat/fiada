@@ -7,6 +7,7 @@
 // testing. Everything else (what's selected, what's open) lives in React and
 // arrives through setScene.
 
+import type { FenceRule } from '@fiada/shared';
 import type { TreeActivity } from '../graph/activity.ts';
 import type { Camera } from '../graph/camera.ts';
 import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/camera.ts';
@@ -15,7 +16,9 @@ import type { TNode, Tree } from '../graph/tree.ts';
 import { countKind, crossRepo, direction, kindCounts, meetingPoint, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
-import { type BadgeCache, drawBadges, drawRings } from './activity.ts';
+
+import { type BadgeCache, drawBadges, drawCollisions, drawRings } from './activity.ts';
+import { drawFences } from './fences.ts';
 import { bestBend, curve, DEFAULT_BEND, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
@@ -64,6 +67,10 @@ export interface Scene {
   activity?: TreeActivity | null;
   /** One agent's changes and every circle round them, shown at full strength while the rest dims. */
   lit?: ReadonlySet<string> | null;
+  /** Circles marked "ask first" or "off limits" (fences.ts). */
+  fenced?: ReadonlyMap<string, FenceRule> | null;
+  /** Circles where two or more agents' changes meet, with how many agents. */
+  collisions?: ReadonlyMap<string, number> | null;
 }
 
 export interface RendererEvents {
@@ -577,6 +584,7 @@ export class MapRenderer {
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen, unlit: unlit && !sel && !hovered });
     }
     ctx.globalAlpha = 1;
+    if (scene.fenced?.size) drawFences(ctx, this.drawnNodes, scene.fenced, UNLIT);
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now());
 
     // ── labels ──
@@ -692,9 +700,11 @@ export class MapRenderer {
     }
     ctx.globalAlpha = 1;
 
-    // ── agent badges, last so they can keep clear of every link, tag and tab ──
+    // ── where agents meet, then their badges, last so they can keep clear of every link, tag and tab ──
+    const met = scene.collisions?.size ? drawCollisions(ctx, this.drawnNodes, scene.collisions) : [];
+    if (met.length) this.lastFont = '';
     if (scene.activity?.size) {
-      const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
+      const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs, ...met], free: tagBox, view: { w, h } };
       drawBadges(ctx, this.drawnNodes, scene.activity, taken, this.badgeCache);
       this.lastFont = '';
     }

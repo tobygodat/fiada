@@ -25,6 +25,7 @@ import {
 import type { MapRenderer, Scene } from './render/renderer.ts';
 import { palette, type ColorBy } from './theme.ts';
 import { useAgents } from './useAgents.ts';
+import { useFences } from './useFences.ts';
 import { useTheme } from './useTheme.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
@@ -77,6 +78,7 @@ type CameraIntent = { focus: string; detail: boolean; from?: string | null } | {
 export function App() {
   const ws = useWorkspace();
   const agents = useAgents();
+  const fences = useFences(ws.graph?.generatedAt);
   const [theme, setTheme, shownTheme] = useTheme();
   const graph = ws.graph;
   const [view, setView] = useState<View>('code');
@@ -143,9 +145,23 @@ export function App() {
     if (agentGraph != null && loadedGraph != null && agentGraph > loadedGraph) void reload();
   }, [agentGraph, loadedGraph, reload]);
 
+  /** Fenced circles of this tree, by node id. */
+  const fenced = useMemo(() => (tree && fences.fences.length ? new Map(fences.fences.filter((f) => tree.nodes.has(f.node)).map((f) => [f.node, f.rule])) : null), [tree, fences.fences]);
+  /** Where two agents' changes meet, placed on this tree: circle id → how many agents. */
+  const collisions = useMemo(() => {
+    const list = agents.state?.collisions;
+    if (!tree || !list?.length) return null;
+    const at = new Map<string, number>();
+    for (const c of list) {
+      const id = locate(tree, graphIndex, c.node);
+      if (id && id !== 'root') at.set(id, Math.max(at.get(id) ?? 0, c.agents.length));
+    }
+    return at.size ? at : null;
+  }, [tree, graphIndex, agents.state]);
+
   const scene = useMemo<Scene | null>(
-    () => (tree ? { tree, L, mode, vis: mode === 'click' ? clickVis : null, contracts, pal, colorBy, selected, selectedEdge, activity, lit: spot?.lit ?? null } : null),
-    [tree, L, mode, clickVis, contracts, pal, colorBy, selected, selectedEdge, activity, spot],
+    () => (tree ? { tree, L, mode, vis: mode === 'click' ? clickVis : null, contracts, pal, colorBy, selected, selectedEdge, activity, lit: spot?.lit ?? null, fenced, collisions } : null),
+    [tree, L, mode, clickVis, contracts, pal, colorBy, selected, selectedEdge, activity, spot, fenced, collisions],
   );
 
   // ── camera ──
@@ -587,6 +603,8 @@ export function App() {
             selected={selected}
             contract={contract}
             activity={agents.state}
+            fences={fences.fences}
+            onFence={canEdit(ws.workspace) ? fences.set : undefined}
             onSelect={select}
           />
         )}
@@ -596,6 +614,7 @@ export function App() {
           lit={spot ? lit : null}
           onShow={showAgent}
           onSelect={selectChange}
+          onPlace={select}
           onClear={
             canEdit(ws.workspace)
               ? (id) => {

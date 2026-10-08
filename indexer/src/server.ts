@@ -15,10 +15,11 @@ import './env.ts';
 import fs from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import type { AccountInfo, AgentConnection, AgentEvent, AuthState, LayerPreset } from '@fiada/shared';
+import type { AccountInfo, AgentConnection, AgentEvent, AuthState, FenceCheck, LayerPreset } from '@fiada/shared';
 import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, RateLimit, READS } from './access.ts';
 import { accountInfo, Auth, authConfigFromEnv, bearer, CALLBACK_PATH, cookie, NONCE_COOKIE, returnAllowed } from './auth.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
+import { FenceError } from './fences.ts';
 import { KEY_HINT, LLMBudget, llmFromEnv } from './llm.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { clonesOf, openTenant, Tenants, type Tenant } from './tenants.ts';
@@ -144,8 +145,8 @@ app.addHook('onRequest', async (req, reply) => {
     req.tenant = shared!;
     return;
   }
-  // Agents may only report; everything else takes a signed-in browser.
-  const agentRoute = req.method === 'POST' && route === '/api/agent/events';
+  // Agents may only report and ask about the fences; everything else takes a signed-in browser.
+  const agentRoute = req.method === 'POST' && (route === '/api/agent/events' || route === '/api/agent/check');
   const token = bearer(req.headers.authorization);
   const account = agentRoute ? await auth.agent(token) : await auth.session(token);
   if (!account) return reply.code(401).send({ error: agentRoute ? AGENT_SIGN_IN : SIGN_IN, signIn: !agentRoute });
@@ -315,6 +316,18 @@ app.post('/api/grouping/sort', async (req, reply) => {
   return reply.code(202).send(req.tenant.ws.state());
 });
 
+// Fences: circles marked "ask first" or "off limits". PUT one { node, rule } at a time; rule null takes it down.
+app.get('/api/fences', async (req) => ({ fences: req.tenant.fences.all() }));
+
+app.put<{ Body: { node?: unknown; rule?: unknown } }>('/api/fences', async (req, reply) => {
+  try {
+    return { fences: await req.tenant.fences.set(req.body?.node, req.body?.rule === undefined ? null : req.body.rule, req.tenant.ws.getGraph()) };
+  } catch (err) {
+    if (err instanceof FenceError) return reply.code(400).send({ error: err.message });
+    throw err;
+  }
+});
+
 app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async (req, reply) => {
   const { repo, path } = req.query;
   if (!repo || !path) return reply.code(400).send({ error: 'Query must be ?repo=<id>&path=<repo-relative path>' });
@@ -342,6 +355,15 @@ app.post('/api/agent/events', { bodyLimit: 32 << 20 }, async (req, reply) => {
     return reply.code(400).send({ error: 'Body must be an agent event or a list of them: { type, agent: { client, cwd, … }, … }' });
   }
   return req.tenant.agents.ingest(events);
+});
+
+// An agent's hook asks before an edit lands: allow, ask the person, or deny.
+app.post('/api/agent/check', async (req, reply) => {
+  const body = req.body as FenceCheck | undefined;
+  if (!body?.agent || typeof body.agent.cwd !== 'string' || typeof body.agent.client !== 'string' || !Array.isArray(body.files)) {
+    return reply.code(400).send({ error: 'Body must be { agent: { client, cwd, … }, files: [{ path, lines? }] }' });
+  }
+  return req.tenant.agents.check(body, req.tenant.fences);
 });
 
 app.get('/api/agent/state', async (req) => req.tenant.agents.state());

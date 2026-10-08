@@ -1,6 +1,7 @@
 // Persistence boundary for what Fiada keeps per project: the repositories
 // imported into it, its grouping (layer definitions, domain names, rules and
-// pins), and the node summaries a model wrote. The graph is derived from
+// pins), its fences (where agents must ask first or keep out), and the node
+// summaries a model wrote. The graph is derived from
 // those and is never stored. It also keeps the accounts of people who signed
 // in with GitHub, each of which owns one project (see auth.ts).
 //
@@ -11,7 +12,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import type { Grouping, RepoKind } from '@fiada/shared';
+import type { Fence, Grouping, RepoKind } from '@fiada/shared';
 import { MongoProjectStore, redact, unquote } from './mongo-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
@@ -74,6 +75,10 @@ export interface ProjectStore {
    * (a hand edit, another instance). Returns a function that stops watching.
    */
   watchGrouping?(projectId: string, onChange: () => void): () => void;
+  /** Optional: the circles marked "ask first" or "off limits", or null when none were ever saved. */
+  loadFences?(projectId: string): Promise<Fence[] | null>;
+  /** Optional: replaces the project's fences. */
+  saveFences?(projectId: string, fences: Fence[]): Promise<void>;
   /** Optional: generated summaries by hash, or null when none were saved. */
   loadSummaries?(projectId: string): Promise<Record<string, StoredSummary> | null>;
   /** Optional: adds or replaces these entries; saved entries not named here are kept. */
@@ -88,7 +93,7 @@ export interface ProjectStore {
   saveSignIn?(fields: SignedIn): Promise<StoredAccount>;
   /** Adds one to the account's agent epoch in one step, revoking its agent tokens. Null when there is no such account. */
   bumpAgentEpoch?(id: string, at: string): Promise<StoredAccount | null>;
-  /** Forgets everything the project kept: its repositories, grouping and summaries. */
+  /** Forgets everything the project kept: its repositories, grouping, fences and summaries. */
   deleteProject?(projectId: string): Promise<void>;
   /** Forgets the account, sealed GitHub token and all. */
   deleteAccount?(id: string): Promise<void>;
@@ -104,6 +109,7 @@ export function checkProjectId(id: string): string {
  * One directory per project under `root`:
  *   projects/<id>/repos.json
  *   projects/<id>/fiada.grouping.json   (hand-editable; edits apply live)
+ *   projects/<id>/fences.json            (circles marked "ask first" or "off limits")
  *   projects/<id>/summaries.json         (generated summaries by hash)
  * and one file per signed-in account under accounts/<id>.json.
  */
@@ -152,6 +158,17 @@ export class FileProjectStore implements ProjectStore {
 
   async saveGrouping(id: string, grouping: Grouping) {
     await this.write(this.groupingFile(id), JSON.stringify(grouping, null, 2) + '\n');
+  }
+
+  async loadFences(id: string): Promise<Fence[] | null> {
+    const text = await fsp.readFile(path.join(this.dir(id), 'fences.json'), 'utf8').catch(() => null);
+    if (text == null) return null;
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed?.fences) ? parsed.fences : [];
+  }
+
+  async saveFences(id: string, fences: Fence[]) {
+    await this.write(path.join(this.dir(id), 'fences.json'), JSON.stringify({ fences }, null, 2) + '\n');
   }
 
   async loadSummaries(id: string): Promise<Record<string, StoredSummary> | null> {
