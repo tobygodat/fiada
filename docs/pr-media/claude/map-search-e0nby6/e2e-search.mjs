@@ -114,8 +114,15 @@ if (mode === 'before') {
   await page.getByText('code', { exact: true }).first().click();
   await page.waitForTimeout(1200);
   // A narrow window keeps the whole list on screen.
-  for (const w of [480, 700, 900]) {
+  for (const w of [360, 480, 700, 900]) {
     await page.setViewportSize({ width: w, height: 800 });
+    const bar = await page.evaluate((w) => {
+      const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
+      const back = r('.crumbs .back'), crumb = r('.crumbs button:nth-of-type(2)'), field = r('.search input'), zoom = r('.zoom');
+      const inside = [back, crumb, field, zoom].every((b) => b && b.width > 0 && b.left >= 0 && b.right <= w + 1);
+      return inside && back.width >= 30 && crumb.right <= field.left && field.right <= zoom.left;
+    }, w);
+    assert(bar, `the top bar fits a ${w}px window: back, breadcrumb, search and zoom all show without overlapping`);
     await input.fill('');
     await input.click();
     await page.keyboard.type('item', { delay: 20 });

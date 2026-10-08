@@ -144,8 +144,15 @@ a { color: inherit; }
 .search-hits li.search-none { color: var(--muted); cursor: default; }
 /* Narrow windows: the field shrinks and its matches span the window under the top bar, not off its left edge. */
 @media (max-width: 760px) {
+  /* The breadcrumb already says where you are; the altitude words give way so back and the breadcrumb keep their room. */
+  .altitudes { display: none; }
+  .topbar-right { gap: var(--space-sm); }
+  .crumbs .back { flex: none; }
   .search input { width: 160px; }
   .search-hits { position: fixed; left: var(--space-md); right: var(--space-md); top: calc(var(--fiada-topbar) + var(--space-xs)); width: auto; }
+}
+@media (max-width: 420px) {
+  .search input { width: 120px; }
 }
 
 /* ── map ── */
