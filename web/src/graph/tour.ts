@@ -23,8 +23,9 @@ export interface TourStop {
   /** Epoch ms of the agent's latest change to it. */
   at: number;
   /**
-   * On the first of a file's function stops: every changed function in that file, so this stop
-   * also shows the file's hunks none of them touches (an import, a constant) and none is skipped.
+   * On the first of a file's function stops: every changed function in that file (deleted ones
+   * too), so this stop also shows the file's hunks none of them accounts for (an import, a
+   * constant) and none is skipped.
    */
   rest?: string[];
 }
@@ -39,6 +40,32 @@ export function tourStops(
   agent: AgentActivity,
   nodes: Record<string, NodeChange>,
 ): TourStop[] {
+  const out = order(collect(graphIndex, agent, nodes), graph, graphIndex);
+  // The first function stop of each file carries the file's other hunks.
+  const fns = new Map<string, string[]>();
+  const fileOf = (s: TourStop) => (s.id.includes('#') ? s.id.slice(0, s.id.indexOf('#')) : null);
+  for (const s of out) {
+    const f = fileOf(s);
+    if (!f) continue;
+    const l = fns.get(f);
+    if (l) l.push(s.id);
+    else fns.set(f, [s.id]);
+  }
+  const marked = new Set<string>();
+  return out.map((s) => {
+    const f = fileOf(s);
+    if (!f || marked.has(f)) return s;
+    marked.add(f);
+    return { ...s, rest: fns.get(f)! };
+  });
+}
+
+/** Whether the agent changed anything the map can show, so a tour has somewhere to go. */
+export const reviewable = (graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>) =>
+  collect(graphIndex, agent, nodes).length > 0;
+
+/** The stops, in the order the agent's files list them. */
+function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>): TourStop[] {
   const stops: TourStop[] = [];
   const seen = new Set<string>();
   const add = (s: TourStop) => {
@@ -74,23 +101,7 @@ export function tourStops(
       add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
     }
   }
-  const out = order(stops, graph, graphIndex);
-  // The first function stop of each file carries the file's other hunks.
-  const fns = new Map<string, string[]>();
-  for (const s of out) {
-    const n = graphIndex.get(s.target);
-    if (s.target !== s.id || n?.kind !== 'symbol') continue;
-    const l = fns.get(n.parent);
-    if (l) l.push(s.id);
-    else fns.set(n.parent, [s.id]);
-  }
-  const marked = new Set<string>();
-  return out.map((s) => {
-    const n = graphIndex.get(s.target);
-    if (s.target !== s.id || n?.kind !== 'symbol' || marked.has(n.parent)) return s;
-    marked.add(n.parent);
-    return { ...s, rest: fns.get(n.parent)! };
-  });
+  return stops;
 }
 
 /**

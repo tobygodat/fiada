@@ -20,6 +20,8 @@ interface Props {
   onShow(agentId: string): void;
   /** The agent whose changes are being reviewed, one by one. */
   reviewing: string | null;
+  /** Agents with something on the map to review. */
+  reviewable: ReadonlySet<string>;
   /** Starts a review tour of one agent's changes. */
   onReview(agentId: string): void;
   onSelect(nodeId: string, agentId: string): void;
@@ -44,7 +46,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, lit, reviewing, onShow, onReview, onSelect, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, reviewing, reviewable, onShow, onReview, onSelect, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -98,7 +100,7 @@ export function AgentQueue({ state, compact, lit, reviewing, onShow, onReview, o
             a={a}
             lit={a.id === lit}
             onShow={a.files.length ? () => onShow(a.id) : undefined}
-            onReview={a.files.some((f) => f.repo) && reviewing !== a.id ? () => onReview(a.id) : undefined}
+            onReview={reviewable.has(a.id) && reviewing !== a.id ? () => onReview(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
           />

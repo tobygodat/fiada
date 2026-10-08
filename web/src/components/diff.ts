@@ -1,30 +1,38 @@
 // Reading an agent's unified diff for the detail panel: the hunks that touch a symbol, and
 // each line as the view draws it.
 
-/** Hunks of a unified diff whose new side overlaps `lines`; all of them when none does. */
-export function hunksFor(diff: string, lines?: [number, number], rest?: readonly [number, number][]): string[] {
+/** One changed symbol, as a diff can find it: by its lines, or, deleted, by the lines that take it away. */
+export interface HunkOwner {
+  lines?: readonly [number, number];
+  /** A deleted symbol's name; for a member (`ItemController.get`) its declaration says only the last part. */
+  name?: string;
+}
+
+/**
+ * The hunks of a unified diff that belong to `own`, or all of them without it. With `rest` (every changed symbol in the file), also the hunks
+ * none of them accounts for: an import, a constant. All the hunks when none matches, so nothing
+ * is hidden.
+ */
+export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwner[]): string[] {
   const hunks = split(diff);
   if (!Array.isArray(hunks[0])) return hunks as string[];
-  if (!lines) return hunks.flat();
-  const touches = (h: string[], [a, b]: readonly [number, number]) => {
+  if (!own) return hunks.flat();
+  const hit = (hunks as string[][]).filter((h) => belongs(h, own) || (rest && !rest.some((r) => belongs(h, r))));
+  return (hit.length ? hit : hunks).flat();
+}
+
+function belongs(h: string[], o: HunkOwner): boolean {
+  if (o.lines) {
     const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
     if (!m) return true;
     const s = Number(m[1]);
     const e = s + Math.max(1, m[2] == null ? 1 : Number(m[2])) - 1;
-    return s <= b && e >= a;
-  };
-  // With `rest` (the lines of every changed symbol in the file), also the hunks none of them touches: an import, a constant.
-  const hit = (hunks as string[][]).filter((h) => touches(h, lines) || (rest && !rest.some((r) => touches(h, r))));
-  return (hit.length ? hit : hunks).flat();
-}
-
-/** For a deleted symbol, which has no lines left: the hunks that take away a line naming it; all of them when none does. */
-export function hunksRemoving(diff: string, name: string): string[] {
-  const hunks = split(diff);
-  if (!Array.isArray(hunks[0])) return hunks as string[];
-  const word = new RegExp(`(^|[^\\w$])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w$])`);
-  const hit = (hunks as string[][]).filter((h) => h.some((l, i) => i > 0 && l[0] === '-' && word.test(l.slice(1))));
-  return (hit.length ? hit : hunks).flat();
+    return s <= o.lines[1] && e >= o.lines[0];
+  }
+  if (!o.name) return false;
+  const last = o.name.split(/\.|::|#/).pop()!;
+  const word = new RegExp(`(^|[^\\w$])${last.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w$])`);
+  return h.some((l, i) => i > 0 && l[0] === '-' && word.test(l.slice(1)));
 }
 
 /** A diff's hunks, each its header line and body; the lines as they are when it has no hunk. */

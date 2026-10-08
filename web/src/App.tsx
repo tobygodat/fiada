@@ -10,7 +10,7 @@ import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
-import { loadMarks, nextUnread, saveMarks, tourStops, type ReadMarks } from './graph/tour.ts';
+import { loadMarks, nextUnread, reviewable, saveMarks, tourStops, type ReadMarks } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -140,6 +140,11 @@ export function App() {
     [graph, graphIndex, tourAgent, agents.state],
   );
   const tourAt = touring ? Math.max(0, stops.findIndex((s) => s.id === touring.stop)) : -1;
+  // Agents with something on the map to walk through: "review" shows only for them.
+  const canReview = useMemo(
+    () => new Set((agents.state?.agents ?? []).filter((a) => reviewable(graphIndex, a, agents.state!.nodes)).map((a) => a.id)),
+    [agents.state, graphIndex],
+  );
   // Ended, not hidden: lighting that agent again later starts afresh rather than bringing the old review back.
   useEffect(() => {
     if (tour && tour.agent !== lit) setTour(null);
@@ -717,6 +722,7 @@ export function App() {
           compact={!!(selected || contract)}
           lit={spot ? lit : null}
           reviewing={touring?.agent ?? null}
+          reviewable={canReview}
           onShow={showAgent}
           onReview={startTour}
           onSelect={selectChange}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { isRead, nextUnread, tourStops, type ReadMarks } from './tour.ts';
+import { isRead, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -219,4 +219,22 @@ test('a change whose repository is gone from the map is not on the tour', () => 
   };
   const a = agent([{ ...file('gone', 'app/x.py'), node: undefined }, file('web', 'src/pages/about.tsx')]);
   assert.deepEqual(tourStops(graph, graphIndex, a, nodes).map((s) => s.id), ['web/src/pages/about.tsx']);
+});
+
+test("a file whose changed functions were all deleted still carries the file's other hunks once", () => {
+  const a = agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#OldA', 'deleted'), sym('web/src/client/api.ts#OldB', 'deleted')])]);
+  const stops = tourStops(graph, graphIndex, a, NO_NODES);
+  assert.deepEqual(
+    stops.map((s) => [s.id, s.target, s.rest]),
+    [
+      ['web/src/client/api.ts#OldA', 'web/src/client/api.ts', ['web/src/client/api.ts#OldA', 'web/src/client/api.ts#OldB']],
+      ['web/src/client/api.ts#OldB', 'web/src/client/api.ts', undefined],
+    ],
+  );
+});
+
+test('reviewable: only when something the agent changed is on the map', () => {
+  const nodes: Record<string, NodeChange> = { 'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' } };
+  assert.equal(reviewable(graphIndex, agent([{ ...file('gone', 'app/x.py'), node: undefined }]), nodes), false);
+  assert.equal(reviewable(graphIndex, agent([file('web', 'src/pages/about.tsx')]), nodes), true);
 });

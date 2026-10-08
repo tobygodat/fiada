@@ -21,6 +21,7 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
+import type { HunkOwner } from './diff.ts';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
@@ -199,20 +200,33 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   const code = g.kind === 'file' || g.kind === 'symbol';
   // Something deleted on the tour stands on what's left (a file on its folder, a function on its
   // file): its own diff under it, and for a function only the hunks that take it away.
+  // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
+  const rest = tour?.stop.rest?.map((id): HunkOwner => {
+    const n = graphIndex.get(id);
+    return n?.kind === 'symbol' && n.lines ? { lines: n.lines } : { name: id.slice(id.indexOf('#') + 1) };
+  });
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
-    return <AgentChange node={tour.stop.id} rev={tour.stop.at} kind={tour.stop.kind} agent={tour.agent} what={fn ? tour.stop.name : tour.stop.path} named={fn ? tour.stop.name : undefined} />;
+    return (
+      <AgentChange
+        node={tour.stop.id}
+        own={fn ? { name: tour.stop.name } : undefined}
+        rest={rest}
+        rev={tour.stop.at}
+        kind={tour.stop.kind}
+        agent={tour.agent}
+        what={fn ? tour.stop.name : tour.stop.path}
+      />
+    );
   }
   const own = code ? activity?.nodes[g.id] : null;
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
   const kind = tour?.stop.id === g.id ? tour.stop.kind : own.kind;
-  // The file's first function on the tour also shows the hunks none of its changed functions touches.
-  const rest = tour?.stop.rest?.map((id) => graphIndex.get(id)?.lines).filter((l): l is [number, number] => !!l);
   return (
     <AgentChange
       node={g.id}
-      lines={g.kind === 'symbol' ? g.lines : undefined}
+      own={g.kind === 'symbol' && g.lines ? { lines: g.lines } : undefined}
       rest={rest}
       rev={file?.at ?? own.at}
       kind={kind}
