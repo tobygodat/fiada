@@ -197,7 +197,7 @@ const sources = new Map<string, Promise<SourceText>>();
  */
 function Changed({ g, graph, graphIndex, activity }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null }) {
   const own = activity?.nodes[g.id];
-  const reach = useMemo(() => (own && own.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex) : []), [own, g, graph, graphIndex]);
+  const reach = useMemo(() => (own && own.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, activity?.nodes) : []), [own, g, graph, graphIndex, activity]);
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
   return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} reach={reach} />;

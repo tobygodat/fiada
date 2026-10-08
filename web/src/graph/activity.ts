@@ -245,16 +245,22 @@ const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, 
  * web call this route", "6 functions in api and 2 in jobs use this type". It
  * counts the links into the node (into a file, also into its symbols) from
  * outside it, by repository; requests one per request, everything else one
- * per node on the other side. Says how many were guessed. Empty when nothing
+ * per node on the other side. For a file whose change `nodes` narrows to some
+ * of its symbols, only links to the file and those symbols count, as on the
+ * map. Says how many were guessed. Empty when nothing
  * reaches it and it isn't a contract (a route, or an exported symbol or file).
  */
-export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphIndex: Map<string, GraphNode>): string[] {
+export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange> = {}): string[] {
   const inside = (id: string) => id === g.id || (g.kind === 'file' && id.startsWith(`${g.id}#`));
+  // A file whose change was narrowed to some of its symbols reaches what the map rings: links to
+  // the file itself and to those symbols, not to the symbols the agent left alone.
+  const touched = g.kind === 'file' ? Object.keys(nodes).filter((id) => nodes[id].unit === 'symbol' && id.startsWith(`${g.id}#`)) : [];
+  const target = touched.length ? (id: string) => id === g.id || touched.includes(id) : inside;
   const requests: GraphEdge[] = [];
   // One per dependent: its strongest link, and whether any link from it is proven.
   const users = new Map<string, { kind: EdgeKind; sure: boolean }>();
   for (const e of edges) {
-    if (!inside(e.to) || inside(e.from)) continue;
+    if (!target(e.to) || inside(e.from)) continue;
     if (e.kind === 'http') {
       requests.push(e);
       continue;
@@ -281,9 +287,10 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
 
   const out: string[] = [];
   if (requests.length) {
-    const routes = g.routes?.length ?? 1;
+    // The routes the requests reach: in a file, the symbols serving them; a symbol may serve several.
+    const routes = g.kind === 'file' ? new Set(requests.map((e) => e.to)).size : (g.routes?.length ?? 1);
     const verb = requests.length === 1 ? 'calls' : 'call';
-    const what = g.kind === 'file' || routes > 1 ? 'these routes' : 'this route';
+    const what = routes > 1 ? 'these routes' : 'this route';
     out.push(`${byRepo(requests.map((e) => e.from), ['request', 'requests'], 'from')} ${verb} ${what}${guessed(requests.filter((e) => e.basis === 'inferred').length, requests.length)}.`);
   }
   if (users.size) {

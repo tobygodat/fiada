@@ -192,6 +192,9 @@ test('what reaches a changed route, type or file, in a sentence', () => {
   assert.deepEqual(reachSentences(node('api/app/models.py'), edges, graphIndex), ['2 functions in api use this file.']);
   // A file serving routes: requests to any of them, and calls to its symbols from outside it.
   assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex), ['2 requests from web call these routes, 1 of them inferred.']);
+  // Narrowed to read_items, the file counts only what reaches it, as the map does.
+  const narrowed = { 'api/app/routes/items.py': change('modified', 'file', 10), 'api/app/routes/items.py#read_items': change('modified', 'symbol', 10) };
+  assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex, narrowed), ['1 request from web calls this route.']);
   // An exported file nothing reaches says so; an unexported one says nothing.
   assert.deepEqual(reachSentences(node('web/src/pages/about.tsx', { exported: true }), edges, graphIndex), ['Nothing in the imported repositories reaches this file yet.']);
   assert.deepEqual(reachSentences(node('web/src/pages/about.tsx'), edges, graphIndex), []);
