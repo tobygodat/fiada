@@ -125,6 +125,9 @@ test('a target is an id, a path, the end of a path, path#symbol or a name; sever
   assert.equal(id('createitem'), 'web/src/client.ts#createItem');
   assert.deepEqual(id('create item'), ['api/app/items.py#create_item', 'web/src/client.ts#createItem']);
   assert.deepEqual(id('nothing at all'), []);
+  // A path#symbol whose path doesn't hold it offers the symbol elsewhere rather than answering for it.
+  assert.deepEqual(id('missing/file.py#save_item'), ['api/app/store.py#save_item']);
+  assert.deepEqual(id('api/app/items.py#save_item'), ['api/app/store.py#save_item']);
 });
 
 test('who uses something: callers, importers and HTTP clients, with the code that proves each link', async () => {

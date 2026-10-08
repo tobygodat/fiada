@@ -303,14 +303,17 @@ test('what an agent looked at: nodes it asked about and files it read, apart fro
 
   // Another agent looks at the same symbol: both are named on it.
   const other: AgentRef = { client: 'cursor', cwd: dir, root: dir };
-  await hub.ingest([{ agent: other, type: 'looked', nodes: ['web/src/api.ts#getItem'] }]);
+  await hub.ingest([{ agent: other, type: 'looked', nodes: ['web/src/api.ts#getItem', 'web/src/old.ts'] }]);
   assert.equal(hub.state().looked!['web/src/api.ts#getItem'].agents.length, 2);
+  const cursorId = hub.state().agents.find((a) => a.client === 'cursor')!.id;
 
-  // Once it changes a file it looked at, the file is marked changed, not looked at.
+  // Once it changes a file it looked at, the file is marked changed, not looked at, for that agent;
+  // another agent's look at it stays.
   await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/old.ts', kind: 'modified', oldLines: [[2, 2]] }] }]);
   s = hub.state();
   assert.equal(s.nodes['web/src/old.ts'].kind, 'modified');
-  assert.equal(s.looked!['web/src/old.ts'], undefined);
+  assert.deepEqual(s.looked!['web/src/old.ts'].agents, [cursorId]);
+  assert.equal(s.agents.find((a) => a.client === 'cursor')!.looked!.count, 2);
   assert.ok(s.looked!['web/src/api.ts#getItem']);
   assert.deepEqual(s.agents.find((a) => a.client === 'claude-code')!.looked, { count: 1, nodes: ['web/src/api.ts#getItem'] });
 

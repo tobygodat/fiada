@@ -197,7 +197,8 @@ export function formatFind(a: FindAnswer): string {
 }
 
 export function formatAmbiguous(a: Ambiguous): string {
-  return [`"${a.query}" could be any of these; ask again with one of their ids:`, ...a.candidates.map((c) => `- ${c.id} (${kindWord(c)} in ${place(c)})`)].join('\n');
+  const lead = a.candidates.length === 1 ? `Nothing is "${a.query}" exactly; the closest is this one` : `"${a.query}" could be any of these`;
+  return [`${lead}; ask again with one of their ids:`, ...a.candidates.map((c) => `- ${c.id} (${kindWord(c)} in ${place(c)})`)].join('\n');
 }
 
 export function formatDependents(a: DependentsAnswer): string {

@@ -146,10 +146,11 @@ export function resolveTarget(gi: GraphIndex, target: string): { node: GraphNode
     const hitName = one(named) ?? one(gi.graph.nodes.filter((n) => n.kind === 'symbol' && n.name.toLowerCase() === t.toLowerCase()));
     if (hitName) return hitName;
   }
-  // Nothing by name or path: the best search matches, when one stands out.
+  // Nothing by name or path: the best search matches, when one stands out. A path#symbol says where
+  // the symbol is, so one by that name somewhere else is only offered, never answered for.
   const found = find(gi, symbol || pathPart, 10);
   const nodes = found.hits.map((h) => gi.byId.get(h.id)!).filter(Boolean);
-  if (nodes.length && matchScore(gi, nodes[0], symbol || pathPart) >= 100 && (nodes.length === 1 || matchScore(gi, nodes[1], symbol || pathPart) < 100)) return { node: nodes[0] };
+  if (hash < 0 && nodes.length && matchScore(gi, nodes[0], t) >= 100 && (nodes.length === 1 || matchScore(gi, nodes[1], t) < 100)) return { node: nodes[0] };
   return ambiguous(nodes);
 }
 

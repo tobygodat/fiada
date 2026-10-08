@@ -666,8 +666,6 @@ export class AgentHub {
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    // A node an agent changed is marked as changed: the look is in that.
-    for (const id of Object.keys(looked)) if (nodes[id]) delete looked[id];
     const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
