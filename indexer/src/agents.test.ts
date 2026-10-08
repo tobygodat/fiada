@@ -312,6 +312,7 @@ test('what an agent looked at: nodes it asked about and files it read, apart fro
   assert.equal(s.nodes['web/src/old.ts'].kind, 'modified');
   assert.equal(s.looked!['web/src/old.ts'], undefined);
   assert.ok(s.looked!['web/src/api.ts#getItem']);
+  assert.deepEqual(s.agents.find((a) => a.client === 'claude-code')!.looked, { count: 1, nodes: ['web/src/api.ts#getItem'] });
 
   hub.clear();
   assert.deepEqual(hub.state().looked, {});

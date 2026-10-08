@@ -635,7 +635,9 @@ export class AgentHub {
           diff: !!f.diff,
         });
       }
-      for (const [id, at] of rec.looked) {
+      // What it changed itself is marked as changed: the look is in that.
+      const lookedHere = [...rec.looked].filter(([id]) => !nodes[id]?.agents.includes(rec.id));
+      for (const [id, at] of lookedHere) {
         const cur = looked[id];
         if (!cur) looked[id] = { agents: [rec.id], at };
         else {
@@ -658,7 +660,7 @@ export class AgentHub {
         now: statusLine(rec.said, rec.steps, rec.stepAt, rec.prompt ? { text: rec.prompt, at: rec.promptAt } : undefined),
         steps: rec.steps,
         files,
-        ...(rec.looked.size ? { looked: { count: rec.looked.size, nodes: [...rec.looked.keys()].reverse().slice(0, LOOKED_LISTED) } } : {}),
+        ...(lookedHere.length ? { looked: { count: lookedHere.length, nodes: lookedHere.map(([id]) => id).reverse().slice(0, LOOKED_LISTED) } } : {}),
         startedAt: new Date(rec.startedAt).toISOString(),
         updatedAt: new Date(rec.updatedAt).toISOString(),
       });
