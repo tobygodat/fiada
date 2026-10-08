@@ -39,13 +39,12 @@ test('a change after you looked is unread again', () => {
   assert.ok(u.has('web/src/pages/items.tsx'), 'the file with an unread function in it is unread too');
 });
 
-test('opening each changed function reads the file, unless the file changed after them', () => {
+test("opening each changed function doesn't read the file: its change can reach outside them", () => {
   let marks = markRead({}, 'web/src/pages/items.tsx#ItemsPage', nodes)!;
-  assert.ok(unreadIds(nodes, marks).has('web/src/pages/items.tsx'), 'one of two functions read');
   marks = markRead(marks, 'web/src/pages/items.tsx#useTags', nodes)!;
-  assert.ok(!unreadIds(nodes, marks).has('web/src/pages/items.tsx'), 'both read: the file is read');
-  const fileLater = { ...nodes, 'web/src/pages/items.tsx': change('modified', 'file', 50) };
-  assert.ok(unreadIds(fileLater, marks).has('web/src/pages/items.tsx'), 'the file changed again outside them');
+  const u = unreadIds(nodes, marks);
+  assert.ok(!u.has('web/src/pages/items.tsx#ItemsPage') && !u.has('web/src/pages/items.tsx#useTags'));
+  assert.ok(u.has('web/src/pages/items.tsx'), 'the file itself still to open');
 });
 
 test('opening the folder that stands in for a deleted file reads it', () => {

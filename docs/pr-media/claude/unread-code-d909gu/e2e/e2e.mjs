@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-const require = createRequire('/home/claude/hackgt13/web/package.json');
+// Playwright from the checkout this script sits in (docs/pr-media/<branch>/e2e → the repo root).
+const require = createRequire(new URL('../../../../../web/package.json', import.meta.url));
 const { chromium } = require('playwright');
 
 const out = process.argv[2];

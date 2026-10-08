@@ -67,26 +67,16 @@ function seen(id: string, c: NodeChange, marks: ReadMarks): boolean {
 }
 
 /**
- * The changed nodes you haven't seen since their latest change. A file whose
- * changed functions you've each opened counts as read too, and one with an
- * unread function in it doesn't.
+ * The changed nodes you haven't seen since their latest change. A file with an
+ * unread function in it is unread too. Opening its functions one by one doesn't
+ * read the file: the file's change can hold lines outside them (imports, top-level code).
  */
 export function unreadIds(nodes: Record<string, NodeChange>, marks: ReadMarks): Set<string> {
   const out = new Set<string>();
   for (const [id, c] of Object.entries(nodes)) if (!seen(id, c, marks)) out.add(id);
-  // Files with every changed function read, and none of the file's own change newer than theirs, are read.
-  const symbols = new Map<string, { read: boolean; at: number }>();
-  for (const [id, c] of Object.entries(nodes)) {
+  for (const id of out) {
     const file = fileOf(id);
-    if (!file) continue;
-    const s = symbols.get(file) ?? { read: true, at: 0 };
-    symbols.set(file, { read: s.read && !out.has(id), at: Math.max(s.at, c.at) });
-  }
-  // A file with an unread function in it is unread itself.
-  for (const [file, s] of symbols) {
-    if (!s.read) {
-      if (nodes[file]) out.add(file);
-    } else if (s.at >= (nodes[file]?.at ?? 0)) out.delete(file);
+    if (file && nodes[file]) out.add(file);
   }
   return out;
 }
@@ -141,8 +131,8 @@ export const fileTarget = (f: AgentFile) => f.node ?? (f.repo ? `${f.repo}/${f.p
 
 /**
  * Whether one agent's change to a file is unread for that agent: its file is
- * unread overall and you haven't opened it (or each function the agent changed
- * in it, or the circle standing in for it) since this agent's own last change.
+ * unread overall and you haven't opened it (or the circle standing in for it)
+ * since this agent's own last change.
  * Another agent's later change to the same file shows on that agent instead.
  */
 export function agentFileUnread(f: AgentFile, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): boolean {
@@ -151,8 +141,7 @@ export function agentFileUnread(f: AgentFile, unread: ReadonlySet<string>, marks
   const at = Date.parse(f.at);
   if (!Number.isFinite(at)) return true;
   const anchor = nodes[id]?.anchor;
-  if (Math.max(marks[id] ?? 0, anchor ? (marks[anchor] ?? 0) : 0) >= at) return false;
-  return !(f.symbols.length && f.symbols.every((s) => (marks[s.id] ?? 0) >= at));
+  return Math.max(marks[id] ?? 0, anchor ? (marks[anchor] ?? 0) : 0) < at;
 }
 
 /** The changed nodes unread for one agent: its files unread for it, and the functions in them unread by its own times. For the map while that agent is lit. */
