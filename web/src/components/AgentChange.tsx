@@ -12,6 +12,10 @@ interface Props {
   node: string;
   /** For a symbol: its lines, to show only the hunks that touch it. */
   lines?: [number, number];
+  /** The lines of every changed symbol in the file: also show the hunks none of them touches. */
+  rest?: readonly [number, number][];
+  /** The changed file's path, when the panel is on something else standing in for it (a deleted file's folder). */
+  what?: string;
   /** Changes when the agent changes the file again, to refetch. */
   rev: number;
   kind: ChangeKind;
@@ -28,7 +32,7 @@ const ago = (iso: string) => {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
-export function AgentChange({ node, lines, rev, kind, agent }: Props) {
+export function AgentChange({ node, lines, rest, what, rev, kind, agent }: Props) {
   const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
   useEffect(() => {
@@ -48,11 +52,14 @@ export function AgentChange({ node, lines, rev, kind, agent }: Props) {
   const list = mine ?? [];
   return (
     <div className="detail-block agent-change">
-      <div className="block-title">{VERB[kind]} by an agent</div>
+      <div className="block-title">
+        {VERB[kind]} by an agent
+        {what && <bdi> · {what}</bdi>}
+      </div>
       {!mine && <div className="agent-note">loading the diff…</div>}
       {mine && !list.length && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d) => {
-        const shown = d.diff ? diffRows(hunksFor(d.diff, lines)) : [];
+        const shown = d.diff ? diffRows(hunksFor(d.diff, lines, rest)) : [];
         return (
           <div key={d.agent} className="agent-diff">
             <div className="agent-diff-head">

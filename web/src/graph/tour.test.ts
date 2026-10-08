@@ -179,8 +179,9 @@ test('layers go in their listed order even when a rank collides with a position'
   assert.deepEqual(ids, ['web/src/pages/items.tsx#ItemsPage', 'api/app/models.py#User']);
 });
 
-test('breaking a loop of calls starts inside the loop, not at what it calls', () => {
-  // ItemsService ↔ UsersService, and ItemsService → Item: Item sorts first by repository but must wait.
+test('a loop of calls is read whole before what it calls', () => {
+  // ItemsService ↔ UsersService, and ItemsService → Item: Item sorts first by repository, and comes
+  // next after ItemsService, but waits until the whole loop is read.
   const flat = {
     ...graph,
     layers: [{ id: 'ui', name: 'UI' }],
@@ -197,5 +198,17 @@ test('breaking a loop of calls starts inside the loop, not at what it calls', ()
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
   ]);
   const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
-  assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'api/app/models.py#Item', 'web/src/client/api.ts#UsersService']);
+  assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService', 'api/app/models.py#Item']);
+});
+
+test("the first of a file's function stops also carries the file's other hunks", () => {
+  const a = agent([
+    file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
+    file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')]),
+  ]);
+  const stops = tourStops(graph, graphIndex, a, NO_NODES);
+  const rest = Object.fromEntries(stops.map((s) => [s.id, s.rest]));
+  assert.deepEqual(rest['web/src/client/api.ts#ItemsService'], ['web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService']);
+  assert.equal(rest['web/src/client/api.ts#UsersService'], undefined, 'once per file');
+  assert.deepEqual(rest['web/src/pages/items.tsx#ItemsPage'], ['web/src/pages/items.tsx#ItemsPage']);
 });

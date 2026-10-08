@@ -2,8 +2,11 @@
 // same setup as review-tour.mjs (a running `bun run dev`, the FastAPI template
 // imported, web/e2e/agent-session.sh played on it). A second agent edits the
 // file under review: the detail panel still shows only the reviewed agent's
-// diff. Then the reviewed agent takes that file back: the tour goes on to the
-// change now in its place. Puts the file and the session back as they were.
+// diff. A function's stop also shows its file's hunks outside every changed
+// function (crud.py's import). The agent deletes a file: its stop, on the
+// folder that's left, shows the deleted file's diff. Then the reviewed agent
+// takes a file back: the tour goes on to the change now in its place. Puts
+// the files and the session back as they were.
 //
 //   node web/e2e/review-tour-live.mjs <fastapi clone> [url]
 
@@ -19,14 +22,22 @@ assert.ok(repo, 'usage: review-tour-live.mjs <fastapi clone> [url]');
 const url = process.argv.slice(3).find((a) => /^https?:/.test(a)) ?? 'http://localhost:5178/';
 const here = dirname(fileURLToPath(import.meta.url));
 const FILE = 'frontend/src/routes/_layout/items.tsx';
-const hook = (session) =>
-  execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, FILE]);
+const GONE = 'backend/app/utils.py';
+const hook = (session, file = FILE) =>
+  execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, file]);
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const page = await browser.newPage({ viewport: { width: 1600, height: 960 } });
 await page.route(/fonts\.(googleapis|gstatic)\.com/, async (r) => r.fulfill({ response: await r.fetch() }).catch(() => r.abort()));
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
+const hunks = () => page.locator('.agent-diff .hunk-at').allInnerTexts();
+const goTo = async (name) => {
+  await page.locator(`.tour-tick[aria-label*=": ${name},"]`).click();
+  await page.locator('.tour-name', { hasText: name }).waitFor();
+  await page.locator('.agent-diff').first().waitFor();
+  await page.waitForTimeout(600);
+};
 const count = async () => {
   const m = /change (\d+) of (\d+)/.exec(await page.locator('.tour-count').innerText());
   assert.ok(m, 'the tour says where you are');
@@ -58,6 +69,27 @@ try {
   assert.match(await page.locator('.agent-diff-head').innerText(), /· demo/, 'and it is the reviewed agent’s');
   assert.equal(await page.locator('.tour-name').innerText(), name, 'still on the same change');
 
+  // crud.py changed an import and added items_by_priority: the function's stop shows both hunks.
+  await goTo('items_by_priority');
+  assert.equal((await hunks()).length, 2, 'two hunks: the function and the import');
+  assert.match(await page.locator('.agent-diff').innerText(), /from sqlmodel import Session, col, select/, 'the import hunk comes with the function');
+
+  // The agent deletes a file: its stop stands on the folder left, with the deleted file's diff.
+  execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', GONE]);
+  execFileSync('rm', [join(repo, GONE)]);
+  hook('demo-review', GONE);
+  await page.waitForTimeout(1500);
+  await goTo('utils.py');
+  assert.equal(await page.locator('.detail-title').innerText(), 'backend/app', 'a deleted file is read on its folder');
+  assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by an agent · backend\/app\/utils\.py/);
+  assert.equal(await page.locator('.agent-diff').count(), 1);
+  assert.ok((await page.locator('.agent-diff .del').count()) > 10, 'the deleted lines are shown');
+  execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', GONE]);
+  hook('demo-review', GONE);
+  await page.waitForTimeout(1500);
+  await page.locator('.tour-tick').first().click();
+  await page.locator('.tour-name', { hasText: name }).waitFor();
+
   // The reviewed agent takes the file back: the tour goes on to the change in its place.
   execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);
   hook('demo-review');
@@ -76,7 +108,8 @@ try {
   await browser.close();
   // Put things back: the other agent gone, the reviewed agent's edit to the page made again.
   await fetch(`http://localhost:4178/api/agent?id=${encodeURIComponent(`claude-code@${repo}#zz-other`)}`, { method: 'DELETE' }).catch(() => {});
-  execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);
+  execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', FILE, GONE]);
+  hook('demo-review', GONE);
   execFileSync('python3', [join(here, 'agent-edits.py'), repo, 'page']);
   hook('demo-review');
 }

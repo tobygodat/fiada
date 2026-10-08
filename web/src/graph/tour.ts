@@ -22,6 +22,11 @@ export interface TourStop {
   layer: string | null;
   /** Epoch ms of the agent's latest change to it. */
   at: number;
+  /**
+   * On the first of a file's function stops: every changed function in that file, so this stop
+   * also shows the file's hunks none of them touches (an import, a constant) and none is skipped.
+   */
+  rest?: string[];
 }
 
 /**
@@ -67,14 +72,32 @@ export function tourStops(
       add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
     }
   }
-  return order(stops, graph, graphIndex);
+  const out = order(stops, graph, graphIndex);
+  // The first function stop of each file carries the file's other hunks.
+  const fns = new Map<string, string[]>();
+  for (const s of out) {
+    const n = graphIndex.get(s.target);
+    if (s.target !== s.id || n?.kind !== 'symbol') continue;
+    const l = fns.get(n.parent);
+    if (l) l.push(s.id);
+    else fns.set(n.parent, [s.id]);
+  }
+  const marked = new Set<string>();
+  return out.map((s) => {
+    const n = graphIndex.get(s.target);
+    if (s.target !== s.id || n?.kind !== 'symbol' || marked.has(n.parent)) return s;
+    marked.add(n.parent);
+    return { ...s, rest: fns.get(n.parent)! };
+  });
 }
 
 /**
  * Layers first, from the user inwards; inside a layer, a stop waits for the
  * changed code that calls it, and after a stop its own callees come next.
- * Links that point back up the layers (a callback, a shared type) don't hold
- * anything back. Ties go by repository, path and line, so the order is stable.
+ * Code that calls itself round in a loop is read as one: the whole loop
+ * before anything it calls. Links that point back up the layers (a
+ * callback, a shared type) don't hold anything back. Ties go by repository,
+ * path and line, so the order is stable.
  */
 function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphIndex: Map<string, GraphNode>): TourStop[] {
   if (stops.length < 2) return stops;
@@ -127,41 +150,63 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     }
   }
 
-  /** Whether `to` can be reached from `from` along links between stops not visited yet. */
-  const reaches = (from: number, to: number, done: Set<number>) => {
-    const seen = new Set([from]);
-    const todo = [from];
-    while (todo.length) {
-      for (const n of next[todo.pop()!]) {
-        if (n === to) return true;
-        if (done.has(n) || seen.has(n)) continue;
-        seen.add(n);
-        todo.push(n);
-      }
-    }
-    return false;
-  };
-
+  const loop = loops(next);
   const done = new Set<number>();
   const out: number[] = [];
   let last = -1;
+  // The loop being read, until every stop in it is.
+  let inLoop = -1;
   while (out.length < stops.length) {
     // The earliest layer with anything left goes first, whatever is ready further in.
     const left = stops.map((_, i) => i).filter((i) => !done.has(i));
     const top = Math.min(...left.map((i) => layerRank(stops[i])));
     const layer = left.filter((i) => layerRank(stops[i]) === top);
-    const ready = layer.filter((i) => [...waits[i]].every((w) => done.has(w)));
-    // A loop of calls: start it where the order would anyway, but only inside the loop itself, so
-    // what the loop calls still waits. A stop is in such a loop when every caller still waiting is
-    // one it reaches back to.
-    const here = ready.length ? ready : layer.filter((i) => [...waits[i]].every((w) => done.has(w) || reaches(i, w, done)));
+    const open = layer.filter((i) => loop[i] === inLoop);
+    if (!open.length) inLoop = -1;
+    const pool = open.length ? open : layer;
+    const ready = pool.filter((i) => [...waits[i]].every((w) => done.has(w)));
+    // Nothing ready: a loop of calls. Start it where the order would anyway, at a stop whose
+    // callers still waiting are all in its own loop, so what the loop calls still waits.
+    const here = ready.length ? ready : pool.filter((i) => [...waits[i]].every((w) => done.has(w) || loop[w] === loop[i]));
     const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
     const pick = (follow.length ? follow : here).sort(before)[0];
     done.add(pick);
     out.push(pick);
     last = pick;
+    if (inLoop < 0 && left.some((i) => i !== pick && loop[i] === loop[pick])) inLoop = loop[pick];
   }
   return out.map((i) => stops[i]);
+}
+
+/** Which loop of links each stop is in (Tarjan's strongly connected components); a stop in no loop is in one of its own. */
+function loops(next: Set<number>[]): number[] {
+  const comp = next.map(() => -1);
+  const index = next.map(() => -1);
+  const low = next.map(() => 0);
+  const stack: number[] = [];
+  const on = new Set<number>();
+  let n = 0;
+  let c = 0;
+  const visit = (v: number) => {
+    index[v] = low[v] = n++;
+    stack.push(v);
+    on.add(v);
+    for (const w of next[v]) {
+      if (index[w] < 0) {
+        visit(w);
+        low[v] = Math.min(low[v], low[w]);
+      } else if (on.has(w)) low[v] = Math.min(low[v], index[w]);
+    }
+    if (low[v] !== index[v]) return;
+    for (let w = -1; w !== v; ) {
+      w = stack.pop()!;
+      on.delete(w);
+      comp[w] = c;
+    }
+    c++;
+  };
+  next.forEach((_, v) => index[v] < 0 && visit(v));
+  return comp;
 }
 
 /** Read marks: for each stop id, the change time it was read at. */

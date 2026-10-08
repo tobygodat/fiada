@@ -23,6 +23,13 @@ test('a symbol sees only the hunks that touch its lines; a file sees them all', 
   assert.equal(hunksFor(diff).length, 8, 'the header lines above the first hunk are dropped');
 });
 
+test('with the lines of the changed symbols, a symbol also sees the hunks none of them touches', () => {
+  // The import hunk at line 1 touches no changed symbol: it comes along.
+  assert.equal(hunksFor(diff, [41, 45], [[41, 45]]).length, 8);
+  // When another changed symbol covers it, it stays with that symbol.
+  assert.equal(hunksFor(diff, [41, 45], [[41, 45], [1, 3]]).length, 4);
+});
+
 test('diff rows: the sign in its own gutter, each hunk as the line it starts at', () => {
   const rows = diffRows(hunksFor(diff));
   assert.deepEqual(rows[0], { t: 'hunk', line: 1, context: '' });

@@ -2,7 +2,7 @@
 // each line as the view draws it.
 
 /** Hunks of a unified diff whose new side overlaps `lines`; all of them when none does. */
-export function hunksFor(diff: string, lines?: [number, number]): string[] {
+export function hunksFor(diff: string, lines?: [number, number], rest?: readonly [number, number][]): string[] {
   const out = diff.split('\n');
   const start = out.findIndex((l) => l.startsWith('@@'));
   if (start < 0) return out;
@@ -14,14 +14,15 @@ export function hunksFor(diff: string, lines?: [number, number]): string[] {
   const last = hunks[hunks.length - 1];
   if (last[last.length - 1] === '') last.pop();
   if (!lines) return hunks.flat();
-  const [a, b] = lines;
-  const hit = hunks.filter((h) => {
+  const touches = (h: string[], [a, b]: readonly [number, number]) => {
     const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
     if (!m) return true;
     const s = Number(m[1]);
     const e = s + Math.max(1, m[2] == null ? 1 : Number(m[2])) - 1;
     return s <= b && e >= a;
-  });
+  };
+  // With `rest` (the lines of every changed symbol in the file), also the hunks none of them touches: an import, a constant.
+  const hit = hunks.filter((h) => touches(h, lines) || (rest && !rest.some((r) => touches(h, r))));
   return (hit.length ? hit : hunks).flat();
 }
 

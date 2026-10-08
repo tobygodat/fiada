@@ -93,7 +93,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, review
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} reviewing={reviewing} />}
+      {g && <Changed g={g} graphIndex={graphIndex} activity={activity} reviewing={reviewing} />}
 
       {repo && (
         <div className="detail-block">
@@ -193,14 +193,30 @@ const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
 /** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
-function Changed({ g, activity, reviewing }: { g: GraphNode; activity?: ActivityState | null; reviewing?: Props['reviewing'] }) {
-  const own = activity?.nodes[g.id];
-  if (!own) return null;
-  const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
+function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null; reviewing?: Props['reviewing'] }) {
   // On a review tour, the reviewed agent's diff and its own kind of change, not the latest of any agent's.
   const tour = reviewing?.stop.target === g.id ? reviewing : null;
+  const code = g.kind === 'file' || g.kind === 'symbol';
+  // A deleted file on the tour stands on the folder that's left: the file's own diff, under the folder.
+  if (tour && tour.stop.id !== g.id && !code) {
+    return <AgentChange node={tour.stop.id} rev={tour.stop.at} kind={tour.stop.kind} agent={tour.agent} what={tour.stop.path} />;
+  }
+  const own = code ? activity?.nodes[g.id] : null;
+  if (!own) return null;
+  const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
   const kind = tour?.stop.id === g.id ? tour.stop.kind : own.kind;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={kind} agent={tour?.agent} />;
+  // The file's first function on the tour also shows the hunks none of its changed functions touches.
+  const rest = tour?.stop.rest?.map((id) => graphIndex.get(id)?.lines).filter((l): l is [number, number] => !!l);
+  return (
+    <AgentChange
+      node={g.id}
+      lines={g.kind === 'symbol' ? g.lines : undefined}
+      rest={rest}
+      rev={file?.at ?? own.at}
+      kind={kind}
+      agent={tour?.agent}
+    />
+  );
 }
 
 /**
