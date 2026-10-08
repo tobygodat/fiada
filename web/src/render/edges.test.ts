@@ -114,4 +114,7 @@ test('words go in a gap on a long link, beside a short one, and never where they
   const far = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, (p) => Math.abs(p.y) > 30)!;
   assert.ok(far.from && Math.abs(far.y) > 30, 'hung from the link by a rule');
   assert.equal(labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, () => false), null);
+  // The rule is checked too: a spot whose rule is blocked is passed over for one whose rule is clear.
+  const ruled = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, (p, from) => Math.abs(p.y) > 30 && (!from || from.y > 0))!;
+  assert.ok(ruled.from && ruled.from.y > 0 && ruled.y > 30);
 });

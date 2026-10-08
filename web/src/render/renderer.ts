@@ -707,26 +707,30 @@ export class MapRenderer {
     // No box: muted Literata set in a gap cut from the line, the way an open
     // circle's name sits in its rim. Only where the words fit along the link
     // with room to spare, clear of every tag, name and closed circle; the
-    // strongest links get their words first, the one pointed at before them.
+    // strongest links get their words first.
     if (labelQueue.length) {
       this.font(400, 13);
       const closed = this.drawnNodes.filter((d) => !d.open && d.r > 2);
       const overlaps = (b: Rect, o: Rect, m: number) => b.x < o.x + o.w + m && o.x < b.x + b.w + m && b.y < o.y + o.h + m && o.y < b.y + b.h + m;
+      // A rule from the link to its words mustn't run over a closed circle.
+      const crossesCircle = (a: { x: number; y: number }, z: { x: number; y: number }) => closed.some((d) => distToSegment(d.x, d.y, a.x, a.y, z.x, z.y) < d.r + 1);
       const inCircle = (b: Rect) =>
         closed.some((d) => {
           const nx = Math.max(b.x, Math.min(d.x, b.x + b.w));
           const ny = Math.max(b.y, Math.min(d.y, b.y + b.h));
           return (nx - d.x) ** 2 + (ny - d.y) ** 2 < (d.r + 2) ** 2;
         });
-      labelQueue.sort((p, q) => +q.hot - +p.hot || edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost));
+      // Always in the same order, so the words pointed at keep the spot they had.
+      labelQueue.sort((p, q) => edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost) || (p.g.key < q.g.key ? -1 : 1));
       ctx.lineJoin = 'round';
       for (const t of labelQueue) {
         const text = restLabel(t.g);
         if (!text) continue;
         const tw = Math.ceil(this.textWidth(text, 400, 13));
         const box = (p: { x: number; y: number }): Rect => ({ x: Math.round(p.x - tw / 2 - 4), y: Math.round(p.y - 9), w: tw + 8, h: 18 });
-        const clear = (p: { x: number; y: number }) => {
+        const clear = (p: { x: number; y: number }, from?: { x: number; y: number }) => {
           const b = box(p);
+          if (from && crossesCircle(from, { x: Math.max(b.x, Math.min(from.x, b.x + b.w)), y: Math.max(b.y, Math.min(from.y, b.y + b.h)) })) return false;
           if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
           return !this.drawnTags.some((o) => overlaps(b, o, 4)) && !this.drawnTabs.some((o) => overlaps(b, o, 4)) && !inCircle(b);
         };

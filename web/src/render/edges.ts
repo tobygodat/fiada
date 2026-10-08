@@ -108,15 +108,15 @@ export function restEdges(
  * when neighbouring circles push the words further off. Points nearer the
  * middle win.
  * `half` is half the words' box; `ok` says whether a box centred there is
- * clear (of the view's edges, tags, names and closed circles). Null when
- * nothing fits.
+ * clear (of the view's edges, tags, names and closed circles), and for words
+ * on a rule, whether the rule from `from` is clear too. Null when nothing fits.
  */
 export function labelSpot(
   [x1, y1, cx, cy, x2, y2]: readonly number[],
   gap: number,
   half: { w: number; h: number },
   lineWidth: number,
-  ok: (p: { x: number; y: number }) => boolean,
+  ok: (p: { x: number; y: number }, from?: { x: number; y: number }) => boolean,
 ): { x: number; y: number; inline: boolean; from?: { x: number; y: number } } | null {
   const ts = [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7];
   const point = (t: number) => {
@@ -145,7 +145,8 @@ export function labelSpot(
       for (const side of [-1, 1]) {
         const p = { x: x + nx * off * side, y: y + ny * off * side };
         // Further off only where circles crowd the line; the words then hang from it by a short rule.
-        if (ok(p)) return { ...p, inline: false, from: more ? { x: x + nx * (clear - 1) * side, y: y + ny * (clear - 1) * side } : undefined };
+        const from = more ? { x: x + nx * (clear - 1) * side, y: y + ny * (clear - 1) * side } : undefined;
+        if (ok(p, from)) return { ...p, inline: false, from };
       }
     }
   }
