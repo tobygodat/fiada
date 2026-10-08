@@ -127,7 +127,7 @@ a { color: inherit; }
 .search input::-webkit-search-cancel-button { display: none; }
 .search input:focus { border-color: var(--accent); }
 .search-hits {
-  position: absolute; right: 0; top: calc(100% + var(--space-xs)); width: 420px; max-height: 60vh; overflow-y: auto;
+  position: absolute; right: 0; top: calc(100% + var(--space-xs)); width: min(420px, calc(100vw - 2 * var(--space-md))); max-height: 60vh; overflow-y: auto;
   margin: 0; padding: var(--space-xs) 0; list-style: none; z-index: 6;
   border: 1px solid var(--hairline-strong); border-radius: var(--radius); background: var(--ground-raised);
 }
@@ -142,6 +142,11 @@ a { color: inherit; }
 .search-kind { color: var(--muted); }
 .search-where { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-fine); color: var(--muted); }
 .search-hits li.search-none { color: var(--muted); cursor: default; }
+/* Narrow windows: the field shrinks and its matches span the window under the top bar, not off its left edge. */
+@media (max-width: 760px) {
+  .search input { width: 160px; }
+  .search-hits { position: fixed; left: var(--space-md); right: var(--space-md); top: calc(var(--fiada-topbar) + var(--space-xs)); width: auto; }
+}
 
 /* ── map ── */
 .stage { position: absolute; inset: 0; background: var(--ground); user-select: none; }

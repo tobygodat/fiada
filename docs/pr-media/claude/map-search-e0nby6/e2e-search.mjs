@@ -113,6 +113,20 @@ if (mode === 'before') {
   await page.keyboard.press('Escape');
   await page.getByText('code', { exact: true }).first().click();
   await page.waitForTimeout(1200);
+  // A narrow window keeps the whole list on screen.
+  for (const w of [480, 700, 900]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    await input.fill('');
+    await input.click();
+    await page.keyboard.type('item', { delay: 20 });
+    await page.waitForTimeout(300);
+    const box = await page.locator('.search-hits').boundingBox();
+    assert(box && box.x >= 0 && box.x + box.width <= w + 1, `the list fits a ${w}px window (${Math.round(box.x)}..${Math.round(box.x + box.width)})`);
+    if (w === 480) await page.screenshot({ path: out + '/after-narrow.png' });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   // Light theme.
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
   await input.click();
