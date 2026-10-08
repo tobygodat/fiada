@@ -114,7 +114,7 @@ test('other closed circles are avoided when there is room, and a crowd of badges
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
   // A canvas that draws nothing and measures every character 6px wide.
   const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
-  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, reached: null, ripple: 0 }]]);
+  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, reached: null, direct: false, ripple: 0 }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};
@@ -204,13 +204,14 @@ test('a link running far off screen at high zoom only blocks the spots it really
   assert.equal(curveHits(e, box), false);
 });
 
-const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, reached: null, ripple: 0, ...m });
+const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, reached: null, direct: false, ripple: 0, ...m });
 
 test('the dotted ripple ring goes only on closed circles that depend on a change and show none of their own', () => {
   assert.equal(rippleRing(marks({ reached: 'evidenced' }), false), true);
   assert.equal(rippleRing(marks({ reached: 'inferred', ripple: 3 }), false), true);
-  // Open: the circles inside carry it.
+  // Open: the circles inside carry it, unless the circle itself links into a change.
   assert.equal(rippleRing(marks({ reached: 'evidenced', ripple: 3 }), true), false);
+  assert.equal(rippleRing(marks({ reached: 'evidenced', direct: true }), true), true);
   // Changed itself: its change ring says more.
   assert.equal(rippleRing(marks({ reached: 'evidenced', self: 'modified' }), false), false);
   // Holding changes: its badge counts the ripple beside them.

@@ -126,14 +126,15 @@ export function App() {
     () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit) : null),
     [tree, graphIndex, agents.state, lit],
   );
+  // One agent lit: the map, and the panel's account of what changes reach, use only its changes.
+  const shownChanges = useMemo(() => (agents.state && spot && lit ? agentNodes(agents.state.nodes, lit) : agents.state?.nodes), [agents.state, spot, lit]);
   const activity = useMemo(() => {
     const s = agents.state;
-    if (!tree || !s) return null;
-    // One agent lit: the map marks only its changes.
-    const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
+    const nodes = shownChanges;
+    if (!tree || !s || !nodes) return null;
     if (!Object.keys(nodes).length) return null;
     return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents, graph?.edges);
-  }, [tree, graphIndex, graph, agents.state, spot, lit]);
+  }, [tree, graphIndex, graph, agents.state, shownChanges, spot, lit]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;
@@ -587,6 +588,7 @@ export function App() {
             selected={selected}
             contract={contract}
             activity={agents.state}
+            shownChanges={shownChanges}
             onSelect={select}
           />
         )}

@@ -56,6 +56,8 @@ interface Props {
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
+  /** The changes the map is showing: every agent's, or the lit agent's alone. */
+  shownChanges?: ActivityState['nodes'];
   onSelect(id: string): void;
 }
 
@@ -68,7 +70,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -91,7 +93,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} />}
+      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} />}
 
       {repo && (
         <div className="detail-block">
@@ -195,9 +197,9 @@ const sources = new Map<string, Promise<SourceText>>();
  * hunks that touch it), led by what the change reaches: who calls, imports or
  * requests it, the same links the map rings with dots.
  */
-function Changed({ g, graph, graphIndex, activity }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null }) {
+function Changed({ g, graph, graphIndex, activity, shown }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null; shown?: ActivityState['nodes'] }) {
   const own = activity?.nodes[g.id];
-  const reach = useMemo(() => (own && own.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, activity?.nodes) : []), [own, g, graph, graphIndex, activity]);
+  const reach = useMemo(() => (own && own.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, shown ?? activity?.nodes) : []), [own, g, graph, graphIndex, shown, activity]);
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
   return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} reach={reach} />;

@@ -99,11 +99,13 @@ function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: num
 }
 
 /**
- * Whether a circle takes the dotted ripple ring: it is closed, it or something in
- * it depends on a change, and it shows no change of its own (a changed circle has
- * its ring, and a closed one holding changes has its badge, which counts the ripple).
+ * Whether a circle takes the dotted ripple ring. It shows no change of its own
+ * (a changed circle has its ring). Closed, it or something in it depends on a
+ * change and it holds no changes (those get a badge, which counts the ripple).
+ * Open, its children carry the ring, unless the circle itself links into a change
+ * (a file-level import), which no child would show.
  */
-export const rippleRing = (m: Marks, open: boolean) => !open && !!m.reached && !m.self && !changeCount(m);
+export const rippleRing = (m: Marks, open: boolean) => !!m.reached && !m.self && (open ? m.direct : !changeCount(m));
 
 const FULL: [number, number] = [0, Math.PI * 2];
 

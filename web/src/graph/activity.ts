@@ -24,6 +24,8 @@ export interface Marks {
    * that reaches it was guessed rather than proven by the code.
    */
   reached: 'evidenced' | 'inferred' | null;
+  /** This node itself links into a change (rather than only something inside it), so it keeps its ring when open. */
+  direct: boolean;
   /** How many dependents sit underneath, in the view's unit like the change counts. */
   ripple: number;
 }
@@ -42,7 +44,7 @@ export function rollupActivity(
   const out: TreeActivity = new Map();
   const get = (id: string) => {
     let m = out.get(id);
-    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, reached: null, ripple: 0 }));
+    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, reached: null, direct: false, ripple: 0 }));
     return m;
   };
   const unit = tree.view === 'code' ? 'file' : 'symbol';
@@ -138,7 +140,9 @@ function addRipple(
   // The unit each dependent is counted as: its file in Code view, itself in By function.
   const units = new Map<string, boolean>();
   for (const [id, sure] of dependents) {
-    mark(get(id), sure);
+    const m = get(id);
+    mark(m, sure);
+    m.direct = true;
     const n = tree.nodes.get(id)!;
     const unit = tree.view === 'code' && n.kind === 'symbol' ? n.parent : id;
     if (!unit || unit === tree.root.id || isChanged(unit)) continue;

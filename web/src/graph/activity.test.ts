@@ -179,6 +179,15 @@ test('By function counts dependent symbols under their layer and domain', () => 
   assert.equal(a.get('domain:items/ui')?.ripple, 2);
 });
 
+test('a file that imports a change is a dependent itself, not only the circle round one', () => {
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'web/src/client/api.ts': change('modified', 'file', 10) }), [], edges);
+  // about.tsx imports the changed file directly; items.tsx only holds useItems, which calls into it.
+  assert.equal(a.get('web/src/pages/about.tsx')?.direct, true);
+  assert.equal(a.get('web/src/pages/items.tsx#useItems')?.direct, true);
+  assert.equal(a.get('web/src/pages/items.tsx')?.reached, 'evidenced');
+  assert.equal(a.get('web/src/pages/items.tsx')?.direct, false);
+});
+
 test('without edges there is no ripple', () => {
   const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }));
   assert.ok([...a.values()].every((m) => m.reached === null && m.ripple === 0));
