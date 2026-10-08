@@ -148,6 +148,8 @@ a { color: inherit; }
   .altitudes { display: none; }
   .topbar-right { gap: var(--space-sm); }
   .crumbs .back { flex: none; }
+  /* While indexing, its word takes the zoom readout's place. */
+  .topbar-right:has(.busy) .zoom { display: none; }
   .search input { width: 160px; }
   .search-hits { position: fixed; left: var(--space-md); right: var(--space-md); top: calc(var(--fiada-topbar) + var(--space-xs)); width: auto; }
 }

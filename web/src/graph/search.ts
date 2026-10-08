@@ -41,7 +41,8 @@ function rank(n: GraphNode, q: string): { score: number; span: [number, number] 
   while (at > 0 && !isWordStart(n.name, at)) at = name.indexOf(q, at + 1);
   if (at > 0) return { score: 2, span: [at, at + q.length] };
   if (first > 0) return { score: 3, span: [first, first + q.length] };
-  if (n.kind !== 'repo' && n.id.toLowerCase().includes(q)) return { score: 4, span: null };
+  // The id holds the path, and for a repo the id that tells same-named repos apart (`app-2`).
+  if (n.id.toLowerCase().includes(q)) return { score: 4, span: null };
   // Letters in order, as in "itsvc" for ItemsService.
   let i = 0;
   for (const ch of name) if (ch === q[i]) i++;

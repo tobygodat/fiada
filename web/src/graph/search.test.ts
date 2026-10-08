@@ -72,6 +72,9 @@ test('two symbols with one name in one file say their lines', () => {
 test('two repos of one name say their ids', () => {
   const repo = (id: string) => ({ id, kind: 'repo', name: 'app', parent: 'root', repo: id }) as const;
   assert.deepEqual(searchNodes([repo('app'), repo('app-2')], 'app').map((h) => h.where), ['', 'app-2']);
+  // Past the first 12 of one name, the id still finds it.
+  const many = Array.from({ length: 14 }, (_, i) => repo(i ? `app-${i + 1}` : 'app'));
+  assert.deepEqual(searchNodes(many, 'app-13').map((h) => h.id), ['app-13']);
 });
 
 test('keeping only the best while scanning gives the same order as sorting everything', () => {

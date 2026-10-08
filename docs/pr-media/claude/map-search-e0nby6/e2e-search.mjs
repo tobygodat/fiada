@@ -67,6 +67,15 @@ if (mode === 'before') {
   const d2 = await page.evaluate(() => document.querySelector('.detail')?.textContent ?? '');
   assert(d2.includes(pickName), 'click picks ' + pickName);
   await page.screenshot({ path: out + '/after-click.png' });
+  // Enter that commits an IME composition doesn't pick.
+  await input.fill('');
+  await input.click();
+  await page.keyboard.type('item', { delay: 20 });
+  await page.waitForTimeout(200);
+  await input.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
+  await page.waitForTimeout(200);
+  assert((await page.locator('.search-hits').count()) === 1 && (await input.evaluate((el) => el === document.activeElement)), 'Enter during IME composition keeps typing instead of picking');
+  await page.keyboard.press('Escape');
   // A bare click event (as assistive tech and switch devices send) picks too.
   await input.fill('');
   await input.click();
@@ -135,6 +144,20 @@ if (mode === 'before') {
       return inside && back.width >= 30 && crumb.right <= field.left && field.right <= zoom.left;
     }, w);
     assert(bar, `the top bar fits a ${w}px window: back, breadcrumb, search and zoom all show without overlapping`);
+    // While indexing, the "indexing…" word joins the bar (as TopBar renders it, after search).
+    const busyBar = await page.evaluate((w) => {
+      const span = document.createElement('span');
+      span.className = 'muted small busy';
+      span.textContent = 'indexing…';
+      document.querySelector('.search').after(span);
+      const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
+      const back = r('.crumbs .back'), crumb = r('.crumbs button:nth-of-type(2)'), field = r('.search input'), busy = r('.busy');
+      const crumbEl = document.querySelector('.crumbs button:nth-of-type(2)');
+      const ok = [back, crumb, field, busy].every((b) => b && b.width > 0 && b.left >= 0 && b.right <= w + 1) && crumbEl.scrollWidth <= crumbEl.clientWidth + 1 && crumb.right <= field.left && field.right <= busy.left;
+      span.remove();
+      return ok;
+    }, w);
+    assert(busyBar, `while indexing, back, the whole breadcrumb, search and "indexing…" fit a ${w}px window`);
     await input.fill('');
     await input.click();
     await page.keyboard.type('item', { delay: 20 });

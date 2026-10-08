@@ -55,6 +55,8 @@ export function Search({ nodes, onPick }: Props) {
       setOpen(true);
       setActive((at + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
     } else if (e.key === 'Enter') {
+      // Enter that commits an IME composition is still typing, not a pick.
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
       e.stopPropagation();
       pick(hits[at]);
