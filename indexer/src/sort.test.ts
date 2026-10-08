@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@fiada/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
-import { sortProject, type Ask } from './classify/model-sort.ts';
+import { matchRef, sortProject, type Ask } from './classify/model-sort.ts';
 import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';
 import { defaultGrouping, leftoverFiles, normalizeGrouping, sortStats } from './classify/index.ts';
 import { Sorter, type SortHost } from './sorter.ts';
@@ -223,4 +223,148 @@ test("a grouping sent without Claude's sort keeps it", async () => {
   await ws.setGrouping({ ...withoutSort, sorted: null });
   assert.equal(ws.getGrouping().sorted, undefined, 'null clears it');
   assert.deepEqual(ws.state().sorting, { available: false, status: 'off', keyHint: KEY_HINT });
+});
+
+// The hosted indexer on 2026-10-08: a repository the classifier found no
+// features in (typingsite, 20 files), sorted with Claude Haiku. Its answers
+// gave each file's path where the prompt's "F1" ref was asked for, every
+// file was skipped twice, and the sort ended with "0 placements".
+const plain: BaseGraph = {
+  repos: [{ id: 'typing', name: 'typing', source: 'typing', kind: 'local', status: 'ready', commit: 'def456' }],
+  nodes: [
+    { id: 'typing', kind: 'repo', name: 'typing', parent: 'root', repo: 'typing' },
+    { id: 'typing/src/game/words.ts', kind: 'file', name: 'words.ts', parent: 'typing', repo: 'typing', path: 'src/game/words.ts' },
+    { id: 'typing/src/game/words.ts#pickWords', kind: 'symbol', name: 'pickWords', parent: 'typing/src/game/words.ts', repo: 'typing', path: 'src/game/words.ts', loc: 12 },
+    { id: 'typing/src/game/score.ts', kind: 'file', name: 'score.ts', parent: 'typing', repo: 'typing', path: 'src/game/score.ts' },
+    { id: 'typing/src/game/score.ts#wpm', kind: 'symbol', name: 'wpm', parent: 'typing/src/game/score.ts', repo: 'typing', path: 'src/game/score.ts', loc: 8 },
+    { id: 'typing/src/game/score.ts#accuracy', kind: 'symbol', name: 'accuracy', parent: 'typing/src/game/score.ts', repo: 'typing', path: 'src/game/score.ts', loc: 6 },
+    { id: 'typing/src/theme.ts', kind: 'file', name: 'theme.ts', parent: 'typing', repo: 'typing', path: 'src/theme.ts' },
+    { id: 'typing/src/theme.ts#applyTheme', kind: 'symbol', name: 'applyTheme', parent: 'typing/src/theme.ts', repo: 'typing', path: 'src/theme.ts', loc: 9 },
+  ],
+  edges: [{ from: 'typing/src/game/score.ts#wpm', to: 'typing/src/game/words.ts#pickWords', kind: 'calls' }],
+};
+
+/** Answers the way Haiku did: step 1 adds domains, step 2 names each file by `refOf` its prompt line. */
+function haikuLike(refOf: (ref: string, id: string) => unknown, extra: Record<string, unknown> = {}): { ask: Ask; asked: JsonRequest[] } {
+  const asked: JsonRequest[] = [];
+  const ask: Ask = async (req) => {
+    asked.push(req);
+    if (req.label === 'domains') {
+      return {
+        domains: [],
+        new_domains: [
+          { id: 'game', name: 'Typing game', reason: 'words to type and the score' },
+          { id: 'appearance', name: 'Appearance', reason: 'themes' },
+        ],
+      };
+    }
+    const lines = [...req.prompt.matchAll(/^(F\d+) (\S+)/gm)].map((m) => ({ ref: m[1], id: m[2] }));
+    return {
+      files: lines.map(({ ref, id }) => ({
+        ref: refOf(ref, id),
+        layer: 'client',
+        layer_reason: 'runs in the browser',
+        domain: id.includes('theme') ? 'appearance' : 'game',
+        reason: id.includes('theme') ? 'switches the colour theme' : 'part of the typing round',
+        symbols: [],
+        ...extra,
+      })),
+    };
+  };
+  return { ask, asked };
+}
+
+const placedIn = (sorted: SortedGrouping) => Object.keys(sorted.placements).sort();
+const allFiles = ['typing/src/game/score.ts', 'typing/src/game/words.ts', 'typing/src/theme.ts'];
+
+test("Claude answering with each file's path instead of its ref still places every file", async () => {
+  const before = classifyGraph(plain, defaultGrouping());
+  assert.equal(leftoverFiles(before).length, 3, 'the classifier places no feature here');
+  const lines: string[] = [];
+  const { ask, asked } = haikuLike((_ref, id) => id);
+  const sorted = await sortProject(before, defaultGrouping(), ask, { model: 'claude-haiku-5-5', by: 'Claude', log: (l) => lines.push(l) });
+  assert.deepEqual(placedIn(sorted), allFiles);
+  assert.equal(asked.length, 2, 'no second try: nothing was skipped');
+  assert.ok(!lines.some((l) => /asking again/.test(l)));
+  assert.deepEqual(sorted.placements['typing/src/theme.ts'], { layer: 'client', layerReason: 'runs in the browser', domain: 'appearance', reason: 'switches the colour theme' });
+
+  const after = classifyGraph(plain, { ...defaultGrouping(), sorted });
+  assert.deepEqual(leftoversOf(after), [], 'nothing left unsorted on the map');
+  assert.equal(after.nodes.find((n) => n.id === 'typing/src/game/score.ts#wpm')?.domain?.id, 'game');
+});
+
+test('every way a model writes a ref lands on its file', async () => {
+  const forms: Record<string, (ref: string, id: string) => unknown> = {
+    'the ref': (ref) => ref,
+    'lower case': (ref) => ref.toLowerCase(),
+    'in brackets': (ref) => `[${ref}]`,
+    'with its path': (ref, id) => `${ref} ${id}`,
+    'the whole prompt line': (_ref, id) => `${id} (unknown, 0 lines)`,
+    'the path in the repository': (_ref, id) => id.replace(/^typing\//, ''),
+    'with ./': (_ref, id) => `./${id.replace(/^typing\//, '')}`,
+    'its file name': (_ref, id) => id.split('/').pop(),
+  };
+  for (const [form, refOf] of Object.entries(forms)) {
+    const { ask } = haikuLike(refOf);
+    const sorted = await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
+    assert.deepEqual(placedIn(sorted), allFiles, form);
+  }
+});
+
+test('the request lists its refs in the schema and says to answer with them', async () => {
+  const { ask, asked } = haikuLike((ref) => ref);
+  await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test', batchSize: 2 });
+  const batches = asked.filter((r) => r.label.startsWith('leftovers'));
+  assert.equal(batches.length, 2);
+  const refsOf = (r: JsonRequest) => (r.schema as any).properties.files.items.properties.ref.enum;
+  assert.deepEqual(refsOf(batches[0]), ['F1', 'F2']);
+  assert.deepEqual(refsOf(batches[1]), ['F1'], 'numbered within each request');
+  assert.match(batches[1].prompt, /^F1 typing\/src\/theme\.ts /m);
+  assert.match(batches[0].prompt, /ref: the file's ref exactly as written, e\.g\. "F1" \(not its path\)/);
+});
+
+test('a domain or layer given by name instead of id still counts', async () => {
+  const { ask } = haikuLike((ref) => ref, { layer: 'Client', domain: 'Typing game' });
+  const sorted = await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
+  assert.deepEqual(placedIn(sorted), allFiles);
+  assert.equal(sorted.placements['typing/src/theme.ts'].domain, 'game');
+  assert.equal(sorted.placements['typing/src/theme.ts'].layer, 'client');
+});
+
+test('answers bare or keyed by ref are read too', async () => {
+  const keyed: Ask = async (req) => {
+    const a = (await haikuLike((ref) => ref).ask(req)) as { files?: { ref: string }[] };
+    return a.files ? Object.fromEntries([['files', Object.fromEntries(a.files.map(({ ref, ...f }) => [ref, f]))]]) : a;
+  };
+  const bare: Ask = async (req) => {
+    const a = (await haikuLike((ref) => ref).ask(req)) as { files?: unknown[] };
+    return a.files ?? a;
+  };
+  for (const ask of [keyed, bare]) {
+    const sorted = await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
+    assert.deepEqual(placedIn(sorted), allFiles);
+  }
+});
+
+test('when no ref matches, the log says what came back', async () => {
+  const lines: string[] = [];
+  const { ask, asked } = haikuLike(() => 'file-1');
+  const sorted = await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test', log: (l) => lines.push(l) });
+  assert.deepEqual(sorted.placements, {});
+  assert.equal(asked.length, 3, 'domains, the batch, and one more try');
+  assert.ok(lines.includes('[fiada] sort: no file in the answer to leftovers 1/1 matched a ref: 3 files, refs "file-1", "file-1", "file-1"'), lines.join('\n'));
+});
+
+test('matchRef: a shared file name or a folder that starts like a ref picks nothing wrong', () => {
+  const lf = (id: string) => ({ file: { id, kind: 'file', name: id.split('/').pop()!, parent: 'r', repo: 'r', path: id.slice(2) } as GraphNode, needsLayer: true, needsDomain: [], placed: [] });
+  const a = lf('r/a/index.ts');
+  const b = lf('r/b/index.ts');
+  const c = lf('r/f2/util.ts');
+  const match = matchRef(new Map([['F1', a], ['F2', b], ['F3', c]]));
+  assert.equal(match('index.ts'), undefined, 'two files share the name');
+  assert.equal(match('f2/util.ts'), c, 'a path, not ref F2');
+  assert.equal(match('F2'), b);
+  assert.equal(match('F9'), undefined);
+  assert.equal(match(7), undefined);
+  assert.equal(match(''), undefined);
 });
