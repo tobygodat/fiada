@@ -24,6 +24,8 @@ export function Search({ nodes, onPick }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Some IMEs use Ctrl-K themselves while composing (Japanese conversion): leave those keys alone.
+      if (e.isComposing) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
       if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing)) {

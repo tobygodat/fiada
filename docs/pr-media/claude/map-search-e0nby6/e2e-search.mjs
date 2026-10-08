@@ -81,6 +81,12 @@ if (mode === 'before') {
   const after = await page.locator('.search-hits li[aria-selected=true]').innerText();
   assert(!prevented && before === after, 'arrows during IME composition go to the IME, not the list');
   await page.keyboard.press('Escape');
+  // Ctrl-K that an IME is using while composing elsewhere stays the IME's.
+  await input.evaluate((el) => el.blur());
+  const imeK = await page.evaluate(() => !document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, isComposing: true, bubbles: true, cancelable: true })));
+  assert(!imeK && !(await input.evaluate((el) => el === document.activeElement)), 'Ctrl-K during IME composition goes to the IME, not the search box');
+  const plainK = await page.evaluate(() => !document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true })));
+  assert(plainK && (await input.evaluate((el) => el === document.activeElement)), 'a plain Ctrl-K still focuses the search box');
   // A bare click event (as assistive tech and switch devices send) picks too.
   await input.fill('');
   await input.click();
