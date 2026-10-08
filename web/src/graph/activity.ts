@@ -179,10 +179,10 @@ function addRipple(
   }
 }
 
-/** The changes one agent made, out of every agent's. */
+/** The changes one agent made, out of every agent's, each credited to that agent alone (so a file another agent also changed narrows as it would for this one). */
 export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): Record<string, NodeChange> {
   const out: Record<string, NodeChange> = {};
-  for (const [id, c] of Object.entries(nodes)) if (c.agents.includes(agentId)) out[id] = c;
+  for (const [id, c] of Object.entries(nodes)) if (c.agents.includes(agentId)) out[id] = { ...c, agents: [agentId] };
   return out;
 }
 

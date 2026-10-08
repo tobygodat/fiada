@@ -201,6 +201,10 @@ test('a file another agent changed at its top level stays whole, however narrowl
   // With agent a's change gone, b's is narrowed to read_items.
   const onlyB = { ...both, 'api/app/routes/items.py': by('modified', 'file', ['b']) };
   assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, onlyB), ['1 request from web calls this route.']);
+  // Spotlighting b leaves only b's part of the shared file, so it narrows the same way.
+  const spotB = agentNodes(both, 'b');
+  assert.deepEqual(spotB['api/app/routes/items.py'].agents, ['b']);
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, spotB), ['1 request from web calls this route.']);
 });
 
 test('without edges there is no ripple', () => {
