@@ -75,14 +75,15 @@ const mockUrl = await until('the mock', () => /http:\/\/\S+/.exec(fs.readFileSyn
 
 // 2. The indexer, with a fresh home and no keys but the mock's.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'fiada-home-'));
-// Left out, not blanked: a legacy STRATA_* name wins over its FIADA_* one even when empty.
-const bare = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^MONGODB_URI$/.test(k)));
+// Left out, not blanked: a legacy STRATA_* name wins over its FIADA_* one even when empty. The map gets the same,
+// so neither STRATA_INDEXER_PORT nor VITE_API_URL sends it to another indexer.
+const bare = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^MONGODB_URI$|^VITE_API_URL$/.test(k)));
 start('node', ['--import', 'tsx', 'src/server.ts'], path.join(checkout, 'indexer'), { PORT: String(INDEXER_PORT), HOST: '127.0.0.1', FIADA_HOME: home, ANTHROPIC_API_KEY: 'mock', ANTHROPIC_BASE_URL: mockUrl }, path.join(out, 'indexer.log'), bare);
 await until('the indexer', async () => (await fetch(`http://127.0.0.1:${INDEXER_PORT}/api/workspace`)).ok);
 
 // 3. The map, proxying /api to that indexer.
 const vite = path.join(path.dirname(createRequire(import.meta.url).resolve('vite/package.json')), 'bin/vite.js');
-start('node', [vite, '--port', String(WEB_PORT), '--strictPort'], path.join(here, '..'), { FIADA_INDEXER_PORT: String(INDEXER_PORT) }, path.join(out, 'web.log'));
+start('node', [vite, '--port', String(WEB_PORT), '--strictPort'], path.join(here, '..'), { FIADA_INDEXER_PORT: String(INDEXER_PORT) }, path.join(out, 'web.log'), bare);
 const app = `http://127.0.0.1:${WEB_PORT}`;
 await until('the map', async () => (await fetch(app)).ok);
 

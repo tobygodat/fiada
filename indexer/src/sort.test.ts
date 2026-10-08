@@ -426,6 +426,15 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   for (const ref of ['F1', 'f1', '[f1]', 'f01']) assert.equal(lowerLabels(ref), undefined, ref);
   assert.equal(lowerLabels('F2'), lowerF1);
   assert.equal(lowerLabels('tools/f1'), lowerF1);
+  // And with a root file named F01, which "F01" could mean as well as label F1.
+  for (const path of ['F01', 'f01']) {
+    const padded = lf('tools', path);
+    const paddedLabels = matchRef(new Map([['F1', web], ['F2', padded]]));
+    for (const ref of ['F01', 'f01', '[F01]', 'F01 web/src/index.ts', `F01 tools/${path}`]) assert.equal(paddedLabels(ref), undefined, `${path}: ${ref}`);
+    assert.equal(paddedLabels('F1'), web, path);
+    assert.equal(paddedLabels('F2'), padded, path);
+    assert.equal(paddedLabels(`tools/${path}`), padded, path);
+  }
 
   // A file at a repository's root named index.ts, and src/index.ts, whose name is the same.
   const top = lf('web', 'index.ts');

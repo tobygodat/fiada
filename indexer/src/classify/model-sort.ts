@@ -410,16 +410,19 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
   const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
   return (ref) => {
     // As written first, so Foo.ts and foo.ts stay apart; one file's id that is another's path in its repository picks neither.
-    // A label counts in any case, though, so "f1" as written is no surer than "F1" when a file's path is either.
     const w = str(ref);
-    const anyCaseLabel = byRef.has(w.toUpperCase()) && byPath.get(w.toLowerCase()) === null;
-    if (exact.has(w) && !anyCaseLabel) return exact.get(w) ?? undefined;
-    const s = clean(str(ref));
+    const s = clean(w);
     if (!s) return undefined;
-    if (byPath.has(s)) return byPath.get(s) ?? undefined;
-    const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
-    if (label && byRef.has(`F${label[1]}`)) return byPath.get(`f${label[1]}`) ?? undefined;
+    const asWritten = exact.has(w) ? (exact.get(w) ?? null) : byPath.has(s) ? (byPath.get(s) ?? null) : undefined;
     const first = clean(s.split(/\s/)[0]);
+    // A label in any spelling ("f1", "F01", "[F1]", "F1 app/x.py") counts only when, as written, it names no other file.
+    const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
+    const asLabel = label ? byRef.get(`F${label[1]}`) : undefined;
+    if (asLabel) {
+      const named = asWritten !== undefined ? asWritten : byPath.has(first) ? (byPath.get(first) ?? null) : undefined;
+      return named === undefined || named === asLabel ? (byPath.get(`f${label![1]}`) ?? undefined) : undefined;
+    }
+    if (asWritten !== undefined) return asWritten ?? undefined;
     if (byPath.has(first)) return byPath.get(first) ?? undefined;
     return byPath.get(first.split('/').pop()!) ?? undefined;
   };
