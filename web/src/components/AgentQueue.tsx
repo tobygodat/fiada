@@ -57,8 +57,8 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: P
     }
     setPref(c);
   };
-  // An ended session with nothing left to review has nothing to show.
-  const agents = (state?.agents ?? []).filter((a) => a.state !== 'ended' || a.files.length);
+  // An ended session with nothing left to review, and nothing it looked at, has nothing to show.
+  const agents = (state?.agents ?? []).filter((a) => a.state !== 'ended' || a.files.length || a.looked?.count);
   if (!agents.length) return null;
 
   if (collapsed) {

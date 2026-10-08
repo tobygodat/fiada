@@ -203,8 +203,8 @@ export class AgentHub {
           if (ev.phase === 'start') rec.state = 'waiting';
           else {
             rec.state = 'ended';
-            // Nothing left to review: the agent goes from the queue.
-            if (!rec.files.size) this.agents.delete(rec.id);
+            // Nothing left to review or show: the agent goes from the queue.
+            if (!rec.files.size && !rec.looked.size) this.agents.delete(rec.id);
           }
           break;
         case 'prompt':

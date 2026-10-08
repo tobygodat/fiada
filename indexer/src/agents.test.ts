@@ -314,6 +314,19 @@ test('what an agent looked at: nodes it asked about and files it read, apart fro
   assert.ok(s.looked!['web/src/api.ts#getItem']);
   assert.deepEqual(s.agents.find((a) => a.client === 'claude-code')!.looked, { count: 1, nodes: ['web/src/api.ts#getItem'] });
 
+  // A session that only looked keeps what it looked at when it ends, until it's dismissed;
+  // one that neither changed nor looked at anything goes.
+  const idle: AgentRef = { client: 'codex', session: 'idle', cwd: dir, root: dir };
+  await hub.ingest([
+    { agent: idle, type: 'session', phase: 'start' },
+    { agent: other, type: 'session', phase: 'end' },
+    { agent: idle, type: 'session', phase: 'end' },
+  ]);
+  s = hub.state();
+  assert.equal(s.agents.find((a) => a.client === 'cursor')!.state, 'ended');
+  assert.equal(s.agents.find((a) => a.client === 'codex'), undefined);
+  assert.equal(s.looked!['web/src/api.ts#getItem'].agents.length, 2);
+
   hub.clear();
   assert.deepEqual(hub.state().looked, {});
 });
