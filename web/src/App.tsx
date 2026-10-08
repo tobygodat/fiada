@@ -5,6 +5,7 @@ import { AgentQueue } from './components/AgentQueue.tsx';
 import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { Search } from './components/Search.tsx';
 import { TopBar } from './components/TopBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
@@ -523,6 +524,7 @@ export function App() {
         fitK={fitK}
         busy={!!ws.workspace?.busy}
         canGoBack={history.length > 0}
+        search={graph?.nodes.length ? <Search nodes={graph.nodes} onPick={select} /> : undefined}
         onBack={back}
         onCrumb={crumb}
       />

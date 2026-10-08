@@ -117,6 +117,32 @@ a { color: inherit; }
 .altitudes span.on { color: var(--text); border-bottom-color: var(--accent); }
 .zoom { min-width: 40px; text-align: right; }
 
+/* Search: a field in the top bar, its matches a list of words under it. */
+.search { position: relative; }
+.search input {
+  width: 240px; height: var(--size-control); padding: 0 var(--space-sm);
+  background: var(--ground-raised); border: 1px solid var(--outline); border-radius: var(--radius); color: var(--text);
+}
+.search input::placeholder { color: var(--muted); opacity: 1; }
+.search input::-webkit-search-cancel-button { display: none; }
+.search input:focus { outline: none; border-color: var(--accent); }
+.search-hits {
+  position: absolute; right: 0; top: calc(100% + var(--space-xs)); width: 420px; max-height: 60vh; overflow-y: auto;
+  margin: 0; padding: var(--space-xs) 0; list-style: none; z-index: 6;
+  border: 1px solid var(--hairline-strong); border-radius: var(--radius); background: var(--ground-raised);
+}
+.search-hits li {
+  display: grid; grid-template-columns: 1fr auto; column-gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm); border-left: 2px solid transparent; cursor: pointer;
+}
+.search-hits li.on { border-left-color: var(--accent); }
+.search-hits li.on .search-name { color: var(--accent); }
+.search-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.search-name b { font-weight: var(--weight-bold); }
+.search-kind { color: var(--muted); }
+.search-where { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-fine); color: var(--muted); }
+.search-hits li.search-none { color: var(--muted); cursor: default; }
+
 /* ── map ── */
 .stage { position: absolute; inset: 0; background: var(--ground); user-select: none; }
 .map-canvas { position: absolute; inset: 0; display: block; }
