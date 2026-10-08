@@ -19,10 +19,12 @@ export interface SearchHit {
 
 const KIND_ORDER: Record<string, number> = { repo: 0, folder: 1, file: 2, symbol: 3 };
 
-/** Where a node lives, without its own name: `repo/src/pages` for `repo/src/pages/items.tsx`. */
+/** Where a node lives, without its own name: `repo/src/pages` for `repo/src/pages/items.tsx`, `repo/a.ts:12` for a symbol. */
 export function whereOf(n: GraphNode): string {
   // The real parent, not the id cut at a slash: a collapsed chain like `src/main/java` hangs straight off its repo.
-  return n.kind === 'repo' || n.parent === 'root' ? '' : n.parent;
+  if (n.kind === 'repo' || n.parent === 'root') return '';
+  // Symbols say their line too, so two `render` in one file (overloads, repeats) can be told apart.
+  return n.kind === 'symbol' && n.lines ? `${n.parent}:${n.lines[0]}` : n.parent;
 }
 
 const isWordStart = (s: string, i: number) => i === 0 || /[^a-z0-9]/i.test(s[i - 1]) || (/[A-Z]/.test(s[i]) && /[a-z]/.test(s[i - 1]));

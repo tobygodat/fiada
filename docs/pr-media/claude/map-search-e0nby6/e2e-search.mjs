@@ -67,6 +67,18 @@ if (mode === 'before') {
   const d2 = await page.evaluate(() => document.querySelector('.detail')?.textContent ?? '');
   assert(d2.includes(pickName), 'click picks ' + pickName);
   await page.screenshot({ path: out + '/after-click.png' });
+  // A bare click event (as assistive tech and switch devices send) picks too.
+  await input.fill('');
+  await input.click();
+  await page.keyboard.type('read_items', { delay: 40 });
+  await page.waitForTimeout(300);
+  const where = await page.locator('.search-hits li[role=option] .search-where').first().innerText();
+  assert(/items\.py:\d+$/.test(where), 'a symbol says its file and line: ' + where);
+  await page.evaluate(() => document.querySelector('.search-hits li[role=option]').click());
+  await page.waitForTimeout(1600);
+  const d4 = await page.evaluate(() => document.querySelector('.detail')?.textContent ?? '');
+  assert(d4.includes('read_items'), 'a click event alone picks read_items');
+  await input.fill('');
   // Nothing matches.
   await input.click();
   await page.keyboard.type('qqqzzz');

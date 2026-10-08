@@ -101,11 +101,9 @@ export function Search({ nodes, onPick }: Props) {
               role="option"
               aria-selected={i === at}
               className={i === at ? 'on' : ''}
-              // Before the input's blur, so the click lands.
-              onMouseDown={(e) => {
-                e.preventDefault();
-                pick(h);
-              }}
+              // Keep focus in the field so the list stays open until the click lands.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(h)}
               onMouseEnter={() => setActive(i)}
             >
               <span className="search-name">
