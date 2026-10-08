@@ -88,6 +88,35 @@ test("marking one agent read leaves another agent's later change to the same fil
   assert.deepEqual([...agentUnreadIds(b, u, marks, shared)].sort(), ['web/src/pages/items.tsx', 'web/src/pages/items.tsx#ItemsPage']);
 });
 
+test("a lit agent's function you opened stays read when another agent changes it later", () => {
+  // a changed ItemsPage and useTags at 10; you opened ItemsPage; b changed ItemsPage at 20.
+  const two: Record<string, NodeChange> = {
+    'web/src/pages/items.tsx': change('modified', 'file', 20, ['a', 'b']),
+    'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
+    'web/src/pages/items.tsx#useTags': change('added', 'symbol', 10, ['a']),
+  };
+  const a = {
+    id: 'a',
+    files: [
+      {
+        repo: 'web',
+        path: 'src/pages/items.tsx',
+        node: 'web/src/pages/items.tsx',
+        kind: 'modified',
+        symbols: [
+          { id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' },
+          { id: 'web/src/pages/items.tsx#useTags', name: 'useTags', kind: 'added' },
+        ],
+        at: new Date(10).toISOString(),
+      },
+    ],
+  } as unknown as AgentActivity;
+  const marks = { 'web/src/pages/items.tsx#ItemsPage': 10 };
+  const u = unreadIds(two, marks);
+  assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'), "b's change is unread overall");
+  assert.deepEqual([...agentUnreadIds(a, u, marks, two)].sort(), ['web/src/pages/items.tsx', 'web/src/pages/items.tsx#useTags']);
+});
+
 test('an agent says how many of its files you have read', () => {
   const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z' }) as unknown as AgentFile;
   const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as unknown as AgentActivity;
