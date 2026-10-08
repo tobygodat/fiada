@@ -384,4 +384,10 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   assert.equal(match('api/src/foo.ts'), lower);
   assert.equal(match('API/SRC/FOO.TS'), undefined, 'in any case it could be either');
   assert.equal(match('F2'), api);
+
+  // Repository "src" has an index.ts at its root: its id is web's path.
+  const root = lf('src', 'index.ts');
+  const both = matchRef(new Map([['F1', root], ['F2', web]]));
+  assert.equal(both('src/index.ts'), undefined, "src's id and web's path");
+  assert.equal(both('web/src/index.ts'), web);
 });

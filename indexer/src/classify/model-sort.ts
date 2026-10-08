@@ -394,25 +394,26 @@ function answersIn(answer: unknown): FileAnswer[] {
  * list of labelled paths often answer with the path.
  */
 export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => LeftoverFile | undefined {
-  // A path or name two files share (src/index.ts in two repositories, Foo.ts and foo.ts) picks neither.
-  const byId = new Map<string, LeftoverFile>();
+  // A path or name two files share (src/index.ts in two repositories, Foo.ts and foo.ts in any case) picks neither.
+  const exact = new Map<string, LeftoverFile | null>();
   const byPath = new Map<string, LeftoverFile | null>();
   const byName = new Map<string, LeftoverFile | null>();
   const put = (m: Map<string, LeftoverFile | null>, key: string, lf: LeftoverFile) => m.set(key, m.has(key) && m.get(key) !== lf ? null : lf);
   for (const lf of byRef.values()) {
-    byId.set(lf.file.id, lf);
+    put(exact, lf.file.id, lf);
+    if (lf.file.path) put(exact, lf.file.path, lf);
     put(byPath, lf.file.id.toLowerCase(), lf);
     if (lf.file.path) put(byPath, lf.file.path.toLowerCase(), lf);
     put(byName, lf.file.id.split('/').pop()!.toLowerCase(), lf);
   }
   const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
   return (ref) => {
-    const id = byId.get(str(ref));
-    if (id) return id;
+    // As written first, so Foo.ts and foo.ts stay apart; one file's id that is another's path in its repository picks neither.
+    if (exact.has(str(ref))) return exact.get(str(ref)) ?? undefined;
     const s = clean(str(ref));
     if (!s) return undefined;
-    const exact = byPath.get(s);
-    if (exact) return exact;
+    const lower = byPath.get(s);
+    if (lower) return lower;
     const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
     if (label && byRef.has(`F${label[1]}`)) return byRef.get(`F${label[1]}`);
     const first = clean(s.split(/\s/)[0]);

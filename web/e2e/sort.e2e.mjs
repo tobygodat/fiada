@@ -36,8 +36,8 @@ const INDEXER_PORT = 4188;
 const WEB_PORT = 5188;
 
 const children = [];
-function start(cmd, argv, cwd, env, logFile) {
-  const p = spawn(cmd, argv, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+function start(cmd, argv, cwd, env, logFile, inherit = process.env) {
+  const p = spawn(cmd, argv, { cwd, env: { ...inherit, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const log = fs.createWriteStream(logFile);
   p.stdout.pipe(log);
   p.stderr.pipe(log);
@@ -75,8 +75,9 @@ const mockUrl = await until('the mock', () => /http:\/\/\S+/.exec(fs.readFileSyn
 
 // 2. The indexer, with a fresh home and no keys but the mock's.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'fiada-home-'));
-const clean = Object.fromEntries(Object.keys(process.env).filter((k) => /^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^MONGODB_URI$/.test(k)).map((k) => [k, '']));
-start('node', ['--import', 'tsx', 'src/server.ts'], path.join(checkout, 'indexer'), { ...clean, PORT: String(INDEXER_PORT), HOST: '127.0.0.1', FIADA_HOME: home, ANTHROPIC_API_KEY: 'mock', ANTHROPIC_BASE_URL: mockUrl }, path.join(out, 'indexer.log'));
+// Left out, not blanked: a legacy STRATA_* name wins over its FIADA_* one even when empty.
+const bare = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^MONGODB_URI$/.test(k)));
+start('node', ['--import', 'tsx', 'src/server.ts'], path.join(checkout, 'indexer'), { PORT: String(INDEXER_PORT), HOST: '127.0.0.1', FIADA_HOME: home, ANTHROPIC_API_KEY: 'mock', ANTHROPIC_BASE_URL: mockUrl }, path.join(out, 'indexer.log'), bare);
 await until('the indexer', async () => (await fetch(`http://127.0.0.1:${INDEXER_PORT}/api/workspace`)).ok);
 
 // 3. The map, proxying /api to that indexer.
