@@ -158,6 +158,18 @@ try {
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
   await pause(600);
   await shot('6-dark');
+
+  // "show all" puts the map back and ends the review: lighting the agent again doesn't bring it back.
+  // (With a change selected the agents window is folded; open it first.)
+  if (await page.locator('.queue-folded').count()) await page.locator('.queue-folded').click();
+  await page.getByRole('button', { name: 'show all', exact: true }).click();
+  await pause(600);
+  assert.equal(await page.locator('.tour').count(), 0, 'show all ends the tour');
+  await page.getByRole('button', { name: 'show on map', exact: true }).click();
+  await pause(800);
+  assert.equal(await page.locator('.tour').count(), 0, 'showing the agent again does not resurrect the tour');
+  await page.getByRole('button', { name: 'review', exact: true }).click();
+  await page.locator('.tour').waitFor();
   await page.getByRole('button', { name: 'end', exact: true }).click();
   assert.equal(await page.locator('.tour').count(), 0);
 

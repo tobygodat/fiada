@@ -140,6 +140,10 @@ export function App() {
     [graph, graphIndex, tourAgent, agents.state],
   );
   const tourAt = touring ? Math.max(0, stops.findIndex((s) => s.id === touring.stop)) : -1;
+  // Ended, not hidden: lighting that agent again later starts afresh rather than bringing the old review back.
+  useEffect(() => {
+    if (tour && tour.agent !== lit) setTour(null);
+  }, [tour, lit]);
   const project = ws.workspace?.project.id ?? 'local';
 
   const activity = useMemo(() => {
