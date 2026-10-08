@@ -132,14 +132,15 @@ export async function aboutToEdit(tool: string, input: Payload, cwd: string): Pr
  * A file outside the agent's own checkout carries the checkout it is in, so
  * the indexer can match that one by its remote, as the post-edit sweep does.
  * A file that doesn't exist yet is placed by the nearest folder that does.
+ * A link is placed where it leads: that is the file the edit changes.
  */
 export async function placed(file: FenceCheck['files'][number], co: Checkout | null): Promise<FenceCheck['files'][number]> {
   const abs = await real(file.path);
-  if (co && (abs + path.sep).startsWith(co.root + path.sep)) return file;
+  if (co && (abs + path.sep).startsWith(co.root + path.sep)) return { ...file, path: abs };
   let dir = path.dirname(abs);
   while (dir !== path.dirname(dir) && !(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) dir = path.dirname(dir);
   const theirs = await checkout(dir).catch(() => null);
-  return theirs ? { ...file, checkout: { root: theirs.root, remote: theirs.remote } } : file;
+  return theirs ? { ...file, path: abs, checkout: { root: theirs.root, remote: theirs.remote } } : { ...file, path: abs };
 }
 
 /** Claude Code's answer to PreToolUse for an edit inside a fence; nothing for one outside every fence. */

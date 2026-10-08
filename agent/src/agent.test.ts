@@ -367,6 +367,11 @@ test("a file in another checkout than the agent's says which, even one not writt
   const theirs = { root: other, remote: 'https://github.com/acme/other.git' };
   assert.deepEqual(await placed({ path: path.join(other, 'lib/b.py'), lines: [[1, 1]] }, co), { path: path.join(other, 'lib/b.py'), lines: [[1, 1]], checkout: theirs });
   assert.deepEqual(await placed({ path: path.join(other, 'new/deep/c.py') }, co), { path: path.join(other, 'new/deep/c.py'), checkout: theirs });
+  // A link is placed where it leads, lines and all, in this checkout or another.
+  await fs.symlink(path.join(own, 'a.py'), path.join(own, 'alias.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'alias.py'), lines: [[1, 1]] }, co), { path: path.join(own, 'a.py'), lines: [[1, 1]] });
+  await fs.symlink(path.join(other, 'lib/b.py'), path.join(own, 'b-link.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'b-link.py') }, co), { path: path.join(other, 'lib/b.py'), checkout: theirs });
   // Outside any checkout: nothing to say.
   const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
   assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
