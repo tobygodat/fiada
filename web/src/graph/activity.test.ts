@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
-import { agentNodes, describeMarks, rollupActivity, spotlight } from './activity.ts';
+import type { AgentActivity, AgentFile, GraphEdge, GraphNode, NodeChange } from '@fiada/shared';
+import { agentNodes, describeMarks, reachSentences, rollupActivity, spotlight } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree, buildFunctionTree } from './tree.ts';
 
@@ -108,3 +108,100 @@ test('By function: an agent lights up the symbols it changed, their layers and d
 });
 
 const pick = (m: ReturnType<ReturnType<typeof rollupActivity>['get']>) => m && { self: m.self, added: m.added, modified: m.modified, deleted: m.deleted, at: m.at };
+
+// ── The ripple: what depends on a change ──
+
+const edges = graph.edges;
+const only = (ids: Record<string, NodeChange>) => ids;
+const ripple = (m: ReturnType<ReturnType<typeof rollupActivity>['get']>) => m && { reached: m.reached, ripple: m.ripple };
+
+test('a changed route ripples to the client requesting it, across repositories, rolled up by file in Code view', () => {
+  const a = rollupActivity(
+    buildCodeTree(graph),
+    graphIndex,
+    only({ 'api/app/routes/items.py': change('modified', 'file', 10), 'api/app/routes/items.py#read_items': change('modified', 'symbol', 10) }),
+    [],
+    edges,
+  );
+  // The request to read_items is proven; the guessed one goes to create_item, which didn't change.
+  assert.deepEqual(ripple(a.get('web/src/client/api.ts#ItemsService')), { reached: 'evidenced', ripple: 0 });
+  assert.deepEqual(ripple(a.get('web/src/client/api.ts')), { reached: 'evidenced', ripple: 0 });
+  for (const id of ['web/src/client', 'web/src', 'web']) assert.deepEqual(ripple(a.get(id)), { reached: 'evidenced', ripple: 1 }, id);
+  // The change itself, and what it calls, aren't dependents.
+  assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, null);
+  assert.equal(a.get('api/app/models.py#Item'), undefined);
+  // Nothing else in the change's own repository depends on it.
+  assert.equal(a.get('api')?.ripple, 0);
+});
+
+test('a dependent reached only by guessed links says so', () => {
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/routes/items.py#create_item': change('modified', 'symbol', 10) }), [], edges);
+  assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'inferred');
+  assert.deepEqual(ripple(a.get('web')), { reached: 'inferred', ripple: 1 });
+});
+
+test('a file changed as a whole reaches everything that uses its symbols; its own symbols are marked, not counted', () => {
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }), [], edges);
+  assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, 'evidenced');
+  assert.equal(a.get('api/app/routes/items.py#create_item')?.reached, 'evidenced');
+  // Item uses User inside the changed file: marked, but the changed file isn't counted as its own dependent.
+  assert.equal(a.get('api/app/models.py#Item')?.reached, 'evidenced');
+  assert.equal(a.get('api/app/models.py')?.reached, null);
+  // items.py is one file: counted once however many of its symbols depend on the change.
+  assert.equal(a.get('api/app/routes')?.ripple, 1);
+  assert.equal(a.get('api/app')?.ripple, 1);
+  assert.equal(a.get('api')?.ripple, 1);
+});
+
+test('a dependent the agent changed too is marked as a change, not as a dependent', () => {
+  const a = rollupActivity(
+    buildCodeTree(graph),
+    graphIndex,
+    only({
+      'web/src/pages/items.tsx': change('modified', 'file', 10),
+      'web/src/pages/items.tsx#useItems': change('modified', 'symbol', 10),
+      'web/src/client/api.ts#ItemsService': change('modified', 'symbol', 10),
+    }),
+    [],
+    edges,
+  );
+  assert.equal(a.get('web/src/pages/items.tsx#useItems')?.reached, null);
+  // ItemsPage calls the changed useItems: inside a changed file, so marked but not counted above it.
+  assert.equal(a.get('web/src/pages/items.tsx#ItemsPage')?.reached, 'evidenced');
+  assert.equal(a.get('web/src/pages')?.ripple, 0);
+});
+
+test('By function counts dependent symbols under their layer and domain', () => {
+  const tree = buildFunctionTree(graph);
+  const a = rollupActivity(tree, graphIndex, only({ 'api/app/models.py#Item': change('modified', 'symbol', 10) }), [], edges);
+  assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, 'evidenced');
+  assert.equal(a.get('domain:items')?.ripple, 2);
+  assert.equal(a.get('domain:items/ui')?.ripple, 2);
+});
+
+test('without edges there is no ripple', () => {
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }));
+  assert.ok([...a.values()].every((m) => m.reached === null && m.ripple === 0));
+});
+
+test('what reaches a changed route, type or file, in a sentence', () => {
+  const node = (id: string, extra: Partial<GraphNode> = {}) => ({ ...graphIndex.get(id)!, ...extra });
+  assert.deepEqual(reachSentences(node('api/app/routes/items.py#read_items'), edges, graphIndex), ['1 request from web calls this route.']);
+  assert.deepEqual(reachSentences(node('api/app/routes/items.py#create_item'), edges, graphIndex), ['1 request from web calls this route, inferred.']);
+  assert.deepEqual(reachSentences(node('api/app/models.py#Item', { symbolKind: 'class' }), edges, graphIndex), ['2 functions in api call this class.']);
+  assert.deepEqual(reachSentences(node('api/app/models.py'), edges, graphIndex), ['2 functions in api use this file.']);
+  // A file serving routes: requests to any of them, and calls to its symbols from outside it.
+  assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex), ['2 requests from web call these routes, 1 of them inferred.']);
+  // An exported file nothing reaches says so; an unexported one says nothing.
+  assert.deepEqual(reachSentences(node('web/src/pages/about.tsx', { exported: true }), edges, graphIndex), ['Nothing in the imported repositories reaches this file yet.']);
+  assert.deepEqual(reachSentences(node('web/src/pages/about.tsx'), edges, graphIndex), []);
+});
+
+test('requests from several repositories are counted by repository, most first', () => {
+  const route = 'api/app/routes/items.py#read_items';
+  const req = (from: string): GraphEdge => ({ from, to: route, kind: 'http', basis: 'evidenced' });
+  const many = [req('web/a.ts#a'), req('mobile/b.ts#b'), req('web/c.ts#c'), req('web/d.ts#d')];
+  assert.deepEqual(reachSentences({ ...graphIndex.get(route)!, routes: ['GET /items/'] }, many, graphIndex), ['3 requests from web and 1 from mobile call this route.']);
+  const three = [...many, req('jobs/e.py#e')];
+  assert.deepEqual(reachSentences(graphIndex.get(route)!, three, graphIndex), ['3 requests from web, 1 from jobs and 1 from mobile call this route.']);
+});

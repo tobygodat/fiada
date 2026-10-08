@@ -132,8 +132,8 @@ export function App() {
     // One agent lit: the map marks only its changes.
     const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
     if (!Object.keys(nodes).length) return null;
-    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents);
-  }, [tree, graphIndex, agents.state, spot, lit]);
+    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents, graph?.edges);
+  }, [tree, graphIndex, graph, agents.state, spot, lit]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;

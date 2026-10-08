@@ -17,6 +17,12 @@
 .swatch-ring.modified { border-color: var(--modified); }
 .swatch-ring.deleted { border-color: var(--deleted); border-style: dashed; }
 .swatch-ring.working { border-color: var(--working); }
+/* What depends on a change: dots in the links' ink, as the map's ripple ring. */
+.swatch-ring.reached { border-color: var(--muted); border-style: dotted; border-width: 2px; padding: 1px; }
+
+/* What a change reaches, in a sentence under the heading and above the diff. */
+.agent-change .agent-reach { display: flex; align-items: baseline; gap: var(--space-8); margin: 0 0 var(--space-sm); font-family: var(--font-serif); font-size: var(--size-small); line-height: var(--leading); color: var(--text); }
+.agent-change .agent-reach .swatch-ring { width: 11px; height: 11px; transform: translateY(1px); }
 
 /* ── The window: a floating panel over the map ── */
 .queue {

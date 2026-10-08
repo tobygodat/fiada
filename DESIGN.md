@@ -71,6 +71,7 @@ Three meanings, three palettes, no hue shared between them. They colour map mark
 - Links are `--muted` at rest, `--text` when selected. Dashed means cross-repository; dotted means inferred.
 - A link's letter tag is `fine` Literata in a `--radius-sm` box on `--ground-raised` with a `--hairline-strong` border; selected, it takes `--selection` and a `--text` border.
 - Change rings sit outside the rim. Count badges read `+2 ~1 −1` in `fine`, each count in its state's colour, in a `--radius-sm` box on `--ground-raised`.
+- **The ripple (Fiada):** what depends on a change (calls it, imports it, uses its type, requests its route) takes a dotted `--muted` ring where a change ring would sit, fainter when every link reaching it was guessed. It is the links' ink, not a change colour. A closed circle holding dependents takes the ring too, and its badge counts them after a small dotted ring: `~2 ◌3`.
 
 ## Type
 

@@ -22,6 +22,7 @@ import {
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { Chevron } from './Icon.tsx';
+import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
@@ -90,7 +91,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
+      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} />}
 
       {repo && (
         <div className="detail-block">
@@ -189,12 +190,17 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
-/** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
-function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | null }) {
+/**
+ * The agent's diff when an agent changed this file or symbol (for a symbol, the
+ * hunks that touch it), led by what the change reaches: who calls, imports or
+ * requests it, the same links the map rings with dots.
+ */
+function Changed({ g, graph, graphIndex, activity }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null }) {
   const own = activity?.nodes[g.id];
+  const reach = useMemo(() => (own && own.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex) : []), [own, g, graph, graphIndex]);
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} reach={reach} />;
 }
 
 /**

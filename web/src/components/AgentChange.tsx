@@ -15,6 +15,8 @@ interface Props {
   /** Changes when the agent changes the file again, to refetch. */
   rev: number;
   kind: ChangeKind;
+  /** What the change reaches, in a sentence or two: who calls, imports or requests it. */
+  reach?: string[];
 }
 
 const MAX_LINES = 500;
@@ -26,7 +28,7 @@ const ago = (iso: string) => {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
-export function AgentChange({ node, lines, rev, kind }: Props) {
+export function AgentChange({ node, lines, rev, kind, reach = [] }: Props) {
   const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
   useEffect(() => {
@@ -47,6 +49,12 @@ export function AgentChange({ node, lines, rev, kind }: Props) {
   return (
     <div className="detail-block agent-change">
       <div className="block-title">{VERB[kind]} by an agent</div>
+      {reach.length > 0 && (
+        <p className="agent-reach">
+          <span className="swatch-ring reached" aria-hidden />
+          <span>{reach.join(' ')}</span>
+        </p>
+      )}
       {!mine && <div className="agent-note">loading the diff…</div>}
       {mine && !list.length && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d) => {
