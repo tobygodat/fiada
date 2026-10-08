@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&display=block" rel="stylesheet">
+<style>
+:root{--ground:#1b1a19;--raised:#252422;--text:#e8e5df;--muted:#a39e96;--hair:#3b3936;--hair2:#5a5752;--accent:#8fd18a;--warn:#e0b565;--danger:#e8907c;
+--l1:#d29fc0;--l2:#b8a7da;--l3:#97b2e1;--l4:#7dbbd7}
+*{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--text);font:16px/1.45 Literata,Georgia,serif;width:1400px;padding:48px 56px}
+h1{font-weight:600;font-size:26px;margin:0 0 6px}p.sub{color:var(--muted);margin:0 0 28px}
+h2{font-weight:600;font-size:18px;margin:36px 0 12px;padding-top:16px;border-top:1px solid var(--hair)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:14px}
+svg text{font-family:Literata,Georgia,serif;fill:var(--text)}
+.m{fill:var(--muted)}
+.row{display:grid;grid-template-columns:150px 1fr 60px;align-items:center;gap:14px;margin:7px 0}
+.bar{height:14px}
+.lbl{color:var(--muted)}
+.legend{display:flex;gap:36px;margin-top:8px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:10px}
+</style></head><body>
+<h1>Agents can ask Fiada about the code</h1>
+<p class="sub">three read tools on the agent's MCP server, answered by the indexer from the map; what the agent asks about or reads gets a faint dotted ring</p>
+<svg width="1288" height="330" viewBox="0 0 1288 330">
+ <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10" fill="none" stroke="#a39e96" stroke-width="1.5"/></marker>
+ <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10" fill="none" stroke="#8fd18a" stroke-width="1.5"/></marker></defs>
+ <!-- columns as rules and words -->
+ <line x1="0" y1="40" x2="250" y2="40" stroke="#5a5752"/><text x="0" y="28" font-weight="600" font-size="18">Claude Code</text>
+ <text x="0" y="72">where_is "create item"</text>
+ <text x="0" y="100">who_uses create_item</text>
+ <text x="0" y="128">impact models.py#Item</text>
+ <text x="0" y="180" class="m">Read backend/app/crud.py</text>
+ <text x="0" y="204" class="m" font-size="14">(the tool hook)</text>
+
+ <line x1="360" y1="40" x2="640" y2="40" stroke="#5a5752"/><text x="360" y="28" font-weight="600" font-size="18">fiada mcp · fiada hook</text>
+ <text x="360" y="72" class="mono" style="font-family:ui-monospace,Menlo,monospace;font-size:14px">GET /api/agent/find?q=…</text>
+ <text x="360" y="100" style="font-family:ui-monospace,Menlo,monospace;font-size:14px">GET /api/agent/dependents?target=…</text>
+ <text x="360" y="128" style="font-family:ui-monospace,Menlo,monospace;font-size:14px">GET /api/agent/impact?target=…</text>
+ <text x="360" y="180" style="font-family:ui-monospace,Menlo,monospace;font-size:14px">POST /api/agent/events</text>
+ <text x="360" y="204" class="m" font-size="14" style="font-family:ui-monospace,Menlo,monospace">{ type: 'looked', nodes | paths }</text>
+
+ <line x1="750" y1="40" x2="1010" y2="40" stroke="#5a5752"/><text x="750" y="28" font-weight="600" font-size="18">indexer</text>
+ <text x="750" y="72">ask.ts: search the graph</text>
+ <text x="750" y="100">edges with file:line evidence</text>
+ <text x="750" y="128">walk users, nearest first</text>
+ <text x="750" y="180">AgentHub: what each agent</text>
+ <text x="750" y="204">looked at, newest first</text>
+
+ <line x1="1090" y1="40" x2="1288" y2="40" stroke="#5a5752"/><text x="1090" y="28" font-weight="600" font-size="18">map</text>
+ <circle cx="1140" cy="110" r="34" fill="none" stroke="#a39e96" stroke-width="2" stroke-dasharray="1 7" stroke-linecap="round"/>
+ <circle cx="1140" cy="110" r="24" fill="none" stroke="#3b3936"/>
+ <text x="1190" y="104">looked at</text><text x="1190" y="126" class="m" font-size="14">faint, dotted</text>
+ <circle cx="1140" cy="196" r="34" fill="none" stroke="#e0b565" stroke-width="2.5"/>
+ <circle cx="1140" cy="196" r="24" fill="none" stroke="#3b3936"/>
+ <text x="1190" y="190">changed</text><text x="1190" y="212" class="m" font-size="14">as before</text>
+
+ <!-- arrows -->
+ <g stroke="#a39e96" stroke-width="1.3" fill="none" marker-end="url(#a)">
+  <path d="M250 96 H350"/><path d="M690 70 V96 H740"/><path d="M250 186 H350"/><path d="M640 186 H740"/>
+ </g>
+ <g stroke="#a39e96" stroke-width="1.3" fill="none" marker-end="url(#a)"><path d="M1010 150 H1080"/></g>
+ <path d="M1010 244 H 10" stroke="#8fd18a" stroke-width="1.3" fill="none" marker-end="url(#g)"/>
+ <text x="300" y="270" font-size="14" style="fill:#8fd18a">the answer, as text the agent reads: path and lines, layer, domain, summary, the code behind each link</text>
+ <text x="0" y="310" class="m" font-size="14">read routes are open to agent tokens and signed-in people, never write, and are rate limited per account; a changed node is never also drawn as looked at</text>
+</svg>
+
+<h2>impact backend/app/models.py#Item, on the FastAPI template imported as two repositories</h2>
+<p class="sub" style="margin-bottom:14px">an edit to Item reaches 49 places within 3 links: the frontend's ItemsService and UsersService reach it over HTTP</p>
+<div id="bars"></div>
+<script>
+const groups=[['by repository',[['backend',33,'#e8e5df'],['frontend',16,'#e8e5df']]],['by layer',[['API',22,'var(--l3)'],['UI',12,'var(--l1)'],['Data',11,'var(--l4)'],['Client',4,'var(--l2)']]],['by domain',[['Users',25,'#a39e96'],['Items',11,'#a39e96'],['Admin',5,'#a39e96'],['Shared',4,'#a39e96'],['Login',2,'#a39e96'],['Auth',1,'#a39e96'],['Reset password',1,'#a39e96']]]];
+const el=document.getElementById('bars');
+for(const[t,rows]of groups){const h=document.createElement('div');h.className='lbl';h.style.margin='16px 0 4px';h.textContent=t;el.append(h);
+for(const[n,v,c]of rows){const r=document.createElement('div');r.className='row';r.innerHTML=`<span>${n}</span><div class="bar" style="width:${v/33*100}%;background:${c}"></div><span class="lbl">${v}</span>`;el.append(r);}}
+</script>
+</body></html>
