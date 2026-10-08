@@ -54,4 +54,6 @@
   /* The same thin rules, with a hit area a finger can find. */
   .tour-tick { height: var(--size-hit); padding: 21px 0; }
   .tour-tick.here { padding: 20px 0; }
+  .tour .queue-act { display: inline-flex; align-items: center; min-height: var(--size-hit); padding: 0 var(--space-xs); }
+  .tour-next { height: var(--size-hit); }
 }

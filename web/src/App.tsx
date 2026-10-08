@@ -437,29 +437,22 @@ export function App() {
     } else setLitAgent(null);
   }, [touring, selected, selectedEdge]);
 
-  /**
-   * What stands for a stop in the tree on show: its target, or for a file or
-   * folder By function leaves out, the first function or file inside it.
-   */
-  const onMapCache = useMemo(() => new Map<string, string>(), [tree, graph]);
-  const onMap = useCallback(
-    (id: string) => {
-      if (!tree || !graph) return id;
-      // Every chain of parents ends at the root, which stands for nothing.
-      const at = locate(tree, graphIndex, id);
-      if (at && at !== tree.root.id) return id;
-      let found = onMapCache.get(id);
-      if (found === undefined) {
-        const inside = (n: GraphNode) => {
-          for (let p: string | undefined = n.parent; p; p = graphIndex.get(p)?.parent) if (p === id) return true;
-          return false;
-        };
-        found = graph.nodes.find((n) => tree.nodes.has(n.id) && inside(n))?.id ?? id;
-        onMapCache.set(id, found);
+  /** A stop whose file or folder By function leaves out (it shows functions, not files that have them): shown in Code instead. */
+  const pendingStop = useRef<string | null>(null);
+  const showStop = useCallback(
+    (target: string) => {
+      if (tree && tree.view !== 'code') {
+        // Every chain of parents ends at the root, which stands for nothing.
+        const at = locate(tree, graphIndex, target);
+        if (!at || at === tree.root.id) {
+          pendingStop.current = target;
+          setView('code');
+          return;
+        }
       }
-      return found;
+      select(target);
     },
-    [tree, graph, graphIndex, onMapCache],
+    [tree, graphIndex, select],
   );
 
   /**
@@ -479,9 +472,9 @@ export function App() {
       setMarks(m);
       setLitAgent(id);
       setTour({ agent: id, stop: list[i].id });
-      select(onMap(list[i].target));
+      showStop(list[i].target);
     },
-    [agents.state, graph, graphIndex, project, select, onMap],
+    [agents.state, graph, graphIndex, project, showStop],
   );
 
   const goStop = useCallback(
@@ -489,9 +482,9 @@ export function App() {
       const s = stops[i];
       if (!touring || !s) return;
       setTour({ agent: touring.agent, stop: s.id });
-      select(onMap(s.target));
+      showStop(s.target);
     },
-    [stops, touring, select, onMap],
+    [stops, touring, showStop],
   );
 
   /** Mark a change read (and go on to the next you haven't read) or unread again. */
@@ -514,10 +507,10 @@ export function App() {
   // Picking one of the tour's changes on the map or in the outline takes the tour there too.
   useEffect(() => {
     const cur = stops[tourAt];
-    if (!touring || !selected || (cur && onMap(cur.target) === selected)) return;
-    const s = stops.find((x) => onMap(x.target) === selected);
+    if (!touring || !selected || cur?.target === selected) return;
+    const s = stops.find((x) => x.target === selected);
     if (s) setTour({ agent: touring.agent, stop: s.id });
-  }, [selected, touring, stops, tourAt, onMap]);
+  }, [selected, touring, stops, tourAt]);
 
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
@@ -555,6 +548,15 @@ export function App() {
       setFocus('root');
       fitAll(viewChanged);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, sized]);
+
+  // After the switch to Code for a tour stop By function couldn't show (below the fit above, so it wins).
+  useEffect(() => {
+    const target = pendingStop.current;
+    if (!target || tree?.view !== 'code' || !sized) return;
+    pendingStop.current = null;
+    select(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, sized]);
 

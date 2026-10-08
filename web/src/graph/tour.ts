@@ -127,6 +127,21 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     }
   }
 
+  /** Whether `to` can be reached from `from` along links between stops not visited yet. */
+  const reaches = (from: number, to: number, done: Set<number>) => {
+    const seen = new Set([from]);
+    const todo = [from];
+    while (todo.length) {
+      for (const n of next[todo.pop()!]) {
+        if (n === to) return true;
+        if (done.has(n) || seen.has(n)) continue;
+        seen.add(n);
+        todo.push(n);
+      }
+    }
+    return false;
+  };
+
   const done = new Set<number>();
   const out: number[] = [];
   let last = -1;
@@ -136,8 +151,10 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     const top = Math.min(...left.map((i) => layerRank(stops[i])));
     const layer = left.filter((i) => layerRank(stops[i]) === top);
     const ready = layer.filter((i) => [...waits[i]].every((w) => done.has(w)));
-    // A loop of calls: start it where the order would anyway.
-    const here = ready.length ? ready : layer;
+    // A loop of calls: start it where the order would anyway, but only inside the loop itself, so
+    // what the loop calls still waits. A stop is in such a loop when every caller still waiting is
+    // one it reaches back to.
+    const here = ready.length ? ready : layer.filter((i) => [...waits[i]].every((w) => done.has(w) || reaches(i, w, done)));
     const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
     const pick = (follow.length ? follow : here).sort(before)[0];
     done.add(pick);

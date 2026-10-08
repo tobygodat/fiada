@@ -98,7 +98,7 @@ export function AgentQueue({ state, compact, lit, reviewing, onShow, onReview, o
             a={a}
             lit={a.id === lit}
             onShow={a.files.length ? () => onShow(a.id) : undefined}
-            onReview={a.files.length && reviewing !== a.id ? () => onReview(a.id) : undefined}
+            onReview={a.files.some((f) => f.repo) && reviewing !== a.id ? () => onReview(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
           />
@@ -160,7 +160,7 @@ interface CardProps {
   lit: boolean;
   /** Absent when it has changed nothing there is to show. */
   onShow?(): void;
-  /** Absent with nothing to review, or while its review is on. */
+  /** Absent with nothing on the map to review, or while its review is on. */
   onReview?(): void;
   onSelect(id: string): void;
   onClear?(): void;

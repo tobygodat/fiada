@@ -178,3 +178,24 @@ test('layers go in their listed order even when a rank collides with a position'
   const ids = tourStops(g, graphIndex, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['web/src/pages/items.tsx#ItemsPage', 'api/app/models.py#User']);
 });
+
+test('breaking a loop of calls starts inside the loop, not at what it calls', () => {
+  // ItemsService ↔ UsersService, and ItemsService → Item: Item sorts first by repository but must wait.
+  const flat = {
+    ...graph,
+    layers: [{ id: 'ui', name: 'UI' }],
+    edges: [
+      ...graph.edges,
+      { from: 'web/src/client/api.ts#ItemsService', to: 'web/src/client/api.ts#UsersService', kind: 'calls' as const },
+      { from: 'web/src/client/api.ts#UsersService', to: 'web/src/client/api.ts#ItemsService', kind: 'calls' as const },
+      { from: 'web/src/client/api.ts#ItemsService', to: 'api/app/models.py#Item', kind: 'calls' as const },
+    ],
+  };
+  const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+  const a = agent([
+    file('api', 'app/models.py', [sym('api/app/models.py#Item')]),
+    file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
+  ]);
+  const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'api/app/models.py#Item', 'web/src/client/api.ts#UsersService']);
+});
