@@ -282,3 +282,37 @@ test('a deleted file stands on the collapsed folder that now covers its director
   assert.equal(s.nodes['web/lib/deep/one.ts'].anchor, 'web/lib/deep/x');
   assert.equal(s.nodes['web/lib/deep/one.ts#one'].kind, 'deleted');
 });
+
+test('what an agent looked at: nodes it asked about and files it read, apart from what it changed', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  await hub.ingest([
+    { agent, type: 'state', state: 'waiting' },
+    // Asked about two symbols (one no longer in the graph), and read a file by its path.
+    { agent, type: 'looked', nodes: ['web/src/api.ts#getItem', 'web/src/gone.ts#x'] },
+    { agent, type: 'looked', paths: [path.join(dir, 'src/old.ts'), '/not/in/any/repo.ts'] },
+  ]);
+  let s = hub.state();
+  assert.deepEqual(Object.keys(s.looked ?? {}).sort(), ['web/src/api.ts#getItem', 'web/src/old.ts']);
+  assert.deepEqual(s.looked!['web/src/old.ts'].agents, [s.agents[0].id]);
+  // Looking is working.
+  assert.equal(s.agents[0].state, 'working');
+  // Newest first.
+  assert.deepEqual(s.agents[0].looked, { count: 2, nodes: ['web/src/old.ts', 'web/src/api.ts#getItem'] });
+
+  // Another agent looks at the same symbol: both are named on it.
+  const other: AgentRef = { client: 'cursor', cwd: dir, root: dir };
+  await hub.ingest([{ agent: other, type: 'looked', nodes: ['web/src/api.ts#getItem'] }]);
+  assert.equal(hub.state().looked!['web/src/api.ts#getItem'].agents.length, 2);
+
+  // Once it changes a file it looked at, the file is marked changed, not looked at.
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/old.ts', kind: 'modified', oldLines: [[2, 2]] }] }]);
+  s = hub.state();
+  assert.equal(s.nodes['web/src/old.ts'].kind, 'modified');
+  assert.equal(s.looked!['web/src/old.ts'], undefined);
+  assert.ok(s.looked!['web/src/api.ts#getItem']);
+
+  hub.clear();
+  assert.deepEqual(hub.state().looked, {});
+});

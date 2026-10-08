@@ -6,7 +6,7 @@ import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TopBar } from './components/TopBar.tsx';
-import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
+import { agentLooked, agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
@@ -129,10 +129,11 @@ export function App() {
   const activity = useMemo(() => {
     const s = agents.state;
     if (!tree || !s) return null;
-    // One agent lit: the map marks only its changes.
+    // One agent lit: the map marks only its changes and what it looked at.
     const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
-    if (!Object.keys(nodes).length) return null;
-    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents);
+    const looked = spot && lit ? agentLooked(s.looked, lit) : (s.looked ?? {});
+    if (!Object.keys(nodes).length && !Object.keys(looked).length) return null;
+    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents, looked);
   }, [tree, graphIndex, agents.state, spot, lit]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.

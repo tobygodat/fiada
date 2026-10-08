@@ -1,8 +1,9 @@
 // Agents' changes placed on the tree the map is drawing: which nodes changed
 // themselves, how many changes sit under each node, so a closed circle can say
-// what's inside it, and where an agent is working right now.
+// what's inside it, where an agent is working right now, and what agents
+// looked at (read, or asked Fiada about) without changing it.
 
-import type { AgentActivity, AgentFile, ChangeKind, GraphNode, NodeChange } from '@fiada/shared';
+import type { AgentActivity, AgentFile, ChangeKind, GraphNode, LookedAt, NodeChange } from '@fiada/shared';
 import { locate, type Tree } from './tree.ts';
 
 export interface Marks {
@@ -16,6 +17,8 @@ export interface Marks {
   at: number;
   /** A working agent's latest change is this node ('self') or somewhere under it ('inside'). */
   here: 'self' | 'inside' | null;
+  /** An agent looked at this node ('self') or at something under it ('inside') without changing it. */
+  looked: 'self' | 'inside' | null;
 }
 
 export type TreeActivity = Map<string, Marks>;
@@ -27,11 +30,12 @@ export function rollupActivity(
   graphIndex: Map<string, GraphNode>,
   nodes: Record<string, NodeChange>,
   agents: readonly AgentActivity[] = [],
+  looked: Record<string, LookedAt> = {},
 ): TreeActivity {
   const out: TreeActivity = new Map();
   const get = (id: string) => {
     let m = out.get(id);
-    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null }));
+    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, looked: null }));
     return m;
   };
   const unit = tree.view === 'code' ? 'file' : 'symbol';
@@ -73,6 +77,35 @@ export function rollupActivity(
       }
     }
   }
+  // What agents looked at: the node itself where this view draws it (a file By function is its
+  // symbols), and every circle round it, so a closed one can say something inside was looked at.
+  const children = new Map<string, string[]>();
+  for (const id of Object.keys(looked)) {
+    let ids = tree.nodes.has(id) ? [id] : [];
+    if (!ids.length) {
+      if (!children.size) {
+        for (const g of graphIndex.values()) {
+          if (!tree.nodes.has(g.id)) continue;
+          const list = children.get(g.parent);
+          if (list) list.push(g.id);
+          else children.set(g.parent, [g.id]);
+        }
+      }
+      ids = children.get(id) ?? [];
+    }
+    for (const at of ids) {
+      if (at === tree.root.id) continue;
+      get(at).looked = 'self';
+      for (let cur = tree.nodes.get(at)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) get(cur).looked ??= 'inside';
+    }
+  }
+  return out;
+}
+
+/** What one agent looked at, out of every agent's. */
+export function agentLooked(looked: Record<string, LookedAt> | undefined, agentId: string): Record<string, LookedAt> {
+  const out: Record<string, LookedAt> = {};
+  for (const [id, l] of Object.entries(looked ?? {})) if (l.agents.includes(agentId)) out[id] = l;
   return out;
 }
 
@@ -124,6 +157,7 @@ export function describeMarks(m: Marks, view: Tree['view']): string {
   const parts: string[] = [];
   if (m.here) parts.push(m.here === 'self' ? 'an agent is working here' : 'an agent is working inside');
   if (m.self) parts.push(m.self);
+  else if (m.looked) parts.push(m.looked === 'self' ? 'an agent looked at this' : 'an agent looked inside');
   const n = changeCount(m);
   if (n) {
     const kinds = (['added', 'modified', 'deleted'] as const).filter((k) => m[k]).map((k) => `${m[k]} ${k}`);

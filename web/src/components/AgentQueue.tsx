@@ -1,12 +1,13 @@
 // The task window: a floating panel at the top right with, for each coding
 // agent, a line or two on what it's doing right now, its task and plan folded
-// under that, and the files it has changed. Clicking an agent lights up what
+// under that, the files it has changed, and how much it has looked at. Clicking an agent lights up what
 // it changed on the map and dims the rest; clicking one of its files or
 // functions takes the map to it, where the detail panel shows the diff. While
 // the detail panel is open the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
 import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
+import { ago } from './ago.ts';
 import './agent.css';
 
 interface Props {
@@ -78,6 +79,7 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: P
   }
 
   const working = agents.some((a) => a.state === 'working');
+  const looked = agents.some((a) => a.looked);
   return (
     <aside className={`queue${compact ? ' over' : ''}`} aria-label="Agents">
       <div className="queue-head">
@@ -111,6 +113,11 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onClear }: P
         {working && (
           <span>
             <span className="swatch-ring working" /> working here
+          </span>
+        )}
+        {looked && (
+          <span>
+            <span className="swatch-ring looked" /> looked at
           </span>
         )}
       </div>
@@ -161,6 +168,7 @@ interface CardProps {
 function AgentCard({ a, lit, onShow, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  const [showLooked, setShowLooked] = useState(false);
   // Lit on the map: its files open, to go through one by one.
   useEffect(() => {
     if (lit) setShowFiles(true);
@@ -239,6 +247,24 @@ function AgentCard({ a, lit, onShow, onSelect, onClear }: CardProps) {
           )}
         </div>
       )}
+      {a.looked && (
+        <div className="queue-fold">
+          <button className="queue-fold-toggle" onClick={() => setShowLooked((s) => !s)} aria-expanded={showLooked}>
+            <Chevron open={showLooked} />
+            <span className="queue-fold-words">
+              looked at {a.looked.count} place{a.looked.count === 1 ? '' : 's'}
+            </span>
+          </button>
+          {showLooked && (
+            <div className="queue-file-list">
+              {a.looked.nodes.map((id) => (
+                <LookedRow key={id} id={id} onSelect={onSelect} />
+              ))}
+              {a.looked.count > a.looked.nodes.length && <span className="queue-sym-more">and {a.looked.count - a.looked.nodes.length} earlier</span>}
+            </div>
+          )}
+        </div>
+      )}
       <div className="queue-meta">
         <span className="queue-meta-where" title={a.cwd}>
           {a.where} · {ago(a.updatedAt)}
@@ -293,6 +319,24 @@ function Steps({ steps }: { steps: AgentStep[] }) {
   );
 }
 
+/** Something it looked at, by name and where it is; a way onto the map like a changed file. */
+function LookedRow({ id, onSelect }: { id: string; onSelect(id: string): void }) {
+  const hash = id.indexOf('#');
+  const where = hash >= 0 ? id.slice(0, hash) : id.slice(0, Math.max(0, id.lastIndexOf('/')));
+  const name = hash >= 0 ? id.slice(hash + 1).replace(/~\d+$/, '') : id.slice(id.lastIndexOf('/') + 1);
+  return (
+    <div className="queue-file-item">
+      <button className="queue-file" onClick={() => onSelect(id)} title={`${id}\nlooked at, not changed`}>
+        <span className="swatch-ring looked" aria-hidden />
+        <span className="queue-file-name">
+          <span className="queue-file-base">{name}</span>
+          {where && <span className="queue-file-dir">{where}</span>}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function FileRow({ f, onSelect }: { f: AgentFile; onSelect(id: string): void }) {
   const slash = f.path.lastIndexOf('/');
   const dir = slash >= 0 ? f.path.slice(0, slash) : '';
@@ -341,9 +385,3 @@ function FileRow({ f, onSelect }: { f: AgentFile; onSelect(id: string): void }) 
   );
 }
 
-function ago(iso: string) {
-  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  return `${Math.round(s / 3600)} h ago`;
-}

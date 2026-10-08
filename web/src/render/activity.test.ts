@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
-import { type BadgeCache, BadgeSpace, curveHits, drawBadges, hereGeometry, ringGeometry, type Rect, type Taken } from './activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, drawRings, hereGeometry, LOOKED_ALPHA, ringGeometry, type Rect, type Taken } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
@@ -114,7 +114,7 @@ test('other closed circles are avoided when there is room, and a crowd of badges
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
   // A canvas that draws nothing and measures every character 6px wide.
   const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
-  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null }]]);
+  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, looked: null }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};
@@ -202,4 +202,41 @@ test('a link running far off screen at high zoom only blocks the spots it really
   const box = place(d, { edges: [e], rects: [] });
   assert.equal(touches(box), false, 'the badge went somewhere clear');
   assert.equal(curveHits(e, box), false);
+});
+
+/** A canvas that keeps the rings it is asked to stroke: radius, dash and opacity. */
+function ringsCanvas() {
+  const rings: { r: number; dash: number[]; alpha: number }[] = [];
+  let r = 0;
+  let dash: number[] = [];
+  const ctx: Record<string, unknown> = {
+    globalAlpha: 1,
+    arc: (_x: number, _y: number, radius: number) => (r = radius),
+    setLineDash: (d: number[]) => (dash = d),
+    stroke: () => rings.push({ r, dash, alpha: ctx.globalAlpha as number }),
+    beginPath: () => {},
+  };
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, rings };
+}
+
+const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, looked: null, ...m });
+
+test('looked at: one faint dotted ring where the change ring would be, never with a change or the working ring', () => {
+  const at = (m: Partial<Marks>, open = false) => {
+    const { ctx, rings } = ringsCanvas();
+    drawRings(ctx, [circle('a', 100, 100, 20, open)], new Map([['a', marks(m)]]), 1e12);
+    return rings;
+  };
+  const [own] = at({ looked: 'self' });
+  assert.equal(own.r, ringGeometry(20).lineR);
+  assert.ok(own.dash.length === 2 && own.dash[0] < own.dash[1], 'dotted');
+  assert.equal(own.alpha, LOOKED_ALPHA.self);
+  // Inside a closed circle it shows, fainter; an open one shows its own marks inside it instead.
+  assert.equal(at({ looked: 'inside' })[0].alpha, LOOKED_ALPHA.inside);
+  assert.ok(LOOKED_ALPHA.inside < LOOKED_ALPHA.self);
+  assert.deepEqual(at({ looked: 'inside' }, true), []);
+  // A change, or an agent working here, says more: no looked ring with either.
+  assert.ok(at({ looked: 'self', self: 'modified' }).every((r) => r.dash.length === 0));
+  assert.ok(at({ looked: 'self', here: 'self' }).every((r) => r.dash.length === 0));
+  assert.deepEqual(at({ looked: 'inside', modified: 2 }), []);
 });
