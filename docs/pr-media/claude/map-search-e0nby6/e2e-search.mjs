@@ -135,7 +135,7 @@ if (mode === 'before') {
   await page.getByText('code', { exact: true }).first().click();
   await page.waitForTimeout(1200);
   // A narrow window keeps the whole list on screen.
-  for (const w of [360, 480, 700, 900]) {
+  for (const w of [320, 360, 480, 761, 841, 900]) {
     await page.setViewportSize({ width: w, height: 800 });
     const bar = await page.evaluate((w) => {
       const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();

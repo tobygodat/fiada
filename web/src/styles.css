@@ -108,7 +108,7 @@ a { color: inherit; }
 .crumbs button:hover { color: var(--accent); }
 .crumbs button.here { color: var(--text); }
 .crumbs .sep { margin: 0 var(--space-8); color: var(--muted); }
-.crumbs .back { display: grid; place-items: center; width: var(--size-control); height: var(--size-control); margin-right: var(--space-xs); color: var(--text); }
+.crumbs .back { flex: none; display: grid; place-items: center; width: var(--size-control); height: var(--size-control); margin-right: var(--space-xs); color: var(--text); }
 .crumbs .back:disabled { color: var(--faint); cursor: default; }
 .topbar-right { display: flex; align-items: center; gap: var(--space-24); flex: none; }
 .altitudes { display: flex; gap: var(--space-sm); }
@@ -143,18 +143,17 @@ a { color: inherit; }
 .search-where { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-fine); color: var(--muted); }
 .search-hits li.search-none { color: var(--muted); cursor: default; }
 /* Narrow windows: the field shrinks and its matches span the window under the top bar, not off its left edge. */
-@media (max-width: 760px) {
+@media (max-width: 840px) {
   /* The breadcrumb already says where you are; the altitude words give way so back and the breadcrumb keep their room. */
   .altitudes { display: none; }
-  .topbar-right { gap: var(--space-sm); }
-  .crumbs .back { flex: none; }
   /* While indexing, its word takes the zoom readout's place. */
   .topbar-right:has(.busy) .zoom { display: none; }
-  .search input { width: 160px; }
+  /* Back and the first crumb always show; the search field takes what's left, up to 160px, and shrinks first. */
+  .crumbs { flex: 1 0 auto; min-width: 0; max-width: calc(100% - 140px); }
+  .topbar-right { flex: 0 1 auto; min-width: 0; gap: var(--space-sm); }
+  .search { flex: 0 1 160px; min-width: 64px; }
+  .search input { width: 100%; }
   .search-hits { position: fixed; left: var(--space-md); right: var(--space-md); top: calc(var(--fiada-topbar) + var(--space-xs)); width: auto; }
-}
-@media (max-width: 420px) {
-  .search input { width: 120px; }
 }
 
 /* ── map ── */
