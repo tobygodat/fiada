@@ -188,7 +188,7 @@ function collect(
     const anchor = nodes[file]?.anchor;
     const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : anchor && graphIndex.has(anchor) ? anchor : null;
     const peer =
-      f.kind === 'modified' && (f.others?.length || f.topTheirs)
+      f.kind !== 'deleted' && (f.others?.length || f.topTheirs)
         ? {
             ids: (f.others ?? []).map((s) => s.id),
             ...(f.others?.some((s) => s.oldLines) && { old: Object.fromEntries(f.others.filter((s) => s.oldLines).map((s) => [s.id, s.oldLines!])) }),

@@ -752,6 +752,9 @@ test("another agent's changes in a file go with each of that file's stops, so it
   // Only the file's other code is the other agent's; and a file stop carries it too.
   const top = { ...file('web', 'src/client/api.ts'), topTheirs: true };
   assert.deepEqual(tourStops(graph, graphIndex, agent([top]), NO_NODES)[0].peer, { ids: [], top: true });
+  // A file both agents added: the other agent's functions are left out too.
+  const added = { ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService', 'added')], 'added'), others: [{ id: 'web/src/client/api.ts#request', kind: 'added' as const }] };
+  assert.deepEqual(tourStops(graph, graphIndex, agent([added]), NO_NODES)[0].peer, { ids: ['web/src/client/api.ts#request'], top: false });
   // Nothing of another agent's: nothing to leave out.
   assert.equal(tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])]), NO_NODES)[0].peer, undefined);
 });

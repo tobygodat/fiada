@@ -334,3 +334,12 @@ test("a row both agents' changes hold is the innermost one's: a method in a clas
   assert.ok(mineToo.includes('+  int size = 2;'));
   assert.ok(!mineToo.includes('+    return 10;'));
 });
+
+test("a file two agents added shows each one's functions without the other's", () => {
+  const diff = ['@@ -0,0 +1,7 @@', '+export function mine() {', '+  return 1;', '+}', '+', '+export function theirs() {', '+  return 2;', '+}'].join('\n');
+  const mine = { lines: [1, 3] as const };
+  // (The blank line between them, no function's, is the file's other code, after the function.)
+  assert.deepEqual(pickHunks(diff, mine, [mine], { owners: [{ lines: [5, 7] }], top: false }), ['@@ -0,0 +1,3 @@', '+export function mine() {', '+  return 1;', '+}', '@@ -0,0 +4,1 @@', '+']);
+  // A stop for the whole file: everything but theirs.
+  assert.deepEqual(pickHunks(diff, undefined, undefined, { owners: [{ lines: [5, 7] }], top: false }), ['@@ -0,0 +1,4 @@', '+export function mine() {', '+  return 1;', '+}', '+']);
+});
