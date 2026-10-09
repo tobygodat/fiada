@@ -316,6 +316,30 @@ test("another agent moving a function's lines doesn't make this agent's change t
   assert.equal(timesOf('a').getItem, first, 'getItem keeps the time A changed it');
 });
 
+test('a file that drops out of the map, grown too large to read, is a new change for every stop it had', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const edit = async (text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = hub.state().graphVersion;
+    const pushed = nextPush(hub, (s) => s.graphVersion > v);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: [[6, 6]] }] }]);
+    await pushed;
+    return hub.state().agents[0].files[0];
+  };
+  const one = await edit(API.replace("'/api/items/' + id", '`/api/items/${id}`'), [[6, 6]]);
+  assert.ok(one.symbols.some((s) => s.name === 'getItem' && s.at === one.at));
+  // Past the size the indexer reads: the graph drops the file, and with it every function.
+  const two = await edit(API.replace("'/api/items/' + id", '`/api/items/${id}`') + '// generated\n'.repeat(40_000), [[6, 6], [9, 40_008]]);
+  assert.equal(hub.state().nodes['web/src/api.ts#getItem']?.kind ?? 'deleted', 'deleted');
+  assert.ok(two.symbols.length > 0 && two.symbols.every((s) => s.kind === 'deleted'), 'its functions are gone from the map');
+  for (const s of two.symbols) assert.equal(s.at, two.at, `${s.name} takes the change that dropped it`);
+  assert.equal(two.topAt, two.at, 'and so does the file\'s other code');
+});
+
 test('only source files the indexer reads are kept as text, never a large artifact', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

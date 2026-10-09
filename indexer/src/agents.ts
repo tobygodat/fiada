@@ -64,6 +64,11 @@ interface FileRec {
   /** The file's lines as last re-indexed, to tell which symbols' own text changed. */
   text: string[] | null;
   /**
+   * The re-index for the latest change is in and can be read: with its text, or with the file
+   * gone from the graph (deleted, or no longer something the indexer reads), so nothing is left to compare.
+   */
+  settled: boolean;
+  /**
    * Each touched symbol's own change time: moved on only when the symbol's text changes, so
    * editing one function doesn't make the others in the file new again. `sig` is null until the
    * re-indexed text is in.
@@ -363,6 +368,7 @@ export class AgentHub {
         base: where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : null,
         swept,
         text: null,
+        settled: false,
         symAt: new Map(),
         topAt: null,
         gen: 0,
@@ -380,6 +386,7 @@ export class AgentHub {
       diff: typeof f.diff === 'string' ? f.diff : file.diff,
       at: now,
       fresh: false,
+      settled: false,
       gen: file.gen + 1,
     });
     if (Array.isArray(f.symbols)) file.named = [...new Set([...file.named, ...f.symbols.filter((s) => typeof s === 'string')])];
@@ -499,7 +506,9 @@ export class AgentHub {
         // The text the graph was built from, only when it held still the whole time (else it may
         // not match), and only for a file the indexer took in (else no symbol needs it).
         const text = after.get(f.rel!);
-        f.text = text != null && text === before.get(f.rel!) && ix.nodes.has(fileId(repo, f.rel!)) ? text.split('\n') : null;
+        const indexed = ix.nodes.has(fileId(repo, f.rel!));
+        f.text = text != null && text === before.get(f.rel!) && indexed ? text.split('\n') : null;
+        f.settled = !!f.text || !indexed;
         if (f.settledGen === f.gen) others.push(f);
         f.settledGen = f.gen;
       }
@@ -595,13 +604,13 @@ export class AgentHub {
 
   /**
    * Each symbol's own change time: the file's latest change when the symbol's text is new, else
-   * the time it last changed. A file Fiada doesn't re-index (a clone) has no text to compare, so
-   * every change to it counts for each of its symbols, as it did before. A symbol's time is never
+   * the time it last changed. A file Fiada doesn't re-index (a clone), or one the graph dropped,
+   * has no text to compare, so every change to it counts for each of its symbols. A symbol's time is never
    * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
    * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
   private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>): { symbols: AgentFile['symbols']; top: number } {
-    const settled = !f.live || (f.fresh && !!f.text);
+    const settled = !f.live || f.settled;
     const sig = this.signer(f, ix);
     const out = symbols.map((s) => {
       const cur = advance(f.symAt.get(s.id), settled ? sig(s.id, s.kind) : null, f.at);
