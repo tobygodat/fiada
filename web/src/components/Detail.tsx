@@ -21,7 +21,7 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
-import type { HunkOwner } from './diff.ts';
+import { ownerOf, type HunkOwner } from './diff.ts';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
@@ -204,7 +204,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   const rest = tour?.stop.rest?.map((id): HunkOwner => {
     const n = graphIndex.get(id);
     const oldLines = tour.stop.restOld?.[id];
-    return n?.kind === 'symbol' && n.lines ? { lines: n.lines, oldLines } : { name: id.slice(id.indexOf('#') + 1), oldLines };
+    return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { name: id.slice(id.indexOf('#') + 1), oldLines };
   });
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
@@ -227,7 +227,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   return (
     <AgentChange
       node={g.id}
-      own={g.kind === 'symbol' && g.lines ? { lines: g.lines, oldLines: tour?.stop.id === g.id ? tour.stop.old : undefined } : undefined}
+      own={g.kind === 'symbol' && g.lines ? ownerOf(g.lines, tour?.stop.id === g.id ? tour.stop.old : undefined) : undefined}
       rest={rest}
       rev={file?.at ?? own.at}
       kind={kind}
