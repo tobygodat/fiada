@@ -779,6 +779,34 @@ test('a class whose own lines are back as HEAD has them, around a method still c
   assert.ok(at().Store > first.Store);
 });
 
+test("a class only round this agent's method change is no one's: another agent's change to its field isn't this agent's", async () => {
+  const STORE = 'class Store {\n  int size = 1;\n\n  int get() {\n    return 1;\n  }\n}\n';
+  const { dir, ws } = await localRepo({ 'src/Store.java': STORE });
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/Store.java');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/Store.java'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const namesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files.flatMap((f) => f.symbols.map((s) => s.id.slice(s.id.indexOf('#') + 1)));
+  // A changes the method only.
+  const one = STORE.replace('return 1;', 'return 10;');
+  await report(a, one, [[5, 5]]);
+  // B changes the class's field; then A changes its method again, its report taking in B's field.
+  const two = one.replace('size = 1', 'size = 2');
+  await report(b, two, [[2, 2]]);
+  await report(a, two.replace('return 10;', 'return 11;'), [[2, 2], [5, 5]]);
+  assert.ok(namesOf('b').includes('Store'), 'the field is B’s');
+  assert.ok(!namesOf('a').includes('Store'), 'not A’s');
+  assert.ok(namesOf('a').includes('Store.get'));
+});
+
 test('a function the agent takes back and then changes again is new to read', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

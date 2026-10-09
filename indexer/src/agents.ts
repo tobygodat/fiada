@@ -728,9 +728,10 @@ export class AgentHub {
     const out = mine.map((s) => {
       const prev = f.symAt.get(s.id);
       const now = settled ? sig(s.id, s.kind) : null;
-      // Its own text back as HEAD has it (a class's field put back, round a method still changed): nothing new to read in it.
+      // Its own text as HEAD has it (a class round a changed method, or one whose field was put back):
+      // nothing new to read in it, and no one's change, so another agent's later change to it is that agent's.
       const head = s.kind === 'modified' ? f.baseSigs?.get(s.id) : undefined;
-      const cur = prev && head !== undefined && now === `modified\n${head}` ? { ...prev, sig: now } : advance(prev, now, f.at);
+      const cur: Stamp = head !== undefined && now === `modified\n${head}` ? { sig: now, at: prev?.at ?? f.at, back: true } : advance(prev, now, f.at);
       f.symAt.set(s.id, cur);
       return { ...s, at: new Date(cur.at).toISOString() };
     });
