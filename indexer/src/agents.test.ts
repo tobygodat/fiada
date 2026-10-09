@@ -1069,6 +1069,12 @@ test("a function this agent changed that another agent then changed too says som
   // B puts getItem back as A left it: every row of it is A's again.
   await report(b, one.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
   assert.deepEqual(shared('a'), { listItems: false, getItem: false });
+  // B changes it again, and this time A puts it back as A left it.
+  await report(b, both.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
+  await report(a, both.replace("'/api/items')", "'/api/items?all=2')"), [[2, 2], [6, 6]]);
+  assert.deepEqual(shared('a'), { listItems: false, getItem: true });
+  await report(a, one.replace("'/api/items')", "'/api/items?all=2')"), [[2, 2], [6, 6]]);
+  assert.deepEqual(shared('a'), { listItems: false, getItem: false }, 'A put it back as A left it');
 });
 
 test("the file's other code this agent changed that another agent then changed too says some of its rows are that agent's", async () => {
@@ -1099,6 +1105,12 @@ test("the file's other code this agent changed that another agent then changed t
   // B puts the import back as A left it: every row of it is A's again.
   await report(b, get(mine), [[1, 1], [7, 7]]);
   assert.equal(fileOf('a').topShared, undefined);
+  // B changes it again, and this time A puts it back as A left it.
+  await report(b, get(both), [[1, 1], [7, 7]]);
+  await report(a, get(both).replace("'/api/items')", "'/api/items?all=1')"), [[1, 1], [3, 3], [7, 7]]);
+  assert.equal(fileOf('a').topShared, true);
+  await report(a, get(mine).replace("'/api/items')", "'/api/items?all=1')"), [[1, 1], [3, 3], [7, 7]]);
+  assert.equal(fileOf('a').topShared, undefined, 'A put it back as A left it');
 });
 
 test('a file that drops out of the map, grown too large to read, is a new change for every stop it had', async () => {

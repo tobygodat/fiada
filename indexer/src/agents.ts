@@ -763,6 +763,8 @@ export class AgentHub {
     const out = mine.flatMap((s) => {
       const prev = f.symAt.get(s.id);
       const now = settled ? sig(s.id, s.kind) : null;
+      // Back as this agent left it before the other agent changed it: every row of it is this agent's again.
+      if (now !== null && f.shared?.get(s.id) === now) f.shared.delete(s.id);
       // Its own text as HEAD has it (a class round a changed method, or one whose field was put back):
       // nothing to read in it, so it isn't listed (a stop showing it would be unread for a change that's
       // gone), and no one's change, so another agent's later change to it is that agent's.
@@ -792,8 +794,9 @@ export class AgentHub {
     if (settled && f.topAt.sig !== f.theirsTop) f.theirsTop = null;
     // Back as HEAD has it, or as another agent left it: nothing outside the symbols for this agent to read.
     const unchanged = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
-    // Nothing there is this agent's change now, so nothing of it is shared with another agent either.
-    if (unchanged) f.topShared = undefined;
+    // Nothing there is this agent's change now, or it is back as this agent left it before the other
+    // agent changed it: either way none of its rows are the other agent's.
+    if (unchanged || (settled && f.topAt.sig === f.topShared)) f.topShared = undefined;
     // Everything still changed in the file is another agent's: nothing here is this agent's to show.
     const theirsOnly = settled && !out.length && unchanged && (mine.length < symbols.length || f.topAt.sig === f.theirsTop);
     // What is another agent's, so its rows are left out of this agent's diff.

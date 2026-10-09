@@ -752,6 +752,21 @@ test("a class left out for its method is read on the file's first stop: a change
   assert.equal(nextUnread(stops(later), marks), 0);
 });
 
+test("a class left out for its method that another agent changed too says so on the stop showing its rows", () => {
+  const F = 'src/Items.java';
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const node = (name: string, lines: [number, number]) =>
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+  const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
+  const stops = (shared: boolean) =>
+    tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), ...(shared && { shared: true as const }) }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
+  const [stop] = stops(true);
+  assert.equal(stop.id, `svc/${F}#Items.add`);
+  assert.equal(stop.shared, true);
+  assert.deepEqual(stop.carries, [{ id: `svc/${F}#Items`, at: stop.carries![0].at }], 'carries keep only id and time');
+  assert.equal(stops(false)[0].shared, undefined);
+});
+
 test("the tour isn't ordered again for an agent's status, only when its changes or their circles change", () => {
   const tour = tourCache();
   const files = [file('api', 'app/models.py', [sym('api/app/models.py#Item')]), file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
