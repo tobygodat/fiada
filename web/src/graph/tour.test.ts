@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { forgetMarks, isRead, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourStops, type ReadMarks } from './tour.ts';
+import { forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -754,4 +754,11 @@ test("another agent's changes in a file go with each of that file's stops, so it
   assert.deepEqual(tourStops(graph, graphIndex, agent([top]), NO_NODES)[0].peer, { ids: [], top: true });
   // Nothing of another agent's: nothing to leave out.
   assert.equal(tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])]), NO_NODES)[0].peer, undefined);
+});
+
+test("a stop on the Unlayered layer says so, though the project's layers don't list it", () => {
+  assert.equal(layerName(graph.layers, UNLAYERED), 'Unlayered');
+  assert.equal(layerName(graph.layers, 'api'), 'API');
+  assert.equal(layerName(graph.layers, 'gone'), null);
+  assert.equal(layerName(graph.layers, null), null);
 });
