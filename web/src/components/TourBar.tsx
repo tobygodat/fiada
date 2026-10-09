@@ -20,6 +20,8 @@ interface Props {
   besideDetail: boolean;
   /** The change you're on is what the map has selected; else you've gone to look at something else. */
   showing: boolean;
+  /** The change's own diff is on screen: not still loading, nor an older one of it standing in. */
+  ready: boolean;
   onGo(i: number): void;
   onRead(i: number, read: boolean): void;
   onEnd(): void;
@@ -35,12 +37,13 @@ const MAX_TICKS = 80;
 const MAX_TOUCH_TICKS = 10;
 const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
-export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, onGo, onRead, onEnd }: Props) {
+export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, ready, onGo, onRead, onEnd }: Props) {
   const stop = stops[at];
   const read = stops.filter((s) => isRead(marks, s)).length;
   const here = !!stop && isRead(marks, stop);
   // Away looking at something else, you can't mark the change read unseen: r takes you back to it first.
-  const readOrBack = () => (showing ? onRead(at, !here) : onGo(at));
+  // Nor before its diff is on screen; marking it unread needn't wait.
+  const readOrBack = () => (!showing ? onGo(at) : here || ready ? onRead(at, !here) : undefined);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -56,7 +59,7 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [at, stops.length, stop, here, showing, onGo, onRead]);
+  }, [at, stops.length, stop, here, showing, ready, onGo, onRead]);
 
   if (!stop) return null;
   const layer = layerName(layers, stop.layer);
@@ -104,7 +107,11 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
           <button className="queue-act" onClick={() => onGo(at - 1)} disabled={at === 0} title="Previous change (←)">
             previous
           </button>
-          {showing ? (
+          {showing && !here && !ready ? (
+            <button className="queue-act" disabled title="The change is still loading">
+              loading the change
+            </button>
+          ) : showing ? (
             <button className="queue-act" onClick={readOrBack} title={here ? 'Mark this change unread (r)' : 'Mark this change read and go on (r)'}>
               {here ? 'mark unread' : 'mark read'}
             </button>
