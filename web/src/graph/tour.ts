@@ -293,9 +293,18 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     const outs = by(bs);
     for (const [ra, from] of ins) {
       const callers = new Set(from);
-      // A stop on both sides calls the rest and is called by them: it doesn't wait on itself.
-      const to = [...outs].flatMap(([rb, l]) => (rb >= ra ? l.filter((b) => !callers.has(b)) : []));
-      if (to.length) gates.push({ from, to, left: from.length });
+      const to = [...outs].flatMap(([rb, l]) => (rb >= ra ? l : []));
+      const rest = to.filter((b) => !callers.has(b));
+      if (rest.length) gates.push({ from, to: rest, left: from.length });
+      // A stop on both sides waits on every other caller, as a link for each pair would have it,
+      // but not on itself: one gate from the callers on one side only, and those on both wait on
+      // each other (a loop, read whole, as the links would make it).
+      const both = to.filter((b) => callers.has(b));
+      if (!both.length) continue;
+      const mutual = new Set(both);
+      const others = from.filter((a) => !mutual.has(a));
+      if (others.length) gates.push({ from: others, to: both, left: others.length });
+      if (both.length > 1) gates.push({ from: both, to: both, left: both.length });
     }
   };
   const seen = new Set<string>();
@@ -494,6 +503,14 @@ export function loops(next: Set<number>[]): number[] {
   }
   return comp;
 }
+
+/**
+ * Nothing left to review and nothing on the way: the map's graph is as new as the one the agents'
+ * changes were placed on. (A file just added stands on its folder until it's indexed; then its
+ * stops wait for the map to load the graph it's in.)
+ */
+export const tourOver = (stops: readonly TourStop[], agentGraph?: number, loadedGraph?: number) =>
+  !stops.length && !(agentGraph != null && loadedGraph != null && agentGraph > loadedGraph);
 
 /** Read marks: for each stop id, the change time it was read at. */
 export type ReadMarks = Record<string, number>;

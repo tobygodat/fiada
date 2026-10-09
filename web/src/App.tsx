@@ -10,7 +10,7 @@ import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
-import { diffShown, loadMarks, nextUnread, reviewable, saveMarks, tourCache, type ReadMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
+import { diffShown, loadMarks, nextUnread, reviewable, saveMarks, tourCache, tourOver, type ReadMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -543,11 +543,12 @@ export function App() {
       if (moved) showStop(target);
       return;
     }
-    if (!stops.length) return setTour(null);
+    if (tourOver(stops, agentGraph, loadedGraph)) return setTour(null);
+    if (!stops.length) return;
     const s = stops[Math.min(lastStop.current, stops.length - 1)];
     setTour({ agent: touring.agent, stop: s.id });
     showStop(s.target);
-  }, [touring, stops, showStop]);
+  }, [touring, stops, showStop, agentGraph, loadedGraph]);
 
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.
