@@ -75,6 +75,12 @@ interface FileRec {
    * re-indexed text is in.
    */
   symAt: Map<string, Stamp>;
+  /**
+   * Symbols only another agent had changed when it last changed the file, with their digest then
+   * ('deleted' when gone): the hook reports every change since HEAD, so they come with this agent's
+   * next one, but they aren't this agent's change until it changes them too.
+   */
+  theirs: Map<string, string>;
   /** The same for the file's code outside every symbol (imports, constants), or null before the first look. */
   topAt: Stamp | null;
   /** The digest of that code as HEAD has it, so a file whose imports are back as they were has no change there; null when unknown. */
@@ -405,6 +411,7 @@ export class AgentHub {
         sigs: null,
         settled: false,
         symAt: new Map(),
+        theirs: new Map(),
         topAt: null,
         gen: 0,
         settledGen: -1,
@@ -659,7 +666,15 @@ export class AgentHub {
   private stamp(f: FileRec, symbols: AgentFile['symbols'], own = false): { symbols: AgentFile['symbols']; top: number | null } {
     const settled = !f.live || f.settled;
     const sig = this.signer(f);
-    const out = symbols.map((s) => {
+    // Another agent's change is left out while its text stays as that agent left it.
+    const mine = symbols.filter((s) => {
+      const theirs = f.theirs.get(s.id);
+      if (theirs === undefined) return true;
+      if (!settled || theirs === (s.kind === 'deleted' ? 'deleted' : f.sigs?.of.get(s.id))) return false;
+      f.theirs.delete(s.id);
+      return true;
+    });
+    const out = mine.map((s) => {
       const cur = advance(f.symAt.get(s.id), settled ? sig(s.id, s.kind) : null, f.at);
       f.symAt.set(s.id, cur);
       return { ...s, at: new Date(cur.at).toISOString() };
@@ -678,10 +693,13 @@ export class AgentHub {
 
   /**
    * Another agent changed the file: every time this agent has for it stays, and each takes the
-   * text as it is now (found by symbol id, whatever this agent's own line ranges say).
+   * text as it is now (found by symbol id, whatever this agent's own line ranges say). Every
+   * symbol this agent never touched is the other agent's as it is now, whichever of them it changed.
    */
   private rebase(f: FileRec) {
     if (!f.sigs) return;
+    for (const [id, now] of f.sigs.of) if (!f.symAt.has(id)) f.theirs.set(id, now);
+    if (f.base) for (const id of f.base.keys()) if (!f.sigs.of.has(id) && !f.symAt.has(id)) f.theirs.set(id, 'deleted');
     const sig = this.signer(f);
     for (const [id, prev] of f.symAt) {
       const kind = prev.sig?.split(/[\n@]/)[0] as ChangeKind | undefined;

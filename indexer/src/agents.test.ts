@@ -324,6 +324,37 @@ test("another agent's edit to a function never counts as this agent's next chang
   assert.ok(fileOf('b').topAt, 'B did');
 });
 
+test("a function only another agent changed stays that agent's when this one changes the file again", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  // Each report's lines are every change since HEAD, as the hook sends them.
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+  const timesOf = (session: string) => Object.fromEntries(of(session).symbols.map((s) => [s.name, s.at])) as Record<string, string>;
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, one, [[6, 6]]);
+  // B changes listItems, which A never touched; then A changes getItem again.
+  const two = one.replace("'/api/items')", "'/api/items?all=1')");
+  await report(b, two, [[2, 2], [6, 6]]);
+  await report(a, two.replace('`/api/items/${id}`', '`/api/items/${encodeURIComponent(id)}`'), [[2, 2], [6, 6]]);
+  assert.deepEqual(Object.keys(timesOf('a')), ['getItem'], 'listItems is B’s change, not A’s');
+  assert.ok(timesOf('b').listItems);
+  // A changes listItems too: now it is A's, at A's latest change.
+  const three = two.replace('`/api/items/${id}`', '`/api/items/${encodeURIComponent(id)}`').replace('?all=1', '?all=2');
+  await report(a, three, [[2, 2], [6, 6]]);
+  assert.equal(timesOf('a').listItems, of('a').at);
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
