@@ -200,7 +200,7 @@ test("the file's code outside its functions has its own change time, and a re-in
   const getItem = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   const a = await settle(() => report(getItem, [[6, 6]], [[6, 6]]));
   assert.equal(a.getItem, a.file);
-  assert.equal(a.top, a.file, 'from the first change');
+  assert.equal(a.top, undefined, 'nothing outside the functions changed yet');
 
   // listItems changes, and its re-index is held until a newer change (an import on top, which moves every line) is in.
   const both = getItem.replace("'/api/items')", "'/api/items?all=1')");
@@ -218,7 +218,15 @@ test("the file's code outside its functions has its own change time, and a re-in
   assert.equal(after.getItem, a.getItem, 'getItem’s own text never changed after the first edit');
   assert.equal(after.listItems, c.file, 'listItems was first seen while held, so the import that came before its first re-index counts for it too');
   assert.equal(after.top, after.file, 'the import moved the file’s other code on');
-  assert.notEqual(after.top, a.top);
+
+  // The import taken back: nothing outside the functions left to read, so no time for it.
+  const back = await settle(() => report(both, [[2, 2], [6, 6]], [[2, 2], [6, 6]]));
+  assert.equal(back.top, undefined, 'an import back as HEAD has it is no change');
+  assert.equal(back.getItem, a.getItem);
+  // Added again: a new change.
+  const again = await settle(() => report(`import { z } from './z';\n${both}`, [[1, 1], [3, 3], [7, 7]], [[1, 0], [2, 2], [6, 6]]));
+  assert.equal(again.top, again.file);
+  assert.notEqual(again.top, after.top);
 });
 
 test('a function changed twice before its file is first re-indexed takes the later change', async () => {
@@ -404,9 +412,15 @@ test('only source files the indexer reads are kept as text, never a large artifa
   await fs.writeFile(path.join(dir, 'dist/api.js'), 'export function listItems() {}\n');
   await fs.writeFile(path.join(dir, 'src/api.test.ts'), 'export function testItems() {}\n');
   const files = ['src/api.ts', 'src/big.ts', 'notes.txt', 'dist/api.js', 'src/api.test.ts'];
+  // Every file AgentHub reads to compare, before the re-index and after.
+  const reads: string[] = [];
+  const readFile = fs.readFile;
+  fs.readFile = ((p: string, ...rest: unknown[]) => (reads.push(path.relative(dir, String(p))), (readFile as (...a: unknown[]) => unknown)(p, ...rest))) as typeof fs.readFile;
   const pushed = nextPush(hub, (s) => s.graphVersion > 1);
   await hub.ingest([{ agent, type: 'changes', files: files.map((p) => ({ path: path.join(dir, p), kind: 'modified' as const })) }]);
   await pushed;
+  fs.readFile = readFile;
+  assert.deepEqual([...new Set(reads.filter((r) => files.includes(r)))], ['src/api.ts'], 'only the source the indexer takes in is read at all');
   const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; text: string[] | null }> }> }).agents;
   const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.text != null]));
   assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false, 'dist/api.js': false, 'src/api.test.ts': false });

@@ -545,7 +545,7 @@ export interface AgentFile {
   symbols: { id: string; name: string; kind: ChangeKind; at?: string }[];
   /**
    * ISO time of the agent's latest change to the file's code outside every symbol (an import, a
-   * constant), shown with the file's first function; absent from older indexers.
+   * constant), shown with the file's first function; absent while that code is as HEAD has it, and from older indexers.
    */
   topAt?: string;
   /** ISO time of the latest change. */

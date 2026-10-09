@@ -28,8 +28,8 @@ import type {
   NodeChange,
 } from '@fiada/shared';
 import { fileId, symbolIds } from './link.ts';
-import { langOf, parseFile } from './parse/index.ts';
-import { DEFAULT_LOAD, fileWithin } from './sources.ts';
+import { parseFile } from './parse/index.ts';
+import { DEFAULT_LOAD, fileWithin, sourcePaths } from './sources.ts';
 import type { Workspace } from './workspace.ts';
 
 const exec = promisify(execFile);
@@ -76,10 +76,18 @@ interface FileRec {
   symAt: Map<string, Stamp>;
   /** The same for the file's code outside every symbol (imports, constants), or null before the first look. */
   topAt: Stamp | null;
+  /** That code as HEAD has it, so a file whose imports are back as they were has no change there; null when unknown. */
+  baseTop: string | null;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
   settledGen: number;
+}
+
+/** A file's code outside every symbol, blank lines aside: its imports and constants. */
+function outside(text: string[], spans: ([number, number] | undefined)[]): string {
+  const inside = (i: number) => spans.some((l) => l && i >= l[0] && i <= l[1]);
+  return text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n');
 }
 
 /** A change time and the text it was taken for (null until the re-indexed text is in). */
@@ -365,7 +373,7 @@ export class AgentHub {
         at: now,
         fresh: false,
         live: where.live,
-        base: where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : null,
+        ...(where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : { base: null, baseTop: null }),
         swept,
         text: null,
         settled: false,
@@ -448,8 +456,8 @@ export class AgentHub {
    * local repo, else what the graph has now (a clone is at HEAD already).
    * An added file had none.
    */
-  private async baseSymbols(repo: string, rel: string, live: boolean, kind: ChangeKind): Promise<SymbolLines | null> {
-    if (kind === 'added') return new Map();
+  private async baseSymbols(repo: string, rel: string, live: boolean, kind: ChangeKind): Promise<{ base: SymbolLines | null; baseTop: string | null }> {
+    if (kind === 'added') return { base: new Map(), baseTop: '' };
     const fid = fileId(repo, rel);
     if (live) {
       const root = this.ws.rootOf(repo);
@@ -458,13 +466,16 @@ export class AgentHub {
         : null;
       if (text != null) {
         const parsed = await parseFile(rel, text).catch(() => null);
-        if (!parsed) return new Map();
+        if (!parsed) return { base: new Map(), baseTop: null };
         const ids = symbolIds(fid, parsed);
-        return new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines }]));
+        return {
+          base: new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines }])),
+          baseTop: outside(text.split('\n'), parsed.symbols.map((s) => s.lines)),
+        };
       }
     }
     const syms = this.index(this.ws.getGraph()).symbols.get(fid);
-    return syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0] }])) : null;
+    return { base: syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0] }])) : null, baseTop: null };
   }
 
   /** Re-indexes changed files of local repos, a moment after the last change so a burst of edits is one rebuild. */
@@ -482,12 +493,14 @@ export class AgentHub {
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
       const source = this.ws.repos.find((r) => r.id === repo)?.source;
+      // Only source the indexer reads too (a symbol's text is all it's for), so neither a large
+      // artifact nor generated code, a test or an ignored file is ever read here.
+      const wanted = source ? await sourcePaths(this.realSource(source), [...rels]) : new Set<string>();
       const read = async () => {
         const text = new Map<string, string | null>();
         for (const rel of rels) {
-          // Read as untrusted: only a regular file inside the repository, and only source the
-          // indexer reads too (a symbol's text is all it's for), so a large artifact isn't held.
-          const at = source && langOf(rel) ? await fileWithin(this.realSource(source), rel) : null;
+          // Read as untrusted: only a regular file inside the repository.
+          const at = source && wanted.has(rel) ? await fileWithin(this.realSource(source), rel) : null;
           text.set(rel, at && at.size <= DEFAULT_LOAD.maxFileBytes ? await fs.promises.readFile(at.abs, 'utf8').catch(() => null) : null);
         }
         return text;
@@ -613,7 +626,7 @@ export class AgentHub {
    * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
    * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>, own = false): { symbols: AgentFile['symbols']; top: number } {
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>, own = false): { symbols: AgentFile['symbols']; top: number | null } {
     const settled = !f.live || f.settled;
     const sig = this.signer(f, ix);
     const out = symbols.map((s) => {
@@ -629,7 +642,8 @@ export class AgentHub {
       for (const [id, prev] of f.symAt) if (!now.has(id) && prev.sig !== null) f.symAt.set(id, { sig: null, at: prev.at });
     }
     f.topAt = advance(f.topAt, settled ? sig.top() : null, f.at);
-    return { symbols: out, top: f.topAt.at };
+    // Back as HEAD has it: nothing outside the symbols to read, so no time for it.
+    return { symbols: out, top: f.baseTop != null && f.topAt.sig === f.baseTop ? null : f.topAt.at };
   }
 
   /**
@@ -658,9 +672,7 @@ export class AgentHub {
       const at = lines.get(id);
       return at ? `${kind}\n${text.slice(at[0] - 1, at[1]).join('\n')}` : null;
     };
-    // The code outside every symbol, blank lines aside: an import or a constant the agent changes.
-    const inside = (i: number) => all.some((n) => n.lines && i >= n.lines[0] && i <= n.lines[1]);
-    sig.top = () => (text ? text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n') : `@${f.at}`);
+    sig.top = () => (text ? outside(text, all.map((n) => n.lines)) : `@${f.at}`);
     return sig;
   }
 
@@ -727,7 +739,7 @@ export class AgentHub {
           additions: f.additions,
           deletions: f.deletions,
           symbols,
-          topAt: new Date(top).toISOString(),
+          topAt: top == null ? undefined : new Date(top).toISOString(),
           at: new Date(f.at).toISOString(),
           diff: !!f.diff,
         });
