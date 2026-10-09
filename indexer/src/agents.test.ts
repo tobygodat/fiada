@@ -167,6 +167,60 @@ test('each function keeps its own change time: editing another one in its file d
   assert.equal(hub.state().nodes['web/src/api.ts#getItem'].at, Date.parse(two.getItem));
 });
 
+test("the file's code outside its functions has its own change time, and a re-index overtaken by a newer change settles nothing", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  // Holds a re-index after the graph is rebuilt and before the text is read back, when set.
+  let hold: Promise<void> | null = null;
+  const update = ws.updateFiles.bind(ws);
+  ws.updateFiles = async (...a: Parameters<Workspace['updateFiles']>) => {
+    const h = hold;
+    await update(...a);
+    if (h) await h;
+  };
+  const times = () => {
+    const f = hub.state().agents[0].files[0];
+    return { file: f.at, top: f.topAt, ...Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) } as Record<string, string>;
+  };
+  const report = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+  };
+  const settle = async (report: () => Promise<void>) => {
+    const v = hub.state().graphVersion;
+    const pushed = nextPush(hub, (s) => s.graphVersion > v);
+    await report();
+    await pushed;
+    return times();
+  };
+
+  const getItem = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const a = await settle(() => report(getItem, [[6, 6]], [[6, 6]]));
+  assert.equal(a.getItem, a.file);
+  assert.equal(a.top, a.file, 'from the first change');
+
+  // listItems changes, and its re-index is held until a newer change (an import on top, which moves every line) is in.
+  const both = getItem.replace("'/api/items')", "'/api/items?all=1')");
+  let release!: () => void;
+  hold = new Promise((r) => (release = r));
+  await report(both, [[2, 2], [6, 6]], [[2, 2], [6, 6]]);
+  await new Promise((r) => setTimeout(r, 600));
+  hold = null;
+  const c = await settle(async () => {
+    await report(`import { z } from './z';\n${both}`, [[1, 1], [3, 3], [7, 7]], [[1, 0], [2, 2], [6, 6]]);
+    release();
+  });
+  await new Promise((r) => setTimeout(r, 600));
+  const after = times();
+  assert.equal(after.getItem, a.getItem, 'getItem’s own text never changed after the first edit');
+  assert.notEqual(after.listItems, c.file, 'listItems last changed with the held edit, not the import');
+  assert.equal(after.top, after.file, 'the import moved the file’s other code on');
+  assert.notEqual(after.top, a.top);
+});
+
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

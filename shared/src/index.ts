@@ -543,6 +543,11 @@ export interface AgentFile {
    * (editing another symbol in the file doesn't move it); absent from older indexers.
    */
   symbols: { id: string; name: string; kind: ChangeKind; at?: string }[];
+  /**
+   * ISO time of the agent's latest change to the file's code outside every symbol (an import, a
+   * constant), shown with the file's first function; absent from older indexers.
+   */
+  topAt?: string;
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */

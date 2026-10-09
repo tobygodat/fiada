@@ -268,3 +268,24 @@ test("a function's own change time is its read mark's: editing another function 
   const old = agent([{ ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]), at: later }]);
   assert.equal(isRead(marks, tourStops(graph, graphIndex, old, NO_NODES)[0]), false);
 });
+
+test("a change to the file's other code (an import) unreads the stop that shows it, and only that one", () => {
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  const fns = [
+    { ...sym('web/src/client/api.ts#ItemsService'), at: t },
+    { ...sym('web/src/client/api.ts#UsersService'), at: t },
+  ];
+  const marks: ReadMarks = { 'web/src/client/api.ts#ItemsService': Date.parse(t), 'web/src/client/api.ts#UsersService': Date.parse(t) };
+  const read = (topAt: string) =>
+    tourStops(graph, graphIndex, agent([{ ...file('web', 'src/client/api.ts', fns), at: topAt, topAt }]), NO_NODES).map((s) => [s.id, !!s.rest, isRead(marks, s)]);
+  assert.deepEqual(read(t), [
+    ['web/src/client/api.ts#ItemsService', true, true],
+    ['web/src/client/api.ts#UsersService', false, true],
+  ]);
+  // The agent changes an import since: the first stop, which carries the file's other hunks, is new again.
+  assert.deepEqual(read(later), [
+    ['web/src/client/api.ts#ItemsService', true, false],
+    ['web/src/client/api.ts#UsersService', false, true],
+  ]);
+});

@@ -68,8 +68,19 @@ interface FileRec {
    * editing one function doesn't make the others in the file new again. `sig` is null until the
    * re-indexed text is in.
    */
-  symAt: Map<string, { sig: string | null; at: number }>;
+  symAt: Map<string, Stamp>;
+  /** The same for the file's code outside every symbol (imports, constants), or null before the first look. */
+  topAt: Stamp | null;
+  /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
+  gen: number;
 }
+
+/** A change time and the text it was taken for (null until the re-indexed text is in). */
+type Stamp = { sig: string | null; at: number };
+
+/** Moves a change time on only when the text it was taken for changes. */
+const advance = (prev: Stamp | null | undefined, sig: string | null, at: number): Stamp =>
+  !prev ? { sig, at } : sig === null || sig === prev.sig ? prev : prev.sig === null ? { sig, at: prev.at } : { sig, at };
 
 interface AgentRec {
   id: string;
@@ -348,6 +359,8 @@ export class AgentHub {
         swept,
         text: null,
         symAt: new Map(),
+        topAt: null,
+        gen: 0,
       };
       rec.files.set(key, file);
     }
@@ -361,6 +374,7 @@ export class AgentHub {
       diff: typeof f.diff === 'string' ? f.diff : file.diff,
       at: now,
       fresh: false,
+      gen: file.gen + 1,
     });
     if (Array.isArray(f.symbols)) file.named = [...new Set([...file.named, ...f.symbols.filter((s) => typeof s === 'string')])];
     if (where.live) this.reindex(where.repo!, where.rel!);
@@ -454,20 +468,28 @@ export class AgentHub {
     const batches = [...this.pendingIndex];
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
-      await this.ws.updateFiles(repo, [...rels]);
       const source = this.ws.repos.find((r) => r.id === repo)?.source;
-      const text = new Map<string, string[] | null>();
-      for (const rel of rels) {
-        // Read as untrusted: only a regular file inside the repository.
-        const at = source ? await fileWithin(this.realSource(source), rel) : null;
-        text.set(rel, at ? ((await fs.promises.readFile(at.abs, 'utf8').catch(() => null))?.split('\n') ?? null) : null);
-      }
-      for (const rec of this.agents.values()) {
-        for (const f of rec.files.values()) {
-          if (f.repo !== repo || !rels.has(f.rel!)) continue;
-          f.fresh = true;
-          f.text = text.get(f.rel!) ?? null;
+      const read = async () => {
+        const text = new Map<string, string | null>();
+        for (const rel of rels) {
+          // Read as untrusted: only a regular file inside the repository.
+          const at = source ? await fileWithin(this.realSource(source), rel) : null;
+          text.set(rel, at ? await fs.promises.readFile(at.abs, 'utf8').catch(() => null) : null);
         }
+        return text;
+      };
+      const files = [...this.agents.values()].flatMap((rec) => [...rec.files.values()].filter((f) => f.repo === repo && rels.has(f.rel!)));
+      const gens = new Map(files.map((f) => [f, f.gen]));
+      const before = await read();
+      await this.ws.updateFiles(repo, [...rels]);
+      const after = await read();
+      for (const f of files) {
+        // A change reported meanwhile has its own re-index coming: this one is already behind it.
+        if (gens.get(f) !== f.gen) continue;
+        f.fresh = true;
+        // The text the graph was built from, only when it held still the whole time: else it may not match.
+        const text = after.get(f.rel!);
+        f.text = text != null && text === before.get(f.rel!) ? text.split('\n') : null;
       }
     }
     this.version++;
@@ -561,9 +583,10 @@ export class AgentHub {
    * the time it last changed. A file Fiada doesn't re-index (a clone) has no text to compare, so
    * every change to it counts for each of its symbols, as it did before.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>): AgentFile['symbols'] {
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>): { symbols: AgentFile['symbols']; top: number } {
     const settled = !f.live || (f.fresh && !!f.text);
-    const lines = new Map((f.repo ? (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []) : []).map((n) => [n.id, n.lines]));
+    const all = f.repo ? (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []) : [];
+    const lines = new Map(all.map((n) => [n.id, n.lines]));
     const keep = new Set<string>();
     const out = symbols.map((s) => {
       keep.add(s.id);
@@ -576,17 +599,22 @@ export class AgentHub {
           : f.live && f.text && at
             ? `${s.kind}\n${f.text.slice(at[0] - 1, at[1]).join('\n')}`
             : `${s.kind}@${f.at}`;
-      let cur = prev;
-      if (!prev) cur = { sig, at: f.at };
-      else if (sig !== null && prev.sig === null) cur = { sig, at: prev.at };
-      else if (sig !== null && sig !== prev.sig) cur = { sig, at: f.at };
-      f.symAt.set(s.id, cur!);
-      return { ...s, at: new Date(cur!.at).toISOString() };
+      const cur = advance(prev, sig, f.at);
+      f.symAt.set(s.id, cur);
+      return { ...s, at: new Date(cur.at).toISOString() };
     });
+    // The code outside every symbol, blank lines aside: an import or a constant the agent changes.
+    const inside = (i: number) => all.some((n) => n.lines && i >= n.lines[0] && i <= n.lines[1]);
+    const top = !settled
+      ? null
+      : f.live && f.text
+        ? f.text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n')
+        : `@${f.at}`;
+    f.topAt = advance(f.topAt, top, f.at);
     // Forget a symbol only once settled: until the graph catches up, which symbols a change
     // touches can briefly read wrong, and forgetting one would make it new again.
     if (settled) for (const id of f.symAt.keys()) if (!keep.has(id)) f.symAt.delete(id);
-    return out;
+    return { symbols: out, top: f.topAt.at };
   }
 
   /** The symbols a file change touches, each with its own change kind. */
@@ -635,7 +663,7 @@ export class AgentHub {
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
       for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
-        const symbols = this.stamp(f, this.symbolsOf(f, ix), ix);
+        const { symbols, top } = this.stamp(f, this.symbolsOf(f, ix), ix);
         let node: string | undefined;
         if (f.repo) {
           const fid = fileId(f.repo, f.rel!);
@@ -652,6 +680,7 @@ export class AgentHub {
           additions: f.additions,
           deletions: f.deletions,
           symbols,
+          topAt: new Date(top).toISOString(),
           at: new Date(f.at).toISOString(),
           diff: !!f.diff,
         });

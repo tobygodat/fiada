@@ -20,7 +20,7 @@ export interface TourStop {
   kind: ChangeKind;
   /** Layer id, or null when it has none. */
   layer: string | null;
-  /** Epoch ms of the agent's latest change to it. */
+  /** Epoch ms of the agent's latest change to it (for the file's first function, to the file's other code too). */
   at: number;
   /**
    * On the first of a file's function stops: every changed function in that file (deleted ones
@@ -51,12 +51,14 @@ export function tourStops(
     if (l) l.push(s.id);
     else fns.set(f, [s.id]);
   }
+  // It's new again too when the agent changes that code (an import, a constant) since.
+  const top = new Map(agent.files.filter((f) => f.repo && f.topAt).map((f) => [`${f.repo}/${f.path}`, Date.parse(f.topAt!)]));
   const marked = new Set<string>();
   return out.map((s) => {
     const f = fileOf(s);
     if (!f || marked.has(f)) return s;
     marked.add(f);
-    return { ...s, rest: fns.get(f)! };
+    return { ...s, rest: fns.get(f)!, at: Math.max(s.at, top.get(f) ?? s.at) };
   });
 }
 
