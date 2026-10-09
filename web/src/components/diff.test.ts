@@ -278,3 +278,16 @@ test('a diff cut short before a change says so, never showing other hunks in its
   // A change in the part that was kept shows, with the note at the end.
   assert.deepEqual(pickHunks(cut, { lines: [2, 2] }), ['@@ -1,3 +1,3 @@', ' a', '-b', '+c', '… diff cut at 64 KB']);
 });
+
+test('a diff cut short inside a long hunk, before the change, says so too', () => {
+  // git's header counts the hunk's 400 lines; the cut kept its first three.
+  const cut = ['@@ -1,400 +1,401 @@', ' a', '-b', '+c', '… diff cut at 64 KB'].join('\n');
+  assert.deepEqual(pickHunks(cut, { lines: [300, 310] }), ['… diff cut at 64 KB, before this change']);
+  assert.deepEqual(pickHunks(cut, { oldLines: [300, 310] }), ['… diff cut at 64 KB, before this change']);
+  // With the file's other changes to tell apart, too.
+  assert.deepEqual(pickHunks(cut, { lines: [300, 310] }, [{ lines: [1, 2] }, { lines: [300, 310] }]), ['… diff cut at 64 KB, before this change']);
+  // One that starts in the lines kept shows them, with the note.
+  assert.deepEqual(pickHunks(cut, { lines: [2, 50] }), ['@@ -1,400 +1,401 @@', ' a', '-b', '+c', '… diff cut at 64 KB']);
+  // Cut right after the header: nothing of it is anyone's.
+  assert.deepEqual(pickHunks(['@@ -1,2 +1,2 @@', ' a', '@@ -10,400 +10,401 @@', '… diff cut at 64 KB'].join('\n'), { lines: [10, 12] }), ['… diff cut at 64 KB, before this change']);
+});
