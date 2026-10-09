@@ -28,8 +28,8 @@ import type {
   NodeChange,
 } from '@fiada/shared';
 import { fileId, symbolIds } from './link.ts';
-import { parseFile } from './parse/index.ts';
-import { fileWithin } from './sources.ts';
+import { langOf, parseFile } from './parse/index.ts';
+import { DEFAULT_LOAD, fileWithin } from './sources.ts';
 import type { Workspace } from './workspace.ts';
 
 const exec = promisify(execFile);
@@ -472,9 +472,10 @@ export class AgentHub {
       const read = async () => {
         const text = new Map<string, string | null>();
         for (const rel of rels) {
-          // Read as untrusted: only a regular file inside the repository.
-          const at = source ? await fileWithin(this.realSource(source), rel) : null;
-          text.set(rel, at ? await fs.promises.readFile(at.abs, 'utf8').catch(() => null) : null);
+          // Read as untrusted: only a regular file inside the repository, and only source the
+          // indexer reads too (a symbol's text is all it's for), so a large artifact isn't held.
+          const at = source && langOf(rel) ? await fileWithin(this.realSource(source), rel) : null;
+          text.set(rel, at && at.size <= DEFAULT_LOAD.maxFileBytes ? await fs.promises.readFile(at.abs, 'utf8').catch(() => null) : null);
         }
         return text;
       };

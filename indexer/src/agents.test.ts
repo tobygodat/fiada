@@ -221,6 +221,21 @@ test("the file's code outside its functions has its own change time, and a re-in
   assert.notEqual(after.top, a.top);
 });
 
+test('only source files the indexer reads are kept as text, never a large artifact', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.replace("'/api/items')", "'/api/items?all=1')"));
+  await fs.writeFile(path.join(dir, 'src/big.ts'), '// generated\n'.repeat(40_000));
+  await fs.writeFile(path.join(dir, 'notes.txt'), 'todo\n');
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1);
+  await hub.ingest([{ agent, type: 'changes', files: ['src/api.ts', 'src/big.ts', 'notes.txt'].map((p) => ({ path: path.join(dir, p), kind: 'modified' as const })) }]);
+  await pushed;
+  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; text: string[] | null }> }> }).agents;
+  const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.text != null]));
+  assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false });
+});
+
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
