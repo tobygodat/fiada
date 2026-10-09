@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
-import type { ShownDiff } from '../graph/tour.ts';
+import { shownRev, type FetchedDiffs, type ShownDiff } from '../graph/tour.ts';
 import { diffRows, pickHunks, type HunkOwner } from './diff.ts';
 import './agent.css';
 
@@ -36,7 +36,9 @@ const ago = (iso: string) => {
 };
 
 export function AgentChange({ node, own, rest, what, rev, kind, agent, onShown }: Props) {
-  const [diffs, setDiffs] = useState<{ node: string; rev: number; list: AgentDiff[] } | null>(null);
+  const [diffs, setDiffs] = useState<FetchedDiffs<AgentDiff> | null>(null);
+  // Asking again after a failed request.
+  const [attempt, setAttempt] = useState(0);
   const key = `${node}|${rev}`;
   // A long diff shows its first rows, and the rest on asking: nothing of the change is out of reach.
   const [whole, setWhole] = useState<string | null>(null);
@@ -44,15 +46,16 @@ export function AgentChange({ node, own, rest, what, rev, kind, agent, onShown }
     let live = true;
     api.agentDiffs(node).then(
       (r) => live && setDiffs({ node, rev, list: r.diffs }),
-      () => live && setDiffs({ node, rev, list: [] }),
+      // Whatever of this node was on screen stays, said to be out of date.
+      () => live && setDiffs((d) => ({ node, rev, list: d?.node === node ? d.list : [], failed: true })),
     );
     return () => {
       live = false;
     };
-  }, [key, node]);
+  }, [key, node, attempt]);
 
-  // Which change of it is on screen, so a review tour doesn't mark a newer one read while this one shows.
-  const loaded = diffs?.node === node ? diffs.rev : null;
+  // Which change of it is on screen, so a review tour doesn't mark a newer one (or one it couldn't load) read.
+  const loaded = shownRev(diffs, node);
   useEffect(() => {
     onShown?.({ node, rev: loaded });
   }, [onShown, node, loaded]);
@@ -69,7 +72,15 @@ export function AgentChange({ node, own, rest, what, rev, kind, agent, onShown }
         {what && <bdi> · {what}</bdi>}
       </div>
       {!mine && <div className="agent-note">loading the diff…</div>}
-      {mine && !list.length && <div className="agent-note">No diff was recorded for this change.</div>}
+      {diffs?.node === node && diffs.failed && (
+        <div className="agent-note">
+          The diff couldn't be loaded{list.length ? '; this is the one from before' : ''}.{' '}
+          <button className="link" onClick={() => setAttempt((n) => n + 1)}>
+            try again
+          </button>
+        </div>
+      )}
+      {mine && !list.length && !diffs?.failed && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d) => {
         const shown = d.diff ? diffRows(pickHunks(d.diff, own, rest)) : [];
         return (

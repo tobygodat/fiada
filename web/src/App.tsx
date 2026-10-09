@@ -168,6 +168,8 @@ export function App() {
   const reload = ws.reload;
   const agentGraph = agents.state?.graphVersion;
   const loadedGraph = ws.workspace?.graphVersion;
+  // The version of the graph the map draws, which lags the workspace's while a newer one loads.
+  const shownGraph = ws.graphVersion ?? undefined;
   useEffect(() => {
     if (agentGraph != null && loadedGraph != null && agentGraph > loadedGraph) void reload();
   }, [agentGraph, loadedGraph, reload]);
@@ -543,12 +545,12 @@ export function App() {
       if (moved) showStop(target);
       return;
     }
-    if (tourOver(stops, agentGraph, loadedGraph)) return setTour(null);
+    if (tourOver(stops, agentGraph, shownGraph)) return setTour(null);
     if (!stops.length) return;
     const s = stops[Math.min(lastStop.current, stops.length - 1)];
     setTour({ agent: touring.agent, stop: s.id });
     showStop(s.target);
-  }, [touring, stops, showStop, agentGraph, loadedGraph]);
+  }, [touring, stops, showStop, agentGraph, shownGraph]);
 
   // Fit when the map first gets a size or a graph arrives; keep the selection
   // in view when switching between Code and By function.

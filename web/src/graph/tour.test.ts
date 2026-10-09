@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { diffShown, forgetMarks, isRead, layerName, loops, nextUnread, reviewable, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
+import { diffShown, shownRev, forgetMarks, isRead, layerName, loops, nextUnread, reviewable, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -142,6 +142,10 @@ test('a change is marked read only once its own diff is on screen', () => {
   assert.equal(diffShown({ node: again.id, rev: again.at }, again), true);
   // Fetched after another agent's later change to the file: it has this one in it too.
   assert.equal(diffShown({ node: again.id, rev: again.at + 60_000 }, again), true);
+  // A request that failed shows nothing current, whatever it left on screen.
+  assert.equal(shownRev({ node: again.id, rev: again.at, list: [] }, again.id), again.at);
+  assert.equal(shownRev({ node: again.id, rev: again.at, list: ['older'], failed: true }, again.id), null);
+  assert.equal(shownRev({ node: first.id, rev: first.at, list: [] }, 'web/src/pages/about.tsx'), null);
   // No diff of this stop on screen: nothing to wait for.
   assert.equal(diffShown(null, again), true);
   assert.equal(diffShown({ node: 'web/src/pages/about.tsx', rev: null }, again), true);
