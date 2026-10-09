@@ -33,11 +33,14 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
   // The note a diff cut short ends with, taken off its last hunk while the hunks are cut up.
   const last = all[all.length - 1];
   const cut = last[last.length - 1]?.startsWith(CUT) ? last.pop() : undefined;
+  // Its header still counts every line git gave it: whose it is goes by the lines it kept.
+  const kept = cut ? [keptHeader(last), ...last.slice(1)] : last;
+  const seen = (h: string[]) => (h === last ? kept : h);
   const cover = rest && covers(rest);
   // Which of the changed symbols each hunk belongs to: by their lines, or (deleted, lines unknown) by name.
-  const theirs = all.map((h) => (cover ? { lines: cover.meets(h), named: cover.named.some((r) => belongs(h, r)) } : null));
-  const hit = new Set(all.filter((h, i) => belongs(h, own) || (theirs[i] && !theirs[i].lines && !theirs[i].named)));
-  if (cut && !all.some((h) => belongs(h, own))) return [...all.filter((h) => hit.has(h)).flat(), `${cut}, before this change`];
+  const theirs = all.map((h) => (cover ? { lines: cover.meets(seen(h)), named: cover.named.some((r) => belongs(h, r)) } : null));
+  const hit = new Set(all.filter((h, i) => belongs(seen(h), own) || (theirs[i] && !theirs[i].lines && !theirs[i].named)));
+  if (cut && !all.some((h) => belongs(seen(h), own))) return [...all.filter((h) => hit.has(h)).flat(), `${cut}, before this change`];
   if (!hit.size) return cut ? [...all.flat(), cut] : all.flat();
   // Another symbol's hunk, when every symbol it belongs to is known by its lines, so what they cover can be told apart.
   const shared = new Set(all.filter((h, i) => !hit.has(h) && theirs[i] && !theirs[i].named));
@@ -45,7 +48,7 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
     if (shared.has(h)) return [slice(h, undefined, cover)];
     if (!hit.has(h)) return [];
     if (own.lines || own.oldLines) return [slice(h, own, cover)];
-    return [belongs(h, own) ? { own: [h], rest: [] } : { own: [], rest: [h] }];
+    return [belongs(seen(h), own) ? { own: [h], rest: [] } : { own: [], rest: [h] }];
   });
   const out = [...parts.flatMap((p) => p.own), ...parts.flatMap((p) => p.rest)].flat();
   return cut && (hit.has(last) || shared.has(last)) ? [...out, cut] : out;
@@ -91,6 +94,18 @@ function covers(rest: readonly HunkOwner[]) {
     /** Whether any symbol holds a row, as `of` places it. */
     holds: (c: string, at: { old: number; new: number }) => now(at.new, at.new) || (c !== '+' ? old : oldOnly)(at.old, at.old),
   };
+}
+
+/** A hunk's header with the lines its body has on each side, for one a cut ended early. */
+function keptHeader(h: string[]): string {
+  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(h[0]);
+  if (!m) return h[0];
+  const body = h.slice(1);
+  const olds = body.filter((l) => l[0] === ' ' || l[0] === '-').length;
+  const news = body.filter((l) => l[0] === ' ' || l[0] === '+').length;
+  // Cut right after its header: it holds no line of anything.
+  if (!olds && !news) return `@@ -0,0 +0,0 @@${m[3]}`;
+  return `@@ -${m[1]},${olds} +${m[2]},${news} @@${m[3]}`;
 }
 
 /** How the agent ends a diff it cut short (agent/src/git.ts). */

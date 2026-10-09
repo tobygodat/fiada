@@ -700,3 +700,31 @@ test("the tour isn't ordered again for an agent's status, only when its changes 
   assert.deepEqual(a2.map((s) => s.target), ['web']);
   assert.notEqual(tour({ ...graph }, graphIndex, agent(gone), on('web')), a2);
 });
+
+test('whether an agent can be reviewed is found without tallying a repository for its layer', () => {
+  // Counts every walk of the whole map.
+  class Counted extends Map<string, GraphNode> {
+    walks = 0;
+    override values() {
+      this.walks++;
+      return super.values();
+    }
+  }
+  // Folders and repositories without a layer of their own, as the indexer leaves them.
+  const ix = new Counted([...graphIndex].map(([id, n]) => [id, n.kind === 'repo' || n.kind === 'folder' ? { ...n, layer: undefined } : n]));
+  const on = (anchor: string) => ({ 'web/old.ts': { kind: 'deleted' as const, at: 1, unit: 'file' as const, anchor, agents: ['a'] } });
+  const gone = agent([file('web', 'old.ts', [], 'deleted')]);
+  assert.equal(reviewable(ix, gone, on('web')), true);
+  assert.equal(ix.walks, 0);
+  // The same answers as the tour itself.
+  const cases: [AgentActivity, Record<string, NodeChange>][] = [
+    [gone, on('web')],
+    [gone, on('nowhere')],
+    [gone, NO_NODES],
+    [agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])]), NO_NODES],
+    [agent([file('web', 'src/new.ts', [sym('web/src/new.ts#gone', 'deleted')], 'added')]), NO_NODES],
+    [agent([file('web', 'src/new.ts', [sym('web/src/client/api.ts#ItemsService')], 'added')]), NO_NODES],
+    [agent([{ ...file('web', 'x.ts'), repo: undefined }]), NO_NODES],
+  ];
+  for (const [a, nodes] of cases) assert.equal(reviewable(graphIndex, a, nodes), tourStops(graph, graphIndex, a, nodes).length > 0, JSON.stringify(a.files));
+});

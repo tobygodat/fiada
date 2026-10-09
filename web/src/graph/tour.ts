@@ -103,9 +103,20 @@ export function tourCache(): typeof tourStops {
   };
 }
 
-/** Whether the agent changed anything the map can show, so a tour has somewhere to go. */
-export const reviewable = (graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>) =>
-  collect(graphIndex, agent, nodes).length > 0;
+/**
+ * Whether the agent changed anything the map can show, so a tour has somewhere to go: a stop
+ * `collect` would make, found without working out its layer (which for a deleted file standing on
+ * its repository tallies the whole repository). Every agent's, on every status line it sends.
+ */
+export function reviewable(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>): boolean {
+  return agent.files.some((f) => {
+    if (!f.repo) return false;
+    const file = `${f.repo}/${f.path}`;
+    const anchor = nodes[file]?.anchor;
+    if (graphIndex.has(file) || (f.node && graphIndex.has(f.node)) || (anchor && graphIndex.has(anchor))) return true;
+    return f.kind !== 'deleted' && f.symbols.some((s) => s.kind !== 'deleted' && graphIndex.has(s.id));
+  });
+}
 
 /** The stops, in the order the agent's files list them. */
 function collect(
