@@ -119,6 +119,21 @@ test("an added file's one hunk is cut down to each function's own lines", () => 
   // Each line of the hunk on exactly one of the two stops.
   const body = (l: string[]) => l.filter((x) => x[0] === '+');
   assert.equal(body(first).length + body(pickHunks(added, b, undefined)).length, 10);
-  // A hunk with context or removed lines is never cut.
+  // A hunk with context or removed lines that reaches no further than three lines past the symbol stays whole.
   assert.equal(pickHunks(diff, { lines: [41, 41] }).length, 4);
+});
+
+test('a long hunk across many functions is cut to the one asked for, with three lines of context', () => {
+  // 600 lines with a change at line 10 and one at 410: git keeps them in one hunk when the lines between changed too.
+  const rows: string[] = [];
+  for (let i = 1; i <= 600; i++) rows.push(i === 10 || i === 410 ? `-old ${i}` : ` line ${i}`, ...(i === 10 || i === 410 ? [`+new ${i}`] : []));
+  const long = ['@@ -1,600 +1,600 @@ module', ...rows].join('\n');
+  const later = pickHunks(long, { lines: [405, 415] });
+  assert.equal(later[0], '@@ -402,17 +402,17 @@');
+  assert.ok(later.includes('-old 410') && later.includes('+new 410'), 'its own change, under the row limit');
+  assert.ok(!later.includes('+new 10'), 'not the other function’s');
+  assert.equal(later.length, 1 + 17 + 1);
+  // The first function's stop also takes the lines no changed function covers, here all the rest.
+  const first = pickHunks(long, { lines: [5, 15] }, [{ lines: [5, 15] }, { lines: [405, 415] }]);
+  assert.ok(first.includes('+new 10') && first.includes(' line 300') && !first.includes('+new 410'));
 });
