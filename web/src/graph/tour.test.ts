@@ -233,6 +233,15 @@ test("a file whose changed functions were all deleted still carries the file's o
   );
 });
 
+test('a deleted function waits for the changed code that uses its file', () => {
+  // One layer: about.tsx imports the client file, whose OldA the agent deleted. By path OldA would come first.
+  const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
+  const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+  const a = agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#OldA', 'deleted')]), file('web', 'src/pages/about.tsx')]);
+  const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['web/src/pages/about.tsx', 'web/src/client/api.ts#OldA']);
+});
+
 test('reviewable: only when something the agent changed is on the map', () => {
   const nodes: Record<string, NodeChange> = { 'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' } };
   assert.equal(reviewable(graphIndex, agent([{ ...file('gone', 'app/x.py'), node: undefined }]), nodes), false);

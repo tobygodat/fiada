@@ -10,7 +10,7 @@ import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
-import { loadMarks, nextUnread, reviewable, saveMarks, tourStops, type ReadMarks } from './graph/tour.ts';
+import { loadMarks, nextUnread, reviewable, saveMarks, tourStops, type ReadMarks, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -582,6 +582,32 @@ export function App() {
     if (!target || tree?.view !== 'code' || !sized) return;
     pendingStop.current = null;
     select(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, sized]);
+
+  // You switched views and the view you picked leaves out the stop you were on (By function
+  // shows no files or folders): the tour goes on at the nearest change it does show, or ends.
+  const tourView = useRef(tree?.view);
+  useEffect(() => {
+    if (!tree || !sized) return;
+    const prev = tourView.current;
+    tourView.current = tree.view;
+    const cur = stops[tourAt];
+    if (!touring || !cur || prev === tree.view) return;
+    const shows = (s: TourStop) => {
+      const at = locate(tree, graphIndex, s.target);
+      return !!at && at !== tree.root.id;
+    };
+    if (shows(cur)) return;
+    for (let d = 1; d < stops.length; d++) {
+      const s = [stops[tourAt + d], stops[tourAt - d]].find((x) => x && shows(x));
+      if (s) {
+        setTour({ agent: touring.agent, stop: s.id });
+        select(s.target);
+        return;
+      }
+    }
+    setTour(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, sized]);
 

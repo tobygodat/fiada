@@ -4,12 +4,13 @@
 // file under review: the detail panel still shows only the reviewed agent's
 // diff. A function's stop also shows its file's hunks outside every changed
 // function (crud.py's import). The agent deletes a function: its stop, on
-// the file, shows only the hunk that takes it away. The agent deletes a file: its stop, on the
+// the file, shows only the hunk that takes it away, and switching to By function, which shows
+// no files, moves the tour to the nearest change it does show. The agent deletes a file: its stop, on the
 // folder that's left, shows the deleted file's diff. Then the reviewed agent
 // takes a file back: the tour goes on to the change now in its place. Puts
 // the files and the session back as they were.
 //
-//   node web/e2e/review-tour-live.mjs <fastapi clone> [url]
+//   node web/e2e/review-tour-live.mjs <fastapi clone> [url] [--shots dir]
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +22,7 @@ import { chromium } from 'playwright';
 const repo = process.argv[2];
 assert.ok(repo, 'usage: review-tour-live.mjs <fastapi clone> [url]');
 const url = process.argv.slice(3).find((a) => /^https?:/.test(a)) ?? 'http://localhost:5178/';
+const shots = process.argv.includes('--shots') ? process.argv[process.argv.indexOf('--shots') + 1] : null;
 const here = dirname(fileURLToPath(import.meta.url));
 const FILE = 'frontend/src/routes/_layout/items.tsx';
 const GONE = 'backend/app/utils.py';
@@ -87,7 +89,17 @@ try {
   assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by an agent · update_user/);
   assert.equal(await page.locator('.agent-diff').count(), 1);
   assert.match(await page.locator('.agent-diff').innerText(), /def update_user\(/, 'the hunk that takes it away');
-  assert.doesNotMatch(await page.locator('.agent-diff').innerText(), /col, select/, 'and not the file’s other hunks');
+  assert.doesNotMatch(await page.locator('.agent-diff').innerText(), /def items_by_priority/, 'and not another function’s');
+  // By function shows no files: switching to it moves the tour to the nearest change it does show.
+  const view = (v) => page.getByRole('radiogroup', { name: 'view' }).getByRole('radio', { name: v, exact: true }).click();
+  await view('by function');
+  await page.waitForTimeout(1200);
+  const moved = await page.locator('.tour-name').innerText();
+  assert.notEqual(moved, 'update_user', 'the tour left the stop By function can’t show');
+  assert.equal(await page.locator('.detail-title').innerText(), moved, 'and the detail panel shows where it went');
+  if (shots) await page.screenshot({ path: `${shots}/view-switch.png` });
+  await view('code');
+  await page.waitForTimeout(1200);
   writeFileSync(crudPath, src);
   hook('demo-review', CRUD);
   await page.waitForTimeout(1500);
