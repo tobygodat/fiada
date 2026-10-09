@@ -35,6 +35,8 @@ const ago = (iso: string) => {
 export function AgentChange({ node, own, rest, what, rev, kind, agent }: Props) {
   const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
+  // A long diff shows its first rows, and the rest on asking: nothing of the change is out of reach.
+  const [whole, setWhole] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     api.agentDiffs(node).then(
@@ -71,7 +73,7 @@ export function AgentChange({ node, own, rest, what, rev, kind, agent }: Props) 
             </div>
             {!!shown.length && (
               <pre className="code diff">
-                {shown.slice(0, MAX_LINES).map((r, i) =>
+                {(whole === `${key}|${d.agent}` ? shown : shown.slice(0, MAX_LINES)).map((r, i) =>
                   r.t === 'hunk' ? (
                     <div key={i} className="hunk">
                       <span className="hunk-at">line {r.line}</span>
@@ -84,7 +86,13 @@ export function AgentChange({ node, own, rest, what, rev, kind, agent }: Props) 
                     </div>
                   ),
                 )}
-                {shown.length > MAX_LINES && <div className="more">and {shown.length - MAX_LINES} more lines</div>}
+                {shown.length > MAX_LINES && whole !== `${key}|${d.agent}` && (
+                  <div className="more">
+                    <button className="link" onClick={() => setWhole(`${key}|${d.agent}`)}>
+                      show {shown.length - MAX_LINES} more lines
+                    </button>
+                  </div>
+                )}
               </pre>
             )}
           </div>
