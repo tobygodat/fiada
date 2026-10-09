@@ -85,6 +85,8 @@ interface FileRec {
   topAt: Stamp | null;
   /** The digest of that code as HEAD has it, so a file whose imports are back as they were has no change there; null when unknown. */
   baseTop: string | null;
+  /** Each symbol's own text as HEAD has it, by digest, so one another agent puts back as it was is no one's change; null when unknown. */
+  baseSigs: Map<string, string> | null;
   /** The digest of that code as another agent last left it while this agent hadn't changed it, so it isn't this agent's to read; null when no other agent has. */
   theirsTop: string | null;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
@@ -117,6 +119,9 @@ function outside(text: string[], spans: ([number, number] | undefined)[]): strin
  */
 const digest = (text: string) => createHash('sha1').update(text).digest('base64');
 
+/** A file's lines, whatever their endings: git hands HEAD's text over with LF where a Windows checkout has CRLF. */
+const linesOf = (text: string) => text.split(/\r?\n/);
+
 /** A file's symbols' own text and its other code, by digest. */
 type Sigs = { of: Map<string, string>; top: string };
 
@@ -130,7 +135,7 @@ const sigsOf = (text: string[], symbols: GraphNode[]): Sigs => ({
  * (Java, C# and the like list a class and its methods) changes only when its own header, fields or
  * annotations do, not with each method in it.
  */
-function ownText(text: string[], symbols: GraphNode[]): Map<string, string> {
+function ownText(text: string[], symbols: Pick<GraphNode, 'id' | 'lines'>[]): Map<string, string> {
   const spans = symbols.flatMap((n) => (n.lines ? [{ id: n.id, from: n.lines[0], to: n.lines[1], inner: [] as [number, number][] }] : []));
   // Outer before inner; a stack of the spans still open finds each one's direct container.
   spans.sort((x, y) => x.from - y.from || y.to - x.to);
@@ -444,7 +449,7 @@ export class AgentHub {
         at: now,
         fresh: false,
         live: where.live,
-        ...(where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : { base: null, baseTop: null }),
+        ...(where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : { base: null, baseTop: null, baseSigs: null }),
         swept,
         sigs: null,
         settled: false,
@@ -530,8 +535,13 @@ export class AgentHub {
    * An added file had none. Each keeps the layer the map has for it now, while
    * the graph still holds the file as it was, so a deleted symbol is read with it.
    */
-  private async baseSymbols(repo: string, rel: string, live: boolean, kind: ChangeKind): Promise<{ base: SymbolLines | null; baseTop: string | null }> {
-    if (kind === 'added') return { base: new Map(), baseTop: digest('') };
+  private async baseSymbols(
+    repo: string,
+    rel: string,
+    live: boolean,
+    kind: ChangeKind,
+  ): Promise<{ base: SymbolLines | null; baseTop: string | null; baseSigs: Map<string, string> | null }> {
+    if (kind === 'added') return { base: new Map(), baseTop: digest(''), baseSigs: new Map() };
     const fid = fileId(repo, rel);
     const syms = this.index(this.ws.getGraph()).symbols.get(fid);
     const layer = new Map(syms?.map((s) => [s.id, s.layer?.id]));
@@ -542,15 +552,17 @@ export class AgentHub {
         : null;
       if (text != null) {
         const parsed = await parseFile(rel, text).catch(() => null);
-        if (!parsed) return { base: new Map(), baseTop: null };
+        if (!parsed) return { base: new Map(), baseTop: null, baseSigs: null };
         const ids = symbolIds(fid, parsed);
+        const lines = linesOf(text);
         return {
           base: new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines, layer: layer.get(ids[i]) }])),
-          baseTop: digest(outside(text.split('\n'), parsed.symbols.map((s) => s.lines))),
+          baseTop: digest(outside(lines, parsed.symbols.map((s) => s.lines))),
+          baseSigs: ownText(lines, parsed.symbols.map((s, i) => ({ id: ids[i], lines: s.lines }))),
         };
       }
     }
-    return { base: syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0], layer: s.layer?.id }])) : null, baseTop: null };
+    return { base: syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0], layer: s.layer?.id }])) : null, baseTop: null, baseSigs: null };
   }
 
   /** Re-indexes changed files of local repos, a moment after the last change so a burst of edits is one rebuild. */
@@ -589,7 +601,7 @@ export class AgentHub {
       for (const rel of rels) {
         const fid = fileId(repo, rel);
         const text = ix.nodes.has(fid) && before.get(rel) != null ? await read(rel) : null;
-        sigs.set(rel, text != null && digest(text) === before.get(rel) ? sigsOf(text.split('\n'), ix.symbols.get(fid) ?? []) : null);
+        sigs.set(rel, text != null && digest(text) === before.get(rel) ? sigsOf(linesOf(text), ix.symbols.get(fid) ?? []) : null);
       }
       const own: FileRec[] = [];
       const others: FileRec[] = [];
@@ -770,6 +782,13 @@ export class AgentHub {
       // One this agent deleted and the other agent put back is there again, as its text is now.
       if (kind === 'deleted' && ix.nodes.has(id)) kind = f.base?.has(id) ? 'modified' : 'added';
       const now = kind ? sig(id, kind) : null;
+      // Put back as HEAD has it: no one's change now, and not this agent's until it changes it again.
+      const head = f.baseSigs?.get(id);
+      if (kind === 'modified' && head !== undefined && now === `modified\n${head}`) {
+        f.symAt.set(id, { sig: null, at: prev.at, back: true });
+        f.theirs.set(id, head);
+        continue;
+      }
       if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });
     }
     this.rebaseTop(f);

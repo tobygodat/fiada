@@ -497,6 +497,62 @@ test("an import another agent added and this one took away again is no change of
   assert.equal(of('a').topAt, of('a').at);
 });
 
+test("a function another agent put back as HEAD has it is no longer this agent's change", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const symbolsOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files.flatMap((f) => f.symbols);
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, one, [[6, 6]]);
+  const first = symbolsOf('a').find((s) => s.name === 'getItem')!.at!;
+  // B puts getItem back as HEAD has it: A's change to it is gone from the working tree.
+  await report(b, API, [[6, 6]]);
+  assert.deepEqual(symbolsOf('a'), [], 'nothing of A’s is left to read');
+  // A makes the change again: a new one.
+  await report(a, one, [[6, 6]]);
+  const again = symbolsOf('a').find((s) => s.name === 'getItem')!.at!;
+  assert.ok(again > first);
+});
+
+test('on a checkout with CRLF line endings, an import taken back is no change', async () => {
+  // A file with code outside its functions in HEAD already, which the line endings would set apart.
+  const SVC = `import { y } from './y';\n\n${API}`;
+  const { dir, ws } = await localRepo({ 'src/svc.ts': SVC });
+  // HEAD's blob has LF; the working tree has CRLF, as git leaves it on Windows.
+  git(dir, 'config', 'core.autocrlf', 'true');
+  const crlf = (t: string) => t.replace(/\n/g, '\r\n');
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/svc.ts');
+  const report = async (text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, crlf(text));
+    const v = ws.version;
+    await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/svc.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const of = () => hub.state().agents[0].files[0];
+  const one = SVC.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(one, [[8, 8]]);
+  assert.equal(of().topAt, undefined, 'only getItem changed');
+  await report(`import { z } from './z';\n${one}`, [[1, 1], [9, 9]]);
+  assert.ok(of().topAt);
+  await report(one, [[8, 8]]);
+  assert.equal(of().topAt, undefined, 'the import is gone again');
+  assert.equal(of().symbols.length, 1);
+});
+
 test("a file this agent took its change back from, still changed by another agent, is no longer this agent's", async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
