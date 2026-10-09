@@ -676,6 +676,7 @@ test("a class left out for its method is read on the file's first stop: a change
   // The agent changes a field of the class since: the method's stop, which shows that line, is new again.
   assert.equal(isRead(marks, stops(later)[0]), false);
   assert.equal(nextUnread(stops(later), marks), 0);
+});
 
 test("the tour isn't ordered again for an agent's status, only when its changes or their circles change", () => {
   const tour = tourCache();
