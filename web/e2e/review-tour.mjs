@@ -185,6 +185,20 @@ try {
   await page.getByRole('button', { name: 'end', exact: true }).click();
   assert.equal(await page.locator('.tour').count(), 0);
 
+  // Back after a review returns to where you were before it, not through its steps.
+  await page.locator('.outline-name', { hasText: /^backend\/app$/ }).first().click();
+  await page.locator('.detail-title', { hasText: /^backend\/app$/ }).waitFor({ timeout: 4000 });
+  if (await page.locator('.queue-folded').count()) await page.locator('.queue-folded').click();
+  await page.getByRole('button', { name: 'review', exact: true }).click();
+  await page.locator('.tour').waitFor();
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('ArrowRight');
+    await pause(500);
+  }
+  await page.getByRole('button', { name: 'end', exact: true }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.locator('.detail-title', { hasText: /^backend\/app$/ }).waitFor({ timeout: 4000 });
+
   assert.deepEqual(errors, [], 'no page errors');
   console.log(`review tour: ${first.of} stops walked, marks kept across a reload, all checks passed`);
 } finally {
