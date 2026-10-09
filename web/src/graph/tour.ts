@@ -142,16 +142,16 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
  * A file's changed symbols less each one whose lines hold another changed one: a class whose
  * method changed (Java, C#, Kotlin and the like list both) is read at the method, and the class's
  * own other changed lines go with the file's other hunks. Live symbols are compared by their lines
- * now, deleted ones by their lines in HEAD; one range the same as another's keeps the longer name.
+ * now, and every symbol whose lines in HEAD are known by those too, so a class that lost a method
+ * is read at the deleted method. One range the same as another's keeps the longer name.
  */
 function innermost<T extends { id: string; kind: ChangeKind; oldLines?: [number, number] }>(symbols: T[], graphIndex: Map<string, GraphNode>): T[] {
   if (symbols.length < 2) return symbols;
   const drop = new Set<string>();
-  for (const deleted of [false, true]) {
+  for (const head of [false, true]) {
     const spans: { id: string; from: number; to: number }[] = [];
     for (const s of symbols) {
-      if ((s.kind === 'deleted') !== deleted) continue;
-      const l = deleted ? s.oldLines : graphIndex.get(s.id)?.lines;
+      const l = head ? s.oldLines : s.kind === 'deleted' ? undefined : graphIndex.get(s.id)?.lines;
       if (l && l[0] > 0) spans.push({ id: s.id, from: l[0], to: l[1] });
     }
     // Outer before inner: by start, then the longer span, then the shorter id. A stack holds the

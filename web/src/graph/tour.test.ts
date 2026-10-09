@@ -311,6 +311,24 @@ test('a class whose method changed is read at the method, not again as the class
   assert.deepEqual(stops[0].rest, [id('Items.add'), id('Items.Page.next'), id('Old.run')]);
 });
 
+test('a class that lost a method is read at the deleted method, by their lines in HEAD', () => {
+  const F = 'src/Items.java';
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const cls = { id: `svc/${F}#Items`, kind: 'symbol', name: 'Items', parent: `svc/${F}`, repo: 'svc', lines: [1, 20], layer: { id: 'api' } } as unknown as GraphNode;
+  const ix = new Map([fileNode, cls].map((n) => [n.id, n]));
+  const a = agent([
+    file('svc', F, [
+      { ...sym(`svc/${F}#Items`), oldLines: [1, 30] as [number, number] },
+      { ...sym(`svc/${F}#Items.gone`, 'deleted'), oldLines: [22, 28] as [number, number] },
+    ]),
+  ]);
+  const stops = tourStops({ edges: [], layers: graph.layers }, ix, a, NO_NODES);
+  assert.deepEqual(
+    stops.map((s) => s.id),
+    [`svc/${F}#Items.gone`],
+  );
+});
+
 test("a deleted function's stop carries its lines from before, for its own hunks, and so does the file's first stop", () => {
   const a = agent([
     file('web', 'src/client/api.ts', [

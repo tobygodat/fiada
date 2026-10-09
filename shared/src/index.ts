@@ -539,7 +539,8 @@ export interface AgentFile {
   deletions?: number;
   /** Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no longer in the graph. */
   /**
-   * `oldLines`: for a deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away.
+   * `oldLines`: for a deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away;
+   * for a modified one, the same when known, so a class is matched with a method it lost.
    * `layer`: for a deleted symbol, the layer id the map had for it, since it is read on its file.
    */
   symbols: { id: string; name: string; kind: ChangeKind; oldLines?: [number, number]; layer?: string }[];

@@ -214,6 +214,26 @@ test('a function deleted from a file it stays in carries its lines from HEAD', a
   assert.deepEqual(f.symbols.find((x) => x.name === 'getItem'), { id: 'web/src/api.ts#getItem', name: 'getItem', kind: 'deleted', oldLines: [5, 7], layer });
 });
 
+test('a class that lost a method carries its lines from HEAD, with the method', async () => {
+  // Java lists a class and each method in it.
+  const STORE = 'class Store {\n  int get() {\n    return 1;\n  }\n\n  int put() {\n    return 2;\n  }\n}\n';
+  const { dir, ws } = await localRepo({ 'src/Store.java': STORE });
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const ids = ws.getGraph().nodes.filter((n) => n.id.startsWith('web/src/Store.java#')).map((n) => [n.id, n.lines]);
+  assert.deepEqual(ids, [['web/src/Store.java#Store', [1, 9]], ['web/src/Store.java#Store.get', [2, 4]], ['web/src/Store.java#Store.put', [6, 8]]]);
+  // put (lines 6-8 in HEAD) goes, with the blank line before it.
+  await fs.writeFile(path.join(dir, 'src/Store.java'), STORE.replace('\n  int put() {\n    return 2;\n  }\n', ''));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1);
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(dir, 'src/Store.java'), kind: 'modified', lines: [[4, 4]], oldLines: [[5, 8]], deletions: 4 }] }]);
+  await pushed;
+  await new Promise((r) => setTimeout(r, 400));
+  const f = hub.state().agents[0].files[0];
+  const of = (name: string) => f.symbols.find((x) => x.id === `web/src/Store.java#${name}`);
+  assert.deepEqual([of('Store')?.kind, of('Store')?.oldLines], ['modified', [1, 9]]);
+  assert.deepEqual([of('Store.put')?.kind, of('Store.put')?.oldLines], ['deleted', [6, 8]]);
+});
+
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
