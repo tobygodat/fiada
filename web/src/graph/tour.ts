@@ -121,7 +121,7 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
     const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : anchor && graphIndex.has(anchor) ? anchor : null;
     const base = { path: f.path, repo: f.repo };
     if (f.symbols.length && f.kind !== 'deleted') {
-      for (const s of f.symbols) {
+      for (const s of innermost(f.symbols, graphIndex)) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
         if (!target) continue;
@@ -136,6 +136,36 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
     }
   }
   return stops;
+}
+
+/**
+ * A file's changed symbols less each one whose lines hold another changed one: a class whose
+ * method changed (Java, C#, Kotlin and the like list both) is read at the method, and the class's
+ * own other changed lines go with the file's other hunks. Live symbols are compared by their lines
+ * now, deleted ones by their lines in HEAD; one range the same as another's keeps the longer name.
+ */
+function innermost<T extends { id: string; kind: ChangeKind; oldLines?: [number, number] }>(symbols: T[], graphIndex: Map<string, GraphNode>): T[] {
+  if (symbols.length < 2) return symbols;
+  const drop = new Set<string>();
+  for (const deleted of [false, true]) {
+    const spans: { id: string; from: number; to: number }[] = [];
+    for (const s of symbols) {
+      if ((s.kind === 'deleted') !== deleted) continue;
+      const l = deleted ? s.oldLines : graphIndex.get(s.id)?.lines;
+      if (l && l[0] > 0) spans.push({ id: s.id, from: l[0], to: l[1] });
+    }
+    // Outer before inner: by start, then the longer span, then the shorter id. A stack holds the
+    // spans still open, so each span is checked only against the one it may sit in.
+    spans.sort((x, y) => x.from - y.from || y.to - x.to || x.id.length - y.id.length || (x.id < y.id ? -1 : 1));
+    const open: { id: string; from: number; to: number }[] = [];
+    for (const s of spans) {
+      while (open.length && open[open.length - 1].to < s.from) open.pop();
+      const outer = open[open.length - 1];
+      if (outer && outer.to >= s.to) drop.add(outer.id);
+      open.push(s);
+    }
+  }
+  return drop.size ? symbols.filter((s) => !drop.has(s.id)) : symbols;
 }
 
 /** The most links one graph link makes between the stops it stands for, before it is linked in a line instead. */

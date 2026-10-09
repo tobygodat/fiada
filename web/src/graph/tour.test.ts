@@ -282,6 +282,35 @@ test("the first of a file's function stops also carries the file's other hunks",
   assert.deepEqual(rest['web/src/pages/items.tsx#ItemsPage'], ['web/src/pages/items.tsx#ItemsPage']);
 });
 
+test('a class whose method changed is read at the method, not again as the class', () => {
+  // Java and the like list a class and each method in it, the class's lines holding the method's.
+  const F = 'svc/src/Items.java';
+  const node = (name: string, lines: [number, number]) =>
+    ({ id: `svc/${F.slice(4)}#${name}`, kind: 'symbol', name, parent: `svc/${F.slice(4)}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+  const nodes = [node('Items', [1, 30]), node('Items.add', [3, 10]), node('Items.list', [12, 20]), node('Items.Page', [22, 29]), node('Items.Page.next', [23, 28])];
+  const fileNode = { id: `svc/${F.slice(4)}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const ix = new Map([fileNode, ...nodes].map((n) => [n.id, n]));
+  const id = (name: string) => `svc/${F.slice(4)}#${name}`;
+  const a = agent([
+    file('svc', F.slice(4), [
+      sym(id('Items')),
+      sym(id('Items.add')),
+      sym(id('Items.Page')),
+      sym(id('Items.Page.next')),
+      // A deleted class and its deleted method, by their lines in HEAD.
+      { ...sym(id('Old'), 'deleted'), oldLines: [40, 60] as [number, number] },
+      { ...sym(id('Old.run'), 'deleted'), oldLines: [42, 50] as [number, number] },
+    ]),
+  ]);
+  const stops = tourStops({ edges: [], layers: graph.layers }, ix, a, NO_NODES);
+  assert.deepEqual(
+    stops.map((s) => s.id),
+    [id('Items.add'), id('Items.Page.next'), id('Old.run')],
+  );
+  // The class's own other lines are the file's other hunks, on its first stop.
+  assert.deepEqual(stops[0].rest, [id('Items.add'), id('Items.Page.next'), id('Old.run')]);
+});
+
 test("a deleted function's stop carries its lines from before, for its own hunks, and so does the file's first stop", () => {
   const a = agent([
     file('web', 'src/client/api.ts', [
