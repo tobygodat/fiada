@@ -51,6 +51,8 @@
   font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted);
 }
 
+.tour-cut { padding-left: calc(10px + var(--space-8)); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--text); }
+
 .tour-row { display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-8); }
 .tour-count { min-width: 0; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); font-variant-numeric: tabular-nums; }
 .tour-read-word { color: var(--text); }

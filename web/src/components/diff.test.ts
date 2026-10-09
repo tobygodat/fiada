@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diffRows, ownerOf, pickHunks } from './diff.ts';
+import { cutShort, diffRows, ownerOf, pickHunks } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -342,4 +342,14 @@ test("a file two agents added shows each one's functions without the other's", (
   assert.deepEqual(pickHunks(diff, mine, [mine], { owners: [{ lines: [5, 7] }], top: false }), ['@@ -0,0 +1,3 @@', '+export function mine() {', '+  return 1;', '+}', '@@ -0,0 +4,1 @@', '+']);
   // A stop for the whole file: everything but theirs.
   assert.deepEqual(pickHunks(diff, undefined, undefined, { owners: [{ lines: [5, 7] }], top: false }), ['@@ -0,0 +1,4 @@', '+export function mine() {', '+  return 1;', '+}', '+']);
+});
+
+test('rows that end where the agent cut the diff short say so, wherever the cut lands', () => {
+  const cut = ['@@ -1,3 +1,3 @@', ' a', '-b', '+c', '… diff cut at 64 KB'].join('\n');
+  // Inside the function's own hunk, and before it.
+  assert.equal(cutShort(pickHunks(cut, { lines: [2, 2] })), true);
+  assert.equal(cutShort(pickHunks(cut, { lines: [200, 210] })), true);
+  assert.equal(cutShort(pickHunks(cut)), true);
+  assert.equal(cutShort(pickHunks(['@@ -1,3 +1,3 @@', ' a', '-b', '+c'].join('\n'), { lines: [2, 2] })), false);
+  assert.equal(cutShort([]), false);
 });

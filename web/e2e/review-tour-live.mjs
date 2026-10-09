@@ -10,7 +10,8 @@
 // no files, moves the tour to the nearest change it does show. The agent deletes a file: its stop, on the
 // folder that's left, shows the deleted file's diff. The agent adds a file with two
 // functions: each one's stop shows only its own lines. Then the reviewed agent
-// takes a file back: the tour goes on to the change now in its place. Puts
+// takes a file back: the tour goes on to the change now in its place. A change longer than the
+// agent sends whole is said to be cut short in the tour. Puts
 // the files and the session back as they were.
 //
 //   node web/e2e/review-tour-live.mjs <fastapi clone> [url] [--shots dir]
@@ -203,6 +204,15 @@ try {
   await more.click();
   assert.match(await page.locator('.agent-diff').innerText(), /x699 = 699[\s\S]*return rows/, 'and shown whole on asking');
   assert.equal(await more.count(), 0);
+  assert.equal(await page.locator('.tour-cut').count(), 0, 'nothing of it was cut');
+  // Longer than the agent sends whole (64 KB): the tour says part of the change can't be shown.
+  const huge = Array.from({ length: 6000 }, (_, i) => `    x${i} = ${i}`).join('\n');
+  writeFileSync(join(repo, BIG), `def big_report(rows):\n${huge}\n    return rows\n`);
+  hook('demo-review', BIG);
+  await page.waitForTimeout(1500);
+  await page.locator('.tour-cut').waitFor();
+  assert.match(await page.locator('.tour-cut').innerText(), /cut this diff short/);
+  if (shots) await page.locator('.tour').screenshot({ path: join(shots, 'tour-cut.png') });
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', BIG]);
   execFileSync('rm', [join(repo, BIG)]);
   hook('demo-review', BIG);

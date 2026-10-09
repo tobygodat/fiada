@@ -575,6 +575,8 @@ export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMark
 export interface ShownDiff {
   node: string;
   rev: number | null;
+  /** The agent cut the diff short within what's shown, so part of the change can't be. */
+  cut?: boolean;
 }
 
 /** What a node's diff request left: its diffs, or (failed) the last ones it had while it says so. */

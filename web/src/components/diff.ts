@@ -183,6 +183,9 @@ function keptHeader(h: string[]): string {
 /** How the agent ends a diff it cut short (agent/src/git.ts). */
 const CUT = '… diff cut at ';
 
+/** Picked rows that end where the agent cut the diff short: some of the change isn't in them. */
+export const cutShort = (rows: readonly string[]) => rows.length > 0 && rows[rows.length - 1].startsWith(CUT);
+
 /**
  * A hunk cut down to the symbol's own lines (a deleted one's as they were) and, apart, with `rest`,
  * the lines none of the changed symbols covers; so each of an added file's functions shows its own
