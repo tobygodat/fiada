@@ -169,6 +169,27 @@ test("a stop's own lines come before the file's other code it carries, so the ro
   assert.deepEqual(pickHunks(mixed, { lines: [6, 6] }, [{ lines: [6, 6] }]), ['@@ -3,6 +3,7 @@', ' c', ' d', ' e', '+export function g() {}', ' f', ' h', ' i']);
 });
 
+test("the file's other code in another function's hunk still shows, on the stop that carries it", () => {
+  // A constant changed at line 32, in one hunk with b's change at 41: more than three lines from b.
+  const rows: string[] = [];
+  for (let i = 30; i <= 45; i++) {
+    if (i === 32) rows.push('-const LIMIT = 10;', '+const LIMIT = 20;');
+    else if (i === 41) rows.push('-  return 1;', '+  return 2;');
+    else rows.push(` line ${i}`);
+  }
+  const mixed = ['@@ -5,1 +5,1 @@', '-  return a;', '+  return a + 1;', '@@ -30,16 +30,16 @@', ...rows].join('\n');
+  const a = { lines: [4, 6] } as const;
+  const b = { lines: [40, 42] } as const;
+  const first = pickHunks(mixed, a, [a, b]);
+  assert.ok(first.includes('+  return a + 1;'));
+  assert.ok(first.includes('-const LIMIT = 10;') && first.includes('+const LIMIT = 20;'), 'the constant shows on the stop that carries the rest');
+  assert.ok(!first.includes('+  return 2;'), "not b's own change");
+  assert.ok(first.indexOf('+  return a + 1;') < first.indexOf('+const LIMIT = 20;'), 'its own lines first');
+  // b's own stop is cut to b, without the constant.
+  const own = pickHunks(mixed, b);
+  assert.ok(own.includes('+  return 2;') && !own.includes('+const LIMIT = 20;'));
+});
+
 test('a deleted function in a long hunk is cut to the lines that took it away, with three lines of context', () => {
   const rows: string[] = [];
   for (let i = 1; i <= 600; i++) {
