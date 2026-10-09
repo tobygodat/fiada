@@ -49,7 +49,7 @@ export function tourStops(
   agent: AgentActivity,
   nodes: Record<string, NodeChange>,
 ): TourStop[] {
-  const out = order(collect(graphIndex, agent, nodes), graph, graphIndex);
+  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id))), graph, graphIndex);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
   const fileOf = (s: TourStop) => (s.id.includes('#') ? s.id.slice(0, s.id.indexOf('#')) : null);
@@ -78,7 +78,7 @@ export const reviewable = (graphIndex: Map<string, GraphNode>, agent: AgentActiv
   collect(graphIndex, agent, nodes).length > 0;
 
 /** The stops, in the order the agent's files list them. */
-function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>): TourStop[] {
+function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>, layers?: Set<string>): TourStop[] {
   const stops: TourStop[] = [];
   const seen = new Set<string>();
   const add = (s: TourStop) => {
@@ -126,8 +126,9 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
         if (!target) continue;
-        // A deleted function is read on its file but keeps its own layer, which may not be the file's.
-        const layer = (!live && s.layer) || layerOf(target);
+        // A deleted function is read on its file but keeps its own layer, which may not be the file's,
+        // while the project still has that layer.
+        const layer = (!live && s.layer && layers?.has(s.layer) && s.layer) || layerOf(target);
         // The function's own change time, so editing another function in the file doesn't unread it.
         add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at: s.at ? Date.parse(s.at) : at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
       }
@@ -152,7 +153,8 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   // The layers' own order, as the legend shows them: ranks can be partial and collide with positions.
   const rank = new Map(graph.layers.map((l, i) => [l.id, i]));
   const layerRank = (s: TourStop) => (s.layer != null ? (rank.get(s.layer) ?? graph.layers.length) : graph.layers.length + 1);
-  const line = (s: TourStop) => graphIndex.get(s.target)?.lines?.[0] ?? 0;
+  // A deleted function stands on its file, which has no lines: its own were where HEAD had them.
+  const line = (s: TourStop) => s.old?.[0] ?? graphIndex.get(s.target)?.lines?.[0] ?? 0;
   const before = (a: number, b: number) => {
     const x = stops[a];
     const y = stops[b];
