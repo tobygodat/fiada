@@ -448,6 +448,32 @@ test('a link between two files with thousands of changed functions each is not o
   assert.equal(firstCallee, lastCaller + 1);
 });
 
+test('a loop through such a link still waits for the callers outside the loop', () => {
+  const N = 65;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+  for (const f of ['a.ts', 'z.ts']) {
+    nodes.push({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer: placed('ui') });
+    for (let i = 0; i < N; i++) nodes.push({ id: `r/${f}#f${i}`, kind: 'symbol', name: `f${i}`, parent: `r/${f}`, repo: 'r', path: f, lines: [i + 1, i + 1], layer: placed('ui') });
+  }
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
+  const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
+  // z.ts calls a.ts (more pairs than one link each), and one callee calls one caller back: the
+  // two of them and the link between the files make a loop, which the other callers enter.
+  const edges = [
+    { from: 'r/z.ts', to: 'r/a.ts', kind: 'imports' as const },
+    { from: 'r/a.ts#f0', to: 'r/z.ts#f0', kind: 'calls' as const },
+  ];
+  const stops = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  assert.equal(stops.length, 2 * N);
+  const at = new Map(stops.map((s, i) => [s.id, i]));
+  const lastCaller = Math.max(...Array.from({ length: N - 1 }, (_, i) => at.get(`r/z.ts#f${i + 1}`)!));
+  assert.ok(lastCaller < at.get('r/a.ts#f0')!, `last caller at ${lastCaller}, the callee in the loop at ${at.get('r/a.ts#f0')}`);
+  const firstCallee = Math.min(...Array.from({ length: N }, (_, i) => at.get(`r/a.ts#f${i}`)!));
+  assert.ok(lastCaller < firstCallee);
+});
+
 test('thousands of deleted files on one folder take its layer without counting its files again for each', () => {
   const N = 20000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });

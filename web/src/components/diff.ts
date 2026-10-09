@@ -12,7 +12,8 @@ export interface HunkOwner {
 
 /**
  * The hunks of a unified diff that belong to `own`, or all of them without it. With `rest` (every changed symbol in the file), also the hunks
- * none of them accounts for: an import, a constant. `own`'s lines come first and those others after,
+ * none of them accounts for (an import, a constant), and from another symbol's hunks the changed lines
+ * none of them covers, which that symbol's own stop cuts away. `own`'s lines come first and those others after,
  * so a long run of the file's other code never pushes them past the panel's row limit. All the hunks
  * when none matches, so nothing is hidden; unless the diff was cut short before `own`'s, which is then said instead.
  */
@@ -24,12 +25,20 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
   // The note a diff cut short ends with, taken off its last hunk while the hunks are cut up.
   const last = all[all.length - 1];
   const cut = last[last.length - 1]?.startsWith(CUT) ? last.pop() : undefined;
-  const hit = all.filter((h) => belongs(h, own) || (rest && !rest.some((r) => belongs(h, r))));
+  const theirs = (h: string[]) => rest?.filter((r) => belongs(h, r)) ?? [];
+  const hit = all.filter((h) => belongs(h, own) || (rest && !theirs(h).length));
   if (cut && !all.some((h) => belongs(h, own))) return [...hit.flat(), `${cut}, before this change`];
   if (!hit.length) return cut ? [...all.flat(), cut] : all.flat();
-  const parts = own.lines || own.oldLines ? hit.map((h) => slice(h, own, rest)) : hit.map((h) => (belongs(h, own) ? { own: [h], rest: [] } : { own: [], rest: [h] }));
+  // Another symbol's hunk, when every symbol it belongs to is known by its lines, so what they cover can be told apart.
+  const shared = rest ? all.filter((h) => !hit.includes(h) && theirs(h).every((r) => r.lines || r.oldLines)) : [];
+  const parts = all.flatMap((h) => {
+    if (shared.includes(h)) return [slice(h, undefined, rest)];
+    if (!hit.includes(h)) return [];
+    if (own.lines || own.oldLines) return [slice(h, own, rest)];
+    return [belongs(h, own) ? { own: [h], rest: [] } : { own: [], rest: [h] }];
+  });
   const out = [...parts.flatMap((p) => p.own), ...parts.flatMap((p) => p.rest)].flat();
-  return cut && hit.includes(last) ? [...out, cut] : out;
+  return cut && (hit.includes(last) || shared.includes(last)) ? [...out, cut] : out;
 }
 
 /** How the agent ends a diff it cut short (agent/src/git.ts). */
@@ -41,14 +50,14 @@ const CUT = '… diff cut at ';
  * code, not the whole file again, and a long hunk across many functions shows this one's rows
  * before the panel's row limit. A hunk of nothing but lines added (or, for a deleted symbol,
  * removed) is cut to exactly those lines; any other keeps three lines of context around them, as
- * git would. A hunk that needs no cut stays as it is, header and all.
+ * git would. A hunk that needs no cut stays as it is, header and all. Without `own`, only the rest.
  */
-function slice(h: string[], own: HunkOwner, rest?: readonly HunkOwner[]): { own: string[][]; rest: string[][] } {
+function slice(h: string[], own: HunkOwner | undefined, rest?: readonly HunkOwner[]): { own: string[][]; rest: string[][] } {
   const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
-  const span = own.lines ?? own.oldLines;
-  if (!m || !span) return { own: [h], rest: [] };
+  const span = own ? (own.lines ?? own.oldLines) : [0, -1] as const;
+  if (!m || !span) return own ? { own: [h], rest: [] } : { own: [], rest: [] };
   const body = h.slice(1);
-  const sign = own.lines ? '+' : '-';
+  const sign = own?.lines ? '+' : '-';
   const pad = body.every((l) => l[0] === sign || l[0] === '\\') ? 0 : 3;
   const inside = (at: number, s: readonly [number, number], p = 0) => at >= s[0] - p && at <= s[1] + p;
   // Each row's place on both sides: a removed row stands where the next new line does, an added
@@ -62,7 +71,7 @@ function slice(h: string[], own: HunkOwner, rest?: readonly HunkOwner[]): { own:
     if (l[0] !== '-') n++;
     const at = { old: l[0] === '+' ? o + 1 : o, new: l[0] === '-' ? n + 1 : n };
     const covers = (r: HunkOwner) => (r.lines ? inside(at.new, r.lines) : !!r.oldLines && inside(at.old, r.oldLines));
-    row.mine = inside(own.lines ? at.new : at.old, span, pad);
+    row.mine = !!own && inside(own.lines ? at.new : at.old, span, pad);
     row.other = !row.mine && !!rest && !rest.some(covers);
     return row;
   });
@@ -72,7 +81,7 @@ function slice(h: string[], own: HunkOwner, rest?: readonly HunkOwner[]): { own:
     r.mine = i > 0 && rows[i - 1].mine;
     r.other = i > 0 && rows[i - 1].other;
   });
-  if (rows.every((r) => r.mine)) return { own: [h], rest: [] };
+  if (own && rows.every((r) => r.mine)) return { own: [h], rest: [] };
   if (rows.every((r) => r.other)) return { own: [], rest: [h] };
   // Each unbroken run of the rows kept, under its own header.
   const runs = (keep: (r: (typeof rows)[number]) => boolean) => {
@@ -91,7 +100,7 @@ function slice(h: string[], own: HunkOwner, rest?: readonly HunkOwner[]): { own:
   };
   // The other code's runs that change something: unchanged lines cut away from the symbol's say nothing.
   const out = { own: runs((r) => r.mine), rest: runs((r) => r.other).filter((run) => run.some((l) => l[0] === '+' || l[0] === '-')) };
-  return out.own.length || out.rest.length ? out : { own: [h], rest: [] };
+  return out.own.length || out.rest.length || !own ? out : { own: [h], rest: [] };
 }
 
 function belongs(h: string[], o: HunkOwner): boolean {

@@ -309,7 +309,12 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     leftIn.set(loop[j], (leftIn.get(loop[j]) ?? 0) + 1);
     for (const w of waits[j]) if (loop[w] !== loop[j]) outside.set(loop[j], (outside.get(loop[j]) ?? 0) + 1);
   });
+  // A gate in a loop of stops (a callee that calls a caller back) is a way into that loop for the
+  // callers outside it, as much as the loop's own way out to the callees.
+  const held = new Set(loop);
+  const into = (k: number, a: number) => held.has(gateLoop(k)) && gateLoop(k) !== loop[a];
   gates.forEach((g, k) => {
+    for (const a of g.from) if (into(k, a)) outside.set(gateLoop(k), (outside.get(gateLoop(k)) ?? 0) + 1);
     for (const b of g.to) {
       waiting[b]++;
       if (gateLoop(k) !== loop[b]) outside.set(loop[b], (outside.get(loop[b]) ?? 0) + 1);
@@ -376,12 +381,16 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     last = pick;
     opened = [];
     leftIn.set(loop[pick], leftIn.get(loop[pick])! - 1);
+    const enter = (c: number) => {
+      if (outside.set(c, outside.get(c)! - 1).get(c) === 0) members.get(c)!.forEach(free.push);
+    };
     const reach = (j: number, from: number) => {
       if (--waiting[j] === 0) readyIn(loop[j]).push(j);
-      if (from !== loop[j] && outside.set(loop[j], outside.get(loop[j])! - 1).get(loop[j]) === 0) members.get(loop[j])!.forEach(free.push);
+      if (from !== loop[j]) enter(loop[j]);
     };
     for (const j of next[pick]) reach(j, loop[pick]);
     for (const k of gatesOf[pick]) {
+      if (into(k, pick)) enter(gateLoop(k));
       if (--gates[k].left > 0) continue;
       for (const j of gates[k].to) reach(j, gateLoop(k));
       opened = opened.concat(gates[k].to);
