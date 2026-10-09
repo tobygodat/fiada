@@ -838,7 +838,7 @@ export class AgentHub {
       for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
         const { symbols, top, theirsOnly } = this.stamp(f, this.symbolsOf(f, ix));
         // A file this agent took its own change back from, still changed by another agent, isn't this agent's.
-        if (theirsOnly && f.kind === 'modified') continue;
+        if (theirsOnly && f.kind !== 'deleted') continue;
         let node: string | undefined;
         if (f.repo) {
           const fid = fileId(f.repo, f.rel!);

@@ -191,6 +191,31 @@ test("an added file's other code is a change only while there is some", async ()
   assert.equal((await report(FN)).topAt, undefined, 'no file-level change left to read');
 });
 
+test("a new file this agent took its function out of, with another agent's function left in it, is no longer this agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/extra.ts');
+  const fa = 'export function fa() {\n  return 1;\n}\n';
+  const fb = 'export function fb() {\n  return 2;\n}\n';
+  const report = async (agent: AgentRef, text: string) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'added' }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
+  await report(a, fa);
+  await report(b, `${fa}\n${fb}`);
+  // A takes fa out: what's left of the new file is B's.
+  await report(a, fb);
+  assert.deepEqual(filesOf('a'), [], 'nothing in the file is A’s now');
+  assert.deepEqual(filesOf('b')[0].symbols.map((s) => s.name), ['fb']);
+});
+
 test("the file's code outside its functions has its own change time, and a re-index overtaken by a newer change settles nothing", async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
