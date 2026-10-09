@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diffRows, pickHunks } from './diff.ts';
+import { diffRows, ownerOf, pickHunks } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -220,6 +220,42 @@ test('a function moved far away sees both its removal and its addition, and the 
   // An addition where the function used to be is the file's, not the moved function's.
   const at = ['@@ -10,3 +10,1 @@', '-def moved():', '-    return 1', '-', '+import c'].join('\n');
   assert.deepEqual(pickHunks(at, m), ['@@ -10,3 +10,0 @@', '-def moved():', '-    return 1', '-']);
+});
+
+test("a file with thousands of changed functions and hunks is cut up without checking every function against every hunk", () => {
+  const N = 4000;
+  // One changed line in each function, each its own hunk.
+  const hunks: string[] = [];
+  const owners: { lines: [number, number]; oldLines: [number, number] }[] = [];
+  for (let i = 0; i < N; i++) {
+    const at = i * 10 + 2;
+    hunks.push(`@@ -${at},1 +${at},1 @@`, `-  return ${i};`, `+  return ${i + 1};`);
+    owners.push({ lines: [at - 1, at + 1], oldLines: [at - 1, at + 1] });
+  }
+  hunks.push('@@ -40001,0 +40001,1 @@', '+export const LAST = 1;');
+  const diff = hunks.join('\n');
+  const t = performance.now();
+  const first = pickHunks(diff, owners[0], owners);
+  const took = performance.now() - t;
+  assert.ok(took < 1000, `cut up in ${Math.round(took)} ms`);
+  assert.deepEqual(first, ['@@ -2,1 +2,1 @@', '-  return 0;', '+  return 1;', '@@ -40001,0 +40001,1 @@', '+export const LAST = 1;']);
+});
+
+test("a function the map still has where HEAD had it is placed by HEAD's lines, even its added rows", () => {
+  // Thirty lines added above moved it from 10 to 40; the map (another checkout's) still says 10.
+  const moved = [
+    '@@ -1,1 +1,31 @@',
+    ' import a',
+    ...Array.from({ length: 30 }, (_, i) => `+const C${i} = ${i};`),
+    '@@ -11,1 +41,2 @@',
+    '-  return 1',
+    '+  return 2',
+    '+  // and then',
+  ].join('\n');
+  const own = ownerOf([10, 12], [10, 12]);
+  assert.deepEqual(pickHunks(moved, own), ['@@ -11,1 +41,2 @@', '-  return 1', '+  return 2', '+  // and then']);
+  // Re-read since: the two differ, and both are kept.
+  assert.deepEqual(ownerOf([40, 43], [10, 12]), { lines: [40, 43], oldLines: [10, 12] });
 });
 
 test('a deleted function in a long hunk is cut to the lines that took it away, with three lines of context', () => {

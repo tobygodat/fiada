@@ -856,8 +856,10 @@ export class AgentHub {
       const rawName = s.id.slice(s.id.indexOf('#') + 1).replace(/~\d+$/, '');
       if (f.kind === 'added' || (f.fresh && base && !base.has(s.id))) out.push({ id: s.id, name: s.name, kind: 'added' });
       else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name)) {
-        // Its lines in HEAD too, so a class that lost a method can be matched with that method.
-        const was = f.fresh ? base?.get(s.id)?.lines : undefined;
+        // Its lines in HEAD too, so a class that lost a method can be matched with that method, and a
+        // function moved far with the hunk that took it from there: until the file is re-indexed (never,
+        // for another checkout), the map's own lines are HEAD's.
+        const was = f.live && f.fresh ? base?.get(s.id)?.lines : s.lines;
         out.push({ id: s.id, name: s.name, kind: 'modified', ...(was && was[0] > 0 && { oldLines: was }) });
       }
     }

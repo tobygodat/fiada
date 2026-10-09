@@ -11,6 +11,14 @@ export interface HunkOwner {
 }
 
 /**
+ * A changed symbol as a diff finds it, from its lines on the map and in HEAD. The same two mean
+ * the map hasn't read the file since the change (another checkout's, never), so they are HEAD's
+ * alone and even its added rows are placed by where HEAD had it.
+ */
+export const ownerOf = (lines?: readonly [number, number], oldLines?: readonly [number, number]): HunkOwner =>
+  lines && oldLines && lines[0] === oldLines[0] && lines[1] === oldLines[1] ? { oldLines } : { lines, oldLines };
+
+/**
  * The hunks of a unified diff that belong to `own`, or all of them without it. With `rest` (every changed symbol in the file), also the hunks
  * none of them accounts for (an import, a constant), and from another symbol's hunks the changed lines
  * none of them covers, which that symbol's own stop cuts away. `own`'s lines come first and those others after,
@@ -25,20 +33,64 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
   // The note a diff cut short ends with, taken off its last hunk while the hunks are cut up.
   const last = all[all.length - 1];
   const cut = last[last.length - 1]?.startsWith(CUT) ? last.pop() : undefined;
-  const theirs = (h: string[]) => rest?.filter((r) => belongs(h, r)) ?? [];
-  const hit = all.filter((h) => belongs(h, own) || (rest && !theirs(h).length));
-  if (cut && !all.some((h) => belongs(h, own))) return [...hit.flat(), `${cut}, before this change`];
-  if (!hit.length) return cut ? [...all.flat(), cut] : all.flat();
+  const cover = rest && covers(rest);
+  // Which of the changed symbols each hunk belongs to: by their lines, or (deleted, lines unknown) by name.
+  const theirs = all.map((h) => (cover ? { lines: cover.meets(h), named: cover.named.some((r) => belongs(h, r)) } : null));
+  const hit = new Set(all.filter((h, i) => belongs(h, own) || (theirs[i] && !theirs[i].lines && !theirs[i].named)));
+  if (cut && !all.some((h) => belongs(h, own))) return [...all.filter((h) => hit.has(h)).flat(), `${cut}, before this change`];
+  if (!hit.size) return cut ? [...all.flat(), cut] : all.flat();
   // Another symbol's hunk, when every symbol it belongs to is known by its lines, so what they cover can be told apart.
-  const shared = rest ? all.filter((h) => !hit.includes(h) && theirs(h).every((r) => r.lines || r.oldLines)) : [];
+  const shared = new Set(all.filter((h, i) => !hit.has(h) && theirs[i] && !theirs[i].named));
   const parts = all.flatMap((h) => {
-    if (shared.includes(h)) return [slice(h, undefined, rest)];
-    if (!hit.includes(h)) return [];
-    if (own.lines || own.oldLines) return [slice(h, own, rest)];
+    if (shared.has(h)) return [slice(h, undefined, cover)];
+    if (!hit.has(h)) return [];
+    if (own.lines || own.oldLines) return [slice(h, own, cover)];
     return [belongs(h, own) ? { own: [h], rest: [] } : { own: [], rest: [h] }];
   });
   const out = [...parts.flatMap((p) => p.own), ...parts.flatMap((p) => p.rest)].flat();
-  return cut && (hit.includes(last) || shared.includes(last)) ? [...out, cut] : out;
+  return cut && (hit.has(last) || shared.has(last)) ? [...out, cut] : out;
+}
+
+/**
+ * The changed symbols of a file, indexed so whether any of them holds a row or meets a hunk is a
+ * binary search, not a check of every symbol: a generated file can have thousands of both.
+ */
+function covers(rest: readonly HunkOwner[]) {
+  const index = (spans: (readonly [number, number] | undefined)[]) => {
+    const s = spans.filter((x): x is readonly [number, number] => !!x).sort((a, b) => a[0] - b[0]);
+    // The furthest any span up to each one reaches.
+    const reach: number[] = [];
+    s.forEach((x, i) => reach.push(Math.max(x[1], i ? reach[i - 1] : -Infinity)));
+    return (from: number, to: number) => {
+      let lo = 0;
+      let hi = s.length - 1;
+      let k = -1;
+      while (lo <= hi) {
+        const m = (lo + hi) >> 1;
+        if (s[m][0] <= to) (k = m), (lo = m + 1);
+        else hi = m - 1;
+      }
+      return k >= 0 && reach[k] >= from;
+    };
+  };
+  const now = index(rest.map((r) => r.lines));
+  const old = index(rest.map((r) => r.oldLines));
+  // An added row stands only where it is now, unless all a symbol has are its old lines.
+  const oldOnly = index(rest.map((r) => (r.lines ? undefined : r.oldLines)));
+  const spanned = rest.some((r) => r.lines || r.oldLines);
+  return {
+    /** Symbols known only by name. */
+    named: rest.filter((r) => !r.lines && !r.oldLines),
+    /** Whether a hunk meets any symbol's lines, on either side. */
+    meets(h: string[]) {
+      const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
+      if (!m) return spanned;
+      const range = (at: string, n?: string) => [Number(at), Number(at) + Math.max(1, n == null ? 1 : Number(n)) - 1] as const;
+      return now(...range(m[3], m[4])) || old(...range(m[1], m[2]));
+    },
+    /** Whether any symbol holds a row, as `of` places it. */
+    holds: (c: string, at: { old: number; new: number }) => now(at.new, at.new) || (c !== '+' ? old : oldOnly)(at.old, at.old),
+  };
 }
 
 /** How the agent ends a diff it cut short (agent/src/git.ts). */
@@ -52,7 +104,7 @@ const CUT = '… diff cut at ';
  * removed) is cut to exactly those lines; any other keeps three lines of context around them, as
  * git would. A hunk that needs no cut stays as it is, header and all. Without `own`, only the rest.
  */
-function slice(h: string[], own: HunkOwner | undefined, rest?: readonly HunkOwner[]): { own: string[][]; rest: string[][] } {
+function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof covers>): { own: string[][]; rest: string[][] } {
   const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
   if (!m || (own && !own.lines && !own.oldLines)) return own ? { own: [h], rest: [] } : { own: [], rest: [] };
   const body = h.slice(1);
@@ -75,7 +127,7 @@ function slice(h: string[], own: HunkOwner | undefined, rest?: readonly HunkOwne
     if (l[0] !== '-') n++;
     const at = { old: l[0] === '+' ? o + 1 : o, new: l[0] === '-' ? n + 1 : n };
     row.mine = !!own && of(own, l[0], at, pad);
-    row.other = !row.mine && !!rest && !rest.some((r) => of(r, l[0], at));
+    row.other = !row.mine && !!rest && !rest.holds(l[0], at);
     return row;
   });
   // "\ No newline at end of file" goes with the line before it.

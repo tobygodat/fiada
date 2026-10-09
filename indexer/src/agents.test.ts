@@ -997,6 +997,22 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
   assert.deepEqual(hub.state().agents, []);
 });
 
+test("an edit in another checkout of the repository carries each changed function's lines in HEAD, which the map still has", async () => {
+  const { ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  // A second checkout, named like the imported one: the map isn't re-indexed for it.
+  const other = path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-other-'))), 'web');
+  await fs.mkdir(path.join(other, 'src'), { recursive: true });
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: other, root: other };
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(other, 'src/api.ts'), kind: 'modified', lines: [[36, 36]], oldLines: [[6, 6]] }] }]);
+  const f = hub.state().agents[0].files[0];
+  assert.equal(f.node, 'web/src/api.ts');
+  assert.deepEqual(
+    f.symbols.map((s) => [s.name, s.kind, s.oldLines]),
+    [['getItem', 'modified', [5, 7]]],
+  );
+});
+
 test('a function deleted from a file it stays in carries its lines from HEAD', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
