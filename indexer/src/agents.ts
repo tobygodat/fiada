@@ -768,7 +768,11 @@ export class AgentHub {
     for (const s of now) {
       const rawName = s.id.slice(s.id.indexOf('#') + 1).replace(/~\d+$/, '');
       if (f.kind === 'added' || (f.fresh && base && !base.has(s.id))) out.push({ id: s.id, name: s.name, kind: 'added' });
-      else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name)) out.push({ id: s.id, name: s.name, kind: 'modified' });
+      else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name)) {
+        // Its lines in HEAD too, so a class that lost a method can be matched with that method.
+        const was = f.fresh ? base?.get(s.id)?.lines : undefined;
+        out.push({ id: s.id, name: s.name, kind: 'modified', ...(was && was[0] > 0 && { oldLines: was }) });
+      }
     }
     if (f.fresh && base) {
       const nowIds = new Set(now.map((s) => s.id));

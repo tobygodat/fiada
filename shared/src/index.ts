@@ -541,7 +541,8 @@ export interface AgentFile {
    * Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no
    * longer in the graph. `at` is the ISO time of the agent's latest change to that symbol itself
    * (editing another symbol in the file doesn't move it); absent from older indexers. `oldLines`: for a
-   * deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away. `layer`:
+   * deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away; for a
+   * modified one, the same when known, so a class is matched with a method it lost. `layer`:
    * for a deleted symbol, the layer id the map had for it, since it is read on its file.
    */
   symbols: { id: string; name: string; kind: ChangeKind; at?: string; oldLines?: [number, number]; layer?: string }[];

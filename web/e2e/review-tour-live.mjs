@@ -169,7 +169,7 @@ try {
   await goTo(name);
 
   // The agent adds a file with two functions: git sends it as one hunk, and each function's stop
-  // shows only its own lines (the first also the import above them).
+  // shows only its own lines (the first also the import above them, after its own).
   writeFileSync(join(repo, ADDED), 'import csv\n\n\ndef export_csv(rows):\n    return csv.writer(rows)\n\n\ndef export_json(rows):\n    return list(rows)\n');
   execFileSync('git', ['-C', repo, 'add', '-N', ADDED]);
   hook('demo-review', ADDED);
@@ -180,7 +180,7 @@ try {
   assert.doesNotMatch(onlyOwn, /def export_csv|import csv/, 'the second function shows only its own lines');
   await goTo('export_csv');
   const withImport = await page.locator('.agent-diff').innerText();
-  assert.match(withImport, /import csv[\s\S]*def export_csv/, 'the first shows the import and its own lines');
+  assert.match(withImport, /def export_csv[\s\S]*import csv/, 'the first shows its own lines, then the import');
   assert.doesNotMatch(withImport, /def export_json/);
   if (shots) await page.screenshot({ path: `${shots}/added-file.png` });
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', ADDED]);

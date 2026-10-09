@@ -111,9 +111,10 @@ test("an added file's one hunk is cut down to each function's own lines", () => 
   const b = { lines: [8, 10] } as const;
   // The later function: its own three lines, with the note that ends the file.
   assert.deepEqual(pickHunks(added, b), ['@@ -0,0 +8,3 @@', '+export function b() {', '+  return y;', '+}', '\\ No newline at end of file']);
-  // The first, which carries the file's other code: the imports and blank lines too, never b.
+  // The first, which carries the file's other code: its own lines, then the imports and blank line, never b.
   const first = pickHunks(added, a, [a, b]);
-  assert.deepEqual(first.filter((l) => l.startsWith('@@')), ['@@ -0,0 +1,7 @@']);
+  assert.deepEqual(first.filter((l) => l.startsWith('@@')), ['@@ -0,0 +4,3 @@', '@@ -0,0 +1,3 @@', '@@ -0,0 +7,1 @@']);
+  assert.equal(first[1], '+export function a() {');
   assert.ok(first.includes("+import { z } from 'z';") && first.includes('+  return z;'));
   assert.ok(!first.includes('+  return y;'));
   // Each line of the hunk on exactly one of the two stops.
@@ -133,9 +134,39 @@ test('a long hunk across many functions is cut to the one asked for, with three 
   assert.ok(later.includes('-old 410') && later.includes('+new 410'), 'its own change, under the row limit');
   assert.ok(!later.includes('+new 10'), 'not the other function’s');
   assert.equal(later.length, 1 + 17 + 1);
-  // The first function's stop also takes the lines no changed function covers, here all the rest.
+  // The first function's stop would also take the changed lines no changed function covers: here
+  // there are none, only unchanged ones, which it leaves out.
   const first = pickHunks(long, { lines: [5, 15] }, [{ lines: [5, 15] }, { lines: [405, 415] }]);
-  assert.ok(first.includes('+new 10') && first.includes(' line 300') && !first.includes('+new 410'));
+  assert.ok(first.includes('+new 10') && !first.includes(' line 300') && !first.includes('+new 410'));
+  assert.equal(first.length, 1 + 17 + 1);
+});
+
+test("a stop's own lines come before the file's other code it carries, so the row limit never hides them", () => {
+  // 600 constants added above the function, in one hunk with it, and a hunk of other code before that.
+  const consts = Array.from({ length: 600 }, (_, i) => `+const C${i} = ${i};`);
+  const long = [
+    '@@ -1,1 +1,2 @@',
+    ' // top',
+    "+import { z } from 'z';",
+    '@@ -5,2 +6,604 @@',
+    ' x',
+    ...consts,
+    '+export function f() {',
+    '+  return z;',
+    '+}',
+    ' y',
+  ].join('\n');
+  const own = { lines: [607, 609] } as const;
+  const rows = pickHunks(long, own, [own]);
+  assert.deepEqual(rows.slice(0, 6), ['@@ -6,1 +604,7 @@', '+const C597 = 597;', '+const C598 = 598;', '+const C599 = 599;', '+export function f() {', '+  return z;']);
+  // The rest after: the hunk before, then the constants above the function's context.
+  assert.ok(rows.indexOf('@@ -1,1 +1,2 @@') > rows.indexOf('+}'));
+  assert.ok(rows.includes('+const C0 = 0;') && rows.includes("+import { z } from 'z';"));
+  // Every row shows once.
+  assert.equal(rows.filter((l) => l[0] === '+').length, 600 + 3 + 1);
+  // Unchanged lines left over from the function's hunk aren't a hunk of their own.
+  const mixed = ['@@ -1,8 +1,9 @@', ' a', ' b', ' c', ' d', ' e', '+export function g() {}', ' f', ' h', ' i'].join('\n');
+  assert.deepEqual(pickHunks(mixed, { lines: [6, 6] }, [{ lines: [6, 6] }]), ['@@ -3,6 +3,7 @@', ' c', ' d', ' e', '+export function g() {}', ' f', ' h', ' i']);
 });
 
 test('a deleted function in a long hunk is cut to the lines that took it away, with three lines of context', () => {
