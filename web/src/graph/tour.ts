@@ -577,6 +577,17 @@ export interface ShownDiff {
   rev: number | null;
 }
 
+/** What a node's diff request left: its diffs, or (failed) the last ones it had while it says so. */
+export interface FetchedDiffs<T> {
+  node: string;
+  rev: number;
+  list: T[];
+  failed?: true;
+}
+
+/** The change time of the node's diff on screen: null while it loads, or when the last request for it failed. */
+export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string) => (f?.node === node && !f.failed ? f.rev : null);
+
 /**
  * Whether marking the stop read reads what was shown: not while its diff is loading, or while an
  * older diff of it stands in after the agent changed it again. With no diff of it on screen at all
