@@ -726,7 +726,11 @@ export class AgentHub {
       return true;
     });
     const out = mine.map((s) => {
-      const cur = advance(f.symAt.get(s.id), settled ? sig(s.id, s.kind) : null, f.at);
+      const prev = f.symAt.get(s.id);
+      const now = settled ? sig(s.id, s.kind) : null;
+      // Its own text back as HEAD has it (a class's field put back, round a method still changed): nothing new to read in it.
+      const head = s.kind === 'modified' ? f.baseSigs?.get(s.id) : undefined;
+      const cur = prev && head !== undefined && now === `modified\n${head}` ? { ...prev, sig: now } : advance(prev, now, f.at);
       f.symAt.set(s.id, cur);
       return { ...s, at: new Date(cur.at).toISOString() };
     });
