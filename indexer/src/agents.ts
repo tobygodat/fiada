@@ -534,7 +534,7 @@ export class AgentHub {
       const gens = new Map(files.map((f) => [f, f.gen]));
       // One file's text at a time: before by digest, after only for as long as it takes to sign.
       const before = new Map<string, string | null>();
-      for (const rel of rels) before.set(rel, await read(rel).then((t) => t && digest(t)));
+      for (const rel of rels) before.set(rel, await read(rel).then((t) => (t == null ? null : digest(t))));
       await this.ws.updateFiles(repo, [...rels]);
       const ix = this.index(this.ws.getGraph());
       // The digests the graph was built from, only when the file held still the whole time (else

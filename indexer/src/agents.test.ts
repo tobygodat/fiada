@@ -431,6 +431,28 @@ test('a file that drops out of the map, grown too large to read, is a new change
   assert.equal(two.topAt, two.at, 'and so does the file\'s other code');
 });
 
+test('a file emptied out settles, and every function it had takes that change', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const edit = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = hub.state().graphVersion;
+    const pushed = nextPush(hub, (s) => s.graphVersion > v);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+    await pushed;
+    return hub.state().agents[0].files[0];
+  };
+  const one = await edit(API.replace("'/api/items/' + id", '`/api/items/${id}`'), [[6, 6]], [[6, 6]]);
+  assert.ok(one.symbols.some((s) => s.name === 'getItem' && s.at === one.at));
+  // Nothing left in it, not even a newline: the graph still has the file, with no functions.
+  const two = await edit('', [], [[1, API.split('\n').length - 1]]);
+  assert.ok(two.symbols.length > 0 && two.symbols.every((s) => s.kind === 'deleted'), 'its functions are gone');
+  for (const s of two.symbols) assert.equal(s.at, two.at, `${s.name} takes the change that emptied the file`);
+});
+
 test('only source files the indexer reads are kept as text, never a large artifact', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
