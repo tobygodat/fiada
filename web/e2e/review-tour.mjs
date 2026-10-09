@@ -137,6 +137,18 @@ try {
   await pause(700);
   assert.equal((await count()).read, 2);
 
+  // Away looking at something else (a folder in the outline), r doesn't mark the change unseen: it goes back to it.
+  const atBefore = await count();
+  const onStop = await page.locator('.detail-title').innerText();
+  await page.locator('.outline-name', { hasText: /^backend\/app$/ }).first().click();
+  await page.locator('.detail-title', { hasText: /^backend\/app$/ }).waitFor({ timeout: 4000 });
+  assert.equal(await page.getByRole('button', { name: 'back to it', exact: true }).count(), 1, 'the panel offers the way back');
+  await page.keyboard.press('r');
+  await pause(900);
+  assert.deepEqual(await count(), atBefore, 'nothing marked, still on the same change');
+  assert.equal(await page.locator('.detail-title').innerText(), onStop, 'and it is shown again');
+  assert.equal(await page.getByRole('button', { name: 'back to it', exact: true }).count(), 0);
+
   // Clicking one of the changes on the map's outline moves the tour there too: covered by selecting a tick; Esc ends the tour and keeps the selection.
   await page.keyboard.press('Escape');
   await pause(600);
