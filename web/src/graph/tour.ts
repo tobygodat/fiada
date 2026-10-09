@@ -183,9 +183,11 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     if (!open.length) inLoop = -1;
     const pool = open.length ? open : layer;
     const ready = pool.filter((i) => [...waits[i]].every((w) => done.has(w)));
-    // Nothing ready: a loop of calls. Start it where the order would anyway, at a stop whose
-    // callers still waiting are all in its own loop, so what the loop calls still waits.
-    const here = ready.length ? ready : pool.filter((i) => [...waits[i]].every((w) => done.has(w) || loop[w] === loop[i]));
+    // Nothing ready: a loop of calls. Start one that nothing outside it still waits on (one
+    // always is: loops called from loops can't go round), where the order would anyway, so
+    // every stop in it can follow and what the loop calls still waits.
+    const free = (c: number) => left.every((j) => loop[j] !== c || [...waits[j]].every((w) => done.has(w) || loop[w] === c));
+    const here = ready.length ? ready : pool.filter((i) => free(loop[i]));
     const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
     const pick = (follow.length ? follow : here).sort(before)[0];
     done.add(pick);

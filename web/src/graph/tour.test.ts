@@ -201,6 +201,30 @@ test('a loop of calls is read whole before what it calls', () => {
   assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService', 'api/app/models.py#Item']);
 });
 
+test('a loop called from another loop waits for it, whichever of its stops sorts first', () => {
+  // up.ts: one ↔ two, and one → b1. down.ts: b1 ↔ b2, with b2 first by line. b2's only caller is
+  // in its own loop, but the loop as a whole waits for up.ts's; then it starts where the order does.
+  const layer: GraphNode['layer'] = { id: 'ui', source: 'path', confidence: 1, evidence: [] };
+  const nodes: GraphNode[] = [
+    { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
+    ...['down.ts', 'up.ts'].map((f): GraphNode => ({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer })),
+    ...([['down.ts', 'b1', 10], ['down.ts', 'b2', 1], ['up.ts', 'one', 1], ['up.ts', 'two', 10]] as const).map(
+      ([f, n, at]): GraphNode => ({ id: `r/${f}#${n}`, kind: 'symbol', name: n, parent: `r/${f}`, repo: 'r', path: f, lines: [at, at + 5], layer }),
+    ),
+  ];
+  const calls = (from: string, to: string) => ({ from: `r/${from}`, to: `r/${to}`, kind: 'calls' as const });
+  const g = {
+    layers: [{ id: 'ui', name: 'UI' }],
+    edges: [calls('up.ts#one', 'up.ts#two'), calls('up.ts#two', 'up.ts#one'), calls('up.ts#one', 'down.ts#b1'), calls('down.ts#b1', 'down.ts#b2'), calls('down.ts#b2', 'down.ts#b1')],
+  };
+  const a = agent([
+    file('r', 'down.ts', [sym('r/down.ts#b1'), sym('r/down.ts#b2')]),
+    file('r', 'up.ts', [sym('r/up.ts#one'), sym('r/up.ts#two')]),
+  ]);
+  const ids = tourStops(g, new Map(nodes.map((n) => [n.id, n])), a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['r/up.ts#one', 'r/up.ts#two', 'r/down.ts#b2', 'r/down.ts#b1']);
+});
+
 test("the first of a file's function stops also carries the file's other hunks", () => {
   const a = agent([
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
