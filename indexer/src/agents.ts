@@ -490,23 +490,22 @@ export class AgentHub {
       const before = await read();
       await this.ws.updateFiles(repo, [...rels]);
       const after = await read();
+      const ix = this.index(this.ws.getGraph());
       const others: FileRec[] = [];
       for (const f of files) {
         // A change reported meanwhile has its own re-index coming: this one is already behind it.
         if (gens.get(f) !== f.gen) continue;
         f.fresh = true;
-        // The text the graph was built from, only when it held still the whole time: else it may not match.
+        // The text the graph was built from, only when it held still the whole time (else it may
+        // not match), and only for a file the indexer took in (else no symbol needs it).
         const text = after.get(f.rel!);
-        f.text = text != null && text === before.get(f.rel!) ? text.split('\n') : null;
+        f.text = text != null && text === before.get(f.rel!) && ix.nodes.has(fileId(repo, f.rel!)) ? text.split('\n') : null;
         if (f.settledGen === f.gen) others.push(f);
         f.settledGen = f.gen;
       }
       // Another agent's change to a file this agent changed too: its text is this agent's new
       // baseline, so the other agent's edit never counts as this one's next change.
-      if (others.length) {
-        const ix = this.index(this.ws.getGraph());
-        for (const f of others) this.stamp(f, this.symbolsOf(f, ix), ix, true);
-      }
+      for (const f of others) this.rebase(f, ix);
     }
     this.version++;
     this.push();
@@ -597,43 +596,52 @@ export class AgentHub {
   /**
    * Each symbol's own change time: the file's latest change when the symbol's text is new, else
    * the time it last changed. A file Fiada doesn't re-index (a clone) has no text to compare, so
-   * every change to it counts for each of its symbols, as it did before.
+   * every change to it counts for each of its symbols, as it did before. A symbol's time is never
+   * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
+   * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>, rebase = false): { symbols: AgentFile['symbols']; top: number } {
-    // Rebasing takes the text as it is now without moving any time: none of the change is this agent's.
-    const next = (prev: Stamp | null | undefined, sig: string | null): Stamp =>
-      rebase && prev ? (sig === null ? prev : { sig, at: prev.at }) : advance(prev, sig, f.at);
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>): { symbols: AgentFile['symbols']; top: number } {
     const settled = !f.live || (f.fresh && !!f.text);
-    const all = f.repo ? (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []) : [];
-    const lines = new Map(all.map((n) => [n.id, n.lines]));
-    const keep = new Set<string>();
+    const sig = this.signer(f, ix);
     const out = symbols.map((s) => {
-      keep.add(s.id);
-      const prev = f.symAt.get(s.id);
-      const at = lines.get(s.id);
-      const sig = !settled
-        ? null
-        : s.kind === 'deleted'
-          ? 'deleted'
-          : f.live && f.text && at
-            ? `${s.kind}\n${f.text.slice(at[0] - 1, at[1]).join('\n')}`
-            : `${s.kind}@${f.at}`;
-      const cur = next(prev, sig);
+      const cur = advance(f.symAt.get(s.id), settled ? sig(s.id, s.kind) : null, f.at);
       f.symAt.set(s.id, cur);
       return { ...s, at: new Date(cur.at).toISOString() };
     });
+    f.topAt = advance(f.topAt, settled ? sig.top() : null, f.at);
+    return { symbols: out, top: f.topAt.at };
+  }
+
+  /**
+   * Another agent changed the file: every time this agent has for it stays, and each takes the
+   * text as it is now (found by symbol id, whatever this agent's own line ranges say).
+   */
+  private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
+    if (!f.text) return;
+    const sig = this.signer(f, ix);
+    for (const [id, prev] of f.symAt) {
+      const kind = prev.sig?.split(/[\n@]/)[0] as ChangeKind | undefined;
+      const now = kind ? sig(id, kind) : null;
+      if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });
+    }
+    if (f.topAt) f.topAt = { sig: sig.top(), at: f.topAt.at };
+  }
+
+  /** What a symbol's change time is taken for: its kind and its own text; and the same for the file's other code. */
+  private signer(f: FileRec, ix: ReturnType<AgentHub['index']>) {
+    const all = f.repo ? (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []) : [];
+    const lines = new Map(all.map((n) => [n.id, n.lines]));
+    const text = f.live ? f.text : null;
+    const sig = (id: string, kind: ChangeKind): string | null => {
+      if (kind === 'deleted') return 'deleted';
+      if (!text) return `${kind}@${f.at}`;
+      const at = lines.get(id);
+      return at ? `${kind}\n${text.slice(at[0] - 1, at[1]).join('\n')}` : null;
+    };
     // The code outside every symbol, blank lines aside: an import or a constant the agent changes.
     const inside = (i: number) => all.some((n) => n.lines && i >= n.lines[0] && i <= n.lines[1]);
-    const top = !settled
-      ? null
-      : f.live && f.text
-        ? f.text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n')
-        : `@${f.at}`;
-    f.topAt = next(f.topAt, top);
-    // Forget a symbol only once settled: until the graph catches up, which symbols a change
-    // touches can briefly read wrong, and forgetting one would make it new again.
-    if (settled) for (const id of f.symAt.keys()) if (!keep.has(id)) f.symAt.delete(id);
-    return { symbols: out, top: f.topAt.at };
+    sig.top = () => (text ? text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n') : `@${f.at}`);
+    return sig;
   }
 
   /** The symbols a file change touches, each with its own change kind. */

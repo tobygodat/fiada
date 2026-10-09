@@ -285,6 +285,37 @@ test("another agent's edit to a function never counts as this agent's next chang
   assert.ok(after.listItems > before.getItem);
 });
 
+test("another agent moving a function's lines doesn't make this agent's change to it new again", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][], oldLines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+    // A map is watching: the state is read after every change.
+    hub.state();
+  };
+  const timesOf = (session: string) => {
+    const f = hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+    return Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) as Record<string, string>;
+  };
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, one, [[6, 6]], [[6, 6]]);
+  const first = timesOf('a').getItem;
+  // B puts ten lines on top: A's own ranges now point above both functions.
+  const pad = '// note\n'.repeat(10);
+  await report(b, pad + one, [[1, 10], [16, 16]], [[1, 0], [6, 6]]);
+  // A changes listItems, its ranges now counted from B's text.
+  await report(a, pad + one.replace("'/api/items')", "'/api/items?all=1')"), [[1, 10], [12, 12], [16, 16]], [[1, 0], [2, 2], [6, 6]]);
+  assert.equal(timesOf('a').getItem, first, 'getItem keeps the time A changed it');
+});
+
 test('only source files the indexer reads are kept as text, never a large artifact', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
@@ -292,12 +323,17 @@ test('only source files the indexer reads are kept as text, never a large artifa
   await fs.writeFile(path.join(dir, 'src/api.ts'), API.replace("'/api/items')", "'/api/items?all=1')"));
   await fs.writeFile(path.join(dir, 'src/big.ts'), '// generated\n'.repeat(40_000));
   await fs.writeFile(path.join(dir, 'notes.txt'), 'todo\n');
+  // Source by its extension, but not what the indexer reads: a build output and a test.
+  await fs.mkdir(path.join(dir, 'dist'));
+  await fs.writeFile(path.join(dir, 'dist/api.js'), 'export function listItems() {}\n');
+  await fs.writeFile(path.join(dir, 'src/api.test.ts'), 'export function testItems() {}\n');
+  const files = ['src/api.ts', 'src/big.ts', 'notes.txt', 'dist/api.js', 'src/api.test.ts'];
   const pushed = nextPush(hub, (s) => s.graphVersion > 1);
-  await hub.ingest([{ agent, type: 'changes', files: ['src/api.ts', 'src/big.ts', 'notes.txt'].map((p) => ({ path: path.join(dir, p), kind: 'modified' as const })) }]);
+  await hub.ingest([{ agent, type: 'changes', files: files.map((p) => ({ path: path.join(dir, p), kind: 'modified' as const })) }]);
   await pushed;
   const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; text: string[] | null }> }> }).agents;
   const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.text != null]));
-  assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false });
+  assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false, 'dist/api.js': false, 'src/api.test.ts': false });
 });
 
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
