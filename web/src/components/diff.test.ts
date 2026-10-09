@@ -54,6 +54,26 @@ test('a deleted symbol sees the hunks that take away a line naming it', () => {
   assert.ok(first.includes('-import csv') && first.includes('-def export_items(items):'));
 });
 
+test('two deleted members with one last name each see only the hunk that took their own lines away', () => {
+  const gone = [
+    '@@ -10,3 +10,0 @@',
+    '-  get(id) {',
+    '-    return users[id];',
+    '-  }',
+    '@@ -30,3 +27,0 @@',
+    '-  get(id) {',
+    '-    return items[id];',
+    '-  }',
+  ].join('\n');
+  // By name alone both claim both hunks; by their lines in HEAD, each has its own.
+  assert.equal(pickHunks(gone, { name: 'Users.get' }).length, 8);
+  assert.deepEqual(pickHunks(gone, { name: 'Users.get', oldLines: [10, 12] }), gone.split('\n').slice(0, 4));
+  assert.deepEqual(pickHunks(gone, { name: 'Items.get', oldLines: [30, 32] }), gone.split('\n').slice(4));
+  // As the rest of a file's changes, each accounts for its own hunk only.
+  const rest = [{ name: 'Users.get', oldLines: [10, 12] as const }, { name: 'Items.get', oldLines: [30, 32] as const }];
+  assert.equal(pickHunks(gone, rest[0], rest).length, 4);
+});
+
 test('diff rows: the sign in its own gutter, each hunk as the line it starts at', () => {
   const rows = diffRows(pickHunks(diff));
   assert.deepEqual(rows[0], { t: 'hunk', line: 1, context: '' });

@@ -203,14 +203,14 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
   const rest = tour?.stop.rest?.map((id): HunkOwner => {
     const n = graphIndex.get(id);
-    return n?.kind === 'symbol' && n.lines ? { lines: n.lines } : { name: id.slice(id.indexOf('#') + 1) };
+    return n?.kind === 'symbol' && n.lines ? { lines: n.lines } : { name: id.slice(id.indexOf('#') + 1), oldLines: tour.stop.restOld?.[id] };
   });
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
     return (
       <AgentChange
         node={tour.stop.id}
-        own={fn ? { name: tour.stop.name } : undefined}
+        own={fn ? { name: tour.stop.name, oldLines: tour.stop.old } : undefined}
         rest={rest}
         rev={tour.stop.at}
         kind={tour.stop.kind}

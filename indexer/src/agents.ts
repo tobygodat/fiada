@@ -699,7 +699,7 @@ export class AgentHub {
     }
     if (f.fresh && base) {
       const nowIds = new Set(now.map((s) => s.id));
-      for (const [id, s] of base) if (!nowIds.has(id)) out.push({ id, name: s.name, kind: 'deleted' });
+      for (const [id, s] of base) if (!nowIds.has(id)) out.push({ id, name: s.name, kind: 'deleted', ...(s.lines[0] > 0 && { oldLines: s.lines }) });
     }
     return out;
   }

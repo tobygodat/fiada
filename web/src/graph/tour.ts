@@ -33,6 +33,10 @@ export interface TourStop {
    * under the file's own id, so it stays read (or unread) whichever function stop shows it.
    */
   top?: { id: string; at: number };
+  /** A deleted function's lines before the change, so its diff is the hunks that took those away. */
+  old?: [number, number];
+  /** With `rest`: the same for each deleted function in it. */
+  restOld?: Record<string, [number, number]>;
 }
 
 /**
@@ -64,7 +68,8 @@ export function tourStops(
     if (!f || marked.has(f)) return s;
     marked.add(f);
     const at = top.get(f);
-    return { ...s, rest: fns.get(f)!, ...(at != null && { top: { id: f, at } }) };
+    const old = Object.fromEntries(out.filter((x) => x.old && fileOf(x) === f).map((x) => [x.id, x.old!]));
+    return { ...s, rest: fns.get(f)!, ...(at != null && { top: { id: f, at } }), ...(Object.keys(old).length && { restOld: old }) };
   });
 }
 
@@ -121,7 +126,7 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
         // The function's own change time, so editing another function in the file doesn't unread it.
-        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at: s.at ? Date.parse(s.at) : at });
+        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at: s.at ? Date.parse(s.at) : at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
       }
     } else if (stand) {
       add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
@@ -205,10 +210,11 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     const open = layer.filter((i) => loop[i] === inLoop);
     if (!open.length) inLoop = -1;
     const pool = open.length ? open : layer;
-    const ready = pool.filter((i) => [...waits[i]].every((w) => done.has(w)));
-    // Nothing ready: a loop of calls. Start one that nothing outside it still waits on (one
-    // always is: loops called from loops can't go round), where the order would anyway, so
-    // every stop in it can follow and what the loop calls still waits.
+    // Inside a loop: what's ready in it first, else any of it (only its own stops wait on it).
+    // Otherwise any stop or loop of calls that nothing outside it still waits on (one always is:
+    // loops called from loops can't go round), a loop on a par with a single ready stop, so the
+    // order decides between them; a loop's stops then all follow, before what it calls.
+    const ready = open.length ? open.filter((i) => [...waits[i]].every((w) => done.has(w))) : [];
     const free = (c: number) => left.every((j) => loop[j] !== c || [...waits[j]].every((w) => done.has(w) || loop[w] === c));
     const here = ready.length ? ready : pool.filter((i) => free(loop[i]));
     const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
