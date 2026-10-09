@@ -741,15 +741,20 @@ export class AgentHub {
       f.theirs.delete(s.id);
       return true;
     });
-    const out = mine.map((s) => {
+    const out = mine.flatMap((s) => {
       const prev = f.symAt.get(s.id);
       const now = settled ? sig(s.id, s.kind) : null;
       // Its own text as HEAD has it (a class round a changed method, or one whose field was put back):
-      // nothing new to read in it, and no one's change, so another agent's later change to it is that agent's.
+      // nothing to read in it, so it isn't listed (a stop showing it would be unread for a change that's
+      // gone), and no one's change, so another agent's later change to it is that agent's.
       const head = s.kind === 'modified' ? f.baseSigs?.get(s.id) : undefined;
-      const cur: Stamp = head !== undefined && now === `modified\n${head}` ? { sig: now, at: prev?.at ?? f.at, back: true } : advance(prev, now, f.at);
+      if (head !== undefined && now === `modified\n${head}`) {
+        f.symAt.set(s.id, { sig: now, at: prev?.at ?? f.at, back: true });
+        return [];
+      }
+      const cur = advance(prev, now, f.at);
       f.symAt.set(s.id, cur);
-      return { ...s, at: new Date(cur.at).toISOString() };
+      return [{ ...s, at: new Date(cur.at).toISOString() }];
     });
     // Right after this agent's own change is re-indexed its lines are current, so a symbol gone
     // from its changes was taken back: its text is forgotten (its time kept), and the same edit

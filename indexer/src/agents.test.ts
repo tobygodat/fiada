@@ -866,14 +866,20 @@ test("a class's own time moves with its own lines, not with each method in it", 
   const one = STORE.replace('return 1;', 'return 10;');
   await report(one, [[5, 5]]);
   const first = at();
-  // Another method changes: the class's own lines didn't, so its time stays.
+  assert.equal(first.Store, undefined, 'a method’s change is not the class’s own: nothing of the class to read');
+  // Another method changes: the class's own lines still didn't.
   const two = one.replace('return 2;', 'return 20;');
   await report(two, [[5, 5], [9, 9]]);
-  assert.equal(at().Store, first.Store, 'a method’s change is not the class’s own');
+  assert.equal(at().Store, undefined);
   assert.equal(at()['Store.get'], first['Store.get']);
-  // A field changes: the class's own time moves.
+  // A field changes: the class's own change, at its own time.
   await report(two.replace('size = 1', 'size = 2'), [[2, 2], [5, 5], [9, 9]]);
-  assert.ok(at().Store > first.Store, 'its own field is');
+  assert.ok(at().Store > first['Store.get'], 'its own field is');
+  // The field put back, the methods still changed: nothing of the class's own is left to read, so
+  // a stop that was read before the field changed isn't unread by a change that's gone.
+  await report(two, [[5, 5], [9, 9]]);
+  assert.equal(at().Store, undefined);
+  assert.equal(at()['Store.get'], first['Store.get']);
 });
 
 test('a class whose own lines are back as HEAD has them, around a method still changed, is nothing new to read', async () => {
@@ -896,7 +902,7 @@ test('a class whose own lines are back as HEAD has them, around a method still c
   const first = at();
   // The field is put back; the method stays changed, so its lines still reach into the class.
   await report(STORE.replace('return 1;', 'return 10;'), [[5, 5]]);
-  assert.equal(at().Store, first.Store, 'the class’s own lines are as HEAD has them: no new change');
+  assert.equal(at().Store, undefined, 'the class’s own lines are as HEAD has them: nothing of it to read, so no stop carries it');
   assert.equal(at()['Store.get'], first['Store.get']);
   // Changed again: a new change.
   await report(both, [[2, 2], [5, 5]]);
