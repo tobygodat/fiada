@@ -242,34 +242,54 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   return out.map((i) => stops[i]);
 }
 
-/** Which loop of links each stop is in (Tarjan's strongly connected components); a stop in no loop is in one of its own. */
-function loops(next: Set<number>[]): number[] {
+/**
+ * Which loop of links each stop is in (Tarjan's strongly connected components); a stop in no loop is
+ * in one of its own. Walked with a stack of its own, not by recursion: a chain of thousands of
+ * changed functions would run past the call stack.
+ */
+export function loops(next: Set<number>[]): number[] {
   const comp = next.map(() => -1);
   const index = next.map(() => -1);
   const low = next.map(() => 0);
+  const links = next.map((s) => [...s]);
   const stack: number[] = [];
-  const on = new Set<number>();
+  const on = new Uint8Array(next.length);
+  // Each stop being walked, with how many of its links it has followed.
+  const walk: [number, number][] = [];
   let n = 0;
   let c = 0;
-  const visit = (v: number) => {
+  const enter = (v: number) => {
     index[v] = low[v] = n++;
     stack.push(v);
-    on.add(v);
-    for (const w of next[v]) {
-      if (index[w] < 0) {
-        visit(w);
-        low[v] = Math.min(low[v], low[w]);
-      } else if (on.has(w)) low[v] = Math.min(low[v], index[w]);
-    }
-    if (low[v] !== index[v]) return;
-    for (let w = -1; w !== v; ) {
-      w = stack.pop()!;
-      on.delete(w);
-      comp[w] = c;
-    }
-    c++;
+    on[v] = 1;
+    walk.push([v, 0]);
   };
-  next.forEach((_, v) => index[v] < 0 && visit(v));
+  for (let root = 0; root < next.length; root++) {
+    if (index[root] >= 0) continue;
+    enter(root);
+    while (walk.length) {
+      const at = walk[walk.length - 1];
+      const v = at[0];
+      if (at[1] < links[v].length) {
+        const w = links[v][at[1]++];
+        if (index[w] < 0) enter(w);
+        else if (on[w]) low[v] = Math.min(low[v], index[w]);
+        continue;
+      }
+      walk.pop();
+      if (walk.length) {
+        const u = walk[walk.length - 1][0];
+        low[u] = Math.min(low[u], low[v]);
+      }
+      if (low[v] !== index[v]) continue;
+      for (let w = -1; w !== v; ) {
+        w = stack.pop()!;
+        on[w] = 0;
+        comp[w] = c;
+      }
+      c++;
+    }
+  }
   return comp;
 }
 
@@ -296,6 +316,16 @@ export function loadMarks(project: string, agent: string): ReadMarks {
     return v && typeof v === 'object' ? (v as ReadMarks) : {};
   } catch {
     return {};
+  }
+}
+
+/** Forgets every review's read marks in this browser, as deleting an account forgets the project. */
+export function forgetMarks(): void {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    for (const k of keys) if (k?.startsWith('fiada.tour.')) localStorage.removeItem(k);
+  } catch {
+    // nothing stored
   }
 }
 

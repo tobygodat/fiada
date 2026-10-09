@@ -47,7 +47,8 @@ export function Privacy() {
 
         <h2>in your browser</h2>
         <p>
-          Your browser keeps your sign-in and a few preferences (the theme, which panels are open) in local storage. Signing in sets one cookie
+          Your browser keeps your sign-in, a few preferences (the theme, which panels are open) and which changes you have marked read in a
+          review in local storage; deleting your account clears the review marks too. Signing in sets one cookie
           for the few minutes it takes. There are no analytics, no advertising, and nothing is sold.
         </p>
 

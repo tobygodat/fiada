@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { isRead, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
+import { forgetMarks, isRead, loops, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -379,4 +379,34 @@ test('reviewable: only when something the agent changed is on the map', () => {
   const nodes: Record<string, NodeChange> = { 'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' } };
   assert.equal(reviewable(graphIndex, agent([{ ...file('gone', 'app/x.py'), node: undefined }]), nodes), false);
   assert.equal(reviewable(graphIndex, agent([file('web', 'src/pages/about.tsx')]), nodes), true);
+});
+
+test('loops: a long chain of stops is walked without running out of stack', () => {
+  const n = 100_000;
+  const next = Array.from({ length: n }, (_, i) => new Set(i + 1 < n ? [i + 1] : []));
+  const comp = loops(next);
+  assert.equal(new Set(comp).size, n, 'each stop on a chain is its own component');
+  const cycle = [new Set([1]), new Set([2]), new Set([0]), new Set([0])];
+  const c = loops(cycle);
+  assert.equal(c[0], c[1]);
+  assert.equal(c[1], c[2]);
+  assert.notEqual(c[3], c[0], 'a stop leading into the loop is not part of it');
+});
+
+test('forgetMarks: clears every review’s read marks and nothing else', () => {
+  const store = new Map<string, string>([['fiada.tour.p.a', '{}'], ['fiada.tour.q.b', '{}'], ['strata-theme', 'dark'], ['fiada.session', 's']]);
+  const was = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    get length() { return store.size; },
+    key: (i: number) => [...store.keys()][i] ?? null,
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  try {
+    forgetMarks();
+    assert.deepEqual([...store.keys()].sort(), ['fiada.session', 'strata-theme']);
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = was;
+  }
 });
