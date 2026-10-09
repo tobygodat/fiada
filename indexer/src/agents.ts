@@ -86,8 +86,20 @@ interface FileRec {
 
 /** A file's code outside every symbol, blank lines aside: its imports and constants. */
 function outside(text: string[], spans: ([number, number] | undefined)[]): string {
-  const inside = (i: number) => spans.some((l) => l && i >= l[0] && i <= l[1]);
-  return text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n');
+  // How many symbols cover each line, from one pass over the spans: a big generated file has
+  // thousands of both, and a scan per line would be their product.
+  const depth = new Int32Array(text.length + 2);
+  for (const l of spans) {
+    if (!l) continue;
+    depth[Math.max(1, l[0])]++;
+    depth[Math.min(text.length + 1, l[1] + 1)]--;
+  }
+  const out: string[] = [];
+  for (let i = 0, d = 0; i < text.length; i++) {
+    d += depth[i + 1];
+    if (d <= 0 && text[i].trim()) out.push(text[i]);
+  }
+  return out.join('\n');
 }
 
 /** A change time and the text it was taken for (null until the re-indexed text is in). */
@@ -658,7 +670,12 @@ export class AgentHub {
       const now = kind ? sig(id, kind) : null;
       if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });
     }
-    if (f.topAt) f.topAt = { sig: sig.top(), at: f.topAt.at };
+    if (!f.topAt) return;
+    const top = sig.top();
+    // This agent hadn't changed the file's other code: the other agent's version is its baseline
+    // now, so it isn't this agent's change to read.
+    if (f.baseTop != null && f.topAt.sig === f.baseTop) f.baseTop = top;
+    f.topAt = { sig: top, at: f.topAt.at };
   }
 
   /** What a symbol's change time is taken for: its kind and its own text; and the same for the file's other code. */

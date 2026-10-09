@@ -291,6 +291,13 @@ test("another agent's edit to a function never counts as this agent's next chang
   const after = timesOf('a');
   assert.equal(after.getItem, before.getItem, 'B’s edit to getItem is not A’s');
   assert.ok(after.listItems > before.getItem);
+  // B adds an import, then A changes getItem again: the import is B's, not A's to read.
+  const three = `import { z } from './z';\n${two.replace("'/api/items')", "'/api/items?all=1')")}`;
+  await report(b, three, [[1, 1]]);
+  await report(a, three.replace('encodeURIComponent(id)', 'encodeURIComponent(String(id))'), [[1, 1], [3, 3], [7, 7]]);
+  const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+  assert.equal(fileOf('a').topAt, undefined, 'A never changed the file’s other code');
+  assert.ok(fileOf('b').topAt, 'B did');
 });
 
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {

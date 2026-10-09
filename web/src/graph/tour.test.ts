@@ -288,6 +288,16 @@ test("a deleted function's stop carries its lines from before, for its own hunks
   assert.equal(stops[1].restOld, undefined);
 });
 
+test("a file stop with only its other code left changed reads by that code's own time", () => {
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  // The import changed at t; a function changed later and was taken back, so none is left.
+  const [stop] = tourStops(graph, graphIndex, agent([{ ...file('web', 'src/pages/about.tsx'), at: later, topAt: t }]), NO_NODES);
+  assert.equal(stop.id, 'web/src/pages/about.tsx');
+  assert.equal(stop.at, Date.parse(t));
+  assert.equal(isRead({ 'web/src/pages/about.tsx': Date.parse(t) }, stop), true, 'the import read at t stays read');
+});
+
 test('a change whose repository is gone from the map is not on the tour', () => {
   const nodes: Record<string, NodeChange> = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },

@@ -129,7 +129,8 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
         if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at: s.at ? Date.parse(s.at) : at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
       }
     } else if (stand) {
-      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
+      // Only the file's other code left changed (an import): its own time, not the file's latest.
+      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at: f.topAt ? Date.parse(f.topAt) : at });
     }
   }
   return stops;
