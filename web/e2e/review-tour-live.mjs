@@ -31,6 +31,7 @@ const FILE = 'frontend/src/routes/_layout/items.tsx';
 const GONE = 'backend/app/utils.py';
 const CRUD = 'backend/app/crud.py';
 const ADDED = 'backend/app/export.py';
+const BIG = 'backend/app/big_report.py';
 const hook = (session, file = FILE) =>
   execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, file]);
 
@@ -189,6 +190,25 @@ try {
   await page.waitForTimeout(1500);
   await goTo(name);
 
+  // A function longer than the panel's row limit: its first rows show, and the rest on asking.
+  const body = Array.from({ length: 700 }, (_, i) => `    x${i} = ${i}`).join('\n');
+  writeFileSync(join(repo, BIG), `def big_report(rows):\n${body}\n    return rows\n`);
+  execFileSync('git', ['-C', repo, 'add', '-N', BIG]);
+  hook('demo-review', BIG);
+  await page.waitForTimeout(1500);
+  await goTo('big_report');
+  const more = page.locator('.agent-diff .more button');
+  assert.match(await more.innerText(), /^show \d+ more lines$/, 'the rest of a long change is offered');
+  assert.doesNotMatch(await page.locator('.agent-diff').innerText(), /x699 = 699/);
+  await more.click();
+  assert.match(await page.locator('.agent-diff').innerText(), /x699 = 699[\s\S]*return rows/, 'and shown whole on asking');
+  assert.equal(await more.count(), 0);
+  execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', BIG]);
+  execFileSync('rm', [join(repo, BIG)]);
+  hook('demo-review', BIG);
+  await page.waitForTimeout(1500);
+  await goTo(name);
+
   // The reviewed agent takes the file back: the tour goes on to the change in its place.
   execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);
   hook('demo-review');
@@ -210,6 +230,9 @@ try {
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', '--ignore-unmatch', ADDED]);
   execFileSync('rm', ['-f', join(repo, ADDED)]);
   hook('demo-review', ADDED);
+  execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', '--ignore-unmatch', BIG]);
+  execFileSync('rm', ['-f', join(repo, BIG)]);
+  hook('demo-review', BIG);
   execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', FILE, GONE, CRUD]);
   hook('demo-review', GONE);
   execFileSync('python3', [join(here, 'agent-edits.py'), repo, 'crud']);

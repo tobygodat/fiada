@@ -463,6 +463,24 @@ test('thousands of deleted files on one folder take its layer without counting i
   assert.ok(stops.every((s) => s.layer === 'ui' && s.target === 'r'));
 });
 
+test('a new file with a hundred thousand functions is ordered without searching its list for each', () => {
+  const N = 100000;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [
+    { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
+    { id: 'r/gen.ts', kind: 'file', name: 'gen.ts', parent: 'r', repo: 'r', path: 'gen.ts', layer: placed('ui') },
+  ];
+  for (let i = 0; i < N; i++) nodes.push({ id: `r/gen.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/gen.ts', repo: 'r', path: 'gen.ts', lines: [i + 1, i + 1], layer: placed('ui') });
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const a = agent([file('r', 'gen.ts', Array.from({ length: N }, (_, i) => sym(`r/gen.ts#f${i}`, 'added')), 'added')]);
+  const t = performance.now();
+  const stops = tourStops({ edges: [], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  const took = performance.now() - t;
+  assert.ok(took < 2500, `ordered in ${Math.round(took)} ms`);
+  assert.equal(stops.length, N);
+  assert.equal(stops[N - 1].id, `r/gen.ts#f${N - 1}`);
+});
+
 test('a change whose repository is gone from the map is not on the tour', () => {
   const nodes: Record<string, NodeChange> = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },

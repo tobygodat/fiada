@@ -228,11 +228,13 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   };
 
   // Which stops a graph node speaks for: its own, or a file's for the functions in it and the other way round.
+  // (Each stop goes in once under its own id and at most once under its file, which is never a
+  // stop's id as well: no list holds a stop twice, so none is searched.)
   const byId = new Map<string, number[]>();
   const put = (id: string, i: number) => {
     const l = byId.get(id);
     if (!l) byId.set(id, [i]);
-    else if (!l.includes(i)) l.push(i);
+    else l.push(i);
   };
   stops.forEach((s, i) => put(s.id, i));
   // Every function stop answers for its file's own links, unless the file is a stop itself. A
