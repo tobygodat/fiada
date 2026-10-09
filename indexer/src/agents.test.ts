@@ -309,6 +309,34 @@ test('each re-index stamps its functions, with nobody watching the map in betwee
   assert.equal(at.listItems, Date.parse(f.at));
 });
 
+test('a function the agent takes back and then changes again is new to read', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+    const f = hub.state().agents[0].files[0];
+    return { file: f.at, ...Object.fromEntries(f.symbols.map((x) => [x.name, x.at])) } as Record<string, string>;
+  };
+  const getItem = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const listItems = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
+  const one = await report(getItem(API), [[6, 6]]);
+  // listItems changes and getItem goes back to HEAD: it's no longer one of the changes.
+  const two = await report(listItems(API), [[2, 2]]);
+  assert.equal(two.getItem, undefined);
+  // The same edit to getItem again: a change after the first, so new to read.
+  const three = await report(getItem(listItems(API)), [[2, 2], [6, 6]]);
+  assert.equal(three.getItem, three.file);
+  assert.notEqual(three.getItem, one.getItem);
+  assert.equal(three.listItems, two.listItems, 'listItems keeps its time');
+});
+
 test("another agent moving a function's lines doesn't make this agent's change to it new again", async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

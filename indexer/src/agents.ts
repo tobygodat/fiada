@@ -515,7 +515,7 @@ export class AgentHub {
       }
       // This agent's own change: stamped now, while the graph and text are this change's, so a
       // later change before anyone looks at the map doesn't take its time.
-      for (const f of own) this.stamp(f, this.symbolsOf(f, ix), ix);
+      for (const f of own) this.stamp(f, this.symbolsOf(f, ix), ix, true);
       // Another agent's change to a file this agent changed too: its text is this agent's new
       // baseline, so the other agent's edit never counts as this one's next change.
       for (const f of others) this.rebase(f, ix);
@@ -613,7 +613,7 @@ export class AgentHub {
    * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
    * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>): { symbols: AgentFile['symbols']; top: number } {
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>, own = false): { symbols: AgentFile['symbols']; top: number } {
     const settled = !f.live || f.settled;
     const sig = this.signer(f, ix);
     const out = symbols.map((s) => {
@@ -621,6 +621,13 @@ export class AgentHub {
       f.symAt.set(s.id, cur);
       return { ...s, at: new Date(cur.at).toISOString() };
     });
+    // Right after this agent's own change is re-indexed its lines are current, so a symbol gone
+    // from its changes was taken back: its text is forgotten (its time kept), and the same edit
+    // made again later is a new change. (Not otherwise: another agent may have moved the lines.)
+    if (own && settled) {
+      const now = new Set(symbols.map((s) => s.id));
+      for (const [id, prev] of f.symAt) if (!now.has(id) && prev.sig !== null) f.symAt.set(id, { sig: null, at: prev.at });
+    }
     f.topAt = advance(f.topAt, settled ? sig.top() : null, f.at);
     return { symbols: out, top: f.topAt.at };
   }
