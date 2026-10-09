@@ -168,11 +168,13 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     const parent = n ? (n.kind === 'symbol' ? n.parent : null) : s.id.includes('#') ? s.id.slice(0, s.id.indexOf('#')) : null;
     if (parent && !own.has(parent)) put(parent, i);
   });
+  // An unchanged function speaks through its file only when the file is a stop itself: its
+  // changed siblings didn't write its links.
   const stopsOf = (id: string): number[] => {
-    const own = byId.get(id);
-    if (own) return own;
+    const mine = byId.get(id);
+    if (mine) return mine;
     const n = graphIndex.get(id);
-    return n?.kind === 'symbol' ? (byId.get(n.parent) ?? []) : [];
+    return n?.kind === 'symbol' && own.has(n.parent) ? (byId.get(n.parent) ?? []) : [];
   };
 
   const next = stops.map(() => new Set<number>());
