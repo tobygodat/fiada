@@ -13,32 +13,44 @@ export interface HunkOwner {
 /**
  * The hunks of a unified diff that belong to `own`, or all of them without it. With `rest` (every changed symbol in the file), also the hunks
  * none of them accounts for: an import, a constant. All the hunks when none matches, so nothing
- * is hidden.
+ * is hidden; unless the diff was cut short before `own`'s, which is then said instead.
  */
 export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwner[]): string[] {
   const hunks = split(diff);
   if (!Array.isArray(hunks[0])) return hunks as string[];
   if (!own) return hunks.flat();
-  const hit = (hunks as string[][]).filter((h) => belongs(h, own) || (rest && !rest.some((r) => belongs(h, r))));
-  if (!hit.length) return hunks.flat();
-  return (own.lines ? hit.flatMap((h) => slice(h, own.lines!, rest)) : hit).flat();
+  const all = hunks as string[][];
+  // The note a diff cut short ends with, taken off its last hunk while the hunks are cut up.
+  const last = all[all.length - 1];
+  const cut = last[last.length - 1]?.startsWith(CUT) ? last.pop() : undefined;
+  const hit = all.filter((h) => belongs(h, own) || (rest && !rest.some((r) => belongs(h, r))));
+  if (cut && !all.some((h) => belongs(h, own))) return [...hit.flat(), `${cut}, before this change`];
+  if (!hit.length) return cut ? [...all.flat(), cut] : all.flat();
+  const out = (own.lines || own.oldLines ? hit.flatMap((h) => slice(h, own, rest)) : hit).flat();
+  return cut && hit.includes(last) ? [...out, cut] : out;
 }
 
+/** How the agent ends a diff it cut short (agent/src/git.ts). */
+const CUT = '… diff cut at ';
+
 /**
- * A hunk cut down to the symbol's own lines and, with `rest`, the lines none of the changed symbols
- * covers; so each of an added file's functions shows its own code, not the whole file again, and a
- * long hunk across many functions shows this one's rows before the panel's row limit. A hunk of
- * nothing but added lines is cut to exactly those lines; any other keeps three lines of context
- * around them, as git would. A hunk that needs no cut stays as it is, header and all.
+ * A hunk cut down to the symbol's own lines (a deleted one's as they were) and, with `rest`, the
+ * lines none of the changed symbols covers; so each of an added file's functions shows its own
+ * code, not the whole file again, and a long hunk across many functions shows this one's rows
+ * before the panel's row limit. A hunk of nothing but lines added (or, for a deleted symbol,
+ * removed) is cut to exactly those lines; any other keeps three lines of context around them, as
+ * git would. A hunk that needs no cut stays as it is, header and all.
  */
-function slice(h: string[], span: readonly [number, number], rest?: readonly HunkOwner[]): string[][] {
+function slice(h: string[], own: HunkOwner, rest?: readonly HunkOwner[]): string[][] {
   const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
-  if (!m) return [h];
+  const span = own.lines ?? own.oldLines;
+  if (!m || !span) return [h];
   const body = h.slice(1);
-  const pad = body.every((l) => l[0] === '+' || l[0] === '\\') ? 0 : 3;
-  const wanted = (n: number) =>
-    (n >= span[0] - pad && n <= span[1] + pad) || (!!rest && !rest.some((r) => r.lines && n >= r.lines[0] && n <= r.lines[1]));
-  // Each row's place on the new side; a removed row stands where the next new line does.
+  const sign = own.lines ? '+' : '-';
+  const pad = body.every((l) => l[0] === sign || l[0] === '\\') ? 0 : 3;
+  const inside = (at: number, s: readonly [number, number], p = 0) => at >= s[0] - p && at <= s[1] + p;
+  // Each row's place on both sides: a removed row stands where the next new line does, an added
+  // one where the next old line does.
   let o = Number(m[1]) - 1;
   let n = Number(m[2]) - 1;
   const rows = body.map((l) => {
@@ -46,7 +58,9 @@ function slice(h: string[], span: readonly [number, number], rest?: readonly Hun
     if (l[0] === '\\') return row;
     if (l[0] !== '+') o++;
     if (l[0] !== '-') n++;
-    row.keep = wanted(l[0] === '-' ? n + 1 : n);
+    const at = { old: l[0] === '+' ? o + 1 : o, new: l[0] === '-' ? n + 1 : n };
+    const covers = (r: HunkOwner) => (r.lines ? inside(at.new, r.lines) : !!r.oldLines && inside(at.old, r.oldLines));
+    row.keep = inside(own.lines ? at.new : at.old, span, pad) || (!!rest && !rest.some(covers));
     return row;
   });
   // "\ No newline at end of file" goes with the line before it.

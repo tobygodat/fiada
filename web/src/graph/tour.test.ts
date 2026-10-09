@@ -375,6 +375,29 @@ test('a tour of one change in each of thousands of files is built without a pass
   assert.ok(stops.every((s) => s.rest?.length === 1 && !s.restOld), 'each file’s one function carries its file');
 });
 
+test('a link between two files with thousands of changed functions each is not one link per pair', () => {
+  const N = 10000;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+  // The caller sorts after the callee by path, so only the link puts it first.
+  for (const f of ['a.ts', 'z.ts']) {
+    nodes.push({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer: placed('ui') });
+    for (let i = 0; i < N; i++) nodes.push({ id: `r/${f}#f${i}`, kind: 'symbol', name: `f${i}`, parent: `r/${f}`, repo: 'r', path: f, lines: [i + 1, i + 1], layer: placed('ui') });
+  }
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
+  const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
+  const t = performance.now();
+  const stops = tourStops({ edges: [{ from: 'r/z.ts', to: 'r/a.ts', kind: 'imports' }], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  const took = performance.now() - t;
+  assert.ok(took < 2000, `ordered in ${Math.round(took)} ms`);
+  assert.equal(stops.length, 2 * N);
+  // Every caller still comes before the callee file's first function.
+  const at = new Map(stops.map((s, i) => [s.id, i]));
+  const lastCaller = Math.max(...Array.from({ length: N }, (_, i) => at.get(`r/z.ts#f${i}`)!));
+  assert.ok(lastCaller < at.get('r/a.ts#f0')!);
+});
+
 test('a change whose repository is gone from the map is not on the tour', () => {
   const nodes: Record<string, NodeChange> = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },
