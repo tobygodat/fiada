@@ -568,7 +568,7 @@ export class AgentHub {
       for (const f of own) this.stamp(f, this.symbolsOf(f, ix), true);
       // Another agent's change to a file this agent changed too: its text is this agent's new
       // baseline, so the other agent's edit never counts as this one's next change.
-      for (const f of others) this.rebase(f);
+      for (const f of others) this.rebase(f, ix);
     }
     this.version++;
     this.push();
@@ -685,6 +685,8 @@ export class AgentHub {
     if (own && settled) {
       const now = new Set(symbols.map((s) => s.id));
       for (const [id, prev] of f.symAt) if (!now.has(id) && prev.sig !== null) f.symAt.set(id, { sig: null, at: prev.at });
+      // A symbol another agent added and this one took away again is no one's change now.
+      for (const [id, theirs] of f.theirs) if (theirs !== 'deleted' && !f.sigs?.of.has(id)) f.theirs.delete(id);
     }
     f.topAt = advance(f.topAt, settled ? sig.top() : null, f.at);
     // Back as HEAD has it: nothing outside the symbols to read, so no time for it.
@@ -693,15 +695,22 @@ export class AgentHub {
 
   /**
    * Another agent changed the file: every time this agent has for it stays, and each takes the
-   * text as it is now (found by symbol id, whatever this agent's own line ranges say). Every
-   * symbol this agent never touched is the other agent's as it is now, whichever of them it changed.
+   * text as it is now (found by symbol id, whatever this agent's own line ranges say), or is
+   * deleted when the other agent took a symbol HEAD has away. Every symbol this agent never
+   * touched is the other agent's as the file is now, whichever of them it changed; one the other
+   * agent added and took away again is no one's.
    */
-  private rebase(f: FileRec) {
+  private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
     if (!f.sigs) return;
-    for (const [id, now] of f.sigs.of) if (!f.symAt.has(id)) f.theirs.set(id, now);
-    if (f.base) for (const id of f.base.keys()) if (!f.sigs.of.has(id) && !f.symAt.has(id)) f.theirs.set(id, 'deleted');
+    const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
+    f.theirs = new Map([...f.sigs.of].filter(([id]) => !f.symAt.has(id)));
+    if (f.base) for (const id of f.base.keys()) if (gone(id) && !f.symAt.has(id)) f.theirs.set(id, 'deleted');
     const sig = this.signer(f);
     for (const [id, prev] of f.symAt) {
+      if (gone(id)) {
+        f.symAt.set(id, { sig: 'deleted', at: prev.at });
+        continue;
+      }
       const kind = prev.sig?.split(/[\n@]/)[0] as ChangeKind | undefined;
       const now = kind ? sig(id, kind) : null;
       if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });

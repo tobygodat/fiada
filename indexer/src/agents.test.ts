@@ -355,6 +355,42 @@ test("a function only another agent changed stays that agent's when this one cha
   assert.equal(timesOf('a').listItems, of('a').at);
 });
 
+test("another agent's deletion of a function this agent changed, and its added function taken away again, are not this agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const timesOf = (session: string) =>
+    Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, s])) as Record<string, { kind: string; at?: string }>;
+  const getItem = 'export function getItem(id: string) {\n  return fetch(`/api/items/${id}`);\n}\n';
+  const listItems = (q: string) => `export function listItems() {\n  return fetch('/api/items${q}');\n}\n`;
+  const extra = 'export function countItems() {\n  return 0;\n}\n';
+  // A changes getItem, with nobody watching the map.
+  await report(a, `${listItems('')}\n${getItem}`, [[6, 6]]);
+  const first = timesOf('a').getItem.at;
+  // B deletes getItem, adds countItems, then takes countItems away again.
+  await report(b, `${listItems('')}\n${extra}`, [[4, 7]]);
+  await report(b, listItems(''), [[4, 7]]);
+  // A changes listItems, then adds countItems just as B had it.
+  await report(a, listItems('?all=1'), [[2, 2], [4, 7]]);
+  const one = timesOf('a');
+  assert.equal(one.getItem.kind, 'deleted');
+  assert.equal(one.getItem.at, first, 'B’s deletion of getItem keeps the time A changed it');
+  await report(a, `${listItems('?all=1')}\n${extra}`, [[2, 2], [4, 7]]);
+  const two = timesOf('a');
+  assert.ok(two.countItems, 'A’s own countItems is A’s change, though B once added the same');
+  assert.equal(two.countItems.kind, 'added');
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
