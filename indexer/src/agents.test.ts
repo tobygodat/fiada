@@ -1014,6 +1014,34 @@ test("another agent moving a function's lines doesn't make this agent's change t
   assert.equal(timesOf('a').getItem, first, 'getItem keeps the time A changed it');
 });
 
+test("another agent's lines above this agent's changed function leave it this agent's, and the file in view", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][], oldLines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, one, [[6, 6]], [[6, 6]]);
+  const at = filesOf('a')[0].symbols[0].at;
+  // B puts an import and nine lines of notes on top: A's line 6 is one of B's notes now.
+  const top = `import { z } from './z';\n${'// note\n'.repeat(9)}`;
+  await report(b, top + one, [[1, 10], [16, 16]], [[1, 0], [6, 6]]);
+  const mine = filesOf('a');
+  assert.equal(mine.length, 1, 'A’s file is still in view');
+  assert.deepEqual(mine[0].symbols.map((s) => [s.name, s.at]), [['getItem', at]], 'with getItem, at the time A changed it');
+  assert.equal(mine[0].topAt, undefined, 'the import and notes are B’s');
+  assert.deepEqual(hub.diffs('web/src/api.ts#getItem').map((d) => d.agent.split('#').pop()).sort(), ['a', 'b']);
+});
+
 test('a file that drops out of the map, grown too large to read, is a new change for every stop it had', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

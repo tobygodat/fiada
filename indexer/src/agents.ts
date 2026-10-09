@@ -91,6 +91,11 @@ interface FileRec {
   baseSigs: Map<string, string> | null;
   /** The digest of that code as another agent last left it while this agent hadn't changed it, so it isn't this agent's to read; null when no other agent has. */
   theirsTop: string | null;
+  /**
+   * Another agent changed the file since this agent's own change was last re-indexed: `lines` may
+   * point at that agent's text now, so this agent's changed symbols are found by id instead.
+   */
+  moved?: boolean;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
@@ -629,7 +634,10 @@ export class AgentHub {
       }
       // This agent's own change: stamped now, while the graph and text are this change's, so a
       // later change before anyone looks at the map doesn't take its time.
-      for (const f of own) this.stamp(f, this.symbolsOf(f, ix), true);
+      for (const f of own) {
+        f.moved = false;
+        this.stamp(f, this.symbolsOf(f, ix), true);
+      }
       // Another agent's change to a file this agent changed too: its text is this agent's new
       // baseline, so the other agent's edit never counts as this one's next change.
       for (const f of others) this.rebase(f, ix);
@@ -792,6 +800,7 @@ export class AgentHub {
    */
   private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
     const mine = (id: string) => !!f.symAt.get(id) && !f.symAt.get(id)!.back;
+    f.moved = true;
     if (!f.sigs) {
       // The other agent deleted the whole file: every symbol HEAD had that this agent never changed
       // is that agent's deletion, and each this agent changed keeps its time, deleted now.
@@ -890,10 +899,13 @@ export class AgentHub {
     // Once a local file is re-indexed the graph has the new version, so the new-side
     // lines apply; until then, and for clones Fiada doesn't re-index, it has HEAD's.
     const newSide = f.live && f.fresh ? f.lines : f.oldLines;
+    // Once another agent moved the lines, this agent's own ranges can miss a function it changed
+    // (or land on the other agent's code): each it changed is found by id until its next change.
+    const changed = (id: string) => !!f.moved && !!f.symAt.get(id)?.sig?.startsWith('modified') && !f.symAt.get(id)!.back;
     for (const s of now) {
       const rawName = s.id.slice(s.id.indexOf('#') + 1).replace(/~\d+$/, '');
       if (f.kind === 'added' || (f.fresh && base && !base.has(s.id))) out.push({ id: s.id, name: s.name, kind: 'added' });
-      else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name)) {
+      else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name) || changed(s.id)) {
         // Its lines in HEAD too, so a class that lost a method can be matched with that method, and a
         // function moved far with the hunk that took it from there: until the file is re-indexed (never,
         // for another checkout), the map's own lines are HEAD's.
