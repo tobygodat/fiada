@@ -73,6 +73,8 @@ interface FileRec {
   topAt: Stamp | null;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
+  /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
+  settledGen: number;
 }
 
 /** A change time and the text it was taken for (null until the re-indexed text is in). */
@@ -364,6 +366,7 @@ export class AgentHub {
         symAt: new Map(),
         topAt: null,
         gen: 0,
+        settledGen: -1,
       };
       rec.files.set(key, file);
     }
@@ -487,6 +490,7 @@ export class AgentHub {
       const before = await read();
       await this.ws.updateFiles(repo, [...rels]);
       const after = await read();
+      const others: FileRec[] = [];
       for (const f of files) {
         // A change reported meanwhile has its own re-index coming: this one is already behind it.
         if (gens.get(f) !== f.gen) continue;
@@ -494,6 +498,14 @@ export class AgentHub {
         // The text the graph was built from, only when it held still the whole time: else it may not match.
         const text = after.get(f.rel!);
         f.text = text != null && text === before.get(f.rel!) ? text.split('\n') : null;
+        if (f.settledGen === f.gen) others.push(f);
+        f.settledGen = f.gen;
+      }
+      // Another agent's change to a file this agent changed too: its text is this agent's new
+      // baseline, so the other agent's edit never counts as this one's next change.
+      if (others.length) {
+        const ix = this.index(this.ws.getGraph());
+        for (const f of others) this.stamp(f, this.symbolsOf(f, ix), ix, true);
       }
     }
     this.version++;
@@ -587,7 +599,10 @@ export class AgentHub {
    * the time it last changed. A file Fiada doesn't re-index (a clone) has no text to compare, so
    * every change to it counts for each of its symbols, as it did before.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>): { symbols: AgentFile['symbols']; top: number } {
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>, rebase = false): { symbols: AgentFile['symbols']; top: number } {
+    // Rebasing takes the text as it is now without moving any time: none of the change is this agent's.
+    const next = (prev: Stamp | null | undefined, sig: string | null): Stamp =>
+      rebase && prev ? (sig === null ? prev : { sig, at: prev.at }) : advance(prev, sig, f.at);
     const settled = !f.live || (f.fresh && !!f.text);
     const all = f.repo ? (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []) : [];
     const lines = new Map(all.map((n) => [n.id, n.lines]));
@@ -603,7 +618,7 @@ export class AgentHub {
           : f.live && f.text && at
             ? `${s.kind}\n${f.text.slice(at[0] - 1, at[1]).join('\n')}`
             : `${s.kind}@${f.at}`;
-      const cur = advance(prev, sig, f.at);
+      const cur = next(prev, sig);
       f.symAt.set(s.id, cur);
       return { ...s, at: new Date(cur.at).toISOString() };
     });
@@ -614,7 +629,7 @@ export class AgentHub {
       : f.live && f.text
         ? f.text.filter((l, i) => l.trim() && !inside(i + 1)).join('\n')
         : `@${f.at}`;
-    f.topAt = advance(f.topAt, top, f.at);
+    f.topAt = next(f.topAt, top);
     // Forget a symbol only once settled: until the graph catches up, which symbols a change
     // touches can briefly read wrong, and forgetting one would make it new again.
     if (settled) for (const id of f.symAt.keys()) if (!keep.has(id)) f.symAt.delete(id);

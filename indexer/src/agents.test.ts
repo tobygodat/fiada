@@ -254,6 +254,37 @@ test('a function changed twice before its file is first re-indexed takes the lat
   assert.equal(f.symbols.find((s) => s.name === 'getItem')?.at, f.at, 'the second edit is new to read too');
 });
 
+test("another agent's edit to a function never counts as this agent's next change", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  // Re-indexed with nobody watching, so nothing reads the state in between.
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const timesOf = (session: string) => {
+    const f = hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+    return Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) as Record<string, string>;
+  };
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, one, [[6, 6]]);
+  const before = timesOf('a');
+  // B changes the same function, then A changes another one.
+  const two = one.replace('`/api/items/${id}`', "'/api/items/' + encodeURIComponent(id)");
+  await report(b, two, [[6, 6]]);
+  await report(a, two.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
+  const after = timesOf('a');
+  assert.equal(after.getItem, before.getItem, 'B’s edit to getItem is not A’s');
+  assert.ok(after.listItems > before.getItem);
+});
+
 test('only source files the indexer reads are kept as text, never a large artifact', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
