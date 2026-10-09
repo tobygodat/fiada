@@ -4,7 +4,7 @@
 /** One changed symbol, as a diff can find it: by its lines, or, deleted, by the lines that take it away. */
 export interface HunkOwner {
   lines?: readonly [number, number];
-  /** A deleted symbol's lines before the change: the hunks that take those away. */
+  /** A symbol's lines before the change: the hunks that take those away (a deleted one's, or a changed one's moved far from where it was). */
   oldLines?: readonly [number, number];
   /** A deleted symbol's name, when its old lines aren't known; for a member (`ItemController.get`) its declaration says only the last part. */
   name?: string;
@@ -54,12 +54,16 @@ const CUT = '… diff cut at ';
  */
 function slice(h: string[], own: HunkOwner | undefined, rest?: readonly HunkOwner[]): { own: string[][]; rest: string[][] } {
   const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
-  const span = own ? (own.lines ?? own.oldLines) : [0, -1] as const;
-  if (!m || !span) return own ? { own: [h], rest: [] } : { own: [], rest: [] };
+  if (!m || (own && !own.lines && !own.oldLines)) return own ? { own: [h], rest: [] } : { own: [], rest: [] };
   const body = h.slice(1);
-  const sign = own?.lines ? '+' : '-';
-  const pad = body.every((l) => l[0] === sign || l[0] === '\\') ? 0 : 3;
-  const inside = (at: number, s: readonly [number, number], p = 0) => at >= s[0] - p && at <= s[1] + p;
+  const only = (c: string) => body.every((l) => l[0] === c || l[0] === '\\');
+  const pad = (only('+') && own?.lines) || (only('-') && own?.oldLines) ? 0 : 3;
+  const inside = (at: number, s: readonly [number, number] | undefined, p = 0) => !!s && at >= s[0] - p && at <= s[1] + p;
+  // A row is a symbol's by where it stands now, or, removed or unchanged, by where it stood in HEAD
+  // (so a function moved far also has the hunk that took it from there); one with only its old
+  // lines (deleted) by those alone.
+  const of = (r: HunkOwner, c: string, at: { old: number; new: number }, p = 0) =>
+    inside(at.new, r.lines, p) || ((c !== '+' || !r.lines) && inside(at.old, r.oldLines, p));
   // Each row's place on both sides: a removed row stands where the next new line does, an added
   // one where the next old line does.
   let o = Number(m[1]) - 1;
@@ -70,9 +74,8 @@ function slice(h: string[], own: HunkOwner | undefined, rest?: readonly HunkOwne
     if (l[0] !== '+') o++;
     if (l[0] !== '-') n++;
     const at = { old: l[0] === '+' ? o + 1 : o, new: l[0] === '-' ? n + 1 : n };
-    const covers = (r: HunkOwner) => (r.lines ? inside(at.new, r.lines) : !!r.oldLines && inside(at.old, r.oldLines));
-    row.mine = !!own && inside(own.lines ? at.new : at.old, span, pad);
-    row.other = !row.mine && !!rest && !rest.some(covers);
+    row.mine = !!own && of(own, l[0], at, pad);
+    row.other = !row.mine && !!rest && !rest.some((r) => of(r, l[0], at));
     return row;
   });
   // "\ No newline at end of file" goes with the line before it.
@@ -107,10 +110,12 @@ function belongs(h: string[], o: HunkOwner): boolean {
   if (o.lines || o.oldLines) {
     const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
     if (!m) return true;
-    const [at, n, span] = o.lines ? [m[3], m[4], o.lines] : [m[1], m[2], o.oldLines!];
-    const s = Number(at);
-    const e = s + Math.max(1, n == null ? 1 : Number(n)) - 1;
-    return s <= span[1] && e >= span[0];
+    const meets = (at: string, n: string | undefined, span?: readonly [number, number]) => {
+      const s = Number(at);
+      const e = s + Math.max(1, n == null ? 1 : Number(n)) - 1;
+      return !!span && s <= span[1] && e >= span[0];
+    };
+    return meets(m[3], m[4], o.lines) || meets(m[1], m[2], o.oldLines);
   }
   if (!o.name) return false;
   const last = o.name.split(/\.|::|#/).pop()!;

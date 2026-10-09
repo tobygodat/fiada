@@ -359,6 +359,25 @@ test("a file stop with only its other code left changed reads by that code's own
   assert.equal(isRead({ 'web/src/pages/about.tsx': Date.parse(t) }, stop), true, 'the import read at t stays read');
 });
 
+test("a changed function's stop carries its lines in HEAD too, for a removal hunk left where it was, and is placed by its lines now", () => {
+  const a = agent([
+    file('web', 'src/client/api.ts', [
+      { ...sym('web/src/client/api.ts#UsersService'), oldLines: [10, 20] as [number, number] },
+      { ...sym('web/src/client/api.ts#ItemsService'), oldLines: [40, 50] as [number, number] },
+    ]),
+  ]);
+  const stops = tourStops(graph, graphIndex, a, NO_NODES);
+  // Neither has lines in the fixture: HEAD's don't order them, the tie does.
+  assert.deepEqual(
+    stops.map((s) => [s.id, s.old]),
+    [
+      ['web/src/client/api.ts#ItemsService', [40, 50]],
+      ['web/src/client/api.ts#UsersService', [10, 20]],
+    ],
+  );
+  assert.deepEqual(stops[0].restOld, { 'web/src/client/api.ts#ItemsService': [40, 50], 'web/src/client/api.ts#UsersService': [10, 20] });
+});
+
 test("a deleted function keeps the layer the map had for it, not its file's", () => {
   // ItemSchema was a Data class in the client file: it is read with the data layer, after the client.
   const a = agent([
