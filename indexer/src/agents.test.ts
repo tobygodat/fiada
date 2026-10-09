@@ -555,6 +555,37 @@ test("a function this agent deleted and another agent put back changed keeps thi
   assert.equal(symsOf('a').listItems.at, hub.state().agents.find((x) => x.id.endsWith('#a'))!.files[0].at);
 });
 
+test("another agent deleting the whole file makes none of its untouched functions this agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const settle = async (go: () => Promise<void>) => {
+    const v = ws.version;
+    await go();
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  await settle(async () => {
+    await fs.writeFile(file, API.replace("'/api/items/' + id", '`/api/items/${id}`'));
+    await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines: [[6, 6]], oldLines: [[6, 6]] }] }]);
+  });
+  const changed = hub.state().agents.find((x) => x.id.endsWith('#a'))!.files[0].symbols.find((s) => s.name === 'getItem')!.at;
+  // B deletes the file.
+  await settle(async () => {
+    await fs.rm(file);
+    await hub.ingest([{ agent: b, type: 'changes', files: [{ path: file, kind: 'deleted' }] }]);
+  });
+  const f = hub.state().agents.find((x) => x.id.endsWith('#a'))!.files[0];
+  assert.deepEqual(
+    f.symbols.map((s) => [s.name, s.kind, s.at]),
+    [['getItem', 'deleted', changed]],
+    'only the function A changed, at the time A changed it; listItems is B’s deletion',
+  );
+  assert.equal(f.topAt, undefined);
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

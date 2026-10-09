@@ -746,9 +746,17 @@ export class AgentHub {
    * agent added and took away again is no one's. So is one this agent took back: its time stays.
    */
   private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
-    if (!f.sigs) return;
-    const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
     const mine = (id: string) => !!f.symAt.get(id) && !f.symAt.get(id)!.back;
+    if (!f.sigs) {
+      // The other agent deleted the whole file: every symbol HEAD had that this agent never changed
+      // is that agent's deletion, and each this agent changed keeps its time, deleted now.
+      if (!f.repo || !f.base || ix.nodes.has(fileId(f.repo, f.rel!))) return;
+      f.theirs = new Map([...f.base.keys()].filter((id) => !mine(id)).map((id) => [id, 'deleted']));
+      for (const [id, prev] of f.symAt) if (!prev.back) f.symAt.set(id, { sig: 'deleted', at: prev.at });
+      this.rebaseTop(f);
+      return;
+    }
+    const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
     f.theirs = new Map([...f.sigs.of].filter(([id]) => !mine(id)));
     if (f.base) for (const id of f.base.keys()) if (gone(id) && !mine(id)) f.theirs.set(id, 'deleted');
     const sig = this.signer(f);
@@ -764,8 +772,13 @@ export class AgentHub {
       const now = kind ? sig(id, kind) : null;
       if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });
     }
+    this.rebaseTop(f);
+  }
+
+  /** The same for the file's other code. */
+  private rebaseTop(f: FileRec) {
     if (!f.topAt) return;
-    const top = sig.top();
+    const top = this.signer(f).top();
     // This agent hadn't changed the file's other code: the other agent's version isn't this
     // agent's change to read. HEAD's stays as it was, so taking it back there is no change either.
     const untouched = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
