@@ -109,6 +109,8 @@ interface FileRec {
    * agent left: put back to that, the change is the other agent's again, not this one's.
    */
   peerSig?: Map<string, string>;
+  /** The same for the file's code outside every symbol: the other agent's `theirsTop` this agent changed from. */
+  peerTop?: string;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
@@ -786,6 +788,7 @@ export class AgentHub {
       // gone), and no one's change, so another agent's later change to it is that agent's.
       const head = s.kind === 'modified' ? f.baseSigs?.get(s.id) : undefined;
       if (head !== undefined && now === `modified\n${head}`) {
+        f.peerSig?.delete(s.id);
         f.symAt.set(s.id, { sig: now, at: prev?.at ?? f.at, back: true });
         return [];
       }
@@ -804,10 +807,22 @@ export class AgentHub {
       // A symbol another agent changed that is no longer changed at all (this one took it back to
       // HEAD, or took away one it added) is no one's: the same change made again is this agent's.
       for (const id of f.theirs.keys()) if (!now.has(id)) f.theirs.delete(id);
+      // So is one this agent took over from the other agent and then put back as HEAD has it.
+      for (const id of f.peerSig?.keys() ?? []) if (!now.has(id)) f.peerSig!.delete(id);
     }
     f.topAt = advance(f.topAt, settled ? sig.top() : null, f.at);
     // Like a symbol's: once this agent moves it from how the other agent left it, it is this agent's.
-    if (settled && f.topAt.sig !== f.theirsTop) f.theirsTop = null;
+    if (settled && f.theirsTop !== null && f.topAt.sig !== f.theirsTop) {
+      f.peerTop = f.theirsTop;
+      f.theirsTop = null;
+    }
+    // Taken back as HEAD has it: the other agent's version is gone, and the same change made again is this agent's.
+    if (settled && f.topAt.sig === f.baseTop) f.peerTop = undefined;
+    // Put back as the other agent left it: that agent's change again, nothing of it this agent's.
+    if (settled && f.peerTop !== undefined && f.topAt.sig === f.peerTop) {
+      f.theirsTop = f.peerTop;
+      f.peerTop = undefined;
+    }
     // Back as HEAD has it, or as another agent left it: nothing outside the symbols for this agent to read.
     const unchanged = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
     // Nothing there is this agent's change now, or it is back as this agent left it before the other
@@ -912,6 +927,8 @@ export class AgentHub {
   private rebaseTop(f: FileRec) {
     if (!f.topAt) return;
     const top = this.signer(f).top();
+    // The other agent changed it again: the version this agent changed from is gone.
+    if (top !== f.topAt.sig) f.peerTop = undefined;
     // This agent hadn't changed the file's other code: the other agent's version isn't this
     // agent's change to read. HEAD's stays as it was, so taking it back there is no change either.
     const untouched = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
