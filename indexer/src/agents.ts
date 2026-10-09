@@ -768,6 +768,15 @@ export class AgentHub {
       // The other agent deleted the whole file: every symbol HEAD had that this agent never changed
       // is that agent's deletion, and each this agent changed keeps its time, deleted now.
       if (!f.repo || !f.base || ix.nodes.has(fileId(f.repo, f.rel!))) return;
+      if (f.kind === 'added') {
+        // A file this agent added, taken away again: nothing of it is this agent's, and the same file added again is new.
+        for (const [id, prev] of f.symAt) f.symAt.set(id, { sig: null, at: prev.at, back: true });
+        f.theirs = new Map();
+        const top = this.signer(f).top();
+        f.topAt = { sig: top, at: f.topAt?.at ?? f.at };
+        f.theirsTop = top;
+        return;
+      }
       f.theirs = new Map([...f.base.keys()].filter((id) => !mine(id)).map((id) => [id, 'deleted']));
       for (const [id, prev] of f.symAt) if (!prev.back) f.symAt.set(id, { sig: 'deleted', at: prev.at });
       this.rebaseTop(f);
