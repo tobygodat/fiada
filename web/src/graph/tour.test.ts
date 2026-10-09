@@ -567,3 +567,22 @@ test('forgetMarks: clears every review’s read marks and nothing else', () => {
     (globalThis as { localStorage?: unknown }).localStorage = was;
   }
 });
+
+test("a class left out for its method is read on the file's first stop: a change to its own lines is new there", () => {
+  const F = 'src/Items.java';
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const node = (name: string, lines: [number, number]) =>
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+  const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  const stops = (clsAt: string) =>
+    tourStops({ edges: [], layers: graph.layers }, ix, agent([{ ...file('svc', F, [{ ...sym(`svc/${F}#Items`), at: clsAt }, { ...sym(`svc/${F}#Items.add`), at: t }]), at: clsAt }]), NO_NODES);
+  const [stop] = stops(t);
+  assert.equal(stop.id, `svc/${F}#Items.add`);
+  const marks = markStop({}, stop, true);
+  assert.ok(isRead(marks, stops(t)[0]));
+  // The agent changes a field of the class since: the method's stop, which shows that line, is new again.
+  assert.equal(isRead(marks, stops(later)[0]), false);
+  assert.equal(nextUnread(stops(later), marks), 0);
+});

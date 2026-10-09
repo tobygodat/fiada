@@ -29,10 +29,12 @@ export interface TourStop {
    */
   rest?: string[];
   /**
-   * With `rest`: the file's other code and when the agent last changed it. Its read mark is kept
-   * under the file's own id, so it stays read (or unread) whichever function stop shows it.
+   * With `rest`: the other changed code this stop shows, and when the agent last changed each: the
+   * file's code outside every symbol (under the file's own id), and each class left out for a
+   * method in it (its header, fields). Each keeps its own read mark, so it stays read (or unread)
+   * whichever function stop shows it.
    */
-  top?: { id: string; at: number };
+  carries?: { id: string; at: number }[];
   /** A deleted function's lines before the change, so its diff is the hunks that took those away. */
   old?: [number, number];
   /** With `rest`: the same for each deleted function in it. */
@@ -49,7 +51,9 @@ export function tourStops(
   agent: AgentActivity,
   nodes: Record<string, NodeChange>,
 ): TourStop[] {
-  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id))), graph, graphIndex);
+  // Each file's classes left out for a method in them, whose own lines its first stop shows.
+  const outer = new Map<string, { id: string; at: number }[]>();
+  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id)), outer), graph, graphIndex);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
   // And each deleted one's lines before the change, gathered in the same pass.
@@ -76,7 +80,8 @@ export function tourStops(
     marked.add(f);
     const at = top.get(f);
     const old = olds.get(f);
-    return { ...s, rest: fns.get(f)!, ...(at != null && { top: { id: f, at } }), ...(old && { restOld: old }) };
+    const carries = [...(at != null ? [{ id: f, at }] : []), ...(outer.get(f) ?? [])];
+    return { ...s, rest: fns.get(f)!, ...(carries.length && { carries }), ...(old && { restOld: old }) };
   });
 }
 
@@ -85,7 +90,13 @@ export const reviewable = (graphIndex: Map<string, GraphNode>, agent: AgentActiv
   collect(graphIndex, agent, nodes).length > 0;
 
 /** The stops, in the order the agent's files list them. */
-function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>, layers?: Set<string>): TourStop[] {
+function collect(
+  graphIndex: Map<string, GraphNode>,
+  agent: AgentActivity,
+  nodes: Record<string, NodeChange>,
+  layers?: Set<string>,
+  outer?: Map<string, { id: string; at: number }[]>,
+): TourStop[] {
   const stops: TourStop[] = [];
   const seen = new Set<string>();
   const add = (s: TourStop) => {
@@ -129,7 +140,12 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
     const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : anchor && graphIndex.has(anchor) ? anchor : null;
     const base = { path: f.path, repo: f.repo };
     if (f.symbols.length && f.kind !== 'deleted') {
-      for (const s of innermost(f.symbols, graphIndex)) {
+      const inner = innermost(f.symbols, graphIndex);
+      if (outer && inner.length < f.symbols.length) {
+        const kept = new Set(inner);
+        outer.set(file, f.symbols.filter((s) => !kept.has(s)).map((s) => ({ id: s.id, at: s.at ? Date.parse(s.at) : at })));
+      }
+      for (const s of inner) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
         if (!target) continue;
@@ -422,12 +438,12 @@ export function loops(next: Set<number>[]): number[] {
 export type ReadMarks = Record<string, number>;
 
 /** Read, and not changed again since: the stop's own code, and the file's other code it shows. */
-export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at && (!s.top || (marks[s.top.id] ?? -1) >= s.top.at);
+export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at && (s.carries ?? []).every((c) => (marks[c.id] ?? -1) >= c.at);
 
 /** The marks with a stop read (as it is now) or unread again, the file's other code it shows with it. */
 export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMarks {
   const next = { ...marks };
-  for (const [id, at] of [[s.id, s.at], ...(s.top ? [[s.top.id, s.top.at]] : [])] as [string, number][]) {
+  for (const { id, at } of [{ id: s.id, at: s.at }, ...(s.carries ?? [])]) {
     if (read) next[id] = at;
     else delete next[id];
   }

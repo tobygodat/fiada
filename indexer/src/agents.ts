@@ -121,9 +121,42 @@ const digest = (text: string) => createHash('sha1').update(text).digest('base64'
 type Sigs = { of: Map<string, string>; top: string };
 
 const sigsOf = (text: string[], symbols: GraphNode[]): Sigs => ({
-  of: new Map(symbols.flatMap((n) => (n.lines ? [[n.id, digest(text.slice(n.lines[0] - 1, n.lines[1]).join('\n'))] as const] : []))),
+  of: ownText(text, symbols),
   top: digest(outside(text, symbols.map((n) => n.lines))),
 });
+
+/**
+ * Each symbol's own text by digest: its lines less those of the symbols inside it, so a class
+ * (Java, C# and the like list a class and its methods) changes only when its own header, fields or
+ * annotations do, not with each method in it.
+ */
+function ownText(text: string[], symbols: GraphNode[]): Map<string, string> {
+  const spans = symbols.flatMap((n) => (n.lines ? [{ id: n.id, from: n.lines[0], to: n.lines[1], inner: [] as [number, number][] }] : []));
+  // Outer before inner; a stack of the spans still open finds each one's direct container.
+  spans.sort((x, y) => x.from - y.from || y.to - x.to);
+  const open: typeof spans = [];
+  for (const s of spans) {
+    while (open.length && open[open.length - 1].to < s.from) open.pop();
+    const outer = open[open.length - 1];
+    if (outer && outer.to >= s.to && (outer.from !== s.from || outer.to !== s.to)) outer.inner.push([s.from, s.to]);
+    open.push(s);
+  }
+  const out = new Map<string, string>();
+  for (const s of spans) {
+    const own: string[] = [];
+    let k = 0;
+    for (let i = s.from; i <= s.to; i++) {
+      while (k < s.inner.length && s.inner[k][1] < i) k++;
+      if (k < s.inner.length && s.inner[k][0] <= i) {
+        i = s.inner[k][1];
+        continue;
+      }
+      own.push(text[i - 1] ?? '');
+    }
+    out.set(s.id, digest(own.join('\n')));
+  }
+  return out;
+}
 
 /**
  * A change time and the digest of the text it was taken for (null until the re-indexed text is in).
