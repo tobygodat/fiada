@@ -576,6 +576,11 @@ export interface AgentActivity {
   now?: AgentNow;
   steps: AgentStep[];
   files: AgentFile[];
+  /**
+   * Changes when its files do, or the graph they stand on: the same means the same changes to
+   * review, whatever the agent has said since, without comparing every file and symbol again.
+   */
+  filesRev?: string;
   startedAt: string;
   updatedAt: string;
 }

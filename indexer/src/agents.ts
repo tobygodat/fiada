@@ -960,6 +960,7 @@ export class AgentHub {
         now: statusLine(rec.said, rec.steps, rec.stepAt, rec.prompt ? { text: rec.prompt, at: rec.promptAt } : undefined),
         steps: rec.steps,
         files,
+        filesRev: createHash('sha1').update(JSON.stringify([this.ws.version, files])).digest('base64url').slice(0, 16),
         startedAt: new Date(rec.startedAt).toISOString(),
         updatedAt: new Date(rec.updatedAt).toISOString(),
       });

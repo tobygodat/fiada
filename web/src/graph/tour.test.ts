@@ -728,3 +728,15 @@ test('whether an agent can be reviewed is found without tallying a repository fo
   ];
   for (const [a, nodes] of cases) assert.equal(reviewable(graphIndex, a, nodes), tourStops(graph, graphIndex, a, nodes).length > 0, JSON.stringify(a.files));
 });
+
+test("with the indexer's revision of an agent's files, a status update doesn't read them at all", () => {
+  const tour = tourCache();
+  const files = [file('api', 'app/models.py', [sym('api/app/models.py#Item')])];
+  const first = tour(graph, graphIndex, { ...agent(files), filesRev: 'r1' }, NO_NODES);
+  assert.equal(first.length, 1);
+  // Files that can't be read or written out: the revision alone says they are the same.
+  const sealed = new Proxy([] as AgentFile[], { get: () => assert.fail('the files were read') });
+  assert.equal(tour(graph, graphIndex, { ...agent(sealed), filesRev: 'r1', note: 'running the tests' }, NO_NODES), first);
+  const more = [...files, file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
+  assert.equal(tour(graph, graphIndex, { ...agent(more), filesRev: 'r2' }, NO_NODES).length, 2);
+});

@@ -122,6 +122,28 @@ test('an agent\'s status line follows what it says, its plan and each new prompt
   assert.deepEqual(now(), { text: 'Add a page parameter', from: 'plan', at: at(8) });
 });
 
+test("an agent's files revision stays through its status lines and moves with its changes", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const change = async (text: string, lines: [number, number][]) => {
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const rev = () => hub.state().agents[0].filesRev;
+  await change(API.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2]]);
+  const r1 = rev();
+  assert.ok(r1);
+  await hub.ingest([{ agent, type: 'prompt', text: 'and the tests' }, { agent, type: 'status', text: 'Running the tests.' }]);
+  assert.equal(rev(), r1);
+  await change(API.replace("'/api/items/' + id", '`/api/items/${id}`'), [[6, 6]]);
+  assert.notEqual(rev(), r1);
+});
+
 test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(touches([5, 10], [[10, 12]]));
   assert.ok(!touches([5, 10], [[11, 12]]));
