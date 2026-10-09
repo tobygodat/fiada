@@ -298,12 +298,13 @@ export function App() {
 
   /** Select something from anywhere (the map, the outline, the detail panel) and bring it into view. */
   const select = useCallback(
-    (id: string | null) => {
+    (id: string | null, quiet = false) => {
       setSelectedEdge(null);
       if (!id || !tree) return setSelected(null);
       const at = locate(tree, graphIndex, id);
       if (!at || at === 'root') return;
-      remember();
+      // A tour's steps stay out of Back: it returns to where you were before the review.
+      if (!quiet) remember();
       setSelected(at);
       // Coming from a selection (a dependency or contract end in the detail panel): keep it in view too.
       const opts = { detail: true, from: selected ?? focus };
@@ -459,7 +460,7 @@ export function App() {
           return;
         }
       }
-      select(target);
+      select(target, true);
     },
     [tree, graphIndex, select],
   );
@@ -479,11 +480,12 @@ export function App() {
       const m = loadMarks(project, id);
       const i = Math.max(0, nextUnread(list, m));
       setMarks(m);
+      remember();
       setLitAgent(id);
       setTour({ agent: id, stop: list[i].id });
       showStop(list[i].target);
     },
-    [agents.state, graph, graphIndex, project, showStop],
+    [agents.state, graph, graphIndex, project, showStop, remember],
   );
 
   const goStop = useCallback(
@@ -587,7 +589,7 @@ export function App() {
     const target = pendingStop.current;
     if (!target || tree?.view !== 'code' || !sized) return;
     pendingStop.current = null;
-    select(target);
+    select(target, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, sized]);
 
@@ -609,7 +611,7 @@ export function App() {
       const s = [stops[tourAt + d], stops[tourAt - d]].find((x) => x && shows(x));
       if (s) {
         setTour({ agent: touring.agent, stop: s.id });
-        select(s.target);
+        select(s.target, true);
         return;
       }
     }
