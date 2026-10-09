@@ -772,7 +772,7 @@ test("another agent deleting the whole file makes none of its untouched function
     [['getItem', 'deleted', changed]],
     'only the function A changed, at the time A changed it; listItems is B’s deletion',
   );
-  assert.equal(f.topAt, undefined);
+  assert.equal(f.topAt, undefined);  assert.equal(f.symbols[0].shared, true, 'the deletion is B’s, so A’s review says another agent changed it too');
 });
 
 test("a file this agent deleted and another agent put back as HEAD has it is no longer this agent's", async () => {

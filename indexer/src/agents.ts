@@ -816,6 +816,13 @@ export class AgentHub {
   private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
     const mine = (id: string) => !!f.symAt.get(id) && !f.symAt.get(id)!.back;
     f.moved = true;
+    // A symbol this agent changed that the other agent changed as well: its rows aren't all this agent's now.
+    const share = (id: string, was: string | null, now: string) => {
+      const own = f.shared?.get(id) ?? was;
+      if (own === null) return;
+      if (now !== own) (f.shared ??= new Map()).set(id, own);
+      else f.shared?.delete(id);
+    };
     if (!f.sigs) {
       // The other agent deleted the whole file: every symbol HEAD had that this agent never changed
       // is that agent's deletion, and each this agent changed keeps its time, deleted now.
@@ -830,18 +837,16 @@ export class AgentHub {
         return;
       }
       f.theirs = new Map([...f.base.keys()].filter((id) => !mine(id)).map((id) => [id, 'deleted']));
-      for (const [id, prev] of f.symAt) if (!prev.back) f.symAt.set(id, { sig: 'deleted', at: prev.at });
+      for (const [id, prev] of f.symAt) {
+        if (prev.back) continue;
+        // One this agent changed (not deleted) is gone by the other agent's hand, not this one's.
+        share(id, prev.sig, 'deleted');
+        f.symAt.set(id, { sig: 'deleted', at: prev.at });
+      }
       this.rebaseTop(f);
       return;
     }
     const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
-    // A symbol this agent changed that the other agent changed as well: its rows aren't all this agent's now.
-    const share = (id: string, was: string | null, now: string) => {
-      const own = f.shared?.get(id) ?? was;
-      if (own === null) return;
-      if (now !== own) (f.shared ??= new Map()).set(id, own);
-      else f.shared?.delete(id);
-    };
     // The other agent put back the whole file this agent deleted: the deletion is gone, and the file
     // as it is now is that agent's, until this agent changes it again.
     const restored = f.kind === 'deleted';
