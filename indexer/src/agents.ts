@@ -702,7 +702,7 @@ export class AgentHub {
    * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
    * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], own = false): { symbols: AgentFile['symbols']; top: number | null } {
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], own = false): { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean } {
     const settled = !f.live || f.settled;
     const sig = this.signer(f);
     // Another agent's change is left out while its text stays as that agent left it.
@@ -733,7 +733,9 @@ export class AgentHub {
     if (settled && f.topAt.sig !== f.theirsTop) f.theirsTop = null;
     // Back as HEAD has it, or as another agent left it: nothing outside the symbols for this agent to read.
     const unchanged = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
-    return { symbols: out, top: unchanged ? null : f.topAt.at };
+    // Everything still changed in the file is another agent's: nothing here is this agent's to show.
+    const theirsOnly = settled && !out.length && unchanged && (mine.length < symbols.length || f.topAt.sig === f.theirsTop);
+    return { symbols: out, top: unchanged ? null : f.topAt.at, theirsOnly };
   }
 
   /**
@@ -832,7 +834,9 @@ export class AgentHub {
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
       for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
-        const { symbols, top } = this.stamp(f, this.symbolsOf(f, ix));
+        const { symbols, top, theirsOnly } = this.stamp(f, this.symbolsOf(f, ix));
+        // A file this agent took its own change back from, still changed by another agent, isn't this agent's.
+        if (theirsOnly && f.kind === 'modified') continue;
         let node: string | undefined;
         if (f.repo) {
           const fid = fileId(f.repo, f.rel!);
