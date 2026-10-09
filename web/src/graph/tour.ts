@@ -139,11 +139,13 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     else if (!l.includes(i)) l.push(i);
   };
   stops.forEach((s, i) => put(s.id, i));
-  // Every function stop answers for its file's own links, unless the file is a stop itself.
+  // Every function stop answers for its file's own links, unless the file is a stop itself. A
+  // deleted function is gone from the graph: its file is the part of its id before the '#'.
   const own = new Set(stops.map((s) => s.id));
   stops.forEach((s, i) => {
     const n = graphIndex.get(s.id);
-    if (n?.kind === 'symbol' && !own.has(n.parent)) put(n.parent, i);
+    const parent = n ? (n.kind === 'symbol' ? n.parent : null) : s.id.includes('#') ? s.id.slice(0, s.id.indexOf('#')) : null;
+    if (parent && !own.has(parent)) put(parent, i);
   });
   const stopsOf = (id: string): number[] => {
     const own = byId.get(id);
