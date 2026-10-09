@@ -119,8 +119,9 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
         const target = live ? s.id : stand;
         if (!target) continue;
         // A deleted function is read on its file but keeps its own layer, which may not be the file's,
-        // while the project still has that layer.
-        const layer = (!live && s.layer && layers?.has(s.layer) && s.layer) || layerOf(target);
+        // while the project still has that layer (Unlayered it always has, though it isn't listed).
+        const kept = !live && s.layer && (s.layer === UNLAYERED || layers?.has(s.layer)) ? s.layer : null;
+        const layer = kept ?? layerOf(target);
         add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
       }
     } else if (stand) {
@@ -195,16 +196,28 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   }
 
   const loop = loops(next);
-  const done = new Set<number>();
+  // Counted once and kept up as stops are read, so each step looks at each stop once: how many
+  // changed callers each stop still waits on, and how many from outside each loop still wait on it.
+  const waiting = waits.map((w) => w.size);
+  const outside = new Map<number, number>();
+  const leftIn = new Map<number, number>();
+  stops.forEach((_, j) => {
+    leftIn.set(loop[j], (leftIn.get(loop[j]) ?? 0) + 1);
+    for (const w of waits[j]) if (loop[w] !== loop[j]) outside.set(loop[j], (outside.get(loop[j]) ?? 0) + 1);
+  });
+  // What's left, in tie order (layers first): sorted once, and each stop taken out as it's read.
+  const ranks = stops.map(layerRank);
+  const left = stops.map((_, i) => i).sort(before);
   const out: number[] = [];
   let last = -1;
   // The loop being read, until every stop in it is.
   let inLoop = -1;
   while (out.length < stops.length) {
     // The earliest layer with anything left goes first, whatever is ready further in.
-    const left = stops.map((_, i) => i).filter((i) => !done.has(i));
-    const top = Math.min(...left.map((i) => layerRank(stops[i])));
-    const layer = left.filter((i) => layerRank(stops[i]) === top);
+    const top = ranks[left[0]];
+    let end = 1;
+    while (end < left.length && ranks[left[end]] === top) end++;
+    const layer = left.slice(0, end);
     const open = layer.filter((i) => loop[i] === inLoop);
     if (!open.length) inLoop = -1;
     const pool = open.length ? open : layer;
@@ -212,15 +225,19 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     // Otherwise any stop or loop of calls that nothing outside it still waits on (one always is:
     // loops called from loops can't go round), a loop on a par with a single ready stop, so the
     // order decides between them; a loop's stops then all follow, before what it calls.
-    const ready = open.length ? open.filter((i) => [...waits[i]].every((w) => done.has(w))) : [];
-    const free = (c: number) => left.every((j) => loop[j] !== c || [...waits[j]].every((w) => done.has(w) || loop[w] === c));
-    const here = ready.length ? ready : pool.filter((i) => free(loop[i]));
+    const ready = open.length ? open.filter((i) => waiting[i] === 0) : [];
+    const here = ready.length ? ready : pool.filter((i) => !outside.get(loop[i]));
     const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
-    const pick = (follow.length ? follow : here).sort(before)[0];
-    done.add(pick);
+    const pick = (follow.length ? follow : here)[0];
+    left.splice(left.indexOf(pick), 1);
     out.push(pick);
     last = pick;
-    if (inLoop < 0 && left.some((i) => i !== pick && loop[i] === loop[pick])) inLoop = loop[pick];
+    leftIn.set(loop[pick], leftIn.get(loop[pick])! - 1);
+    for (const j of next[pick]) {
+      waiting[j]--;
+      if (loop[j] !== loop[pick]) outside.set(loop[j], outside.get(loop[j])! - 1);
+    }
+    if (inLoop < 0 && leftIn.get(loop[pick])! > 0) inLoop = loop[pick];
   }
   return out.map((i) => stops[i]);
 }
