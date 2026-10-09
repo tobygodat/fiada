@@ -593,6 +593,14 @@ export class AgentHub {
       // One file's text at a time: before by digest, after only for as long as it takes to sign.
       const before = new Map<string, string | null>();
       for (const rel of rels) before.set(rel, await read(rel).then((t) => (t == null ? null : digest(t))));
+      // The layer each symbol in HEAD has on the map now, while the map still has it: one this
+      // re-index takes away keeps the layer it had last, not the one it had when the file first changed.
+      const was = this.index(this.ws.getGraph());
+      for (const f of files) {
+        if (!f.base) continue;
+        const now = new Map((was.symbols.get(fileId(repo, f.rel!)) ?? []).map((n) => [n.id, n.layer?.id]));
+        for (const [id, sym] of f.base) if (now.has(id)) sym.layer = now.get(id);
+      }
       await this.ws.updateFiles(repo, [...rels]);
       const ix = this.index(this.ws.getGraph());
       // The digests the graph was built from, only when the file held still the whole time (else
