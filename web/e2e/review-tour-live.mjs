@@ -59,8 +59,14 @@ try {
   await page.locator('.tour').waitFor();
   await page.waitForTimeout(800);
   const before = await count();
+  // Go to the first stop in the file the other agent will touch.
+  const ticks = page.locator('.tour-tick');
+  for (let i = 0; i < (await ticks.count()) && !(await page.locator('.tour-path').innerText()).endsWith(FILE); i++) {
+    await ticks.nth(i).click();
+    await page.waitForTimeout(300);
+  }
   const name = await page.locator('.tour-name').innerText();
-  assert.match(await page.locator('.tour-path').innerText(), /items\.tsx$/, `the first stop is in ${FILE}`);
+  assert.ok((await page.locator('.tour-path').innerText()).endsWith(FILE), `a stop is in ${FILE}`);
   await page.locator('.agent-diff').first().waitFor();
 
   // Another agent edits the same file: the review still shows only its own agent's diff.
@@ -158,8 +164,7 @@ try {
   execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', GONE]);
   hook('demo-review', GONE);
   await page.waitForTimeout(1500);
-  await page.locator('.tour-tick').first().click();
-  await page.locator('.tour-name', { hasText: name }).waitFor();
+  await goTo(name);
 
   // The reviewed agent takes the file back: the tour goes on to the change in its place.
   execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);

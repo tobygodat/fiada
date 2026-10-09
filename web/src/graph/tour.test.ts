@@ -186,6 +186,19 @@ test("a file's own links hold back every changed function in it, not only the fi
   assert.deepEqual(ids, ['web/src/pages/about.tsx', 'web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService']);
 });
 
+test("an unchanged function's links don't hold back its file's changed functions", () => {
+  // One layer. Only ItemsPage changed in items.tsx; its unchanged sibling useItems calls the changed
+  // ItemsService. That call is useItems', not ItemsPage's, so path order stands: client before pages.
+  const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
+  const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+  const a = agent([
+    file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')]),
+    file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]),
+  ]);
+  const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'web/src/pages/items.tsx#ItemsPage']);
+});
+
 test('layers go in their listed order even when a rank collides with a position', () => {
   // Data's rank 0 equals UI's position: by repository, api/ would come before web/.
   const g = { ...graph, layers: [{ id: 'ui', name: 'UI' }, { id: 'data', name: 'Data', rank: 0 }] };
