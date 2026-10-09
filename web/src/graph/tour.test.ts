@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { forgetMarks, isRead, loops, markStop, nextUnread, reviewable, stopRev, tourStops, type ReadMarks } from './tour.ts';
+import { forgetMarks, isRead, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -676,4 +676,26 @@ test("a class left out for its method is read on the file's first stop: a change
   // The agent changes a field of the class since: the method's stop, which shows that line, is new again.
   assert.equal(isRead(marks, stops(later)[0]), false);
   assert.equal(nextUnread(stops(later), marks), 0);
+
+test("the tour isn't ordered again for an agent's status, only when its changes or their circles change", () => {
+  const tour = tourCache();
+  const files = [file('api', 'app/models.py', [sym('api/app/models.py#Item')]), file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
+  const first = tour(graph, graphIndex, agent(files), NO_NODES);
+  assert.equal(first.length, 2);
+  // A status line and a prompt come as a new activity state with the same files.
+  const talking = { ...agent(structuredClone(files)), state: 'working' as const, prompt: 'and the tests', note: 'running them' };
+  assert.equal(tour(graph, graphIndex, talking, { 'web/src/other.ts': { kind: 'modified', at: 1, unit: 'file', agents: ['b'] } }), first, 'the same stops');
+  // A change of its own: ordered again.
+  const more = [...files, file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')])];
+  const next = tour(graph, graphIndex, agent(more), NO_NODES);
+  assert.notEqual(next, first);
+  assert.deepEqual(next, tourStops(graph, graphIndex, agent(more), NO_NODES));
+  // A deleted file's circle moving, or a new graph: ordered again.
+  const gone = [file('web', 'src/old.ts', [], 'deleted')];
+  const on = (anchor: string) => ({ 'web/src/old.ts': { kind: 'deleted' as const, at: 1, unit: 'file' as const, anchor, agents: ['a'] } });
+  const a1 = tour(graph, graphIndex, agent(gone), on('web/src'));
+  const a2 = tour(graph, graphIndex, agent(gone), on('web'));
+  assert.notEqual(a2, a1);
+  assert.deepEqual(a2.map((s) => s.target), ['web']);
+  assert.notEqual(tour({ ...graph }, graphIndex, agent(gone), on('web')), a2);
 });

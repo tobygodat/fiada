@@ -88,6 +88,21 @@ export function tourStops(
   });
 }
 
+/**
+ * tourStops, built again only when what it reads changes: the graph, the agent's files, or the
+ * circle each of them stands on. An agent's prompt or status (or another agent's change) brings a
+ * new activity state, and ordering a large change set takes long enough to stall the map.
+ */
+export function tourCache(): typeof tourStops {
+  let last: { graph: object; graphIndex: object; key: string; stops: TourStop[] } | null = null;
+  return (graph, graphIndex, agent, nodes) => {
+    const key = JSON.stringify([agent.id, agent.files, agent.files.map((f) => (f.repo ? (nodes[`${f.repo}/${f.path}`]?.anchor ?? null) : null))]);
+    if (last && last.graph === graph && last.graphIndex === graphIndex && last.key === key) return last.stops;
+    last = { graph, graphIndex, key, stops: tourStops(graph, graphIndex, agent, nodes) };
+    return last.stops;
+  };
+}
+
 /** Whether the agent changed anything the map can show, so a tour has somewhere to go. */
 export const reviewable = (graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>) =>
   collect(graphIndex, agent, nodes).length > 0;

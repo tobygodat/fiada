@@ -10,7 +10,7 @@ import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
-import { loadMarks, markStop, nextUnread, reviewable, saveMarks, tourStops, type ReadMarks, type TourStop } from './graph/tour.ts';
+import { loadMarks, markStop, nextUnread, reviewable, saveMarks, tourCache, type ReadMarks, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -135,6 +135,8 @@ export function App() {
   // (Not gated on the spotlight: By function has no circle for a deleted file's folder, yet the tour still has a stop for it.)
   const touring = tour && tour.agent === lit ? tour : null;
   const tourAgent = touring ? agents.state?.agents.find((a) => a.id === touring.agent) : undefined;
+  // Kept while the agent's changes are: its status lines and prompts don't order the tour again.
+  const [tourStops] = useState(tourCache);
   const stops = useMemo(
     () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes) : []),
     [graph, graphIndex, tourAgent, agents.state],
@@ -485,7 +487,7 @@ export function App() {
       setTour({ agent: id, stop: list[i].id });
       showStop(list[i].target);
     },
-    [agents.state, graph, graphIndex, project, showStop, remember],
+    [agents.state, graph, graphIndex, project, showStop, remember, tourStops],
   );
 
   const goStop = useCallback(
