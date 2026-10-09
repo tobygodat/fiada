@@ -167,6 +167,30 @@ test('each function keeps its own change time: editing another one in its file d
   assert.equal(hub.state().nodes['web/src/api.ts#getItem'].at, Date.parse(two.getItem));
 });
 
+test("an added file's other code is a change only while there is some", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/extra.ts');
+  const FN = 'export function extra() {\n  return 1;\n}\n';
+  const report = async (text: string) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = hub.state().graphVersion;
+    const pushed = nextPush(hub, (s) => s.graphVersion > v);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'added' }] }]);
+    await pushed;
+    return hub.state().agents[0].files[0];
+  };
+  // A new file with only a function: nothing outside it to read.
+  assert.equal((await report(FN)).topAt, undefined);
+  // An import on top is.
+  const withImport = await report(`import { x } from './api.ts';\n\n${FN}`);
+  assert.equal(withImport.topAt, withImport.at);
+  // Taken out again, with the function still there: nothing outside it again.
+  assert.equal((await report(FN)).topAt, undefined, 'no file-level change left to read');
+});
+
 test("the file's code outside its functions has its own change time, and a re-index overtaken by a newer change settles nothing", async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

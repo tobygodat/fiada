@@ -485,7 +485,7 @@ export class AgentHub {
    * the graph still holds the file as it was, so a deleted symbol is read with it.
    */
   private async baseSymbols(repo: string, rel: string, live: boolean, kind: ChangeKind): Promise<{ base: SymbolLines | null; baseTop: string | null }> {
-    if (kind === 'added') return { base: new Map(), baseTop: '' };
+    if (kind === 'added') return { base: new Map(), baseTop: digest('') };
     const fid = fileId(repo, rel);
     const syms = this.index(this.ws.getGraph()).symbols.get(fid);
     const layer = new Map(syms?.map((s) => [s.id, s.layer?.id]));
