@@ -215,41 +215,100 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     leftIn.set(loop[j], (leftIn.get(loop[j]) ?? 0) + 1);
     for (const w of waits[j]) if (loop[w] !== loop[j]) outside.set(loop[j], (outside.get(loop[j]) ?? 0) + 1);
   });
-  // What's left, in tie order (layers first): sorted once, and each stop taken out as it's read.
+  // Every stop's place in tie order (layers first), so the earliest of any set is the one that goes.
   const ranks = stops.map(layerRank);
-  const left = stops.map((_, i) => i).sort(before);
+  const pos = new Int32Array(stops.length);
+  stops.map((_, i) => i).sort(before).forEach((i, k) => (pos[i] = k));
+  const done = new Uint8Array(stops.length);
+  // Each loop's stops in tie order, with a mark past the ones already read at its front.
+  const members = new Map<number, number[]>();
+  for (const i of [...pos.keys()].sort((a, b) => pos[a] - pos[b])) {
+    const l = members.get(loop[i]);
+    if (l) l.push(i);
+    else members.set(loop[i], [i]);
+  }
+  const front = new Map<number, number>();
+  const firstOf = (c: number) => {
+    const l = members.get(c)!;
+    let k = front.get(c) ?? 0;
+    while (done[l[k]]) k++;
+    front.set(c, k);
+    return l[k];
+  };
+  // Kept up as stops are read, so no step looks over what's left: the stops nothing outside their
+  // loop still waits on, and in each loop the stops nothing at all waits on, earliest first.
+  const free = queue(pos, done);
+  const ready = new Map<number, ReturnType<typeof queue>>();
+  const readyIn = (c: number) => ready.get(c) ?? ready.set(c, queue(pos, done)).get(c)!;
+  for (const [c, l] of members) if (!outside.get(c)) l.forEach(free.push);
+  stops.forEach((_, j) => waiting[j] === 0 && readyIn(loop[j]).push(j));
   const out: number[] = [];
   let last = -1;
   // The loop being read, until every stop in it is.
   let inLoop = -1;
   while (out.length < stops.length) {
-    // The earliest layer with anything left goes first, whatever is ready further in.
-    const top = ranks[left[0]];
-    let end = 1;
-    while (end < left.length && ranks[left[end]] === top) end++;
-    const layer = left.slice(0, end);
-    const open = layer.filter((i) => loop[i] === inLoop);
-    if (!open.length) inLoop = -1;
-    const pool = open.length ? open : layer;
-    // Inside a loop: what's ready in it first, else any of it (only its own stops wait on it).
-    // Otherwise any stop or loop of calls that nothing outside it still waits on (one always is:
-    // loops called from loops can't go round), a loop on a par with a single ready stop, so the
-    // order decides between them; a loop's stops then all follow, before what it calls.
-    const ready = open.length ? open.filter((i) => waiting[i] === 0) : [];
-    const here = ready.length ? ready : pool.filter((i) => !outside.get(loop[i]));
-    const follow = last >= 0 ? here.filter((i) => next[last].has(i)) : [];
-    const pick = (follow.length ? follow : here)[0];
-    left.splice(left.indexOf(pick), 1);
+    // Inside a loop (all of it in one layer): what's ready in it first, else any of it (only its
+    // own stops wait on it). Otherwise any stop or loop of calls that nothing outside it still
+    // waits on, in the earliest layer with anything left (one always is: loops called from loops
+    // can't go round, and nothing waits on a later layer), a loop on a par with a single ready
+    // stop, so the order decides between them; a loop's stops then all follow, before what it calls.
+    let first: number;
+    let fits: (i: number) => boolean;
+    if (inLoop >= 0) {
+      const r = readyIn(inLoop).first();
+      const c = inLoop;
+      first = r >= 0 ? r : firstOf(c);
+      fits = r >= 0 ? (i) => loop[i] === c && waiting[i] === 0 : (i) => loop[i] === c;
+    } else {
+      first = free.first();
+      const top = ranks[first];
+      fits = (i) => ranks[i] === top && !outside.get(loop[i]);
+    }
+    // After a stop, what it calls comes next when it can.
+    let pick = -1;
+    if (last >= 0) for (const j of next[last]) if (!done[j] && fits(j) && (pick < 0 || pos[j] < pos[pick])) pick = j;
+    if (pick < 0) pick = first;
+    done[pick] = 1;
     out.push(pick);
     last = pick;
     leftIn.set(loop[pick], leftIn.get(loop[pick])! - 1);
     for (const j of next[pick]) {
-      waiting[j]--;
-      if (loop[j] !== loop[pick]) outside.set(loop[j], outside.get(loop[j])! - 1);
+      if (--waiting[j] === 0) readyIn(loop[j]).push(j);
+      if (loop[j] !== loop[pick] && outside.set(loop[j], outside.get(loop[j])! - 1).get(loop[j]) === 0) members.get(loop[j])!.forEach(free.push);
     }
+    if (inLoop >= 0 && leftIn.get(inLoop) === 0) inLoop = -1;
     if (inLoop < 0 && leftIn.get(loop[pick])! > 0) inLoop = loop[pick];
   }
   return out.map((i) => stops[i]);
+}
+
+/** A min-heap of stops by their place in tie order; a stop read meanwhile is passed over. */
+function queue(pos: Int32Array, done: Uint8Array) {
+  const h: number[] = [];
+  const less = (a: number, b: number) => pos[h[a]] < pos[h[b]];
+  const swap = (a: number, b: number) => ([h[a], h[b]] = [h[b], h[a]]);
+  const push = (i: number) => {
+    h.push(i);
+    for (let k = h.length - 1; k > 0 && less(k, (k - 1) >> 1); k = (k - 1) >> 1) swap(k, (k - 1) >> 1);
+  };
+  const pop = () => {
+    const end = h.pop()!;
+    if (!h.length) return;
+    h[0] = end;
+    for (let k = 0; ; ) {
+      const l = 2 * k + 1;
+      const m = l + 1 < h.length && less(l + 1, l) ? l + 1 : l;
+      if (l >= h.length || !less(m, k)) break;
+      swap(k, m);
+      k = m;
+    }
+  };
+  /** The earliest stop not yet read, or -1. */
+  const first = () => {
+    while (h.length && done[h[0]]) pop();
+    return h.length ? h[0] : -1;
+  };
+  return { push, first };
 }
 
 /**

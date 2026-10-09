@@ -86,3 +86,39 @@ test('diff rows: the sign in its own gutter, each hunk as the line it starts at'
 test('a deleted file starts where it used to', () => {
   assert.deepEqual(diffRows(['@@ -1,2 +0,0 @@']), [{ t: 'hunk', line: 1, context: '' }]);
 });
+
+test("an added file's one hunk is cut down to each function's own lines", () => {
+  const added = [
+    'diff --git a/x.ts b/x.ts',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/x.ts',
+    '@@ -0,0 +1,10 @@',
+    "+import { z } from 'z';",
+    "+import { y } from 'y';",
+    '+',
+    '+export function a() {',
+    '+  return z;',
+    '+}',
+    '+',
+    '+export function b() {',
+    '+  return y;',
+    '+}',
+    '\\ No newline at end of file',
+    '',
+  ].join('\n');
+  const a = { lines: [4, 6] } as const;
+  const b = { lines: [8, 10] } as const;
+  // The later function: its own three lines, with the note that ends the file.
+  assert.deepEqual(pickHunks(added, b), ['@@ -0,0 +8,3 @@', '+export function b() {', '+  return y;', '+}', '\\ No newline at end of file']);
+  // The first, which carries the file's other code: the imports and blank lines too, never b.
+  const first = pickHunks(added, a, [a, b]);
+  assert.deepEqual(first.filter((l) => l.startsWith('@@')), ['@@ -0,0 +1,7 @@']);
+  assert.ok(first.includes("+import { z } from 'z';") && first.includes('+  return z;'));
+  assert.ok(!first.includes('+  return y;'));
+  // Each line of the hunk on exactly one of the two stops.
+  const body = (l: string[]) => l.filter((x) => x[0] === '+');
+  assert.equal(body(first).length + body(pickHunks(added, b, undefined)).length, 10);
+  // A hunk with context or removed lines is never cut.
+  assert.equal(pickHunks(diff, { lines: [41, 41] }).length, 4);
+});

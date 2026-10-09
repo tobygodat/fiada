@@ -336,8 +336,8 @@ test("a deleted function keeps the layer the map had for it, not its file's", ()
 });
 
 test('a tour of thousands of changes is ordered without rescanning every stop at every step', () => {
-  // One file, 3,000 changed functions in one layer: every tenth calls the next, the rest stand alone.
-  const N = 3000;
+  // One file, 30,000 changed functions in one layer: every tenth calls the next, the rest stand alone.
+  const N = 30000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
   const nodes: GraphNode[] = [
     { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
@@ -349,7 +349,8 @@ test('a tour of thousands of changes is ordered without rescanning every stop at
   const a = agent([file('r', 'a.ts', nodes.slice(2).map((n) => sym(n.id)))]);
   const t = performance.now();
   const stops = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
-  assert.ok(performance.now() - t < 2000, `ordered in ${Math.round(performance.now() - t)} ms`);
+  const took = performance.now() - t;
+  assert.ok(took < 2000, `ordered in ${Math.round(took)} ms`);
   assert.equal(stops.length, N);
   // A caller still comes straight before what it calls.
   const at = new Map(stops.map((s, i) => [s.id, i]));

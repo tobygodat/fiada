@@ -20,7 +20,44 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
   if (!Array.isArray(hunks[0])) return hunks as string[];
   if (!own) return hunks.flat();
   const hit = (hunks as string[][]).filter((h) => belongs(h, own) || (rest && !rest.some((r) => belongs(h, r))));
-  return (hit.length ? hit : hunks).flat();
+  if (!hit.length) return hunks.flat();
+  return (own.lines ? hit.flatMap((h) => slice(h, own.lines!, rest)) : hit).flat();
+}
+
+/**
+ * A hunk of nothing but added lines (a whole added file is one) cut down to the symbol's own
+ * lines and, with `rest`, the lines none of the changed symbols covers; so each of an added
+ * file's functions shows its own code, not the whole file again. Any other hunk stays whole.
+ */
+function slice(h: string[], span: readonly [number, number], rest?: readonly HunkOwner[]): string[][] {
+  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
+  if (!m || h.slice(1).some((l) => l[0] !== '+' && l[0] !== '\\')) return [h];
+  const wanted = (n: number) =>
+    (n >= span[0] && n <= span[1]) || (!!rest && !rest.some((r) => r.lines && n >= r.lines[0] && n <= r.lines[1]));
+  const out: string[][] = [];
+  let run: string[] | null = null;
+  let from = 0;
+  let n = Number(m[2]) - 1;
+  const close = () => {
+    if (run) out.push([`@@ -${m[1]},0 +${from},${run.filter((l) => l[0] === '+').length} @@`, ...run]);
+    run = null;
+  };
+  for (const l of h.slice(1)) {
+    // "\ No newline at end of file" goes with the line before it.
+    if (l[0] === '\\') {
+      run?.push(l);
+      continue;
+    }
+    n++;
+    if (!wanted(n)) close();
+    else if (run) run.push(l);
+    else {
+      run = [l];
+      from = n;
+    }
+  }
+  close();
+  return out.length ? out : [h];
 }
 
 function belongs(h: string[], o: HunkOwner): boolean {
