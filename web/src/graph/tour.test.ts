@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { diffShown, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourStops, type ReadMarks } from './tour.ts';
+import { diffShown, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -149,6 +149,15 @@ test('a change is marked read only once its own diff is on screen', () => {
   // No diff of this stop on screen: nothing to wait for.
   assert.equal(diffShown(null, again), true);
   assert.equal(diffShown({ node: 'web/src/pages/about.tsx', rev: null }, again), true);
+});
+
+test('a tour with nothing left ends, unless a newer graph is still loading', () => {
+  const stops = tourStops(graph, graphIndex, agent([file('web', 'src/pages/about.tsx')]), NO_NODES);
+  assert.equal(tourOver([], 4, 4), true);
+  assert.equal(tourOver([], undefined, 4), true);
+  // The agents' changes are placed on graph 5 and the map still has 4: the added file's stops come with it.
+  assert.equal(tourOver([], 5, 4), false);
+  assert.equal(tourOver(stops, 4, 4), false);
 });
 
 test('two deleted files in one folder are two stops, each its own', () => {
@@ -522,6 +531,46 @@ test('a loop through such a link still waits for the callers outside the loop', 
   assert.ok(lastCaller < at.get('r/a.ts#f0')!, `last caller at ${lastCaller}, the callee in the loop at ${at.get('r/a.ts#f0')}`);
   const firstCallee = Math.min(...Array.from({ length: N }, (_, i) => at.get(`r/a.ts#f${i}`)!));
   assert.ok(lastCaller < firstCallee);
+});
+
+test('a function its own file links to, among thousands changed in it, waits for the rest of the file', () => {
+  const N = 4100;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [
+    { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
+    { id: 'r/a.ts', kind: 'file', name: 'a.ts', parent: 'r', repo: 'r', path: 'a.ts', layer: placed('ui') },
+  ];
+  for (let i = 0; i < N; i++) nodes.push({ id: `r/a.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/a.ts', repo: 'r', path: 'a.ts', lines: [i + 1, i + 1], layer: placed('ui') });
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const a = agent([file('r', 'a.ts', Array.from({ length: N }, (_, i) => sym(`r/a.ts#f${i}`)))]);
+  // The file's own code uses f0, which sorts first: the file's other functions come before it.
+  const stops = tourStops({ edges: [{ from: 'r/a.ts', to: 'r/a.ts#f0', kind: 'calls' }], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  assert.equal(stops.length, N);
+  assert.equal(stops[N - 1].id, 'r/a.ts#f0');
+  // Below the gate's size the links say the same.
+  const small = agent([file('r', 'a.ts', Array.from({ length: 3 }, (_, i) => sym(`r/a.ts#f${i}`)))]);
+  const few = tourStops({ edges: [{ from: 'r/a.ts', to: 'r/a.ts#f0', kind: 'calls' }], layers: [{ id: 'ui', name: 'UI' }] }, idx, small, NO_NODES);
+  assert.equal(few[2].id, 'r/a.ts#f0');
+});
+
+test('callers and callees that are the same thousands of functions are read whole, every one once', () => {
+  const N = 70;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+  for (const f of ['a.ts', 'z.ts']) {
+    nodes.push({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer: placed('ui') });
+    for (let i = 0; i < N; i++) nodes.push({ id: `r/${f}#f${i}`, kind: 'symbol', name: `f${i}`, parent: `r/${f}`, repo: 'r', path: f, lines: [i + 1, i + 1], layer: placed('ui') });
+  }
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
+  const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
+  // a.ts uses itself, and z.ts uses a.ts: a.ts's functions wait on z.ts's, then go in order.
+  const edges = [
+    { from: 'r/a.ts', to: 'r/a.ts', kind: 'calls' as const },
+    { from: 'r/z.ts', to: 'r/a.ts', kind: 'imports' as const },
+  ];
+  const ids = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, [...Array.from({ length: N }, (_, i) => `r/z.ts#f${i}`), ...Array.from({ length: N }, (_, i) => `r/a.ts#f${i}`)]);
 });
 
 test('thousands of deleted files on one folder take its layer without counting its files again for each', () => {
