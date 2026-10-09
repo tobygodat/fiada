@@ -290,11 +290,12 @@ test("a deleted function's stop carries its lines from before, for its own hunks
     ]),
   ]);
   const stops = tourStops(graph, graphIndex, a, NO_NODES);
+  // In the order they stood in the file, not by name.
   assert.deepEqual(
     stops.map((s) => [s.id, s.old]),
     [
-      ['web/src/client/api.ts#Items.get', [30, 32]],
       ['web/src/client/api.ts#Users.get', [10, 12]],
+      ['web/src/client/api.ts#Items.get', [30, 32]],
     ],
   );
   assert.deepEqual(stops[0].restOld, { 'web/src/client/api.ts#Users.get': [10, 12], 'web/src/client/api.ts#Items.get': [30, 32] });
@@ -316,6 +317,9 @@ test("a deleted function keeps the layer the map had for it, not its file's", ()
       ['web/src/client/api.ts#ItemSchema', 'data'],
     ],
   );
+  // A layer the project no longer has (its grouping changed since): the file's, as for any other.
+  const gone = agent([file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#ItemSchema', 'deleted'), layer: 'schemas' }])]);
+  assert.equal(tourStops(graph, graphIndex, gone, NO_NODES)[0].layer, 'client');
 });
 
 test('a change whose repository is gone from the map is not on the tour', () => {
