@@ -6,7 +6,7 @@
 // from the one before. What you've read is remembered per stop, until the
 // agent changes that code again.
 
-import type { AgentActivity, ChangeKind, Graph, GraphNode, NodeChange } from '@fiada/shared';
+import { UNLAYERED, type AgentActivity, type ChangeKind, type Graph, type GraphNode, type NodeChange } from '@fiada/shared';
 
 export interface TourStop {
   /** The changed file or function: the stop's identity, and its read mark's. */
@@ -73,12 +73,29 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
     seen.add(s.id);
     stops.push(s);
   };
+  // A folder or repository (standing in for a deleted file) has no layer of its own: it takes the
+  // one most of its files have, by lines, as the map colours it.
+  let kids: Map<string, GraphNode[]> | null = null;
+  const tally = (id: string, into: Map<string, number>) => {
+    if (!kids) {
+      kids = new Map();
+      for (const n of graphIndex.values()) if (n.kind !== 'symbol') kids.get(n.parent)?.push(n) ?? kids.set(n.parent, [n]);
+    }
+    for (const c of kids.get(id) ?? []) {
+      if (c.kind === 'file') {
+        if (c.layer && c.layer.id !== UNLAYERED) into.set(c.layer.id, (into.get(c.layer.id) ?? 0) + Math.max(1, c.loc ?? 1));
+      } else tally(c.id, into);
+    }
+    return into;
+  };
   const layerOf = (id: string) => {
     for (let cur: string | undefined = id; cur; cur = graphIndex.get(cur)?.parent) {
       const n = graphIndex.get(cur);
       if (n?.layer) return n.layer.id;
     }
-    return null;
+    const n = graphIndex.get(id);
+    if (n?.kind !== 'folder' && n?.kind !== 'repo') return null;
+    return [...tally(id, new Map())].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
   };
   for (const f of agent.files) {
     if (!f.repo) continue;
