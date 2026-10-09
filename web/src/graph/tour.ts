@@ -117,7 +117,10 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
       for (const s of f.symbols) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
-        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
+        if (!target) continue;
+        // A deleted function is read on its file but keeps its own layer, which may not be the file's.
+        const layer = (!live && s.layer) || layerOf(target);
+        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
       }
     } else if (stand) {
       add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });

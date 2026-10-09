@@ -301,6 +301,23 @@ test("a deleted function's stop carries its lines from before, for its own hunks
   assert.equal(stops[1].restOld, undefined);
 });
 
+test("a deleted function keeps the layer the map had for it, not its file's", () => {
+  // ItemSchema was a Data class in the client file: it is read with the data layer, after the client.
+  const a = agent([
+    file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService'), { ...sym('web/src/client/api.ts#ItemSchema', 'deleted'), layer: 'data' }]),
+    file('api', 'app/models.py', [sym('api/app/models.py#Item')]),
+  ]);
+  const stops = tourStops(graph, graphIndex, a, NO_NODES);
+  assert.deepEqual(
+    stops.map((s) => [s.id, s.layer]),
+    [
+      ['web/src/client/api.ts#ItemsService', 'client'],
+      ['api/app/models.py#Item', 'data'],
+      ['web/src/client/api.ts#ItemSchema', 'data'],
+    ],
+  );
+});
+
 test('a change whose repository is gone from the map is not on the tour', () => {
   const nodes: Record<string, NodeChange> = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },

@@ -201,6 +201,9 @@ test('a function deleted from a file it stays in carries its lines from HEAD', a
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // The layer the map has for getItem before it goes, which its stop keeps.
+  const layer = ws.getGraph().nodes.find((n) => n.id === 'web/src/api.ts#getItem')?.layer?.id;
+  assert.ok(layer);
   // getItem (lines 5-7 in HEAD) goes, with the blank line before it.
   await fs.writeFile(path.join(dir, 'src/api.ts'), API.slice(0, API.indexOf('\nexport function getItem')));
   const pushed = nextPush(hub, (s) => s.graphVersion > 1);
@@ -208,7 +211,7 @@ test('a function deleted from a file it stays in carries its lines from HEAD', a
   await pushed;
   await new Promise((r) => setTimeout(r, 400));
   const f = hub.state().agents[0].files[0];
-  assert.deepEqual(f.symbols.find((x) => x.name === 'getItem'), { id: 'web/src/api.ts#getItem', name: 'getItem', kind: 'deleted', oldLines: [5, 7] });
+  assert.deepEqual(f.symbols.find((x) => x.name === 'getItem'), { id: 'web/src/api.ts#getItem', name: 'getItem', kind: 'deleted', oldLines: [5, 7], layer });
 });
 
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {
