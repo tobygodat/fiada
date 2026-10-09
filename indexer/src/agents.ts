@@ -102,6 +102,8 @@ interface FileRec {
    * says so. One drops out when the other agent puts it back as this agent left it.
    */
   shared?: Map<string, string>;
+  /** The same for the file's code outside every symbol: this agent's own digest of it from before. */
+  topShared?: string;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
@@ -747,7 +749,7 @@ export class AgentHub {
     f: FileRec,
     symbols: AgentFile['symbols'],
     own = false,
-  ): { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean; others: NonNullable<AgentFile['others']>; topTheirs: boolean } {
+  ): { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean; others: NonNullable<AgentFile['others']>; topTheirs: boolean; topShared: boolean } {
     const settled = !f.live || f.settled;
     const sig = this.signer(f);
     // Another agent's change is left out while its text stays as that agent left it.
@@ -790,13 +792,15 @@ export class AgentHub {
     if (settled && f.topAt.sig !== f.theirsTop) f.theirsTop = null;
     // Back as HEAD has it, or as another agent left it: nothing outside the symbols for this agent to read.
     const unchanged = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
+    // Nothing there is this agent's change now, so nothing of it is shared with another agent either.
+    if (unchanged) f.topShared = undefined;
     // Everything still changed in the file is another agent's: nothing here is this agent's to show.
     const theirsOnly = settled && !out.length && unchanged && (mine.length < symbols.length || f.topAt.sig === f.theirsTop);
     // What is another agent's, so its rows are left out of this agent's diff.
     const kept = new Set(mine);
     const others = symbols.filter((s) => !kept.has(s)).map((s) => ({ id: s.id, kind: s.kind, ...(s.oldLines && { oldLines: s.oldLines }) }));
     const topTheirs = unchanged && f.topAt.sig === f.theirsTop && f.theirsTop !== f.baseTop;
-    return { symbols: out, top: unchanged ? null : f.topAt.at, theirsOnly, others, topTheirs };
+    return { symbols: out, top: unchanged ? null : f.topAt.at, theirsOnly, others, topTheirs, topShared: !!f.topShared };
   }
 
   /**
@@ -886,6 +890,11 @@ export class AgentHub {
     // agent's change to read. HEAD's stays as it was, so taking it back there is no change either.
     const untouched = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
     f.theirsTop = untouched ? top : null;
+    // This agent had changed it, and the other agent has changed it from how this agent left it.
+    if (!untouched && f.topAt.sig != null) {
+      const own = f.topShared ?? f.topAt.sig;
+      f.topShared = top !== own ? own : undefined;
+    }
     f.topAt = { sig: top, at: f.topAt.at };
   }
 
@@ -958,7 +967,7 @@ export class AgentHub {
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
       for (const [key, f] of [...rec.files].sort((a, b) => b[1].at - a[1].at)) {
-        const { symbols, top, theirsOnly, others, topTheirs } = this.stamp(f, this.symbolsOf(f, ix));
+        const { symbols, top, theirsOnly, others, topTheirs, topShared } = this.stamp(f, this.symbolsOf(f, ix));
         // A file this agent took its own change back from, still changed by another agent, isn't this agent's.
         // An ended session won't change it again, so nothing of it will be this agent's: it goes.
         if (theirsOnly && f.kind !== 'deleted') {
@@ -985,6 +994,7 @@ export class AgentHub {
           topAt: top == null ? undefined : new Date(top).toISOString(),
           ...(others.length && { others }),
           ...(topTheirs && { topTheirs }),
+          ...(topShared && { topShared: true as const }),
           at: new Date(f.at).toISOString(),
           diff: !!f.diff,
         });

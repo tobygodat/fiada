@@ -50,6 +50,8 @@ export interface TourStop {
   peer?: { ids: string[]; old?: Record<string, [number, number]>; top: boolean };
   /** Another agent changed this function too after this agent did: some of its rows are that agent's. */
   shared?: true;
+  /** The same for the file's code outside every symbol, on the stop that shows it (`rest`'s, or the file's own). */
+  topShared?: true;
 }
 
 /**
@@ -84,6 +86,7 @@ export function tourStops(
   }
   // It's new again too when the agent changes that code (an import, a constant) since.
   const top = new Map(agent.files.filter((f) => f.repo && f.topAt).map((f) => [`${f.repo}/${f.path}`, Date.parse(f.topAt!)]));
+  const topShared = new Set(agent.files.filter((f) => f.repo && f.topAt && f.topShared).map((f) => `${f.repo}/${f.path}`));
   const marked = new Set<string>();
   return out.map((s) => {
     const f = fileOf(s);
@@ -92,7 +95,7 @@ export function tourStops(
     const at = top.get(f);
     const old = olds.get(f);
     const carries = [...(at != null ? [{ id: f, at }] : []), ...(outer.get(f) ?? [])];
-    return { ...s, rest: fns.get(f)!, ...(carries.length && { carries }), ...(old && { restOld: old }) };
+    return { ...s, rest: fns.get(f)!, ...(carries.length && { carries }), ...(old && { restOld: old }), ...(topShared.has(f) && { topShared: true as const }) };
   });
 }
 
@@ -217,7 +220,7 @@ function collect(
       }
     } else if (stand) {
       // Only the file's other code left changed (an import): its own time, not the file's latest.
-      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at: f.topAt ? Date.parse(f.topAt) : at });
+      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at: f.topAt ? Date.parse(f.topAt) : at, ...(f.topShared && { topShared: true as const }) });
     }
   }
   return stops;

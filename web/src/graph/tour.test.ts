@@ -839,6 +839,15 @@ test("a function another agent changed too after this one did says so on its sto
   assert.deepEqual(Object.fromEntries(stops.map((s) => [s.name, !!s.shared])), { ItemsService: true, request: false });
 });
 
+test("the file's other code another agent changed too after this one says so on the stop that shows it", () => {
+  const at = '2026-01-01T00:00:00.000Z';
+  const f = { ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService'), sym('web/src/client/api.ts#request')]), topAt: at, topShared: true as const };
+  const stops = tourStops(graph, graphIndex, agent([f]), NO_NODES);
+  assert.deepEqual(stops.map((s) => !!s.topShared), [true, false], 'only the stop carrying the file’s other code');
+  const only = { ...file('web', 'src/client/api.ts'), topAt: at, topShared: true as const };
+  assert.equal(tourStops(graph, graphIndex, agent([only]), NO_NODES)[0].topShared, true, 'a file stop');
+});
+
 test("a stop on the Unlayered layer says so, though the project's layers don't list it", () => {
   assert.equal(layerName(graph.layers, UNLAYERED), 'Unlayered');
   assert.equal(layerName(graph.layers, 'api'), 'API');

@@ -1071,6 +1071,36 @@ test("a function this agent changed that another agent then changed too says som
   assert.deepEqual(shared('a'), { listItems: false, getItem: false });
 });
 
+test("the file's other code this agent changed that another agent then changed too says some of its rows are that agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+  const mine = `import { z } from './z';\n${API}`;
+  const both = `import { z, y } from './z';\n${API}`;
+  const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, mine, [[1, 1]]);
+  assert.ok(fileOf('a').topAt);
+  assert.equal(fileOf('a').topShared, undefined);
+  // B changes the same import: A's diff of the whole file has B's row in it from now on.
+  await report(b, both, [[1, 1]]);
+  await report(a, get(both), [[1, 1], [7, 7]]);
+  assert.equal(fileOf('a').topShared, true);
+  // B puts the import back as A left it: every row of it is A's again.
+  await report(b, get(mine), [[1, 1], [7, 7]]);
+  assert.equal(fileOf('a').topShared, undefined);
+});
+
 test('a file that drops out of the map, grown too large to read, is a new change for every stop it had', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

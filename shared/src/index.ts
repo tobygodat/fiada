@@ -560,6 +560,11 @@ export interface AgentFile {
    */
   others?: { id: string; kind: ChangeKind; oldLines?: [number, number] }[];
   topTheirs?: boolean;
+  /**
+   * The file's code outside every symbol that this agent changed, another agent changed too after
+   * it did: some of those rows in this agent's diff are that agent's, as with a symbol's `shared`.
+   */
+  topShared?: true;
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */
