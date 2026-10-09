@@ -119,6 +119,8 @@ function collect(
     }
     return into;
   };
+  // Once per folder: thousands of deleted files can stand on the same one.
+  const most = new Map<string, string | null>();
   const layerOf = (id: string) => {
     for (let cur: string | undefined = id; cur; cur = graphIndex.get(cur)?.parent) {
       const n = graphIndex.get(cur);
@@ -126,7 +128,8 @@ function collect(
     }
     const n = graphIndex.get(id);
     if (n?.kind !== 'folder' && n?.kind !== 'repo') return null;
-    return [...tally(id, new Map())].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+    if (!most.has(id)) most.set(id, [...tally(id, new Map())].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null);
+    return most.get(id)!;
   };
   for (const f of agent.files) {
     if (!f.repo) continue;
@@ -256,7 +259,29 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     next[a].add(b);
     waits[b].add(a);
   };
-  const first = (l: number[]) => l.reduce((x, y) => (before(y, x) < 0 ? y : x));
+  // Two files with many changed functions each: rather than a link for every pair, one gate that
+  // opens once every caller is read and holds back every callee until then.
+  const gates: { from: number[]; to: number[]; left: number }[] = [];
+  const connect = (as: number[], bs: number[]) => {
+    if (as.length * bs.length <= PAIRS) {
+      for (const a of as) for (const b of bs) link(a, b);
+      return;
+    }
+    // A link never points back up the layers: each layer of callers gates only the callees in its layer or later.
+    const by = (l: number[]) => {
+      const m = new Map<number, number[]>();
+      for (const i of l) m.get(layerRank(stops[i]))?.push(i) ?? m.set(layerRank(stops[i]), [i]);
+      return m;
+    };
+    const ins = by(as);
+    const outs = by(bs);
+    for (const [ra, from] of ins) {
+      const callers = new Set(from);
+      // A stop on both sides calls the rest and is called by them: it doesn't wait on itself.
+      const to = [...outs].flatMap(([rb, l]) => (rb >= ra ? l.filter((b) => !callers.has(b)) : []));
+      if (to.length) gates.push({ from, to, left: from.length });
+    }
+  };
   const seen = new Set<string>();
   for (const e of graph.edges) {
     const key = `${e.from}\n${e.to}`;
@@ -264,28 +289,29 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     seen.add(key);
     const as = stopsOf(e.from);
     const bs = stopsOf(e.to);
-    if (!as.length || !bs.length) continue;
-    if (as.length * bs.length <= PAIRS) {
-      for (const a of as) for (const b of bs) link(a, b);
-      continue;
-    }
-    // Two files with many changed functions each: every caller still comes before the first
-    // callee, and the first caller before every callee, without a link for every pair.
-    const a0 = first(as);
-    const b0 = first(bs);
-    for (const a of as) link(a, b0);
-    for (const b of bs) link(a0, b);
+    if (as.length && bs.length) connect(as, bs);
   }
 
-  const loop = loops(next);
+  // Each gate is one more node in the walk for loops: callers link to it, it links to the callees.
+  const gatesOf = stops.map(() => [] as number[]);
+  gates.forEach((g, k) => g.from.forEach((a) => gatesOf[a].push(k)));
+  const comp = loops([...next.map((n, i) => (gatesOf[i].length ? new Set([...n, ...gatesOf[i].map((k) => stops.length + k)]) : n)), ...gates.map((g) => new Set(g.to))]);
+  const loop = comp.slice(0, stops.length);
+  const gateLoop = (k: number) => comp[stops.length + k];
   // Counted once and kept up as stops are read, so each step looks at each stop once: how many
-  // changed callers each stop still waits on, and how many from outside each loop still wait on it.
+  // changed callers (or gates) each stop still waits on, and how many from outside each loop still wait on it.
   const waiting = waits.map((w) => w.size);
   const outside = new Map<number, number>();
   const leftIn = new Map<number, number>();
   stops.forEach((_, j) => {
     leftIn.set(loop[j], (leftIn.get(loop[j]) ?? 0) + 1);
     for (const w of waits[j]) if (loop[w] !== loop[j]) outside.set(loop[j], (outside.get(loop[j]) ?? 0) + 1);
+  });
+  gates.forEach((g, k) => {
+    for (const b of g.to) {
+      waiting[b]++;
+      if (gateLoop(k) !== loop[b]) outside.set(loop[b], (outside.get(loop[b]) ?? 0) + 1);
+    }
   });
   // Every stop's place in tie order (layers first), so the earliest of any set is the one that goes.
   const ranks = stops.map(layerRank);
@@ -316,6 +342,8 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   stops.forEach((_, j) => waiting[j] === 0 && readyIn(loop[j]).push(j));
   const out: number[] = [];
   let last = -1;
+  // The callees of a gate the last stop opened.
+  let opened: number[] = [];
   // The loop being read, until every stop in it is.
   let inLoop = -1;
   while (out.length < stops.length) {
@@ -336,17 +364,25 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
       const top = ranks[first];
       fits = (i) => ranks[i] === top && !outside.get(loop[i]);
     }
-    // After a stop, what it calls comes next when it can.
+    // After a stop, what it calls comes next when it can (through a gate it opened too).
     let pick = -1;
     if (last >= 0) for (const j of next[last]) if (!done[j] && fits(j) && (pick < 0 || pos[j] < pos[pick])) pick = j;
+    for (const j of opened) if (!done[j] && fits(j) && (pick < 0 || pos[j] < pos[pick])) pick = j;
     if (pick < 0) pick = first;
     done[pick] = 1;
     out.push(pick);
     last = pick;
+    opened = [];
     leftIn.set(loop[pick], leftIn.get(loop[pick])! - 1);
-    for (const j of next[pick]) {
+    const reach = (j: number, from: number) => {
       if (--waiting[j] === 0) readyIn(loop[j]).push(j);
-      if (loop[j] !== loop[pick] && outside.set(loop[j], outside.get(loop[j])! - 1).get(loop[j]) === 0) members.get(loop[j])!.forEach(free.push);
+      if (from !== loop[j] && outside.set(loop[j], outside.get(loop[j])! - 1).get(loop[j]) === 0) members.get(loop[j])!.forEach(free.push);
+    };
+    for (const j of next[pick]) reach(j, loop[pick]);
+    for (const k of gatesOf[pick]) {
+      if (--gates[k].left > 0) continue;
+      for (const j of gates[k].to) reach(j, gateLoop(k));
+      opened = opened.concat(gates[k].to);
     }
     if (inLoop >= 0 && leftIn.get(inLoop) === 0) inLoop = -1;
     if (inLoop < 0 && leftIn.get(loop[pick])! > 0) inLoop = loop[pick];

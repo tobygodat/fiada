@@ -439,10 +439,28 @@ test('a link between two files with thousands of changed functions each is not o
   const took = performance.now() - t;
   assert.ok(took < 2000, `ordered in ${Math.round(took)} ms`);
   assert.equal(stops.length, 2 * N);
-  // Every caller still comes before the callee file's first function.
+  // Every caller still comes before every function in the callee file.
   const at = new Map(stops.map((s, i) => [s.id, i]));
   const lastCaller = Math.max(...Array.from({ length: N }, (_, i) => at.get(`r/z.ts#f${i}`)!));
-  assert.ok(lastCaller < at.get('r/a.ts#f0')!);
+  const firstCallee = Math.min(...Array.from({ length: N }, (_, i) => at.get(`r/a.ts#f${i}`)!));
+  assert.ok(lastCaller < firstCallee, `last caller at ${lastCaller}, first callee at ${firstCallee}`);
+  // And the callees follow the last caller straight away.
+  assert.equal(firstCallee, lastCaller + 1);
+});
+
+test('thousands of deleted files on one folder take its layer without counting its files again for each', () => {
+  const N = 20000;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+  for (let i = 0; i < N; i++) nodes.push({ id: `r/live${i}.ts`, kind: 'file', name: `live${i}.ts`, parent: 'r', repo: 'r', path: `live${i}.ts`, loc: 10, layer: placed('ui') });
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const a = agent(Array.from({ length: N }, (_, i) => ({ ...file('r', `gone${i}.ts`, [], 'deleted'), node: 'r' })));
+  const t = performance.now();
+  const stops = tourStops({ edges: [], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  const took = performance.now() - t;
+  assert.ok(took < 1000, `ordered in ${Math.round(took)} ms`);
+  assert.equal(stops.length, N);
+  assert.ok(stops.every((s) => s.layer === 'ui' && s.target === 'r'));
 });
 
 test('a change whose repository is gone from the map is not on the tour', () => {
