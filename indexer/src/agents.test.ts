@@ -1113,6 +1113,39 @@ test("the file's other code this agent changed that another agent then changed t
   assert.equal(fileOf('a').topShared, undefined, 'A put it back as A left it');
 });
 
+test("a function another agent changed, that this one changed and then put back as that agent left it, is that agent's again", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+  const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
+  const aGet = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const bGet = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}?full=1`');
+  await report(b, list(API), [[2, 2]]);
+  await report(a, aGet(list(API)), [[2, 2], [6, 6]]);
+  await report(b, bGet(list(API)), [[2, 2], [6, 6]]);
+  assert.deepEqual(fileOf('b').symbols.map((s) => s.name).sort(), ['getItem', 'listItems'], 'B changed getItem on top of A');
+  // B puts getItem back as A left it: it is A's change again, not B's.
+  await report(b, aGet(list(API)), [[2, 2], [6, 6]]);
+  const f = fileOf('b');
+  assert.deepEqual(f.symbols.map((s) => s.name), ['listItems']);
+  assert.deepEqual(f.others?.map((s) => s.id), ['web/src/api.ts#getItem'], 'its rows are left out of B’s diff');
+  assert.ok(fileOf('a').symbols.some((s) => s.name === 'getItem'), 'and A’s still');
+  // B changes it again: B's once more.
+  await report(b, bGet(list(API)), [[2, 2], [6, 6]]);
+  assert.deepEqual(fileOf('b').symbols.map((s) => s.name).sort(), ['getItem', 'listItems']);
+});
+
 test('a file that drops out of the map, grown too large to read, is a new change for every stop it had', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

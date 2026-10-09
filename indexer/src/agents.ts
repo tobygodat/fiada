@@ -104,6 +104,11 @@ interface FileRec {
   shared?: Map<string, string>;
   /** The same for the file's code outside every symbol: this agent's own digest of it from before. */
   topShared?: string;
+  /**
+   * Symbols another agent had changed that this agent then changed too, each with the digest that
+   * agent left: put back to that, the change is the other agent's again, not this one's.
+   */
+  peerSig?: Map<string, string>;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
@@ -755,9 +760,20 @@ export class AgentHub {
     // Another agent's change is left out while its text stays as that agent left it.
     const mine = symbols.filter((s) => {
       const theirs = f.theirs.get(s.id);
-      if (theirs === undefined) return true;
-      if (!settled || theirs === (s.kind === 'deleted' ? 'deleted' : f.sigs?.of.get(s.id))) return false;
+      const cur = s.kind === 'deleted' ? 'deleted' : f.sigs?.of.get(s.id);
+      if (theirs === undefined) {
+        // Put back as the other agent left it: its change again, and this agent's taken back.
+        const peer = f.peerSig?.get(s.id);
+        if (!settled || peer === undefined || peer !== cur) return true;
+        f.peerSig!.delete(s.id);
+        f.theirs.set(s.id, peer);
+        const prev = f.symAt.get(s.id);
+        if (prev) f.symAt.set(s.id, { sig: null, at: prev.at, back: true });
+        return false;
+      }
+      if (!settled || theirs === cur) return false;
       f.theirs.delete(s.id);
+      (f.peerSig ??= new Map()).set(s.id, theirs);
       return true;
     });
     const out = mine.flatMap((s) => {
@@ -822,6 +838,8 @@ export class AgentHub {
       if (own === null) return;
       if (now !== own) (f.shared ??= new Map()).set(id, own);
       else f.shared?.delete(id);
+      // The other agent's version this agent changed from is gone now: putting it back isn't possible.
+      if (now !== was) f.peerSig?.delete(id);
     };
     if (!f.sigs) {
       // The other agent deleted the whole file: every symbol HEAD had that this agent never changed
