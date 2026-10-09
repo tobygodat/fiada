@@ -498,6 +498,7 @@ export class AgentHub {
       await this.ws.updateFiles(repo, [...rels]);
       const after = await read();
       const ix = this.index(this.ws.getGraph());
+      const own: FileRec[] = [];
       const others: FileRec[] = [];
       for (const f of files) {
         // A change reported meanwhile has its own re-index coming: this one is already behind it.
@@ -509,9 +510,12 @@ export class AgentHub {
         const indexed = ix.nodes.has(fileId(repo, f.rel!));
         f.text = text != null && text === before.get(f.rel!) && indexed ? text.split('\n') : null;
         f.settled = !!f.text || !indexed;
-        if (f.settledGen === f.gen) others.push(f);
+        (f.settledGen === f.gen ? others : own).push(f);
         f.settledGen = f.gen;
       }
+      // This agent's own change: stamped now, while the graph and text are this change's, so a
+      // later change before anyone looks at the map doesn't take its time.
+      for (const f of own) this.stamp(f, this.symbolsOf(f, ix), ix);
       // Another agent's change to a file this agent changed too: its text is this agent's new
       // baseline, so the other agent's edit never counts as this one's next change.
       for (const f of others) this.rebase(f, ix);

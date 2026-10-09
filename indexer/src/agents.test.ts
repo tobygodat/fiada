@@ -285,6 +285,30 @@ test("another agent's edit to a function never counts as this agent's next chang
   assert.ok(after.listItems > before.getItem);
 });
 
+test('each re-index stamps its functions, with nobody watching the map in between', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (text: string, lines: [number, number][]) => {
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(one, [[6, 6]]);
+  const between = Date.now();
+  await new Promise((r) => setTimeout(r, 5));
+  await report(one.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
+  // The first look at the state, after both.
+  const f = hub.state().agents[0].files[0];
+  const at = Object.fromEntries(f.symbols.map((s) => [s.name, Date.parse(s.at!)]));
+  assert.ok(at.getItem < between, 'getItem keeps the time of the change that made it');
+  assert.equal(at.listItems, Date.parse(f.at));
+});
+
 test("another agent moving a function's lines doesn't make this agent's change to it new again", async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
