@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cutShort, diffRows, ownerOf, pickHunks } from './diff.ts';
+import { behind, cutShort, diffRows, ownerOf, pickHunks } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -300,4 +300,13 @@ test('rows that end where the agent cut the diff short say so, wherever the cut 
   assert.equal(cutShort(pickHunks(cut)), true);
   assert.equal(cutShort(pickHunks(['@@ -1,3 +1,3 @@', ' a', '-b', '+c'].join('\n'), { lines: [2, 2] })), false);
   assert.equal(cutShort([]), false);
+});
+
+test("a diff from before the agent's latest change says so", () => {
+  const d = { diff: '@@ -1 +1 @@\n-a\n+b', diffAt: '2026-10-09T06:00:00.000Z', at: '2026-10-09T06:05:00.000Z' };
+  assert.equal(behind(d), true);
+  assert.equal(behind({ ...d, diffAt: d.at }), false);
+  // No diff at all, or from an indexer that doesn't say when it came: nothing to compare.
+  assert.equal(behind({ ...d, diff: undefined }), false);
+  assert.equal(behind({ ...d, diffAt: undefined }), false);
 });

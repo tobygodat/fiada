@@ -144,6 +144,24 @@ test("an agent's files revision stays through its status lines and moves with it
   assert.notEqual(rev(), r1);
 });
 
+test('a change that sends no diff leaves the last diff with the time it came', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  await fs.writeFile(file, API.replace("'/api/items')", "'/api/items?all=1')"));
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts') }] }]);
+  const [first] = hub.diffs('web/src/api.ts');
+  assert.equal(first.diffAt, first.at);
+  await new Promise((r) => setTimeout(r, 5));
+  // Flagged again with no diff (before the edit landed, or git couldn't diff it).
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified' }] }]);
+  const [again] = hub.diffs('web/src/api.ts');
+  assert.equal(again.diff, first.diff);
+  assert.equal(again.diffAt, first.diffAt);
+  assert.ok(Date.parse(again.at) > Date.parse(again.diffAt!));
+});
+
 test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(touches([5, 10], [[10, 12]]));
   assert.ok(!touches([5, 10], [[11, 12]]));

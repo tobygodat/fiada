@@ -111,6 +111,9 @@ function keptHeader(h: string[]): string {
 /** How the agent ends a diff it cut short (agent/src/git.ts). */
 const CUT = '… diff cut at ';
 
+/** A diff from before the agent's latest change to the file: that change came without one. */
+export const behind = (d: { diff?: string; diffAt?: string; at: string }) => !!d.diff && !!d.diffAt && Date.parse(d.diffAt) < Date.parse(d.at);
+
 /** Picked rows that end where the agent cut the diff short: some of the change isn't in them. */
 export const cutShort = (rows: readonly string[]) => rows.length > 0 && rows[rows.length - 1].startsWith(CUT);
 
