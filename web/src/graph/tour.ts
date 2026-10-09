@@ -95,7 +95,8 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
       for (const s of f.symbols) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
-        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at });
+        // The function's own change time, so editing another function in the file doesn't unread it.
+        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at: s.at ? Date.parse(s.at) : at });
       }
     } else if (stand) {
       add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });

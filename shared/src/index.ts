@@ -537,8 +537,12 @@ export interface AgentFile {
   kind: ChangeKind;
   additions?: number;
   deletions?: number;
-  /** Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no longer in the graph. */
-  symbols: { id: string; name: string; kind: ChangeKind }[];
+  /**
+   * Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no
+   * longer in the graph. `at` is the ISO time of the agent's latest change to that symbol itself
+   * (editing another symbol in the file doesn't move it); absent from older indexers.
+   */
+  symbols: { id: string; name: string; kind: ChangeKind; at?: string }[];
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */

@@ -129,6 +129,44 @@ test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(!touches([5, 10], [[5, 4]]));
 });
 
+test('each function keeps its own change time: editing another one in its file does not move it', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const SEARCH = `\nexport function searchItems(q: string) {\n  return fetch('/api/items?q=' + q);\n}\n`;
+  // The changed lines on each side, as the hook reports them.
+  const edit = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const diff = git(dir, 'diff', '--', 'src/api.ts');
+    const v = hub.state().graphVersion;
+    const pushed = nextPush(hub, (s) => s.graphVersion > v);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff, lines, oldLines }] }]);
+    // Looked at before the file is re-indexed, as the map does while it waits.
+    hub.state();
+    await pushed;
+    const f = hub.state().agents[0].files[0];
+    return { file: f.at, ...Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) } as Record<string, string>;
+  };
+
+  const one = await edit(API + SEARCH, [[8, 11]], [[8, 7]]);
+  assert.equal(one.searchItems, one.file);
+  assert.equal(one.getItem, undefined);
+  // getItem changes next: searchItems, added before, keeps its time.
+  const getItem = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const two = await edit(getItem + SEARCH, [[6, 6], [8, 11]], [[6, 6], [8, 7]]);
+  assert.equal(two.getItem, two.file);
+  assert.equal(two.searchItems, one.searchItems, 'searchItems keeps the time it was added');
+  assert.notEqual(two.file, one.file);
+  // listItems changes: one hunk now covers it and getItem, but getItem's own text is as it was.
+  const three = await edit(getItem.replace("'/api/items')", "'/api/items?all=1')") + SEARCH, [[2, 2], [6, 6], [8, 11]], [[2, 2], [6, 6], [8, 7]]);
+  assert.equal(three.listItems, three.file);
+  assert.equal(three.getItem, two.getItem, 'getItem keeps the time it was changed');
+  assert.equal(three.searchItems, one.searchItems);
+  assert.equal(hub.state().nodes['web/src/api.ts#getItem'].at, Date.parse(two.getItem));
+});
+
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

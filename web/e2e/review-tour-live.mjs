@@ -3,13 +3,14 @@
 // imported, web/e2e/agent-session.sh played on it). A second agent edits the
 // file under review: the detail panel still shows only the reviewed agent's
 // diff. A function's stop also shows its file's hunks outside every changed
-// function (crud.py's import). The agent deletes a function: its stop, on
+// function (crud.py's import). A function you've read stays read while the
+// agent edits another function in its file. The agent deletes a function: its stop, on
 // the file, shows only the hunk that takes it away. The agent deletes a file: its stop, on the
 // folder that's left, shows the deleted file's diff. Then the reviewed agent
 // takes a file back: the tour goes on to the change now in its place. Puts
 // the files and the session back as they were.
 //
-//   node web/e2e/review-tour-live.mjs <fastapi clone> [url]
+//   node web/e2e/review-tour-live.mjs <fastapi clone> [url] [--shots dir]
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +22,7 @@ import { chromium } from 'playwright';
 const repo = process.argv[2];
 assert.ok(repo, 'usage: review-tour-live.mjs <fastapi clone> [url]');
 const url = process.argv.slice(3).find((a) => /^https?:/.test(a)) ?? 'http://localhost:5178/';
+const shots = process.argv.includes('--shots') ? process.argv[process.argv.indexOf('--shots') + 1] : null;
 const here = dirname(fileURLToPath(import.meta.url));
 const FILE = 'frontend/src/routes/_layout/items.tsx';
 const GONE = 'backend/app/utils.py';
@@ -75,6 +77,24 @@ try {
   await goTo('items_by_priority');
   assert.equal((await hunks()).length, 2, 'two hunks: the function and the import');
   assert.match(await page.locator('.agent-diff').innerText(), /from sqlmodel import Session, col, select/, 'the import hunk comes with the function');
+
+  // A function you've read stays read when the agent edits another function in its file.
+  await page.keyboard.press('r');
+  await page.waitForTimeout(400);
+  const tick = (n) => page.locator(`.tour-tick[aria-label*=": ${n},"]`);
+  assert.match(await tick('items_by_priority').getAttribute('aria-label'), /, read$/);
+  const crudBefore = readFileSync(join(repo, CRUD), 'utf8');
+  writeFileSync(join(repo, CRUD), crudBefore.replace(/(\ndef create_item\([^\n]*\n)/, '$1    # checked by the agent\n'));
+  hook('demo-review', CRUD);
+  await page.waitForTimeout(1500);
+  await tick('create_item').waitFor();
+  await goTo('items_by_priority');
+  if (shots) await page.screenshot({ path: `${shots}/read-after-other-edit.png` });
+  assert.match(await tick('create_item').getAttribute('aria-label'), /, unread$/, 'the function it just changed is new to read');
+  assert.match(await tick('items_by_priority').getAttribute('aria-label'), /, read$/, 'the one you read stays read');
+  writeFileSync(join(repo, CRUD), crudBefore);
+  hook('demo-review', CRUD);
+  await page.waitForTimeout(1500);
 
   // The agent deletes a function from crud.py: its stop stands on the file, with only the hunk that takes it away.
   const crudPath = join(repo, CRUD);

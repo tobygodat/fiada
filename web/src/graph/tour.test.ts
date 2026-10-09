@@ -238,3 +238,24 @@ test('reviewable: only when something the agent changed is on the map', () => {
   assert.equal(reviewable(graphIndex, agent([{ ...file('gone', 'app/x.py'), node: undefined }]), nodes), false);
   assert.equal(reviewable(graphIndex, agent([file('web', 'src/pages/about.tsx')]), nodes), true);
 });
+
+test("a function's own change time is its read mark's: editing another function in its file doesn't unread it", () => {
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  const a = agent([
+    {
+      ...file('web', 'src/client/api.ts', [
+        { ...sym('web/src/client/api.ts#ItemsService'), at: t },
+        { ...sym('web/src/client/api.ts#UsersService'), at: later },
+      ]),
+      at: later,
+    },
+  ]);
+  const stops = Object.fromEntries(tourStops(graph, graphIndex, a, NO_NODES).map((s) => [s.id, s]));
+  const marks: ReadMarks = { 'web/src/client/api.ts#ItemsService': Date.parse(t), 'web/src/client/api.ts#UsersService': Date.parse(t) };
+  assert.equal(isRead(marks, stops['web/src/client/api.ts#ItemsService']), true);
+  assert.equal(isRead(marks, stops['web/src/client/api.ts#UsersService']), false);
+  // From an indexer without per-function times, the file's time counts for each.
+  const old = agent([{ ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]), at: later }]);
+  assert.equal(isRead(marks, tourStops(graph, graphIndex, old, NO_NODES)[0]), false);
+});
