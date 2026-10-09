@@ -501,6 +501,35 @@ test("a file this agent took its change back from, still changed by another agen
   assert.deepEqual(filesOf('a')[0].symbols.map((s) => s.name), ['getItem']);
 });
 
+test("a function this agent deleted and another agent put back changed keeps this agent's time", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][], oldLines = lines) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const symsOf = (session: string) => Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, s]));
+  // A deletes getItem.
+  const without = API.slice(0, API.indexOf('\nexport function getItem')) + '\n';
+  await report(a, without, [[3, 3]], [[4, 7]]);
+  const deletedAt = symsOf('a').getItem.at;
+  assert.equal(symsOf('a').getItem.kind, 'deleted');
+  // B puts it back, changed.
+  const back = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(b, back, [[6, 6]]);
+  // A changes listItems: getItem, back as B left it, keeps the time A deleted it.
+  await report(a, back.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
+  assert.equal(symsOf('a').getItem.at, deletedAt, 'B’s putting it back is not A’s new change');
+  assert.equal(symsOf('a').listItems.at, hub.state().agents.find((x) => x.id.endsWith('#a'))!.files[0].at);
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
