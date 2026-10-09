@@ -783,6 +783,11 @@ export class AgentHub {
         continue;
       }
       let kind = prev.sig?.split(/[\n@]/)[0] as ChangeKind | undefined;
+      // One this agent added that the other agent took away: no one's now, and new if it comes back.
+      if (kind !== 'deleted' && f.base && !f.base.has(id) && !ix.nodes.has(id)) {
+        f.symAt.set(id, { sig: null, at: prev.at, back: true });
+        continue;
+      }
       // One this agent deleted and the other agent put back is there again, as its text is now.
       if (kind === 'deleted' && ix.nodes.has(id)) kind = f.base?.has(id) ? 'modified' : 'added';
       const now = kind ? sig(id, kind) : null;

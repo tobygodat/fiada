@@ -524,6 +524,32 @@ test("a function another agent put back as HEAD has it is no longer this agent's
   assert.ok(again > first);
 });
 
+test("a function this agent added and another agent took away is new again when this agent adds it back", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const timeOf = (session: string, name: string) =>
+    hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files.flatMap((f) => f.symbols).find((s) => s.name === name)?.at;
+  const added = `${API}\nexport function extra() {\n  return 3;\n}\n`;
+  await report(a, added, [[9, 12]]);
+  const first = timeOf('a', 'extra')!;
+  assert.ok(first);
+  // B takes it away; A adds the same function again.
+  await report(b, API, [[8, 8]]);
+  await report(a, added, [[9, 12]]);
+  assert.ok(timeOf('a', 'extra')! > first, 'added again: a new change to read');
+});
+
 test('on a checkout with CRLF line endings, an import taken back is no change', async () => {
   // A file with code outside its functions in HEAD already, which the line endings would set apart.
   const SVC = `import { y } from './y';\n\n${API}`;
