@@ -125,8 +125,11 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
       for (const s of f.symbols) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
+        if (!target) continue;
+        // A deleted function is read on its file but keeps its own layer, which may not be the file's.
+        const layer = (!live && s.layer) || layerOf(target);
         // The function's own change time, so editing another function in the file doesn't unread it.
-        if (target) add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer: layerOf(target), at: s.at ? Date.parse(s.at) : at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
+        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at: s.at ? Date.parse(s.at) : at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
       }
     } else if (stand) {
       // Only the file's other code left changed (an import): its own time, not the file's latest.

@@ -35,8 +35,8 @@ import type { Workspace } from './workspace.ts';
 const exec = promisify(execFile);
 
 const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' };
-/** Symbol names/lines in HEAD's version of a file, keyed by symbol id. */
-type SymbolLines = Map<string, { name: string; lines: [number, number] }>;
+/** Symbol names/lines in HEAD's version of a file, keyed by symbol id, with the layer the map gave each. */
+type SymbolLines = Map<string, { name: string; lines: [number, number]; layer?: string }>;
 
 interface FileRec {
   /** `${repo}/${rel}` for files in an imported repository, else the absolute path. */
@@ -466,11 +466,14 @@ export class AgentHub {
   /**
    * The file's symbols before the agent touched it: parsed from HEAD for a
    * local repo, else what the graph has now (a clone is at HEAD already).
-   * An added file had none.
+   * An added file had none. Each keeps the layer the map has for it now, while
+   * the graph still holds the file as it was, so a deleted symbol is read with it.
    */
   private async baseSymbols(repo: string, rel: string, live: boolean, kind: ChangeKind): Promise<{ base: SymbolLines | null; baseTop: string | null }> {
     if (kind === 'added') return { base: new Map(), baseTop: '' };
     const fid = fileId(repo, rel);
+    const syms = this.index(this.ws.getGraph()).symbols.get(fid);
+    const layer = new Map(syms?.map((s) => [s.id, s.layer?.id]));
     if (live) {
       const root = this.ws.rootOf(repo);
       const text = root
@@ -481,13 +484,12 @@ export class AgentHub {
         if (!parsed) return { base: new Map(), baseTop: null };
         const ids = symbolIds(fid, parsed);
         return {
-          base: new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines }])),
+          base: new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines, layer: layer.get(ids[i]) }])),
           baseTop: outside(text.split('\n'), parsed.symbols.map((s) => s.lines)),
         };
       }
     }
-    const syms = this.index(this.ws.getGraph()).symbols.get(fid);
-    return { base: syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0] }])) : null, baseTop: null };
+    return { base: syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0], layer: s.layer?.id }])) : null, baseTop: null };
   }
 
   /** Re-indexes changed files of local repos, a moment after the last change so a burst of edits is one rebuild. */
@@ -716,7 +718,7 @@ export class AgentHub {
     }
     if (f.fresh && base) {
       const nowIds = new Set(now.map((s) => s.id));
-      for (const [id, s] of base) if (!nowIds.has(id)) out.push({ id, name: s.name, kind: 'deleted', ...(s.lines[0] > 0 && { oldLines: s.lines }) });
+      for (const [id, s] of base) if (!nowIds.has(id)) out.push({ id, name: s.name, kind: 'deleted', ...(s.lines[0] > 0 && { oldLines: s.lines }), ...(s.layer && { layer: s.layer }) });
     }
     return out;
   }
