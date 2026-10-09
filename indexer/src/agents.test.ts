@@ -603,9 +603,12 @@ test("a file this agent took its change back from, still changed by another agen
   assert.deepEqual(filesOf('a'), [], 'nothing in the file is A’s now');
   assert.equal(filesOf('b').length, 1);
   assert.deepEqual(hub.state().nodes['web/src/api.ts'].agents.map((x) => x.split('#').pop()), ['b'], 'the file’s mark is B’s alone');
+  assert.deepEqual(hub.diffs('web/src/api.ts').map((d) => d.agent.split('#').pop()), ['b'], 'the file’s diffs are B’s alone');
+  assert.deepEqual(hub.diffs('web/src/api.ts#listItems').map((d) => d.agent.split('#').pop()), ['b']);
   // A changes it again: A's once more.
   await report(a, get(list(API)), [[2, 2], [6, 6]]);
   assert.deepEqual(filesOf('a')[0].symbols.map((s) => s.name), ['getItem']);
+  assert.deepEqual(hub.diffs('web/src/api.ts').map((d) => d.agent.split('#').pop()).sort(), ['a', 'b']);
 });
 
 test("a function this agent deleted and another agent put back changed keeps this agent's time", async () => {

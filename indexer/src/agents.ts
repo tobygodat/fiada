@@ -268,6 +268,8 @@ export class AgentHub {
   private version = 0;
   private listeners = new Set<(s: ActivityState) => void>();
   private cached: { version: number; graph: number; state: ActivityState } | null = null;
+  /** Files the last state() left out of their agent's list: kept for attribution, not shown. */
+  private hidden = new WeakSet<FileRec>();
   private pushTimer: NodeJS.Timeout | null = null;
   private pendingIndex = new Map<string, Set<string>>();
   private indexTimer: NodeJS.Timeout | null = null;
@@ -646,10 +648,12 @@ export class AgentHub {
   diffs(nodeId: string): { agent: string; name: string; kind: ChangeKind; additions?: number; deletions?: number; diff?: string; at: string }[] {
     const key = nodeId.includes('#') ? nodeId.slice(0, nodeId.indexOf('#')) : nodeId;
     const names = this.names();
+    // The same files as the activity state: one an agent took its change back from isn't its.
+    this.state();
     const out = [];
     for (const rec of this.agents.values()) {
       const f = rec.files.get(key);
-      if (f) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, at: new Date(f.at).toISOString() });
+      if (f && !this.hidden.has(f)) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, at: new Date(f.at).toISOString() });
     }
     return out;
   }
@@ -892,6 +896,7 @@ export class AgentHub {
     const graph = this.ws.getGraph();
     if (this.cached && this.cached.version === this.version && this.cached.graph === this.ws.version) return this.cached.state;
     const ix = this.index(graph);
+    this.hidden = new WeakSet();
     const nodes: Record<string, NodeChange> = {};
     const mark = (id: string, c: Omit<NodeChange, 'agents'>, agent: string) => {
       const cur = nodes[id];
@@ -908,7 +913,10 @@ export class AgentHub {
       for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
         const { symbols, top, theirsOnly } = this.stamp(f, this.symbolsOf(f, ix));
         // A file this agent took its own change back from, still changed by another agent, isn't this agent's.
-        if (theirsOnly && f.kind !== 'deleted') continue;
+        if (theirsOnly && f.kind !== 'deleted') {
+          this.hidden.add(f);
+          continue;
+        }
         let node: string | undefined;
         if (f.repo) {
           const fid = fileId(f.repo, f.rel!);
