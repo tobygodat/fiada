@@ -142,6 +142,21 @@ test('two deleted files in one folder are two stops, each its own', () => {
   );
 });
 
+test('a deleted file stands in the layer of the folder left, and is read with that layer', () => {
+  const nodes: Record<string, NodeChange> = { 'api/app/routes/old.py': { kind: 'deleted', unit: 'file', at: 5, agents: ['a'], anchor: 'api/app/routes' } };
+  const a = agent([file('api', 'app/models.py', [sym('api/app/models.py#Item')]), file('api', 'app/routes/old.py', [], 'deleted')]);
+  // As the indexer has it: only files and functions carry a layer.
+  const idx = new Map([...graphIndex].map(([id, n]) => [id, n.kind === 'folder' || n.kind === 'repo' ? { ...n, layer: undefined } : n]));
+  const stops = tourStops(graph, idx, a, nodes);
+  assert.deepEqual(
+    stops.map((s) => [s.id, s.layer]),
+    [
+      ['api/app/routes/old.py', 'api'],
+      ['api/app/models.py#Item', 'data'],
+    ],
+  );
+});
+
 test('a loop of calls in an earlier layer comes before a later layer that is ready', () => {
   const g = {
     ...graph,
