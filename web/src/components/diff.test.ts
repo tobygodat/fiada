@@ -321,6 +321,19 @@ test("another agent's changes in the file are left out of this agent's diff, who
   assert.deepEqual(pickHunks(gone, { lines: [37, 37] }, [{ lines: [37, 37] }], { owners: [{ oldLines: [30, 32] }], top: false }), ['@@ -40,1 +37,1 @@', '-a', '+b']);
 });
 
+test("a class this agent changed, left out for its method, keeps its rows when the other agent's are the file's other code", () => {
+  // The other agent's import at line 2; this agent's class field (line 4) and method (7-9).
+  const diff = ['@@ -1,1 +1,2 @@', ' import a', '+import b', '@@ -2,7 +3,7 @@', ' class Store {', '-  int size = 1;', '+  int size = 2;', ' ', '   int get() {', '-    return 1;', '+    return 10;', '   }'].join('\n');
+  const method = { lines: [7, 9] as const };
+  const cls = { lines: [3, 10] as const };
+  const lost = pickHunks(diff, method, [method], { owners: [], top: true });
+  assert.ok(!lost.includes('+  int size = 2;'), 'without it, the field reads as the other agent\u2019s other code');
+  const shown = pickHunks(diff, method, [method], { owners: [], top: true, mine: [cls] });
+  assert.ok(shown.includes('+  int size = 2;'), 'the class\u2019s field is this agent\u2019s');
+  assert.ok(shown.includes('+    return 10;'));
+  assert.ok(!shown.includes('+import b'), 'the import is still the other agent\u2019s');
+});
+
 test("a row both agents' changes hold is the innermost one's: a method in a class whose field the other agent changed", () => {
   // A class at lines 1-8: the other agent changed its field (line 2), this agent its method (5-7).
   const diff = ['@@ -1,7 +1,7 @@', ' class Store {', '-  int size = 1;', '+  int size = 2;', ' ', '   int get() {', '-    return 1;', '+    return 10;', '   }'].join('\n');

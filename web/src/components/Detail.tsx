@@ -214,6 +214,14 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
       return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, p.old?.[id]) : { oldLines: p.old?.[id] };
     }),
     top: p.top,
+    // A class left out for its method on this stop: its rows (a field) are this agent's, not the other agent's other code.
+    mine: (tour.stop.carries ?? [])
+      .filter((c) => c.id.includes('#'))
+      .map((c): HunkOwner => {
+        const n = graphIndex.get(c.id);
+        const oldLines = tour.stop.restOld?.[c.id];
+        return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { oldLines };
+      }),
   };
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');

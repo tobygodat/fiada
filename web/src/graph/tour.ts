@@ -65,7 +65,7 @@ export function tourStops(
   nodes: Record<string, NodeChange>,
 ): TourStop[] {
   // Each file's classes left out for a method in them, whose own lines its first stop shows.
-  const outer = new Map<string, { id: string; at: number; shared?: true }[]>();
+  const outer = new Map<string, { id: string; at: number; shared?: true; old?: [number, number] }[]>();
   const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id)), outer), graph, graphIndex);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
@@ -93,7 +93,9 @@ export function tourStops(
     if (!f || marked.has(f)) return s;
     marked.add(f);
     const at = top.get(f);
-    const old = olds.get(f);
+    // Each class left out for a method keeps its lines before the change too, so its rows are known as this agent's.
+    const outerOld = Object.fromEntries((outer.get(f) ?? []).filter((c) => c.old).map((c) => [c.id, c.old!]));
+    const old = olds.get(f) || Object.keys(outerOld).length ? { ...olds.get(f), ...outerOld } : undefined;
     const carries = [...(at != null ? [{ id: f, at }] : []), ...(outer.get(f) ?? []).map((c) => ({ id: c.id, at: c.at }))];
     // A class left out for a method in it, that another agent changed too: its rows show here.
     const shared = s.shared || outer.get(f)?.some((c) => c.shared);
@@ -155,7 +157,7 @@ function collect(
   agent: AgentActivity,
   nodes: Record<string, NodeChange>,
   layers?: Set<string>,
-  outer?: Map<string, { id: string; at: number; shared?: true }[]>,
+  outer?: Map<string, { id: string; at: number; shared?: true; old?: [number, number] }[]>,
 ): TourStop[] {
   const stops: TourStop[] = [];
   const seen = new Set<string>();
@@ -214,7 +216,12 @@ function collect(
       const inner = innermost(f.symbols, graphIndex);
       if (outer && inner.length < f.symbols.length) {
         const kept = new Set(inner);
-        outer.set(file, f.symbols.filter((s) => !kept.has(s)).map((s) => ({ id: s.id, at: s.at ? Date.parse(s.at) : at, ...(s.shared && { shared: true as const }) })));
+        outer.set(
+          file,
+          f.symbols
+            .filter((s) => !kept.has(s))
+            .map((s) => ({ id: s.id, at: s.at ? Date.parse(s.at) : at, ...(s.shared && { shared: true as const }), ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }) })),
+        );
       }
       for (const s of inner) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);

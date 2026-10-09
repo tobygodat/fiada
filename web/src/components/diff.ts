@@ -61,6 +61,11 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
 export interface Theirs {
   owners: readonly HunkOwner[];
   top: boolean;
+  /**
+   * This agent's own changed symbols that no stop is read at (a class left out for a method in it),
+   * so `top` doesn't take their rows (a field) for the other agent's code outside every symbol.
+   */
+  mine?: readonly HunkOwner[];
 }
 
 /**
@@ -68,7 +73,8 @@ export interface Theirs {
  * too: those in its symbols, and with `top`, those no changed symbol holds (an import it added).
  * Each hunk left whole stays as it is; one cut keeps each run that still changes something.
  */
-function without(all: string[][], theirs: Theirs, mine: readonly HunkOwner[]): string[][] {
+function without(all: string[][], theirs: Theirs, stops: readonly HunkOwner[]): string[][] {
+  const mine = [...stops, ...(theirs.mine ?? [])];
   const t = covers(theirs.owners);
   const m = covers(mine);
   const any = theirs.top ? covers([...mine, ...theirs.owners]) : null;

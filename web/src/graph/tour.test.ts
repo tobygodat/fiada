@@ -765,6 +765,9 @@ test("a class left out for its method that another agent changed too says so on 
   assert.equal(stop.shared, true);
   assert.deepEqual(stop.carries, [{ id: `svc/${F}#Items`, at: stop.carries![0].at }], 'carries keep only id and time');
   assert.equal(stops(false)[0].shared, undefined);
+  // The class's lines before the change go with the stop too, so its rows are known as this agent's.
+  const withOld = tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), oldLines: [1, 28] as [number, number] }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
+  assert.deepEqual(withOld[0].restOld, { [`svc/${F}#Items`]: [1, 28] });
 });
 
 test("the tour isn't ordered again for an agent's status, only when its changes or their circles change", () => {
