@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourStops, type ReadMarks } from './tour.ts';
+import { diffShown, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -128,6 +128,27 @@ test('read marks last until the agent changes that code again', () => {
   assert.equal(isRead(marks, tourStops(graph, graphIndex, a('2026-09-27T10:00:00Z'), other)[0]), true);
   // Wraps round to find the first unread before where you are.
   assert.equal(nextUnread(stops, { 'web/src/pages/items.tsx#useItems': t }, 1), 0);
+});
+
+test('a change is marked read only once its own diff is on screen', () => {
+  const a = (at: string) => agent([{ ...file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')]), at }]);
+  const [first] = tourStops(graph, graphIndex, a('2026-09-27T10:00:00Z'), NO_NODES);
+  const [again] = tourStops(graph, graphIndex, a('2026-09-27T10:05:00Z'), NO_NODES);
+  assert.equal(diffShown({ node: first.id, rev: first.at }, first), true);
+  // Still loading.
+  assert.equal(diffShown({ node: first.id, rev: null }, first), false);
+  // The agent changed it again: the older diff still on screen while the new one loads isn't it.
+  assert.equal(diffShown({ node: first.id, rev: first.at }, again), false);
+  assert.equal(diffShown({ node: again.id, rev: again.at }, again), true);
+  // Fetched after another agent's later change to the file: it has this one in it too.
+  assert.equal(diffShown({ node: again.id, rev: again.at + 60_000 }, again), true);
+  // The file's other code the stop carries changed since: the diff fetched before that isn't it.
+  const carrying = { ...again, carries: [{ id: 'web/src/pages/items.tsx', at: again.at + 120_000 }] };
+  assert.equal(diffShown({ node: again.id, rev: again.at + 60_000 }, carrying), false);
+  assert.equal(diffShown({ node: again.id, rev: again.at + 120_000 }, carrying), true);
+  // No diff of this stop on screen: nothing to wait for.
+  assert.equal(diffShown(null, again), true);
+  assert.equal(diffShown({ node: 'web/src/pages/about.tsx', rev: null }, again), true);
 });
 
 test('two deleted files in one folder are two stops, each its own', () => {

@@ -25,7 +25,7 @@ import { ownerOf, type HunkOwner, type Theirs } from './diff.ts';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
-import { stopRev, type TourStop } from '../graph/tour.ts';
+import { stopRev, type ShownDiff, type TourStop } from '../graph/tour.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
@@ -58,7 +58,7 @@ interface Props {
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
   /** The review tour's agent and the change it's on: its diff alone, not every agent's. */
-  reviewing?: { agent: string; stop: TourStop } | null;
+  reviewing?: { agent: string; stop: TourStop; onShown?(shown: ShownDiff | null): void } | null;
   onSelect(id: string): void;
 }
 
@@ -227,22 +227,25 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
         kind={tour.stop.kind}
         agent={tour.agent}
         what={fn ? tour.stop.name : tour.stop.path}
+        onShown={tour.onShown}
       />
     );
   }
   const own = code ? activity?.nodes[g.id] : null;
-  if (!own) return null;
+  const stop = tour?.stop.id === g.id ? tour : null;
+  if (!own && !stop) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  const kind = tour?.stop.id === g.id ? tour.stop.kind : own.kind;
+  // Refetched when any agent changes the file; on a tour, never for less than the stop's own change.
   return (
     <AgentChange
       node={g.id}
       own={g.kind === 'symbol' && g.lines ? ownerOf(g.lines, tour?.stop.id === g.id ? tour.stop.old : undefined) : undefined}
       rest={rest}
       peer={peer}
-      rev={file?.at ?? own.at}
-      kind={kind}
+      rev={Math.max(file?.at ?? own?.at ?? 0, stop ? stopRev(stop.stop) : 0)}
+      kind={stop ? stop.stop.kind : own!.kind}
       agent={tour?.agent}
+      onShown={stop?.onShown}
     />
   );
 }

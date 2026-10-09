@@ -10,7 +10,7 @@ import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
-import { loadMarks, markStop, nextUnread, reviewable, saveMarks, tourCache, type ReadMarks, type TourStop } from './graph/tour.ts';
+import { diffShown, loadMarks, markStop, nextUnread, reviewable, saveMarks, tourCache, type ReadMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -85,6 +85,8 @@ export function App() {
   const [mode, setModeState] = useState<ExpandMode>(readMode);
   const [colorBy, setColorBy] = useState<ColorBy>('layer');
   const [selected, setSelected] = useState<string | null>(null);
+  // The review tour's diff on screen, so a change is marked read only once it has been shown.
+  const [shownDiff, setShownDiff] = useState<ShownDiff | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [focus, setFocus] = useState('root');
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -747,7 +749,7 @@ export function App() {
             selected={selected}
             contract={contract}
             activity={agents.state}
-            reviewing={touring && stops[tourAt] ? { agent: touring.agent, stop: stops[tourAt] } : null}
+            reviewing={touring && stops[tourAt] ? { agent: touring.agent, stop: stops[tourAt], onShown: setShownDiff } : null}
             onSelect={select}
           />
         )}
@@ -778,6 +780,7 @@ export function App() {
             layers={graph?.layers ?? []}
             besideDetail={detailOpen}
             showing={!!tree && !selectedEdge && !!stops[tourAt] && selected === locate(tree, graphIndex, stops[tourAt].target)}
+            ready={!stops[tourAt] || diffShown(shownDiff, stops[tourAt])}
             onGo={goStop}
             onRead={markRead}
             onEnd={() => setTour(null)}

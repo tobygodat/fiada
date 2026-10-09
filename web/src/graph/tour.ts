@@ -554,6 +554,20 @@ export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMark
   return next;
 }
 
+/** The tour's diff on screen: the stop id it's for and the change time it was fetched for (null while it loads). */
+export interface ShownDiff {
+  node: string;
+  rev: number | null;
+}
+
+/**
+ * Whether marking the stop read reads what was shown: not while its diff is loading, or while an
+ * older diff of it stands in after the agent changed it again. With no diff of it on screen at all
+ * (the map is on something else) there's nothing to wait for.
+ */
+export const diffShown = (shown: ShownDiff | null, s: TourStop) =>
+  !shown || shown.node !== s.id || (shown.rev !== null && shown.rev >= stopRev(s));
+
 /** The first stop not read yet at or after `from`, wrapping round; -1 when every one is read. */
 export function nextUnread(stops: readonly TourStop[], marks: ReadMarks, from = 0): number {
   for (let k = 0; k < stops.length; k++) {

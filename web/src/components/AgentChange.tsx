@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
+import type { ShownDiff } from '../graph/tour.ts';
 import { diffRows, pickHunks, type HunkOwner, type Theirs } from './diff.ts';
 import './agent.css';
 
@@ -23,6 +24,8 @@ interface Props {
   kind: ChangeKind;
   /** Only this agent's diff (on a review tour); otherwise every agent's that changed the file. */
   agent?: string;
+  /** Told which change of the node is on screen (null rev while it loads), and null when it goes. */
+  onShown?(shown: ShownDiff | null): void;
 }
 
 const MAX_LINES = 500;
@@ -34,21 +37,28 @@ const ago = (iso: string) => {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
-export function AgentChange({ node, own, rest, peer, what, rev, kind, agent }: Props) {
-  const [diffs, setDiffs] = useState<{ node: string; list: AgentDiff[] } | null>(null);
+export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onShown }: Props) {
+  const [diffs, setDiffs] = useState<{ node: string; rev: number; list: AgentDiff[] } | null>(null);
   const key = `${node}|${rev}`;
   // A long diff shows its first rows, and the rest on asking: nothing of the change is out of reach.
   const [whole, setWhole] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     api.agentDiffs(node).then(
-      (r) => live && setDiffs({ node, list: r.diffs }),
-      () => live && setDiffs({ node, list: [] }),
+      (r) => live && setDiffs({ node, rev, list: r.diffs }),
+      () => live && setDiffs({ node, rev, list: [] }),
     );
     return () => {
       live = false;
     };
   }, [key, node]);
+
+  // Which change of it is on screen, so a review tour doesn't mark a newer one read while this one shows.
+  const loaded = diffs?.node === node ? diffs.rev : null;
+  useEffect(() => {
+    onShown?.({ node, rev: loaded });
+  }, [onShown, node, loaded]);
+  useEffect(() => () => onShown?.(null), [onShown]);
 
   // Only this node's diffs: the last node's stay in state until the new request lands.
   // (An older diff of this same node is fine to show while a newer one loads.)
