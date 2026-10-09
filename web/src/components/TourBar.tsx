@@ -27,8 +27,13 @@ interface Props {
 
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
 const VERB = { added: 'added', modified: 'changed', deleted: 'deleted' } as const;
-/** More changes than this and the ticks would be too fine to point at. */
+/**
+ * More changes than this and the ticks would take too many rows to be worth it (each is at least
+ * 8px wide, or a finger's width on a touch screen); previous and next still go through them all.
+ */
 const MAX_TICKS = 80;
+const MAX_TOUCH_TICKS = 10;
+const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
 export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, onGo, onRead, onEnd }: Props) {
   const stop = stops[at];
@@ -64,7 +69,7 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
           end
         </button>
       </div>
-      {stops.length <= MAX_TICKS && (
+      {stops.length <= (coarse() ? MAX_TOUCH_TICKS : MAX_TICKS) && (
         <div className="tour-ticks" role="group" aria-label="Changes">
           {stops.map((s, i) => (
             <button

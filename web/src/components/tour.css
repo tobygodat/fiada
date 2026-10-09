@@ -33,9 +33,10 @@
 .tour-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 .tour-head .queue-act { margin-left: auto; }
 
-/* One short rule per change: muted when unread, ink once read, the green line under the one you're on. */
-.tour-ticks { display: flex; gap: 2px; margin: var(--space-8) 0 0; }
-.tour-tick { flex: 1 1 0; min-width: 3px; max-width: 24px; height: 12px; padding: 5px 0; background-clip: content-box; background-color: var(--hairline-strong); }
+/* One short rule per change: muted when unread, ink once read, the green line under the one you're on.
+   Never thinner than a pointer can find: past a row's worth they go on to a second. */
+.tour-ticks { display: flex; flex-wrap: wrap; gap: 0 2px; margin: var(--space-8) 0 0; }
+.tour-tick { flex: 1 0 8px; max-width: 24px; height: 12px; padding: 5px 0; background-clip: content-box; background-color: var(--hairline-strong); }
 .tour-tick.read { background-color: var(--text); }
 .tour-tick.here { padding: 4px 0; background-color: var(--accent); }
 .tour-tick:hover:not(.here) { background-color: var(--muted); }
@@ -67,7 +68,7 @@
 @media (pointer: coarse) {
   .tour-keys { display: none; }
   /* The same thin rules, with a hit area a finger can find. */
-  .tour-tick { height: var(--size-hit); padding: 21px 0; }
+  .tour-tick { flex-basis: var(--size-hit); max-width: none; height: var(--size-hit); padding: 21px 0; }
   .tour-tick.here { padding: 20px 0; }
   .tour .queue-act { display: inline-flex; align-items: center; min-height: var(--size-hit); padding: 0 var(--space-xs); }
   .tour-next { height: var(--size-hit); }
