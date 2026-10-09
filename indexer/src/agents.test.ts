@@ -1042,6 +1042,35 @@ test("another agent's lines above this agent's changed function leave it this ag
   assert.deepEqual(hub.diffs('web/src/api.ts#getItem').map((d) => d.agent.split('#').pop()).sort(), ['a', 'b']);
 });
 
+test("a function this agent changed that another agent then changed too says some of its rows are that agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const shared = (session: string) =>
+    Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, !!s.shared]));
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const both = one.replace('return fetch(`', 'return globalThis.fetch(`');
+  await report(a, one, [[6, 6]]);
+  assert.deepEqual(shared('a'), { getItem: false });
+  // B changes getItem too: A's diff of the whole file has B's row in getItem from now on.
+  await report(b, both, [[6, 6]]);
+  await report(a, both.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
+  assert.deepEqual(shared('a'), { listItems: false, getItem: true });
+  // B puts getItem back as A left it: every row of it is A's again.
+  await report(b, one.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
+  assert.deepEqual(shared('a'), { listItems: false, getItem: false });
+});
+
 test('a file that drops out of the map, grown too large to read, is a new change for every stop it had', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

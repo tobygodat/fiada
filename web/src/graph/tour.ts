@@ -48,6 +48,8 @@ export interface TourStop {
    * code outside every symbol is its too.
    */
   peer?: { ids: string[]; old?: Record<string, [number, number]>; top: boolean };
+  /** Another agent changed this function too after this agent did: some of its rows are that agent's. */
+  shared?: true;
 }
 
 /**
@@ -211,7 +213,7 @@ function collect(
         const kept = !live && s.layer && (s.layer === UNLAYERED || layers?.has(s.layer)) ? s.layer : null;
         const layer = kept ?? layerOf(target);
         // The function's own change time, so editing another function in the file doesn't unread it.
-        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at: s.at ? Date.parse(s.at) : at, ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }) });
+        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at: s.at ? Date.parse(s.at) : at, ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }), ...(s.shared && { shared: true as const }) });
       }
     } else if (stand) {
       // Only the file's other code left changed (an import): its own time, not the file's latest.

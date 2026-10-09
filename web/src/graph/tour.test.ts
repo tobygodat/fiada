@@ -833,6 +833,12 @@ test("another agent's changes in a file go with each of that file's stops, so it
   assert.equal(tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])]), NO_NODES)[0].peer, undefined);
 });
 
+test("a function another agent changed too after this one did says so on its stop", () => {
+  const f = file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#ItemsService'), shared: true as const }, sym('web/src/client/api.ts#request')]);
+  const stops = tourStops(graph, graphIndex, agent([f]), NO_NODES);
+  assert.deepEqual(Object.fromEntries(stops.map((s) => [s.name, !!s.shared])), { ItemsService: true, request: false });
+});
+
 test("a stop on the Unlayered layer says so, though the project's layers don't list it", () => {
   assert.equal(layerName(graph.layers, UNLAYERED), 'Unlayered');
   assert.equal(layerName(graph.layers, 'api'), 'API');

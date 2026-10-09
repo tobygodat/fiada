@@ -543,9 +543,11 @@ export interface AgentFile {
    * (editing another symbol in the file doesn't move it); absent from older indexers. `oldLines`: for a
    * deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away; for a
    * modified one, the same when known, so a class is matched with a method it lost. `layer`:
-   * for a deleted symbol, the layer id the map had for it, since it is read on its file.
+   * for a deleted symbol, the layer id the map had for it, since it is read on its file. `shared`:
+   * another agent changed it too after this agent did, so some of its rows in this agent's diff
+   * (git's, of the whole file) are that agent's.
    */
-  symbols: { id: string; name: string; kind: ChangeKind; at?: string; oldLines?: [number, number]; layer?: string }[];
+  symbols: { id: string; name: string; kind: ChangeKind; at?: string; oldLines?: [number, number]; layer?: string; shared?: true }[];
   /**
    * ISO time of the agent's latest change to the file's code outside every symbol (an import, a
    * constant), shown with the file's first function; absent while that code is as HEAD has it, and from older indexers.

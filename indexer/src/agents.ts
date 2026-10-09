@@ -96,6 +96,12 @@ interface FileRec {
    * point at that agent's text now, so this agent's changed symbols are found by id instead.
    */
   moved?: boolean;
+  /**
+   * Symbols this agent changed that another agent then changed too, each with this agent's own
+   * digest from before: the diff of the whole file has that agent's rows in them, so the review
+   * says so. One drops out when the other agent puts it back as this agent left it.
+   */
+  shared?: Map<string, string>;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
@@ -763,9 +769,11 @@ export class AgentHub {
         f.symAt.set(s.id, { sig: now, at: prev?.at ?? f.at, back: true });
         return [];
       }
+      // Changed again after it was taken back: whatever another agent did to it before is gone with it.
+      if (prev?.back) f.shared?.delete(s.id);
       const cur = advance(prev, now, f.at);
       f.symAt.set(s.id, cur);
-      return [{ ...s, at: new Date(cur.at).toISOString() }];
+      return [{ ...s, at: new Date(cur.at).toISOString(), ...(f.shared?.has(s.id) && { shared: true as const }) }];
     });
     // Right after this agent's own change is re-indexed its lines are current, so a symbol gone
     // from its changes was taken back: its text is forgotten (its time kept), and the same edit
@@ -820,6 +828,13 @@ export class AgentHub {
       return;
     }
     const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
+    // A symbol this agent changed that the other agent changed as well: its rows aren't all this agent's now.
+    const share = (id: string, was: string | null, now: string) => {
+      const own = f.shared?.get(id) ?? was;
+      if (own === null) return;
+      if (now !== own) (f.shared ??= new Map()).set(id, own);
+      else f.shared?.delete(id);
+    };
     // The other agent put back the whole file this agent deleted: the deletion is gone, and the file
     // as it is now is that agent's, until this agent changes it again.
     const restored = f.kind === 'deleted';
@@ -830,6 +845,7 @@ export class AgentHub {
     for (const [id, prev] of f.symAt) {
       if (prev.back) continue;
       if (gone(id)) {
+        share(id, prev.sig, 'deleted');
         f.symAt.set(id, { sig: 'deleted', at: prev.at });
         continue;
       }
@@ -849,7 +865,10 @@ export class AgentHub {
         f.theirs.set(id, head);
         continue;
       }
-      if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });
+      if (now !== null) {
+        share(id, prev.sig, now);
+        f.symAt.set(id, { sig: now, at: prev.at });
+      }
     }
     this.rebaseTop(f);
     if (restored) {
