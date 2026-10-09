@@ -391,6 +391,34 @@ test("another agent's deletion of a function this agent changed, and its added f
   assert.equal(two.countItems.kind, 'added');
 });
 
+test("a function this agent took back and another agent then changed is the other agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const names = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => s.name);
+  const list = (q: string) => (text: string) => text.replace("'/api/items')", `'/api/items${q}')`);
+  const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  // A changes both functions, then takes getItem back.
+  await report(a, get(list('?all=1')(API)), [[2, 2], [6, 6]]);
+  await report(a, list('?all=1')(API), [[2, 2]]);
+  assert.deepEqual(names('a'), ['listItems']);
+  // B changes getItem; then A changes listItems again.
+  const two = list('?all=1')(API).replace("'/api/items/' + id", "'/api/items/' + encodeURIComponent(id)");
+  await report(b, two, [[2, 2], [6, 6]]);
+  await report(a, list('?all=2')(two), [[2, 2], [6, 6]]);
+  assert.deepEqual(names('a'), ['listItems'], 'getItem is B’s change now, not A’s');
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

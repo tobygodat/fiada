@@ -123,8 +123,11 @@ const sigsOf = (text: string[], symbols: GraphNode[]): Sigs => ({
   top: digest(outside(text, symbols.map((n) => n.lines))),
 });
 
-/** A change time and the digest of the text it was taken for (null until the re-indexed text is in). */
-type Stamp = { sig: string | null; at: number };
+/**
+ * A change time and the digest of the text it was taken for (null until the re-indexed text is in).
+ * `back`: the agent took the change back, so the symbol is no longer its change.
+ */
+type Stamp = { sig: string | null; at: number; back?: true };
 
 /**
  * Moves a change time on only when the text it was taken for changes. Before its first text is
@@ -684,7 +687,7 @@ export class AgentHub {
     // made again later is a new change. (Not otherwise: another agent may have moved the lines.)
     if (own && settled) {
       const now = new Set(symbols.map((s) => s.id));
-      for (const [id, prev] of f.symAt) if (!now.has(id) && prev.sig !== null) f.symAt.set(id, { sig: null, at: prev.at });
+      for (const [id, prev] of f.symAt) if (!now.has(id) && prev.sig !== null) f.symAt.set(id, { sig: null, at: prev.at, back: true });
       // A symbol another agent added and this one took away again is no one's change now.
       for (const [id, theirs] of f.theirs) if (theirs !== 'deleted' && !f.sigs?.of.has(id)) f.theirs.delete(id);
     }
@@ -698,15 +701,17 @@ export class AgentHub {
    * text as it is now (found by symbol id, whatever this agent's own line ranges say), or is
    * deleted when the other agent took a symbol HEAD has away. Every symbol this agent never
    * touched is the other agent's as the file is now, whichever of them it changed; one the other
-   * agent added and took away again is no one's.
+   * agent added and took away again is no one's. So is one this agent took back: its time stays.
    */
   private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
     if (!f.sigs) return;
     const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
-    f.theirs = new Map([...f.sigs.of].filter(([id]) => !f.symAt.has(id)));
-    if (f.base) for (const id of f.base.keys()) if (gone(id) && !f.symAt.has(id)) f.theirs.set(id, 'deleted');
+    const mine = (id: string) => !!f.symAt.get(id) && !f.symAt.get(id)!.back;
+    f.theirs = new Map([...f.sigs.of].filter(([id]) => !mine(id)));
+    if (f.base) for (const id of f.base.keys()) if (gone(id) && !mine(id)) f.theirs.set(id, 'deleted');
     const sig = this.signer(f);
     for (const [id, prev] of f.symAt) {
+      if (prev.back) continue;
       if (gone(id)) {
         f.symAt.set(id, { sig: 'deleted', at: prev.at });
         continue;
