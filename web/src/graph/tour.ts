@@ -20,7 +20,7 @@ export interface TourStop {
   kind: ChangeKind;
   /** Layer id, or null when it has none. */
   layer: string | null;
-  /** Epoch ms of the agent's latest change to it (for the file's first function, to the file's other code too). */
+  /** Epoch ms of the agent's latest change to it. */
   at: number;
   /**
    * On the first of a file's function stops: every changed function in that file (deleted ones
@@ -28,6 +28,11 @@ export interface TourStop {
    * constant) and none is skipped.
    */
   rest?: string[];
+  /**
+   * With `rest`: the file's other code and when the agent last changed it. Its read mark is kept
+   * under the file's own id, so it stays read (or unread) whichever function stop shows it.
+   */
+  top?: { id: string; at: number };
 }
 
 /**
@@ -58,7 +63,8 @@ export function tourStops(
     const f = fileOf(s);
     if (!f || marked.has(f)) return s;
     marked.add(f);
-    return { ...s, rest: fns.get(f)!, at: Math.max(s.at, top.get(f) ?? s.at) };
+    const at = top.get(f);
+    return { ...s, rest: fns.get(f)!, ...(at != null && { top: { id: f, at } }) };
   });
 }
 
@@ -232,8 +238,18 @@ function loops(next: Set<number>[]): number[] {
 /** Read marks: for each stop id, the change time it was read at. */
 export type ReadMarks = Record<string, number>;
 
-/** Read, and not changed again since. */
-export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at;
+/** Read, and not changed again since: the stop's own code, and the file's other code it shows. */
+export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at && (!s.top || (marks[s.top.id] ?? -1) >= s.top.at);
+
+/** The marks with a stop read (as it is now) or unread again, the file's other code it shows with it. */
+export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMarks {
+  const next = { ...marks };
+  for (const [id, at] of [[s.id, s.at], ...(s.top ? [[s.top.id, s.top.at]] : [])] as [string, number][]) {
+    if (read) next[id] = at;
+    else delete next[id];
+  }
+  return next;
+}
 
 /** The first stop not read yet at or after `from`, wrapping round; -1 when every one is read. */
 export function nextUnread(stops: readonly TourStop[], marks: ReadMarks, from = 0): number {

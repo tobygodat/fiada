@@ -10,7 +10,7 @@ import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
-import { loadMarks, nextUnread, reviewable, saveMarks, tourStops, type ReadMarks, type TourStop } from './graph/tour.ts';
+import { loadMarks, markStop, nextUnread, reviewable, saveMarks, tourStops, type ReadMarks, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
   aggregateEdges,
@@ -503,9 +503,7 @@ export function App() {
     (i: number, read: boolean) => {
       const s = stops[i];
       if (!touring || !s) return;
-      const next = { ...marks };
-      if (read) next[s.id] = s.at;
-      else delete next[s.id];
+      const next = markStop(marks, s, read);
       setMarks(next);
       saveMarks(project, touring.agent, next);
       if (!read) return;

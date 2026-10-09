@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { isRead, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
+import { isRead, markStop, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -300,9 +300,10 @@ test("a change to the file's other code (an import) unreads the stop that shows 
     { ...sym('web/src/client/api.ts#ItemsService'), at: t },
     { ...sym('web/src/client/api.ts#UsersService'), at: t },
   ];
-  const marks: ReadMarks = { 'web/src/client/api.ts#ItemsService': Date.parse(t), 'web/src/client/api.ts#UsersService': Date.parse(t) };
-  const read = (topAt: string) =>
-    tourStops(graph, graphIndex, agent([{ ...file('web', 'src/client/api.ts', fns), at: topAt, topAt }]), NO_NODES).map((s) => [s.id, !!s.rest, isRead(marks, s)]);
+  const stops = (topAt: string, symbols = fns) => tourStops(graph, graphIndex, agent([{ ...file('web', 'src/client/api.ts', symbols), at: topAt, topAt }]), NO_NODES);
+  let marks: ReadMarks = {};
+  for (const s of stops(t)) marks = markStop(marks, s, true);
+  const read = (topAt: string, symbols = fns) => stops(topAt, symbols).map((s) => [s.id, !!s.rest, isRead(marks, s)]);
   assert.deepEqual(read(t), [
     ['web/src/client/api.ts#ItemsService', true, true],
     ['web/src/client/api.ts#UsersService', false, true],
@@ -312,4 +313,19 @@ test("a change to the file's other code (an import) unreads the stop that shows 
     ['web/src/client/api.ts#ItemsService', true, false],
     ['web/src/client/api.ts#UsersService', false, true],
   ]);
+  // The new import read on ItemsService, then the agent takes ItemsService back: UsersService, read
+  // before the import changed, now shows it, and both stay read, since the import's mark is the file's.
+  marks = markStop(marks, stops(later)[0], true);
+  assert.deepEqual(read(later, fns.slice(1)), [['web/src/client/api.ts#UsersService', true, true]]);
+  // Read on UsersService, a later import is new on whichever stop shows it.
+  marks = markStop({}, stops(t, fns.slice(1))[0], true);
+  assert.deepEqual(read(t), [
+    ['web/src/client/api.ts#ItemsService', true, false],
+    ['web/src/client/api.ts#UsersService', false, true],
+  ]);
+  marks = markStop(marks, stops(t)[0], true);
+  assert.deepEqual(read(later).map((r) => r[2]), [false, true]);
+  // Unmarking the stop unmarks the import it shows too.
+  marks = markStop(marks, stops(t)[0], false);
+  assert.equal(marks['web/src/client/api.ts'], undefined);
 });
