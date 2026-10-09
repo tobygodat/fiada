@@ -78,9 +78,12 @@ interface FileRec {
 /** A change time and the text it was taken for (null until the re-indexed text is in). */
 type Stamp = { sig: string | null; at: number };
 
-/** Moves a change time on only when the text it was taken for changes. */
+/**
+ * Moves a change time on only when the text it was taken for changes. Before its first text is
+ * in, every change counts: there is nothing yet to tell which of them touched it.
+ */
 const advance = (prev: Stamp | null | undefined, sig: string | null, at: number): Stamp =>
-  !prev ? { sig, at } : sig === null || sig === prev.sig ? prev : prev.sig === null ? { sig, at: prev.at } : { sig, at };
+  !prev || prev.sig === null ? { sig, at } : sig === null || sig === prev.sig ? prev : { sig, at };
 
 interface AgentRec {
   id: string;
