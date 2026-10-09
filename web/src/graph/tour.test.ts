@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { forgetMarks, isRead, loops, nextUnread, reviewable, tourCache, tourStops, type ReadMarks } from './tour.ts';
+import { forgetMarks, isRead, layerName, loops, nextUnread, reviewable, tourCache, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -642,4 +642,11 @@ test("with the indexer's revision of an agent's files, a status update doesn't r
   assert.equal(tour(graph, graphIndex, { ...agent(sealed), filesRev: 'r1', note: 'running the tests' }, NO_NODES), first);
   const more = [...files, file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
   assert.equal(tour(graph, graphIndex, { ...agent(more), filesRev: 'r2' }, NO_NODES).length, 2);
+});
+
+test("a stop on the Unlayered layer says so, though the project's layers don't list it", () => {
+  assert.equal(layerName(graph.layers, UNLAYERED), 'Unlayered');
+  assert.equal(layerName(graph.layers, 'api'), 'API');
+  assert.equal(layerName(graph.layers, 'gone'), null);
+  assert.equal(layerName(graph.layers, null), null);
 });

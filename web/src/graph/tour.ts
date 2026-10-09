@@ -95,6 +95,13 @@ export function tourCache(): typeof tourStops {
 }
 
 /**
+ * The name of a stop's layer: the project's, or Unlayered, which every project has though its
+ * layers don't list it (a deleted function can keep it). Null for one the project no longer has.
+ */
+export const layerName = (layers: readonly { id: string; name: string }[], id: string | null): string | null =>
+  id == null ? null : id === UNLAYERED ? 'Unlayered' : (layers.find((l) => l.id === id)?.name ?? null);
+
+/**
  * Whether the agent changed anything the map can show, so a tour has somewhere to go: a stop
  * `collect` would make, found without working out its layer (which for a deleted file standing on
  * its repository tallies the whole repository). Every agent's, on every status line it sends.

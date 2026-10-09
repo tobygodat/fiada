@@ -5,7 +5,7 @@
 // detail panel show the change itself.
 
 import { useEffect } from 'react';
-import { isRead, type ReadMarks, type TourStop } from '../graph/tour.ts';
+import { isRead, layerName, type ReadMarks, type TourStop } from '../graph/tour.ts';
 import './agent.css';
 import './tour.css';
 
@@ -59,7 +59,7 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
   }, [at, stops.length, stop, here, showing, onGo, onRead]);
 
   if (!stop) return null;
-  const layer = stop.layer ? layers.find((l) => l.id === stop.layer)?.name : null;
+  const layer = layerName(layers, stop.layer);
   return (
     <section className={`tour${besideDetail ? ' beside-detail' : ''}`} aria-label="Review tour">
       <div className="tour-head">
