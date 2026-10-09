@@ -419,6 +419,59 @@ test("a function this agent took back and another agent then changed is the othe
   assert.deepEqual(names('a'), ['listItems'], 'getItem is B’s change now, not A’s');
 });
 
+test("a function another agent changed that this one restored, then changed the same way, is this agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const names = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => s.name);
+  const list = (q: string) => (text: string) => text.replace("'/api/items')", `'/api/items${q}')`);
+  const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, list('?all=1')(API), [[2, 2]]);
+  // B changes getItem; A puts it back as HEAD has it, then makes B's very change itself.
+  await report(b, get(list('?all=1')(API)), [[2, 2], [6, 6]]);
+  await report(a, list('?all=2')(API), [[2, 2]]);
+  assert.deepEqual(names('a'), ['listItems']);
+  await report(a, get(list('?all=2')(API)), [[2, 2], [6, 6]]);
+  assert.deepEqual(names('a'), ['listItems', 'getItem'], 'getItem is A’s own change now');
+});
+
+test("an import another agent added and this one took away again is no change of this agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+  const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
+  await report(a, one, [[6, 6]]);
+  // B adds an import; A takes it away again and keeps its own change to getItem.
+  await report(b, `import { z } from './z';\n${one}`, [[1, 1], [7, 7]]);
+  assert.equal(of('a').topAt, undefined, 'B’s import is not A’s to read');
+  await report(a, one.replace('${id}', '${encodeURIComponent(id)}'), [[6, 6]]);
+  assert.equal(of('a').topAt, undefined, 'the file’s other code is as HEAD has it');
+  // A adds B's import itself: A's change now.
+  await report(a, `import { z } from './z';\n${one}`, [[1, 1], [7, 7]]);
+  assert.equal(of('a').topAt, of('a').at);
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

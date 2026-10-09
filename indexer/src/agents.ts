@@ -85,6 +85,8 @@ interface FileRec {
   topAt: Stamp | null;
   /** The digest of that code as HEAD has it, so a file whose imports are back as they were has no change there; null when unknown. */
   baseTop: string | null;
+  /** The digest of that code as another agent last left it while this agent hadn't changed it, so it isn't this agent's to read; null when no other agent has. */
+  theirsTop: string | null;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
   /** `gen` when a re-index last settled the file for this agent: equal while it has changed nothing since. */
@@ -416,6 +418,7 @@ export class AgentHub {
         symAt: new Map(),
         theirs: new Map(),
         topAt: null,
+        theirsTop: null,
         gen: 0,
         settledGen: -1,
       };
@@ -688,12 +691,16 @@ export class AgentHub {
     if (own && settled) {
       const now = new Set(symbols.map((s) => s.id));
       for (const [id, prev] of f.symAt) if (!now.has(id) && prev.sig !== null) f.symAt.set(id, { sig: null, at: prev.at, back: true });
-      // A symbol another agent added and this one took away again is no one's change now.
-      for (const [id, theirs] of f.theirs) if (theirs !== 'deleted' && !f.sigs?.of.has(id)) f.theirs.delete(id);
+      // A symbol another agent changed that is no longer changed at all (this one took it back to
+      // HEAD, or took away one it added) is no one's: the same change made again is this agent's.
+      for (const id of f.theirs.keys()) if (!now.has(id)) f.theirs.delete(id);
     }
     f.topAt = advance(f.topAt, settled ? sig.top() : null, f.at);
-    // Back as HEAD has it: nothing outside the symbols to read, so no time for it.
-    return { symbols: out, top: f.baseTop != null && f.topAt.sig === f.baseTop ? null : f.topAt.at };
+    // Like a symbol's: once this agent moves it from how the other agent left it, it is this agent's.
+    if (settled && f.topAt.sig !== f.theirsTop) f.theirsTop = null;
+    // Back as HEAD has it, or as another agent left it: nothing outside the symbols for this agent to read.
+    const unchanged = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
+    return { symbols: out, top: unchanged ? null : f.topAt.at };
   }
 
   /**
@@ -722,9 +729,10 @@ export class AgentHub {
     }
     if (!f.topAt) return;
     const top = sig.top();
-    // This agent hadn't changed the file's other code: the other agent's version is its baseline
-    // now, so it isn't this agent's change to read.
-    if (f.baseTop != null && f.topAt.sig === f.baseTop) f.baseTop = top;
+    // This agent hadn't changed the file's other code: the other agent's version isn't this
+    // agent's change to read. HEAD's stays as it was, so taking it back there is no change either.
+    const untouched = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
+    f.theirsTop = untouched ? top : null;
     f.topAt = { sig: top, at: f.topAt.at };
   }
 
