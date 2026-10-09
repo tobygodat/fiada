@@ -138,6 +138,9 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
   return stops;
 }
 
+/** The most links one graph link makes between the stops it stands for, before it is linked in a line instead. */
+const PAIRS = 4096;
+
 /**
  * Layers first, from the user inwards; inside a layer, a stop waits for the
  * changed code that calls it, and after a stop its own callees come next.
@@ -192,14 +195,30 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
 
   const next = stops.map(() => new Set<number>());
   const waits = stops.map(() => new Set<number>());
+  const link = (a: number, b: number) => {
+    if (a === b || layerRank(stops[a]) > layerRank(stops[b])) return;
+    next[a].add(b);
+    waits[b].add(a);
+  };
+  const first = (l: number[]) => l.reduce((x, y) => (before(y, x) < 0 ? y : x));
+  const seen = new Set<string>();
   for (const e of graph.edges) {
-    for (const a of stopsOf(e.from)) {
-      for (const b of stopsOf(e.to)) {
-        if (a === b || layerRank(stops[a]) > layerRank(stops[b])) continue;
-        next[a].add(b);
-        waits[b].add(a);
-      }
+    const key = `${e.from}\n${e.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const as = stopsOf(e.from);
+    const bs = stopsOf(e.to);
+    if (!as.length || !bs.length) continue;
+    if (as.length * bs.length <= PAIRS) {
+      for (const a of as) for (const b of bs) link(a, b);
+      continue;
     }
+    // Two files with many changed functions each: every caller still comes before the first
+    // callee, and the first caller before every callee, without a link for every pair.
+    const a0 = first(as);
+    const b0 = first(bs);
+    for (const a of as) link(a, b0);
+    for (const b of bs) link(a0, b);
   }
 
   const loop = loops(next);

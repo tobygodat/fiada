@@ -137,3 +137,24 @@ test('a long hunk across many functions is cut to the one asked for, with three 
   const first = pickHunks(long, { lines: [5, 15] }, [{ lines: [5, 15] }, { lines: [405, 415] }]);
   assert.ok(first.includes('+new 10') && first.includes(' line 300') && !first.includes('+new 410'));
 });
+
+test('a deleted function in a long hunk is cut to the lines that took it away, with three lines of context', () => {
+  const rows: string[] = [];
+  for (let i = 1; i <= 600; i++) {
+    if (i === 10) rows.push('-old 10', '+new 10');
+    else if (i >= 400 && i <= 405) rows.push(`-gone ${i}`);
+    else rows.push(` line ${i}`);
+  }
+  const long = ['@@ -1,600 +1,594 @@', ...rows].join('\n');
+  const gone = pickHunks(long, { name: 'gone', oldLines: [400, 405] });
+  assert.equal(gone[0], '@@ -397,12 +397,6 @@');
+  assert.ok(gone.includes('-gone 400') && gone.includes('-gone 405') && !gone.includes('+new 10'));
+  assert.equal(gone.length, 13);
+});
+
+test('a diff cut short before a change says so, never showing other hunks in its place', () => {
+  const cut = ['@@ -1,3 +1,3 @@', ' a', '-b', '+c', '… diff cut at 64 KB'].join('\n');
+  assert.deepEqual(pickHunks(cut, { lines: [200, 210] }), ['… diff cut at 64 KB, before this change']);
+  // A change in the part that was kept shows, with the note at the end.
+  assert.deepEqual(pickHunks(cut, { lines: [2, 2] }), ['@@ -1,3 +1,3 @@', ' a', '-b', '+c', '… diff cut at 64 KB']);
+});
