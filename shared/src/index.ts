@@ -538,7 +538,8 @@ export interface AgentFile {
   additions?: number;
   deletions?: number;
   /** Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no longer in the graph. */
-  symbols: { id: string; name: string; kind: ChangeKind }[];
+  /** `oldLines`: for a deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away. */
+  symbols: { id: string; name: string; kind: ChangeKind; oldLines?: [number, number] }[];
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */

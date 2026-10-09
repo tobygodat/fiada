@@ -240,6 +240,23 @@ test('a loop called from another loop waits for it, whichever of its stops sorts
   assert.deepEqual(ids, ['r/up.ts#one', 'r/up.ts#two', 'r/down.ts#b2', 'r/down.ts#b1']);
 });
 
+test('a loop of calls and a single stop, both free to start, go in the order', () => {
+  // a.ts: one ↔ two. z.ts: three, linked to neither. The loop sorts first by path, so it goes first.
+  const layer: GraphNode['layer'] = { id: 'ui', source: 'path', confidence: 1, evidence: [] };
+  const nodes: GraphNode[] = [
+    { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
+    ...['a.ts', 'z.ts'].map((f): GraphNode => ({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer })),
+    ...([['a.ts', 'one', 1], ['a.ts', 'two', 10], ['z.ts', 'three', 1]] as const).map(
+      ([f, n, at]): GraphNode => ({ id: `r/${f}#${n}`, kind: 'symbol', name: n, parent: `r/${f}`, repo: 'r', path: f, lines: [at, at + 5], layer }),
+    ),
+  ];
+  const calls = (from: string, to: string) => ({ from: `r/${from}`, to: `r/${to}`, kind: 'calls' as const });
+  const g = { layers: [{ id: 'ui', name: 'UI' }], edges: [calls('a.ts#one', 'a.ts#two'), calls('a.ts#two', 'a.ts#one')] };
+  const a = agent([file('r', 'z.ts', [sym('r/z.ts#three')]), file('r', 'a.ts', [sym('r/a.ts#two'), sym('r/a.ts#one')])]);
+  const ids = tourStops(g, new Map(nodes.map((n) => [n.id, n])), a, NO_NODES).map((s) => s.id);
+  assert.deepEqual(ids, ['r/a.ts#one', 'r/a.ts#two', 'r/z.ts#three']);
+});
+
 test("the first of a file's function stops also carries the file's other hunks", () => {
   const a = agent([
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
@@ -250,6 +267,25 @@ test("the first of a file's function stops also carries the file's other hunks",
   assert.deepEqual(rest['web/src/client/api.ts#ItemsService'], ['web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService']);
   assert.equal(rest['web/src/client/api.ts#UsersService'], undefined, 'once per file');
   assert.deepEqual(rest['web/src/pages/items.tsx#ItemsPage'], ['web/src/pages/items.tsx#ItemsPage']);
+});
+
+test("a deleted function's stop carries its lines from before, for its own hunks, and so does the file's first stop", () => {
+  const a = agent([
+    file('web', 'src/client/api.ts', [
+      { ...sym('web/src/client/api.ts#Users.get', 'deleted'), oldLines: [10, 12] as [number, number] },
+      { ...sym('web/src/client/api.ts#Items.get', 'deleted'), oldLines: [30, 32] as [number, number] },
+    ]),
+  ]);
+  const stops = tourStops(graph, graphIndex, a, NO_NODES);
+  assert.deepEqual(
+    stops.map((s) => [s.id, s.old]),
+    [
+      ['web/src/client/api.ts#Items.get', [30, 32]],
+      ['web/src/client/api.ts#Users.get', [10, 12]],
+    ],
+  );
+  assert.deepEqual(stops[0].restOld, { 'web/src/client/api.ts#Users.get': [10, 12], 'web/src/client/api.ts#Items.get': [30, 32] });
+  assert.equal(stops[1].restOld, undefined);
 });
 
 test('a change whose repository is gone from the map is not on the tour', () => {

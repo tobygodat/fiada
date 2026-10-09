@@ -197,6 +197,20 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
   assert.deepEqual(hub.state().agents, []);
 });
 
+test('a function deleted from a file it stays in carries its lines from HEAD', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // getItem (lines 5-7 in HEAD) goes, with the blank line before it.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.slice(0, API.indexOf('\nexport function getItem')));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1);
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(dir, 'src/api.ts'), kind: 'modified', lines: [[3, 3]], oldLines: [[4, 7]], deletions: 4 }] }]);
+  await pushed;
+  await new Promise((r) => setTimeout(r, 400));
+  const f = hub.state().agents[0].files[0];
+  assert.deepEqual(f.symbols.find((x) => x.name === 'getItem'), { id: 'web/src/api.ts#getItem', name: 'getItem', kind: 'deleted', oldLines: [5, 7] });
+});
+
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

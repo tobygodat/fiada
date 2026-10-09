@@ -4,7 +4,9 @@
 /** One changed symbol, as a diff can find it: by its lines, or, deleted, by the lines that take it away. */
 export interface HunkOwner {
   lines?: readonly [number, number];
-  /** A deleted symbol's name; for a member (`ItemController.get`) its declaration says only the last part. */
+  /** A deleted symbol's lines before the change: the hunks that take those away. */
+  oldLines?: readonly [number, number];
+  /** A deleted symbol's name, when its old lines aren't known; for a member (`ItemController.get`) its declaration says only the last part. */
   name?: string;
 }
 
@@ -22,12 +24,13 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
 }
 
 function belongs(h: string[], o: HunkOwner): boolean {
-  if (o.lines) {
-    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
+  if (o.lines || o.oldLines) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(h[0]);
     if (!m) return true;
-    const s = Number(m[1]);
-    const e = s + Math.max(1, m[2] == null ? 1 : Number(m[2])) - 1;
-    return s <= o.lines[1] && e >= o.lines[0];
+    const [at, n, span] = o.lines ? [m[3], m[4], o.lines] : [m[1], m[2], o.oldLines!];
+    const s = Number(at);
+    const e = s + Math.max(1, n == null ? 1 : Number(n)) - 1;
+    return s <= span[1] && e >= span[0];
   }
   if (!o.name) return false;
   const last = o.name.split(/\.|::|#/).pop()!;
