@@ -445,6 +445,15 @@ export class AgentHub {
     const batches = [...this.pendingIndex];
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
+      // The layer each symbol in HEAD has on the map now, while the map still has it: one this
+      // re-index takes away keeps the layer it had last, not the one it had when the file first changed.
+      const ix = this.index(this.ws.getGraph());
+      for (const rec of this.agents.values())
+        for (const f of rec.files.values()) {
+          if (f.repo !== repo || !rels.has(f.rel!) || !f.base) continue;
+          const now = new Map((ix.symbols.get(fileId(repo, f.rel!)) ?? []).map((n) => [n.id, n.layer?.id]));
+          for (const [id, s] of f.base) if (now.has(id)) s.layer = now.get(id);
+        }
       await this.ws.updateFiles(repo, [...rels]);
       for (const rec of this.agents.values()) for (const f of rec.files.values()) if (f.repo === repo && rels.has(f.rel!)) f.fresh = true;
     }

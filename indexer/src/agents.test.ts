@@ -230,6 +230,34 @@ test('a function deleted from a file it stays in carries its lines from HEAD', a
   assert.deepEqual(f.symbols.find((x) => x.name === 'getItem'), { id: 'web/src/api.ts#getItem', name: 'getItem', kind: 'deleted', oldLines: [5, 7], layer });
 });
 
+test('a function deleted after the map moved it to another layer keeps the layer the map had for it last', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const settle = async (go: () => Promise<void>) => {
+    const v = ws.version;
+    await go();
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  // listItems changes first, so the file's symbols in HEAD are read with the layers they had then.
+  const one = API.replace("'/api/items')", "'/api/items?all=1')");
+  await settle(async () => {
+    await fs.writeFile(file, one);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', lines: [[2, 2]], oldLines: [[2, 2]] }] }]);
+  });
+  // The project's grouping then puts getItem in another layer.
+  const node = ws.getGraph().nodes.find((n) => n.id === 'web/src/api.ts#getItem')!;
+  node.layer = { ...node.layer!, id: 'moved' };
+  // getItem goes.
+  await settle(async () => {
+    await fs.writeFile(file, one.slice(0, one.indexOf('\nexport function getItem')));
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', lines: [[2, 3]], oldLines: [[2, 7]] }] }]);
+  });
+  assert.equal(hub.state().agents[0].files[0].symbols.find((x) => x.name === 'getItem')?.layer, 'moved');
+});
+
 test('a class that lost a method carries its lines from HEAD, with the method', async () => {
   // Java lists a class and each method in it.
   const STORE = 'class Store {\n  int get() {\n    return 1;\n  }\n\n  int put() {\n    return 2;\n  }\n}\n';
