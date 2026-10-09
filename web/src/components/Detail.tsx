@@ -203,7 +203,8 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
   const rest = tour?.stop.rest?.map((id): HunkOwner => {
     const n = graphIndex.get(id);
-    return n?.kind === 'symbol' && n.lines ? { lines: n.lines } : { name: id.slice(id.indexOf('#') + 1), oldLines: tour.stop.restOld?.[id] };
+    const oldLines = tour.stop.restOld?.[id];
+    return n?.kind === 'symbol' && n.lines ? { lines: n.lines, oldLines } : { name: id.slice(id.indexOf('#') + 1), oldLines };
   });
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
@@ -226,7 +227,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
   return (
     <AgentChange
       node={g.id}
-      own={g.kind === 'symbol' && g.lines ? { lines: g.lines } : undefined}
+      own={g.kind === 'symbol' && g.lines ? { lines: g.lines, oldLines: tour?.stop.id === g.id ? tour.stop.old : undefined } : undefined}
       rest={rest}
       rev={file?.at ?? own.at}
       kind={kind}

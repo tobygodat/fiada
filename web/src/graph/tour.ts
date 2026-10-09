@@ -28,9 +28,12 @@ export interface TourStop {
    * constant) and none is skipped.
    */
   rest?: string[];
-  /** A deleted function's lines before the change, so its diff is the hunks that took those away. */
+  /**
+   * A function's lines before the change: a deleted one's diff is the hunks that took those away,
+   * and a changed one's also takes the hunk that removed it from there when it moved far.
+   */
   old?: [number, number];
-  /** With `rest`: the same for each deleted function in it. */
+  /** With `rest`: the same for each function in it. */
   restOld?: Record<string, [number, number]>;
 }
 
@@ -47,7 +50,7 @@ export function tourStops(
   const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id))), graph, graphIndex);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
-  // And each deleted one's lines before the change, gathered in the same pass.
+  // And each one's lines before the change, gathered in the same pass.
   const olds = new Map<string, Record<string, [number, number]>>();
   const fileOf = (s: TourStop) => (s.id.includes('#') ? s.id.slice(0, s.id.indexOf('#')) : null);
   for (const s of out) {
@@ -132,7 +135,7 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
         // while the project still has that layer (Unlayered it always has, though it isn't listed).
         const kept = !live && s.layer && (s.layer === UNLAYERED || layers?.has(s.layer)) ? s.layer : null;
         const layer = kept ?? layerOf(target);
-        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at, ...(s.kind === 'deleted' && s.oldLines && { old: s.oldLines }) });
+        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at, ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }) });
       }
     } else if (stand) {
       add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
@@ -188,7 +191,7 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   const rank = new Map(graph.layers.map((l, i) => [l.id, i]));
   const layerRank = (s: TourStop) => (s.layer != null ? (rank.get(s.layer) ?? graph.layers.length) : graph.layers.length + 1);
   // A deleted function stands on its file, which has no lines: its own were where HEAD had them.
-  const line = (s: TourStop) => s.old?.[0] ?? graphIndex.get(s.target)?.lines?.[0] ?? 0;
+  const line = (s: TourStop) => (s.kind === 'deleted' ? s.old?.[0] : undefined) ?? graphIndex.get(s.target)?.lines?.[0] ?? 0;
   const before = (a: number, b: number) => {
     const x = stops[a];
     const y = stops[b];

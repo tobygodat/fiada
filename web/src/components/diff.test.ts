@@ -190,6 +190,38 @@ test("the file's other code in another function's hunk still shows, on the stop 
   assert.ok(own.includes('+  return 2;') && !own.includes('+const LIMIT = 20;'));
 });
 
+test('a function moved far away sees both its removal and its addition, and the stop carrying the rest neither', () => {
+  const moved = [
+    '@@ -1,2 +1,3 @@',
+    ' import a',
+    '+import b',
+    ' x = 1',
+    '@@ -10,3 +10,0 @@',
+    '-def moved():',
+    '-    return 1',
+    '-',
+    '@@ -27,1 +24,1 @@',
+    '-    return f',
+    '+    return f + 1',
+    '@@ -40,1 +37,4 @@',
+    ' y = 2',
+    '+def moved():',
+    '+    return 2',
+    '+',
+  ].join('\n');
+  const f = { lines: [23, 24] } as const;
+  const m = { lines: [38, 40], oldLines: [10, 12] } as const;
+  const own = pickHunks(moved, m);
+  assert.ok(own.includes('-def moved():') && own.includes('+def moved():'), 'both sides of the move');
+  assert.ok(!own.includes('+import b') && !own.includes('+    return f + 1'));
+  const first = pickHunks(moved, f, [f, m]);
+  assert.ok(first.includes('+    return f + 1') && first.includes('+import b'));
+  assert.ok(!first.includes('-def moved():') && !first.includes('+def moved():'), 'the move is the moved function’s');
+  // An addition where the function used to be is the file's, not the moved function's.
+  const at = ['@@ -10,3 +10,1 @@', '-def moved():', '-    return 1', '-', '+import c'].join('\n');
+  assert.deepEqual(pickHunks(at, m), ['@@ -10,3 +10,0 @@', '-def moved():', '-    return 1', '-']);
+});
+
 test('a deleted function in a long hunk is cut to the lines that took it away, with three lines of context', () => {
   const rows: string[] = [];
   for (let i = 1; i <= 600; i++) {
