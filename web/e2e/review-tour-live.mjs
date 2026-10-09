@@ -6,7 +6,8 @@
 // function (crud.py's import). The agent deletes the function you're on: its stop moves to
 // the file and shows only the hunk that takes it away, and switching to By function, which shows
 // no files, moves the tour to the nearest change it does show. The agent deletes a file: its stop, on the
-// folder that's left, shows the deleted file's diff. Then the reviewed agent
+// folder that's left, shows the deleted file's diff. The agent adds a file with two
+// functions: each one's stop shows only its own lines. Then the reviewed agent
 // takes a file back: the tour goes on to the change now in its place. Puts
 // the files and the session back as they were.
 //
@@ -27,6 +28,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FILE = 'frontend/src/routes/_layout/items.tsx';
 const GONE = 'backend/app/utils.py';
 const CRUD = 'backend/app/crud.py';
+const ADDED = 'backend/app/export.py';
 const hook = (session, file = FILE) =>
   execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, file]);
 
@@ -132,6 +134,27 @@ try {
   await page.waitForTimeout(1500);
   await goTo(name);
 
+  // The agent adds a file with two functions: git sends it as one hunk, and each function's stop
+  // shows only its own lines (the first also the import above them).
+  writeFileSync(join(repo, ADDED), 'import csv\n\n\ndef export_csv(rows):\n    return csv.writer(rows)\n\n\ndef export_json(rows):\n    return list(rows)\n');
+  execFileSync('git', ['-C', repo, 'add', '-N', ADDED]);
+  hook('demo-review', ADDED);
+  await page.waitForTimeout(1500);
+  await goTo('export_json');
+  const second = await page.locator('.agent-diff').innerText();
+  assert.match(second, /def export_json/);
+  assert.doesNotMatch(second, /def export_csv|import csv/, 'the second function shows only its own lines');
+  await goTo('export_csv');
+  const first = await page.locator('.agent-diff').innerText();
+  assert.match(first, /import csv[\s\S]*def export_csv/, 'the first shows the import and its own lines');
+  assert.doesNotMatch(first, /def export_json/);
+  if (shots) await page.screenshot({ path: `${shots}/added-file.png` });
+  execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', ADDED]);
+  execFileSync('rm', [join(repo, ADDED)]);
+  hook('demo-review', ADDED);
+  await page.waitForTimeout(1500);
+  await goTo(name);
+
   // The reviewed agent takes the file back: the tour goes on to the change in its place.
   execFileSync('git', ['-C', repo, 'checkout', '--', FILE]);
   hook('demo-review');
@@ -150,6 +173,9 @@ try {
   await browser.close();
   // Put things back: the other agent gone, the reviewed agent's edit to the page made again.
   await fetch(`http://localhost:4178/api/agent?id=${encodeURIComponent(`claude-code@${repo}#zz-other`)}`, { method: 'DELETE' }).catch(() => {});
+  execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', '--ignore-unmatch', ADDED]);
+  execFileSync('rm', ['-f', join(repo, ADDED)]);
+  hook('demo-review', ADDED);
   execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', FILE, GONE, CRUD]);
   hook('demo-review', GONE);
   execFileSync('python3', [join(here, 'agent-edits.py'), repo, 'crud']);
