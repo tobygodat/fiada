@@ -18,6 +18,8 @@ interface Props {
   layers: readonly { id: string; name: string }[];
   /** Detail panel open on the right: keep to the map between the panels. */
   besideDetail: boolean;
+  /** The change you're on is what the map has selected; else you've gone to look at something else. */
+  showing: boolean;
   onGo(i: number): void;
   onRead(i: number, read: boolean): void;
   onEnd(): void;
@@ -28,10 +30,12 @@ const VERB = { added: 'added', modified: 'changed', deleted: 'deleted' } as cons
 /** More changes than this and the ticks would be too fine to point at. */
 const MAX_TICKS = 80;
 
-export function TourBar({ agent, stops, at, marks, layers, besideDetail, onGo, onRead, onEnd }: Props) {
+export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, onGo, onRead, onEnd }: Props) {
   const stop = stops[at];
   const read = stops.filter((s) => isRead(marks, s)).length;
   const here = !!stop && isRead(marks, stop);
+  // Away looking at something else, you can't mark the change read unseen: r takes you back to it first.
+  const readOrBack = () => (showing ? onRead(at, !here) : onGo(at));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -41,13 +45,13 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, onGo, o
       if (el && (el.closest('input, textarea, select, [role="tree"], [role="listbox"]') || el.isContentEditable)) return;
       if (e.key === 'ArrowRight' && at < stops.length - 1) onGo(at + 1);
       else if (e.key === 'ArrowLeft' && at > 0) onGo(at - 1);
-      else if (e.key === 'r' && stop) onRead(at, !here);
+      else if (e.key === 'r' && stop) readOrBack();
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [at, stops.length, stop, here, onGo, onRead]);
+  }, [at, stops.length, stop, here, showing, onGo, onRead]);
 
   if (!stop) return null;
   const layer = stop.layer ? layers.find((l) => l.id === stop.layer)?.name : null;
@@ -95,9 +99,15 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, onGo, o
           <button className="queue-act" onClick={() => onGo(at - 1)} disabled={at === 0} title="Previous change (←)">
             previous
           </button>
-          <button className="queue-act" onClick={() => onRead(at, !here)} title={here ? 'Mark this change unread (r)' : 'Mark this change read and go on (r)'}>
-            {here ? 'mark unread' : 'mark read'}
-          </button>
+          {showing ? (
+            <button className="queue-act" onClick={readOrBack} title={here ? 'Mark this change unread (r)' : 'Mark this change read and go on (r)'}>
+              {here ? 'mark unread' : 'mark read'}
+            </button>
+          ) : (
+            <button className="queue-act" onClick={readOrBack} title="Show this change again (r)">
+              back to it
+            </button>
+          )}
           <button className="tour-next" onClick={() => onGo(at + 1)} disabled={at === stops.length - 1} title="Next change (→)">
             next
           </button>

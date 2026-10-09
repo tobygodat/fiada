@@ -775,6 +775,7 @@ export function App() {
             marks={marks}
             layers={graph?.layers ?? []}
             besideDetail={detailOpen}
+            showing={!!tree && !selectedEdge && !!stops[tourAt] && selected === locate(tree, graphIndex, stops[tourAt].target)}
             onGo={goStop}
             onRead={markRead}
             onEnd={() => setTour(null)}

@@ -1,6 +1,9 @@
 /* The review tour's panel: floating at the foot of the map, between the sidebar and the detail
    panel, while you walk through one agent's changes. Tokens only (DESIGN.md). */
 
+.main { --fiada-tour: 200px; }
+@media (pointer: coarse) { .main { --fiada-tour: 270px; } }
+
 .tour {
   position: absolute; z-index: 3; left: calc(var(--fiada-sidebar) + 2 * var(--space-md)); bottom: var(--space-md);
   width: 440px; max-width: calc(100% - var(--fiada-sidebar) - 4 * var(--space-md));
@@ -11,9 +14,21 @@
   animation: rise var(--fast) var(--ease) both;
 }
 .tour.beside-detail { max-width: calc(100% - var(--fiada-sidebar) - var(--fiada-detail) - 5 * var(--space-md)); }
+/* Too narrow for the panel between the sidebar and the detail panel: it takes the foot of the map
+   from the sidebar to the edge, in front, and the detail panel stops above it. */
+@media (max-width: 1100px) {
+  .tour, .tour.beside-detail { right: var(--space-md); width: auto; max-width: none; z-index: 5; }
+  /* (52px: room for the agents window folded above it.) */
+  .main:has(.tour) .detail { max-height: calc(100% - var(--fiada-tour) - 3 * var(--space-md) - 52px); }
+}
+/* Narrower still: the whole width, and the sidebar stops above it too. */
+@media (max-width: 720px) {
+  .tour, .tour.beside-detail { left: var(--space-md); }
+  .main:has(.tour) .sidebar { max-height: calc(100% - var(--fiada-tour) - 3 * var(--space-md)); }
+}
 
 .tour-head { display: flex; align-items: baseline; gap: var(--space-8); min-width: 0; }
-.tour-title { margin: 0; font-size: var(--size-heading); line-height: var(--leading-tight); font-weight: var(--weight-bold); }
+.tour-title { flex: none; margin: 0; font-size: var(--size-heading); line-height: var(--leading-tight); font-weight: var(--weight-bold); }
 .tour-title::before { content: '// '; color: var(--accent); }
 .tour-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 .tour-head .queue-act { margin-left: auto; }
