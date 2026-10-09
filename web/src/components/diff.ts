@@ -25,38 +25,44 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
 }
 
 /**
- * A hunk of nothing but added lines (a whole added file is one) cut down to the symbol's own
- * lines and, with `rest`, the lines none of the changed symbols covers; so each of an added
- * file's functions shows its own code, not the whole file again. Any other hunk stays whole.
+ * A hunk cut down to the symbol's own lines and, with `rest`, the lines none of the changed symbols
+ * covers; so each of an added file's functions shows its own code, not the whole file again, and a
+ * long hunk across many functions shows this one's rows before the panel's row limit. A hunk of
+ * nothing but added lines is cut to exactly those lines; any other keeps three lines of context
+ * around them, as git would. A hunk that needs no cut stays as it is, header and all.
  */
 function slice(h: string[], span: readonly [number, number], rest?: readonly HunkOwner[]): string[][] {
   const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
-  if (!m || h.slice(1).some((l) => l[0] !== '+' && l[0] !== '\\')) return [h];
+  if (!m) return [h];
+  const body = h.slice(1);
+  const pad = body.every((l) => l[0] === '+' || l[0] === '\\') ? 0 : 3;
   const wanted = (n: number) =>
-    (n >= span[0] && n <= span[1]) || (!!rest && !rest.some((r) => r.lines && n >= r.lines[0] && n <= r.lines[1]));
-  const out: string[][] = [];
-  let run: string[] | null = null;
-  let from = 0;
+    (n >= span[0] - pad && n <= span[1] + pad) || (!!rest && !rest.some((r) => r.lines && n >= r.lines[0] && n <= r.lines[1]));
+  // Each row's place on the new side; a removed row stands where the next new line does.
+  let o = Number(m[1]) - 1;
   let n = Number(m[2]) - 1;
-  const close = () => {
-    if (run) out.push([`@@ -${m[1]},0 +${from},${run.filter((l) => l[0] === '+').length} @@`, ...run]);
-    run = null;
-  };
-  for (const l of h.slice(1)) {
-    // "\ No newline at end of file" goes with the line before it.
-    if (l[0] === '\\') {
-      run?.push(l);
-      continue;
-    }
-    n++;
-    if (!wanted(n)) close();
-    else if (run) run.push(l);
-    else {
-      run = [l];
-      from = n;
-    }
+  const rows = body.map((l) => {
+    const row = { l, o, n, keep: false };
+    if (l[0] === '\\') return row;
+    if (l[0] !== '+') o++;
+    if (l[0] !== '-') n++;
+    row.keep = wanted(l[0] === '-' ? n + 1 : n);
+    return row;
+  });
+  // "\ No newline at end of file" goes with the line before it.
+  rows.forEach((r, i) => r.l[0] === '\\' && (r.keep = i > 0 && rows[i - 1].keep));
+  if (rows.every((r) => r.keep)) return [h];
+  const out: string[][] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (!rows[i].keep) continue;
+    let j = i;
+    while (j + 1 < rows.length && rows[j + 1].keep) j++;
+    const run = rows.slice(i, j + 1).map((r) => r.l);
+    const olds = run.filter((l) => l[0] === ' ' || l[0] === '-').length;
+    const news = run.filter((l) => l[0] === ' ' || l[0] === '+').length;
+    out.push([`@@ -${rows[i].o + 1},${olds} +${rows[i].n + 1},${news} @@`, ...run]);
+    i = j;
   }
-  close();
   return out.length ? out : [h];
 }
 
