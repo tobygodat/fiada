@@ -144,6 +144,35 @@ test("an agent's files revision stays through its status lines and moves with it
   assert.notEqual(rev(), r1);
 });
 
+test("a file's changes that are another agent's are named with it, so its diff can leave them out", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const ref = (session: string): AgentRef => ({ client: 'claude-code', session, cwd: dir, root: dir });
+  const [a, b] = [ref('a'), ref('b')];
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+  const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
+  const all = (text: string) => text.replace("'/api/items?all=1')", "'/api/items?all=2')");
+  // A changes listItems; B then changes getItem and adds an import; A changes listItems again, and
+  // its diff, git's of the whole file, has B's changes too (as do the lines the hook reports).
+  await report(a, list(API), [[2, 2]]);
+  await report(b, `import { z } from './z';\n${get(list(API))}`, [[1, 1], [3, 3], [7, 7]]);
+  await report(a, `import { z } from './z';\n${all(get(list(API)))}`, [[1, 1], [3, 3], [7, 7]]);
+  assert.deepEqual(of('a').symbols.map((s) => s.name), ['listItems']);
+  assert.deepEqual(of('a').others?.map((s) => s.id), ['web/src/api.ts#getItem']);
+  assert.equal(of('a').topTheirs, true);
+  assert.equal(of('b').topTheirs, undefined, "the import is B's own");
+});
+
 test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(touches([5, 10], [[10, 12]]));
   assert.ok(!touches([5, 10], [[11, 12]]));

@@ -551,6 +551,13 @@ export interface AgentFile {
    * constant), shown with the file's first function; absent while that code is as HEAD has it, and from older indexers.
    */
   topAt?: string;
+  /**
+   * The file's changed symbols that are another agent's, and `topTheirs` when its code outside
+   * every symbol is as another agent left it: this agent's diff is git's for the whole file, so the
+   * rows of those are left out of it on review. Absent when there are none, and from older indexers.
+   */
+  others?: { id: string; kind: ChangeKind; oldLines?: [number, number] }[];
+  topTheirs?: boolean;
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */

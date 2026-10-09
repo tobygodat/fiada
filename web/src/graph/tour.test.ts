@@ -740,3 +740,18 @@ test("with the indexer's revision of an agent's files, a status update doesn't r
   const more = [...files, file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
   assert.equal(tour(graph, graphIndex, { ...agent(more), filesRev: 'r2' }, NO_NODES).length, 2);
 });
+
+test("another agent's changes in a file go with each of that file's stops, so its diff leaves them out", () => {
+  const f = {
+    ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]),
+    others: [{ id: 'web/src/client/api.ts#request', kind: 'modified' as const, oldLines: [3, 9] as [number, number] }],
+    topTheirs: true,
+  };
+  const [stop] = tourStops(graph, graphIndex, agent([f]), NO_NODES);
+  assert.deepEqual(stop.peer, { ids: ['web/src/client/api.ts#request'], old: { 'web/src/client/api.ts#request': [3, 9] }, top: true });
+  // Only the file's other code is the other agent's; and a file stop carries it too.
+  const top = { ...file('web', 'src/client/api.ts'), topTheirs: true };
+  assert.deepEqual(tourStops(graph, graphIndex, agent([top]), NO_NODES)[0].peer, { ids: [], top: true });
+  // Nothing of another agent's: nothing to leave out.
+  assert.equal(tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])]), NO_NODES)[0].peer, undefined);
+});

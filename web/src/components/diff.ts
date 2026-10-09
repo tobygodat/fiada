@@ -24,15 +24,18 @@ export const ownerOf = (lines?: readonly [number, number], oldLines?: readonly [
  * none of them covers, which that symbol's own stop cuts away. `own`'s lines come first and those others after,
  * so a long run of the file's other code never pushes them past the panel's row limit. All the hunks
  * when none matches, so nothing is hidden; unless the diff was cut short before `own`'s, which is then said instead.
+ * With `peer`, another agent's rows are taken out first, whoever's stop it is.
  */
-export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwner[]): string[] {
+export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwner[], peer?: Theirs): string[] {
   const hunks = split(diff);
   if (!Array.isArray(hunks[0])) return hunks as string[];
-  if (!own) return hunks.flat();
-  const all = hunks as string[][];
+  let all = hunks as string[][];
   // The note a diff cut short ends with, taken off its last hunk while the hunks are cut up.
+  const end = all[all.length - 1];
+  const cut = end[end.length - 1]?.startsWith(CUT) ? end.pop() : undefined;
+  if (peer) all = without(all, peer, [...(own ? [own] : []), ...(rest ?? [])]);
+  if (!own || !all.length) return [...all.flat(), ...(cut ? [cut] : [])];
   const last = all[all.length - 1];
-  const cut = last[last.length - 1]?.startsWith(CUT) ? last.pop() : undefined;
   // Its header still counts every line git gave it: whose it is goes by the lines it kept.
   const kept = cut ? [keptHeader(last), ...last.slice(1)] : last;
   const seen = (h: string[]) => (h === last ? kept : h);
@@ -52,6 +55,66 @@ export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwn
   });
   const out = [...parts.flatMap((p) => p.own), ...parts.flatMap((p) => p.rest)].flat();
   return cut && (hit.has(last) || shared.has(last)) ? [...out, cut] : out;
+}
+
+/** Another agent's changes in the file: its symbols, and `top` when the file's code outside every symbol is its too. */
+export interface Theirs {
+  owners: readonly HunkOwner[];
+  top: boolean;
+}
+
+/**
+ * The hunks less the rows of another agent's changes, which git's diff of the whole file has
+ * too: those in its symbols, and with `top`, those no changed symbol holds (an import it added).
+ * Each hunk left whole stays as it is; one cut keeps each run that still changes something.
+ */
+function without(all: string[][], theirs: Theirs, mine: readonly HunkOwner[]): string[][] {
+  const t = covers(theirs.owners);
+  const any = theirs.top ? covers([...mine, ...theirs.owners]) : null;
+  return all.flatMap((h) => {
+    const rows = place(h);
+    if (!rows) return [h];
+    const keep = rows.map((r) => r.l[0] === '\\' || (!t.holds(r.l[0], r.at) && (!any || any.holds(r.l[0], r.at))));
+    // "\ No newline at end of file" goes with the line before it.
+    keep.forEach((_, i) => rows[i].l[0] === '\\' && (keep[i] = i > 0 && keep[i - 1]));
+    if (keep.every(Boolean)) return [h];
+    return runsOf(rows, (_, i) => keep[i]).filter((run) => run.some((l) => l[0] === '+' || l[0] === '-'));
+  });
+}
+
+/**
+ * Each row of a hunk with its place on both sides: a removed row stands where the next new line
+ * does, an added one where the next old line does. Null for a hunk with no header to place it by.
+ */
+function place(h: string[]) {
+  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
+  if (!m) return null;
+  let o = Number(m[1]) - 1;
+  let n = Number(m[2]) - 1;
+  return h.slice(1).map((l) => {
+    const row = { l, o, n, at: { old: o, new: n } };
+    if (l[0] === '\\') return row;
+    if (l[0] !== '+') o++;
+    if (l[0] !== '-') n++;
+    row.at = { old: l[0] === '+' ? o + 1 : o, new: l[0] === '-' ? n + 1 : n };
+    return row;
+  });
+}
+
+/** Each unbroken run of the rows kept, under its own header. */
+function runsOf<R extends { l: string; o: number; n: number }>(rows: R[], keep: (r: R, i: number) => boolean): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (!keep(rows[i], i)) continue;
+    let j = i;
+    while (j + 1 < rows.length && keep(rows[j + 1], j + 1)) j++;
+    const run = rows.slice(i, j + 1).map((r) => r.l);
+    const olds = run.filter((l) => l[0] === ' ' || l[0] === '-').length;
+    const news = run.filter((l) => l[0] === ' ' || l[0] === '+').length;
+    out.push([`@@ -${rows[i].o + 1},${olds} +${rows[i].n + 1},${news} @@`, ...run]);
+    i = j;
+  }
+  return out;
 }
 
 /**
@@ -120,8 +183,8 @@ const CUT = '… diff cut at ';
  * git would. A hunk that needs no cut stays as it is, header and all. Without `own`, only the rest.
  */
 function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof covers>): { own: string[][]; rest: string[][] } {
-  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(h[0]);
-  if (!m || (own && !own.lines && !own.oldLines)) return own ? { own: [h], rest: [] } : { own: [], rest: [] };
+  const placed = place(h);
+  if (!placed || (own && !own.lines && !own.oldLines)) return own ? { own: [h], rest: [] } : { own: [], rest: [] };
   const body = h.slice(1);
   const only = (c: string) => body.every((l) => l[0] === c || l[0] === '\\');
   const pad = (only('+') && own?.lines) || (only('-') && own?.oldLines) ? 0 : 3;
@@ -131,16 +194,9 @@ function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof
   // lines (deleted) by those alone.
   const of = (r: HunkOwner, c: string, at: { old: number; new: number }, p = 0) =>
     inside(at.new, r.lines, p) || ((c !== '+' || !r.lines) && inside(at.old, r.oldLines, p));
-  // Each row's place on both sides: a removed row stands where the next new line does, an added
-  // one where the next old line does.
-  let o = Number(m[1]) - 1;
-  let n = Number(m[2]) - 1;
-  const rows = body.map((l) => {
+  const rows = placed.map(({ l, o, n, at }) => {
     const row = { l, o, n, mine: false, other: false };
     if (l[0] === '\\') return row;
-    if (l[0] !== '+') o++;
-    if (l[0] !== '-') n++;
-    const at = { old: l[0] === '+' ? o + 1 : o, new: l[0] === '-' ? n + 1 : n };
     row.mine = !!own && of(own, l[0], at, pad);
     row.other = !row.mine && !!rest && !rest.holds(l[0], at);
     return row;
@@ -153,21 +209,7 @@ function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof
   });
   if (own && rows.every((r) => r.mine)) return { own: [h], rest: [] };
   if (rows.every((r) => r.other)) return { own: [], rest: [h] };
-  // Each unbroken run of the rows kept, under its own header.
-  const runs = (keep: (r: (typeof rows)[number]) => boolean) => {
-    const out: string[][] = [];
-    for (let i = 0; i < rows.length; i++) {
-      if (!keep(rows[i])) continue;
-      let j = i;
-      while (j + 1 < rows.length && keep(rows[j + 1])) j++;
-      const run = rows.slice(i, j + 1).map((r) => r.l);
-      const olds = run.filter((l) => l[0] === ' ' || l[0] === '-').length;
-      const news = run.filter((l) => l[0] === ' ' || l[0] === '+').length;
-      out.push([`@@ -${rows[i].o + 1},${olds} +${rows[i].n + 1},${news} @@`, ...run]);
-      i = j;
-    }
-    return out;
-  };
+  const runs = (keep: (r: (typeof rows)[number]) => boolean) => runsOf(rows, keep);
   // The other code's runs that change something: unchanged lines cut away from the symbol's say nothing.
   const out = { own: runs((r) => r.mine), rest: runs((r) => r.other).filter((run) => run.some((l) => l[0] === '+' || l[0] === '-')) };
   return out.own.length || out.rest.length || !own ? out : { own: [h], rest: [] };

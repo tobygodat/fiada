@@ -21,7 +21,7 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
-import { ownerOf, type HunkOwner } from './diff.ts';
+import { ownerOf, type HunkOwner, type Theirs } from './diff.ts';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
@@ -206,6 +206,15 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
     const oldLines = tour.stop.restOld?.[id];
     return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { name: id.slice(id.indexOf('#') + 1), oldLines };
   });
+  // Another agent's changes in the file are left out of this one's diff.
+  const p = tour?.stop.peer;
+  const peer: Theirs | undefined = p && {
+    owners: p.ids.map((id): HunkOwner => {
+      const n = graphIndex.get(id);
+      return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, p.old?.[id]) : { oldLines: p.old?.[id] };
+    }),
+    top: p.top,
+  };
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
     return (
@@ -213,6 +222,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
         node={tour.stop.id}
         own={fn ? { name: tour.stop.name, oldLines: tour.stop.old } : undefined}
         rest={rest}
+        peer={peer}
         rev={stopRev(tour.stop)}
         kind={tour.stop.kind}
         agent={tour.agent}
@@ -229,6 +239,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
       node={g.id}
       own={g.kind === 'symbol' && g.lines ? ownerOf(g.lines, tour?.stop.id === g.id ? tour.stop.old : undefined) : undefined}
       rest={rest}
+      peer={peer}
       rev={file?.at ?? own.at}
       kind={kind}
       agent={tour?.agent}

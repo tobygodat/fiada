@@ -42,6 +42,12 @@ export interface TourStop {
   old?: [number, number];
   /** With `rest`: the same for each function in it. */
   restOld?: Record<string, [number, number]>;
+  /**
+   * Another agent's changes in the file, left out of this agent's diff (git's, of the whole file):
+   * its changed symbols, with their lines before the change when known, and `top` when the file's
+   * code outside every symbol is its too.
+   */
+  peer?: { ids: string[]; old?: Record<string, [number, number]>; top: boolean };
 }
 
 /**
@@ -174,7 +180,15 @@ function collect(
     // (Only a circle the map still has: a removed repository leaves an anchor that isn't.)
     const anchor = nodes[file]?.anchor;
     const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : anchor && graphIndex.has(anchor) ? anchor : null;
-    const base = { path: f.path, repo: f.repo };
+    const peer =
+      f.kind === 'modified' && (f.others?.length || f.topTheirs)
+        ? {
+            ids: (f.others ?? []).map((s) => s.id),
+            ...(f.others?.some((s) => s.oldLines) && { old: Object.fromEntries(f.others.filter((s) => s.oldLines).map((s) => [s.id, s.oldLines!])) }),
+            top: !!f.topTheirs,
+          }
+        : undefined;
+    const base = { path: f.path, repo: f.repo, ...(peer && { peer }) };
     if (f.symbols.length && f.kind !== 'deleted') {
       const inner = innermost(f.symbols, graphIndex);
       if (outer && inner.length < f.symbols.length) {

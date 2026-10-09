@@ -726,7 +726,11 @@ export class AgentHub {
    * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
    * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], own = false): { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean } {
+  private stamp(
+    f: FileRec,
+    symbols: AgentFile['symbols'],
+    own = false,
+  ): { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean; others: NonNullable<AgentFile['others']>; topTheirs: boolean } {
     const settled = !f.live || f.settled;
     const sig = this.signer(f);
     // Another agent's change is left out while its text stays as that agent left it.
@@ -764,7 +768,11 @@ export class AgentHub {
     const unchanged = f.topAt.sig != null && (f.topAt.sig === f.baseTop || f.topAt.sig === f.theirsTop);
     // Everything still changed in the file is another agent's: nothing here is this agent's to show.
     const theirsOnly = settled && !out.length && unchanged && (mine.length < symbols.length || f.topAt.sig === f.theirsTop);
-    return { symbols: out, top: unchanged ? null : f.topAt.at, theirsOnly };
+    // What is another agent's, so its rows are left out of this agent's diff.
+    const kept = new Set(mine);
+    const others = symbols.filter((s) => !kept.has(s)).map((s) => ({ id: s.id, kind: s.kind, ...(s.oldLines && { oldLines: s.oldLines }) }));
+    const topTheirs = unchanged && f.topAt.sig === f.theirsTop && f.theirsTop !== f.baseTop;
+    return { symbols: out, top: unchanged ? null : f.topAt.at, theirsOnly, others, topTheirs };
   }
 
   /**
@@ -911,7 +919,7 @@ export class AgentHub {
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
       for (const [key, f] of [...rec.files].sort((a, b) => b[1].at - a[1].at)) {
-        const { symbols, top, theirsOnly } = this.stamp(f, this.symbolsOf(f, ix));
+        const { symbols, top, theirsOnly, others, topTheirs } = this.stamp(f, this.symbolsOf(f, ix));
         // A file this agent took its own change back from, still changed by another agent, isn't this agent's.
         // An ended session won't change it again, so nothing of it will be this agent's: it goes.
         if (theirsOnly && f.kind !== 'deleted') {
@@ -936,6 +944,8 @@ export class AgentHub {
           deletions: f.deletions,
           symbols,
           topAt: top == null ? undefined : new Date(top).toISOString(),
+          ...(others.length && { others }),
+          ...(topTheirs && { topTheirs }),
           at: new Date(f.at).toISOString(),
           diff: !!f.diff,
         });

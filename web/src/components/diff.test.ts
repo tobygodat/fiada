@@ -291,3 +291,32 @@ test('a diff cut short inside a long hunk, before the change, says so too', () =
   // Cut right after the header: nothing of it is anyone's.
   assert.deepEqual(pickHunks(['@@ -1,2 +1,2 @@', ' a', '@@ -10,400 +10,401 @@', '… diff cut at 64 KB'].join('\n'), { lines: [10, 12] }), ['… diff cut at 64 KB, before this change']);
 });
+
+test("another agent's changes in the file are left out of this agent's diff, whoever's stop shows it", () => {
+  const diff = [
+    // An import the other agent added.
+    '@@ -1,1 +1,2 @@', ' import a', '+import b',
+    // This agent's function, lines 11-13 now.
+    '@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y',
+    // One hunk across both: this agent's lines 21-22, the other's function at 23-25.
+    '@@ -20,7 +21,7 @@', '-  old', '+  new', ' }', ' function theirs() {', '-  p', '+  q', ' }',
+  ].join('\n');
+  const mine = { lines: [11, 13] as const };
+  const ours = { lines: [21, 22] as const };
+  const peer = { owners: [{ lines: [23, 25] as const }], top: true };
+  // Without: the import and the other function show as this file's other code.
+  assert.ok(pickHunks(diff, mine, [mine, ours]).includes('+import b'));
+  assert.ok(pickHunks(diff, mine, [mine, ours]).includes('+  q'));
+  const shown = pickHunks(diff, mine, [mine, ours], peer);
+  assert.deepEqual(shown, ['@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y']);
+  // The hunk shared with the other agent's function is cut to this agent's rows.
+  assert.deepEqual(pickHunks(diff, ours, [mine, ours], peer), ['@@ -20,2 +21,2 @@', '-  old', '+  new', ' }']);
+  // The file's other code is this agent's: the import stays.
+  assert.ok(pickHunks(diff, mine, [mine, ours], { ...peer, top: false }).includes('+import b'));
+  assert.ok(!pickHunks(diff, mine, [mine, ours], { ...peer, top: false }).includes('+  q'));
+  // A stop for the file itself: everything but the other agent's.
+  assert.deepEqual(pickHunks(diff, undefined, undefined, { ...peer, top: false }), ['@@ -1,1 +1,2 @@', ' import a', '+import b', '@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y', '@@ -20,2 +21,2 @@', '-  old', '+  new', ' }']);
+  // A deleted function of the other agent's, known by its lines in HEAD.
+  const gone = ['@@ -30,3 +30,0 @@', '-function was() {', '-  r', '-}', '@@ -40,1 +37,1 @@', '-a', '+b'].join('\n');
+  assert.deepEqual(pickHunks(gone, { lines: [37, 37] }, [{ lines: [37, 37] }], { owners: [{ oldLines: [30, 32] }], top: false }), ['@@ -40,1 +37,1 @@', '-a', '+b']);
+});
