@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diffRows, ownerOf, pickHunks } from './diff.ts';
+import { cutShort, diffRows, ownerOf, pickHunks } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -290,4 +290,14 @@ test('a diff cut short inside a long hunk, before the change, says so too', () =
   assert.deepEqual(pickHunks(cut, { lines: [2, 50] }), ['@@ -1,400 +1,401 @@', ' a', '-b', '+c', '… diff cut at 64 KB']);
   // Cut right after the header: nothing of it is anyone's.
   assert.deepEqual(pickHunks(['@@ -1,2 +1,2 @@', ' a', '@@ -10,400 +10,401 @@', '… diff cut at 64 KB'].join('\n'), { lines: [10, 12] }), ['… diff cut at 64 KB, before this change']);
+});
+
+test('rows that end where the agent cut the diff short say so, wherever the cut lands', () => {
+  const cut = ['@@ -1,3 +1,3 @@', ' a', '-b', '+c', '… diff cut at 64 KB'].join('\n');
+  // Inside the function's own hunk, and before it.
+  assert.equal(cutShort(pickHunks(cut, { lines: [2, 2] })), true);
+  assert.equal(cutShort(pickHunks(cut, { lines: [200, 210] })), true);
+  assert.equal(cutShort(pickHunks(cut)), true);
+  assert.equal(cutShort(pickHunks(['@@ -1,3 +1,3 @@', ' a', '-b', '+c'].join('\n'), { lines: [2, 2] })), false);
+  assert.equal(cutShort([]), false);
 });

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
 import { shownRev, type FetchedDiffs, type ShownDiff } from '../graph/tour.ts';
-import { diffRows, pickHunks, type HunkOwner } from './diff.ts';
+import { cutShort, diffRows, pickHunks, type HunkOwner } from './diff.ts';
 import './agent.css';
 
 interface Props {
@@ -54,17 +54,20 @@ export function AgentChange({ node, own, rest, what, rev, kind, agent, onShown }
     };
   }, [key, node, attempt]);
 
-  // Which change of it is on screen, so a review tour doesn't mark a newer one (or one it couldn't load) read.
-  const loaded = shownRev(diffs, node);
-  useEffect(() => {
-    onShown?.({ node, rev: loaded });
-  }, [onShown, node, loaded]);
-  useEffect(() => () => onShown?.(null), [onShown]);
-
   // Only this node's diffs: the last node's stay in state until the new request lands.
   // (An older diff of this same node is fine to show while a newer one loads.)
   const mine = diffs?.node === node ? diffs.list.filter((d) => !agent || d.agent === agent) : null;
   const list = mine ?? [];
+  const picked = list.map((d) => (d.diff ? pickHunks(d.diff, own, rest) : []));
+  const cut = picked.some(cutShort);
+
+  // Which change of it is on screen, so a review tour doesn't mark a newer one (or one it couldn't
+  // load) read, and says when the agent cut short what it shows.
+  const loaded = shownRev(diffs, node);
+  useEffect(() => {
+    onShown?.({ node, rev: loaded, ...(cut && { cut }) });
+  }, [onShown, node, loaded, cut]);
+  useEffect(() => () => onShown?.(null), [onShown]);
   return (
     <div className="detail-block agent-change">
       <div className="block-title">
@@ -81,8 +84,8 @@ export function AgentChange({ node, own, rest, what, rev, kind, agent, onShown }
         </div>
       )}
       {mine && !list.length && !diffs?.failed && <div className="agent-note">No diff was recorded for this change.</div>}
-      {list.map((d) => {
-        const shown = d.diff ? diffRows(pickHunks(d.diff, own, rest)) : [];
+      {list.map((d, k) => {
+        const shown = diffRows(picked[k]);
         return (
           <div key={d.agent} className="agent-diff">
             <div className="agent-diff-head">

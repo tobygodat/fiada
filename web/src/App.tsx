@@ -786,6 +786,7 @@ export function App() {
             besideDetail={detailOpen}
             showing={!!tree && !selectedEdge && !!stops[tourAt] && selected === locate(tree, graphIndex, stops[tourAt].target)}
             ready={!stops[tourAt] || diffShown(shownDiff, stops[tourAt])}
+            cut={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.cut}
             onGo={goStop}
             onRead={markRead}
             onEnd={() => setTour(null)}
