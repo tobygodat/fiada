@@ -320,3 +320,17 @@ test("another agent's changes in the file are left out of this agent's diff, who
   const gone = ['@@ -30,3 +30,0 @@', '-function was() {', '-  r', '-}', '@@ -40,1 +37,1 @@', '-a', '+b'].join('\n');
   assert.deepEqual(pickHunks(gone, { lines: [37, 37] }, [{ lines: [37, 37] }], { owners: [{ oldLines: [30, 32] }], top: false }), ['@@ -40,1 +37,1 @@', '-a', '+b']);
 });
+
+test("a row both agents' changes hold is the innermost one's: a method in a class whose field the other agent changed", () => {
+  // A class at lines 1-8: the other agent changed its field (line 2), this agent its method (5-7).
+  const diff = ['@@ -1,7 +1,7 @@', ' class Store {', '-  int size = 1;', '+  int size = 2;', ' ', '   int get() {', '-    return 1;', '+    return 10;', '   }'].join('\n');
+  const method = { lines: [5, 7] as const };
+  const cls = { lines: [1, 8] as const };
+  const shown = pickHunks(diff, method, [method], { owners: [cls], top: false });
+  assert.ok(shown.includes('+    return 10;'), 'the method is this agent\u2019s');
+  assert.ok(!shown.includes('+  int size = 2;'), 'the field is the other agent\u2019s');
+  // The other way round: this agent's field, the other agent's method.
+  const mineToo = pickHunks(diff, cls, [cls], { owners: [method], top: false });
+  assert.ok(mineToo.includes('+  int size = 2;'));
+  assert.ok(!mineToo.includes('+    return 10;'));
+});

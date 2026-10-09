@@ -70,11 +70,20 @@ export interface Theirs {
  */
 function without(all: string[][], theirs: Theirs, mine: readonly HunkOwner[]): string[][] {
   const t = covers(theirs.owners);
+  const m = covers(mine);
   const any = theirs.top ? covers([...mine, ...theirs.owners]) : null;
+  // A row both hold (this agent's method in a class whose field the other agent changed, or the
+  // other way round) is the innermost one's: the one that holds it in the fewest lines.
+  const spanOf = (r: HunkOwner, c: string, at: { old: number; new: number }) => {
+    const s = r.lines && at.new >= r.lines[0] && at.new <= r.lines[1] ? r.lines : (c !== '+' || !r.lines) && r.oldLines && at.old >= r.oldLines[0] && at.old <= r.oldLines[1] ? r.oldLines : null;
+    return s ? s[1] - s[0] : Infinity;
+  };
+  const inner = (owners: readonly HunkOwner[], c: string, at: { old: number; new: number }) => Math.min(...owners.map((r) => spanOf(r, c, at)));
+  const theirsRow = (c: string, at: { old: number; new: number }) => t.holds(c, at) && (!m.holds(c, at) || inner(theirs.owners, c, at) < inner(mine, c, at));
   return all.flatMap((h) => {
     const rows = place(h);
     if (!rows) return [h];
-    const keep = rows.map((r) => r.l[0] === '\\' || (!t.holds(r.l[0], r.at) && (!any || any.holds(r.l[0], r.at))));
+    const keep = rows.map((r) => r.l[0] === '\\' || (!theirsRow(r.l[0], r.at) && (!any || any.holds(r.l[0], r.at))));
     // "\ No newline at end of file" goes with the line before it.
     keep.forEach((_, i) => rows[i].l[0] === '\\' && (keep[i] = i > 0 && keep[i - 1]));
     if (keep.every(Boolean)) return [h];
