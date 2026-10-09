@@ -522,13 +522,19 @@ export function App() {
   }, [selected, touring, stops, tourAt]);
 
   // A live agent can take back the change you're on (or a reindex renames it): go on to the
-  // change now in its place, and end the tour when nothing is left to review.
+  // change now in its place, and end the tour when nothing is left to review. When the change
+  // stays but where it's read moves (its function deleted, its file restored), show it there.
   const lastStop = useRef(0);
+  const shown = useRef<{ id: string; target: string } | null>(null);
   useEffect(() => {
     if (!touring) return;
     const i = stops.findIndex((s) => s.id === touring.stop);
     if (i >= 0) {
       lastStop.current = i;
+      const { id, target } = stops[i];
+      const moved = shown.current?.id === id && shown.current.target !== target;
+      shown.current = { id, target };
+      if (moved) showStop(target);
       return;
     }
     if (!stops.length) return setTour(null);

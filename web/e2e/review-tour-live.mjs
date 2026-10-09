@@ -4,8 +4,9 @@
 // file under review: the detail panel still shows only the reviewed agent's
 // diff. A function's stop also shows its file's hunks outside every changed
 // function (crud.py's import). A function you've read stays read while the
-// agent edits another function in its file, and not once it changes the file's import. The agent deletes a function: its stop, on
-// the file, shows only the hunk that takes it away, and switching to By function, which shows
+// agent edits another function in its file, and not once it changes the file's import. The
+// agent deletes the function you're on: its stop moves to the file and shows only the hunk
+// that takes it away, and switching to By function, which shows
 // no files, moves the tour to the nearest change it does show. The agent deletes a file: its stop, on the
 // folder that's left, shows the deleted file's diff. Then the reviewed agent
 // takes a file back: the tour goes on to the change now in its place. Puts
@@ -111,13 +112,20 @@ try {
   hook('demo-review', CRUD);
   await page.waitForTimeout(1500);
 
-  // The agent deletes a function from crud.py: its stop stands on the file, with only the hunk that takes it away.
+  // The agent changes update_user in crud.py, then deletes it while you're on it: its stop moves
+  // to the file, with only the hunk that takes it away.
   const crudPath = join(repo, CRUD);
   const src = readFileSync(crudPath, 'utf8');
-  writeFileSync(crudPath, src.replace(/\ndef update_user\([\s\S]*?\n(?=\n\ndef )/, '\n'));
+  writeFileSync(crudPath, src.replace(/(\ndef update_user\([^\n]*\n)/, '$1    # checked by the agent\n'));
   hook('demo-review', CRUD);
   await page.waitForTimeout(1500);
   await goTo('update_user');
+  assert.equal(await page.locator('.detail-title').innerText(), 'update_user', 'on the function while it is there');
+  writeFileSync(crudPath, src.replace(/\ndef update_user\([\s\S]*?\n(?=\n\ndef )/, '\n'));
+  hook('demo-review', CRUD);
+  await page.locator('.detail-title', { hasText: /^crud\.py$/ }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.tour-name').innerText(), 'update_user', 'still the same change');
+  await page.waitForTimeout(600);
   assert.equal(await page.locator('.detail-title').innerText(), 'crud.py', 'a deleted function is read on its file');
   assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by an agent · update_user/);
   assert.equal(await page.locator('.agent-diff').count(), 1);
