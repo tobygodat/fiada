@@ -347,6 +347,24 @@ test('a tour of thousands of changes is ordered without rescanning every stop at
   for (const e of edges) assert.equal(at.get(e.to)! - at.get(e.from)!, 1);
 });
 
+test('a tour of one change in each of thousands of files is built without a pass over every stop per file', () => {
+  const N = 60000;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+  for (let i = 0; i < N; i++) {
+    nodes.push({ id: `r/f${i}.ts`, kind: 'file', name: `f${i}.ts`, parent: 'r', repo: 'r', path: `f${i}.ts`, layer: placed('ui') });
+    nodes.push({ id: `r/f${i}.ts#g`, kind: 'symbol', name: 'g', parent: `r/f${i}.ts`, repo: 'r', path: `f${i}.ts`, lines: [1, 3], layer: placed('ui') });
+  }
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const a = agent(Array.from({ length: N }, (_, i) => file('r', `f${i}.ts`, [sym(`r/f${i}.ts#g`)])));
+  const t = performance.now();
+  const stops = tourStops({ edges: [], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  const took = performance.now() - t;
+  assert.ok(took < 2000, `built in ${Math.round(took)} ms`);
+  assert.equal(stops.length, N);
+  assert.ok(stops.every((s) => s.rest?.length === 1 && !s.restOld), 'each file’s one function carries its file');
+});
+
 test('a change whose repository is gone from the map is not on the tour', () => {
   const nodes: Record<string, NodeChange> = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },
