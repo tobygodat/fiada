@@ -577,6 +577,8 @@ export interface ShownDiff {
   rev: number | null;
   /** The agent cut the diff short within what's shown, so part of the change can't be. */
   cut?: boolean;
+  /** The diff shown is from before the agent's latest change to the file, which came without one. */
+  behind?: boolean;
 }
 
 /** What a node's diff request left: its diffs, or (failed) the last ones it had while it says so. */

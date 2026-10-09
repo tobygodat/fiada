@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
 import { shownRev, type FetchedDiffs, type ShownDiff } from '../graph/tour.ts';
-import { cutShort, diffRows, pickHunks, type HunkOwner, type Theirs } from './diff.ts';
+import { behind, cutShort, diffRows, pickHunks, type HunkOwner, type Theirs } from './diff.ts';
 import './agent.css';
 
 interface Props {
@@ -62,13 +62,14 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
   const list = mine ?? [];
   const picked = list.map((d) => (d.diff ? pickHunks(d.diff, own, rest, peer) : []));
   const cut = picked.some(cutShort);
+  const old = list.some(behind);
 
   // Which change of it is on screen, so a review tour doesn't mark a newer one (or one it couldn't
-  // load) read, and says when the agent cut short what it shows.
+  // load) read, and says when the agent cut short what it shows or sent no diff of its latest change.
   const loaded = shownRev(diffs, node);
   useEffect(() => {
-    onShown?.({ node, rev: loaded, ...(cut && { cut }) });
-  }, [onShown, node, loaded, cut]);
+    onShown?.({ node, rev: loaded, ...(cut && { cut }), ...(old && { behind: old }) });
+  }, [onShown, node, loaded, cut, old]);
   useEffect(() => () => onShown?.(null), [onShown]);
   return (
     <div className="detail-block agent-change">
@@ -95,6 +96,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
               <span>
                 <b>{d.name}</b> {VERB[d.kind]} this file
                 {d.additions || d.deletions ? ` · ${[d.additions ? `+${d.additions}` : '', d.deletions ? `−${d.deletions}` : ''].filter(Boolean).join(' ')}` : ''} · {ago(d.at)}
+                {behind(d) && ' · this diff is from before its latest change, which came without one'}
               </span>
             </div>
             {!!shown.length && (

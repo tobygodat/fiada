@@ -51,6 +51,8 @@ interface FileRec {
   additions?: number;
   deletions?: number;
   diff?: string;
+  /** When the change that sent `diff` came: a later one that sent none leaves it behind `at`. */
+  diffAt?: number;
   /** Symbol names the agent named itself. */
   named: string[];
   at: number;
@@ -472,6 +474,7 @@ export class AgentHub {
       additions: f.additions,
       deletions: f.deletions,
       diff: typeof f.diff === 'string' ? f.diff : file.diff,
+      diffAt: typeof f.diff === 'string' ? now : file.diffAt,
       at: now,
       fresh: false,
       settled: false,
@@ -645,7 +648,7 @@ export class AgentHub {
   }
 
   /** Diffs agents hold for one file (or the file a symbol is in). */
-  diffs(nodeId: string): { agent: string; name: string; kind: ChangeKind; additions?: number; deletions?: number; diff?: string; at: string }[] {
+  diffs(nodeId: string): { agent: string; name: string; kind: ChangeKind; additions?: number; deletions?: number; diff?: string; diffAt?: string; at: string }[] {
     const key = nodeId.includes('#') ? nodeId.slice(0, nodeId.indexOf('#')) : nodeId;
     const names = this.names();
     // The same files as the activity state: one an agent took its change back from isn't its.
@@ -653,7 +656,7 @@ export class AgentHub {
     const out = [];
     for (const rec of this.agents.values()) {
       const f = rec.files.get(key);
-      if (f && !this.hidden.has(f)) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, at: new Date(f.at).toISOString() });
+      if (f && !this.hidden.has(f)) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, ...(f.diffAt != null && { diffAt: new Date(f.diffAt).toISOString() }), at: new Date(f.at).toISOString() });
     }
     return out;
   }

@@ -24,6 +24,8 @@ interface Props {
   ready: boolean;
   /** The agent cut the change's diff short: part of it can't be shown. */
   cut: boolean;
+  /** The diff shown is from before the agent's latest change to the file, which came without one. */
+  behind: boolean;
   onGo(i: number): void;
   onRead(i: number, read: boolean): void;
   onEnd(): void;
@@ -39,7 +41,7 @@ const MAX_TICKS = 80;
 const MAX_TOUCH_TICKS = 10;
 const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
-export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, ready, cut, onGo, onRead, onEnd }: Props) {
+export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, ready, cut, behind, onGo, onRead, onEnd }: Props) {
   const stop = stops[at];
   const read = stops.filter((s) => isRead(marks, s)).length;
   const here = !!stop && isRead(marks, stop);
@@ -99,6 +101,7 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
         <bdi>{stop.path}</bdi>
       </div>
       {showing && cut && <div className="tour-cut">the agent cut this diff short: part of the change isn't shown</div>}
+      {showing && behind && <div className="tour-cut">its latest change came without a diff: what's shown is from before it</div>}
       <div className="tour-row">
         <span className="tour-count">
           change {at + 1} of {stops.length}

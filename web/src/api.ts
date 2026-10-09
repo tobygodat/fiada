@@ -155,6 +155,8 @@ export interface AgentDiff {
   additions?: number;
   deletions?: number;
   diff?: string;
+  /** When the change that sent `diff` came, behind `at` when a later one sent none. */
+  diffAt?: string;
   at: string;
 }
 
