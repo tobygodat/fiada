@@ -52,6 +52,8 @@ export function tourStops(
   const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id))), graph, graphIndex);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
+  // And each deleted one's lines before the change, gathered in the same pass.
+  const olds = new Map<string, Record<string, [number, number]>>();
   const fileOf = (s: TourStop) => (s.id.includes('#') ? s.id.slice(0, s.id.indexOf('#')) : null);
   for (const s of out) {
     const f = fileOf(s);
@@ -59,6 +61,11 @@ export function tourStops(
     const l = fns.get(f);
     if (l) l.push(s.id);
     else fns.set(f, [s.id]);
+    if (s.old) {
+      const o = olds.get(f);
+      if (o) o[s.id] = s.old;
+      else olds.set(f, { [s.id]: s.old });
+    }
   }
   // It's new again too when the agent changes that code (an import, a constant) since.
   const top = new Map(agent.files.filter((f) => f.repo && f.topAt).map((f) => [`${f.repo}/${f.path}`, Date.parse(f.topAt!)]));
@@ -68,8 +75,8 @@ export function tourStops(
     if (!f || marked.has(f)) return s;
     marked.add(f);
     const at = top.get(f);
-    const old = Object.fromEntries(out.filter((x) => x.old && fileOf(x) === f).map((x) => [x.id, x.old!]));
-    return { ...s, rest: fns.get(f)!, ...(at != null && { top: { id: f, at } }), ...(Object.keys(old).length && { restOld: old }) };
+    const old = olds.get(f);
+    return { ...s, rest: fns.get(f)!, ...(at != null && { top: { id: f, at } }), ...(old && { restOld: old }) };
   });
 }
 
