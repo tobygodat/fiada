@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
+import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { isRead, markStop, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
 
@@ -330,6 +330,30 @@ test("a deleted function keeps the layer the map had for it, not its file's", ()
   // A layer the project no longer has (its grouping changed since): the file's, as for any other.
   const gone = agent([file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#ItemSchema', 'deleted'), layer: 'schemas' }])]);
   assert.equal(tourStops(graph, graphIndex, gone, NO_NODES)[0].layer, 'client');
+  // Unlayered isn't listed among the layers, but the project always has it.
+  const loose = agent([file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#ItemSchema', 'deleted'), layer: UNLAYERED }])]);
+  assert.equal(tourStops(graph, graphIndex, loose, NO_NODES)[0].layer, UNLAYERED);
+});
+
+test('a tour of thousands of changes is ordered without rescanning every stop at every step', () => {
+  // One file, 3,000 changed functions in one layer: every tenth calls the next, the rest stand alone.
+  const N = 3000;
+  const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+  const nodes: GraphNode[] = [
+    { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
+    { id: 'r/a.ts', kind: 'file', name: 'a.ts', parent: 'r', repo: 'r', path: 'a.ts', layer: placed('ui') },
+  ];
+  for (let i = 0; i < N; i++) nodes.push({ id: `r/a.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/a.ts', repo: 'r', path: 'a.ts', lines: [N - i, N - i], layer: placed('ui') });
+  const edges = Array.from({ length: N / 10 }, (_, k) => ({ from: `r/a.ts#f${k * 10}`, to: `r/a.ts#f${k * 10 + 1}`, kind: 'calls' as const }));
+  const idx = new Map(nodes.map((n) => [n.id, n]));
+  const a = agent([file('r', 'a.ts', nodes.slice(2).map((n) => sym(n.id)))]);
+  const t = performance.now();
+  const stops = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
+  assert.ok(performance.now() - t < 2000, `ordered in ${Math.round(performance.now() - t)} ms`);
+  assert.equal(stops.length, N);
+  // A caller still comes straight before what it calls.
+  const at = new Map(stops.map((s, i) => [s.id, i]));
+  for (const e of edges) assert.equal(at.get(e.to)! - at.get(e.from)!, 1);
 });
 
 test('a change whose repository is gone from the map is not on the tour', () => {
