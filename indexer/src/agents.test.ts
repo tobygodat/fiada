@@ -668,6 +668,38 @@ test("another agent deleting the whole file makes none of its untouched function
   assert.equal(f.topAt, undefined);
 });
 
+test("a file this agent deleted and another agent put back as HEAD has it is no longer this agent's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
+  const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const settle = async (go: () => Promise<void>) => {
+    const v = ws.version;
+    await go();
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
+  await settle(async () => {
+    await fs.rm(file);
+    await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'deleted' }] }]);
+  });
+  assert.deepEqual(filesOf('a').map((f) => [f.path, f.kind]), [['src/api.ts', 'deleted']]);
+  // B puts the file back as HEAD has it.
+  await settle(async () => {
+    await fs.writeFile(file, API);
+    await hub.ingest([{ agent: b, type: 'changes', files: [{ path: file, kind: 'modified', diff: '', lines: [[1, 7]], oldLines: [[1, 7]] }] }]);
+  });
+  assert.deepEqual(filesOf('a'), [], 'A’s deletion is gone from the working tree');
+  // A changes it again: that change is A's.
+  await settle(async () => {
+    await fs.writeFile(file, API.replace("'/api/items/' + id", '`/api/items/${id}`'));
+    await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines: [[6, 6]], oldLines: [[6, 6]] }] }]);
+  });
+  assert.deepEqual(filesOf('a').map((f) => [f.kind, f.symbols.map((s) => [s.name, s.kind]), f.topAt]), [['modified', [['getItem', 'modified']], undefined]]);
+});
+
 test('each re-index stamps its functions, with nobody watching the map in between', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

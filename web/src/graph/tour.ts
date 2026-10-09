@@ -490,6 +490,9 @@ export type ReadMarks = Record<string, number>;
 /** Read, and not changed again since: the stop's own code, and the file's other code it shows. */
 export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at && (s.carries ?? []).every((c) => (marks[c.id] ?? -1) >= c.at);
 
+/** When what a stop shows last changed: its own code or the other code it carries, so its diff is fetched again when either moves. */
+export const stopRev = (s: TourStop) => Math.max(s.at, ...(s.carries ?? []).map((c) => c.at));
+
 /** The marks with a stop read (as it is now) or unread again, the file's other code it shows with it. */
 export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMarks {
   const next = { ...marks };

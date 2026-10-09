@@ -25,7 +25,7 @@ import type { HunkOwner } from './diff.ts';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
-import type { TourStop } from '../graph/tour.ts';
+import { stopRev, type TourStop } from '../graph/tour.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
@@ -213,7 +213,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
         node={tour.stop.id}
         own={fn ? { name: tour.stop.name, oldLines: tour.stop.old } : undefined}
         rest={rest}
-        rev={tour.stop.at}
+        rev={stopRev(tour.stop)}
         kind={tour.stop.kind}
         agent={tour.agent}
         what={fn ? tour.stop.name : tour.stop.path}

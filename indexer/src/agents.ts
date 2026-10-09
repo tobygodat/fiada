@@ -773,6 +773,10 @@ export class AgentHub {
       return;
     }
     const gone = (id: string) => !ix.nodes.has(id) && !!f.base?.has(id);
+    // The other agent put back the whole file this agent deleted: the deletion is gone, and the file
+    // as it is now is that agent's, until this agent changes it again.
+    const restored = f.kind === 'deleted';
+    if (restored) f.kind = 'modified';
     f.theirs = new Map([...f.sigs.of].filter(([id]) => !mine(id)));
     if (f.base) for (const id of f.base.keys()) if (gone(id) && !mine(id)) f.theirs.set(id, 'deleted');
     const sig = this.signer(f);
@@ -801,6 +805,11 @@ export class AgentHub {
       if (now !== null) f.symAt.set(id, { sig: now, at: prev.at });
     }
     this.rebaseTop(f);
+    if (restored) {
+      const top = this.signer(f).top();
+      f.topAt = { sig: top, at: f.topAt?.at ?? f.at };
+      f.theirsTop = top;
+    }
   }
 
   /** The same for the file's other code. */

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { forgetMarks, isRead, loops, markStop, nextUnread, reviewable, tourStops, type ReadMarks } from './tour.ts';
+import { forgetMarks, isRead, loops, markStop, nextUnread, reviewable, stopRev, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -357,6 +357,16 @@ test("a file stop with only its other code left changed reads by that code's own
   assert.equal(stop.id, 'web/src/pages/about.tsx');
   assert.equal(stop.at, Date.parse(t));
   assert.equal(isRead({ 'web/src/pages/about.tsx': Date.parse(t) }, stop), true, 'the import read at t stays read');
+});
+
+test("a stop's diff is fetched again when the other code it carries changes, not only its own", () => {
+  const t = Date.parse('2026-09-27T10:00:00Z');
+  const later = Date.parse('2026-09-27T10:05:00Z');
+  // A deleted function standing on its file, whose import changed later.
+  const [stop] = tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#gone', 'deleted'), at: new Date(t).toISOString() }])]), NO_NODES);
+  assert.equal(stop.target, 'web/src/client/api.ts');
+  assert.equal(stopRev({ ...stop, carries: [] }), t);
+  assert.equal(stopRev({ ...stop, carries: [{ id: 'web/src/client/api.ts', at: later }] }), later);
 });
 
 test("a changed function's stop carries its lines in HEAD too, for a removal hunk left where it was, and is placed by its lines now", () => {
