@@ -611,6 +611,41 @@ test("a file this agent took its change back from, still changed by another agen
   assert.deepEqual(hub.diffs('web/src/api.ts').map((d) => d.agent.split('#').pop()).sort(), ['a', 'b']);
 });
 
+test("an ended session whose changes are all now another agent's goes, before or after they became so", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const ref = (session: string): AgentRef => ({ client: 'claude-code', session, cwd: dir, root: dir });
+  const [a, b, c] = [ref('a'), ref('b'), ref('c')];
+  const file = path.join(dir, 'src/api.ts');
+  const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
+    await new Promise((r) => setTimeout(r, 5));
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const end = (agent: AgentRef) => hub.ingest([{ agent, type: 'session', phase: 'end' }]);
+  const ids = () => hub.state().agents.map((x) => x.id.split('#').pop()).sort();
+  const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
+  const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
+  // A puts its change back while B's stays, then ends: A goes.
+  await report(a, get(API), [[6, 6]]);
+  await report(b, list(get(API)), [[2, 2], [6, 6]]);
+  await report(a, list(API), [[2, 2]]);
+  assert.deepEqual(ids(), ['a', 'b'], 'A is still in the queue while its session runs');
+  await end(a);
+  assert.deepEqual(ids(), ['b']);
+  assert.deepEqual(hub.diffs('web/src/api.ts').map((d) => d.agent.split('#').pop()), ['b']);
+  // C changes getItem and ends; B then puts getItem back, so all C changed is gone and what's left is B's: C goes.
+  await report(c, get(list(API)), [[6, 6]]);
+  await end(c);
+  assert.deepEqual(ids(), ['b', 'c'], 'C ended with a change to review');
+  await report(b, list(API), [[2, 2]]);
+  assert.deepEqual(ids(), ['b']);
+  assert.deepEqual(hub.diffs('web/src/api.ts').map((d) => d.agent.split('#').pop()), ['b']);
+});
+
 test("a function this agent deleted and another agent put back changed keeps this agent's time", async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);

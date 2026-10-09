@@ -910,11 +910,13 @@ export class AgentHub {
     const names = this.names();
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
-      for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
+      for (const [key, f] of [...rec.files].sort((a, b) => b[1].at - a[1].at)) {
         const { symbols, top, theirsOnly } = this.stamp(f, this.symbolsOf(f, ix));
         // A file this agent took its own change back from, still changed by another agent, isn't this agent's.
+        // An ended session won't change it again, so nothing of it will be this agent's: it goes.
         if (theirsOnly && f.kind !== 'deleted') {
-          this.hidden.add(f);
+          if (rec.state === 'ended') rec.files.delete(key);
+          else this.hidden.add(f);
           continue;
         }
         let node: string | undefined;
@@ -937,6 +939,11 @@ export class AgentHub {
           at: new Date(f.at).toISOString(),
           diff: !!f.diff,
         });
+      }
+      // An ended session with nothing left to review goes from the queue, as it does when it ends.
+      if (rec.state === 'ended' && !rec.files.size) {
+        this.agents.delete(rec.id);
+        continue;
       }
       const root = rec.ref.root ?? rec.ref.cwd;
       const repo = this.ws.repos.find((r) => r.kind === 'local' && this.realSource(r.source) === root);
