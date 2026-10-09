@@ -8,6 +8,7 @@
 // starts with an empty queue.
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -61,10 +62,10 @@ interface FileRec {
   base: SymbolLines | null;
   /** Only ever seen in a working-tree sweep, never named by a tool: another agent may have made it. */
   swept: boolean;
-  /** The file's lines as last re-indexed, to tell which symbols' own text changed. */
-  text: string[] | null;
+  /** Digests of each symbol's own text, and its other code's, as last re-indexed: to tell which changed. */
+  sigs: Sigs | null;
   /**
-   * The re-index for the latest change is in and can be read: with its text, or with the file
+   * The re-index for the latest change is in and can be read: with its digests, or with the file
    * gone from the graph (deleted, or no longer something the indexer reads), so nothing is left to compare.
    */
   settled: boolean;
@@ -76,7 +77,7 @@ interface FileRec {
   symAt: Map<string, Stamp>;
   /** The same for the file's code outside every symbol (imports, constants), or null before the first look. */
   topAt: Stamp | null;
-  /** That code as HEAD has it, so a file whose imports are back as they were has no change there; null when unknown. */
+  /** The digest of that code as HEAD has it, so a file whose imports are back as they were has no change there; null when unknown. */
   baseTop: string | null;
   /** Counts the changes reported, so a re-index that began before the latest one doesn't settle it. */
   gen: number;
@@ -102,7 +103,21 @@ function outside(text: string[], spans: ([number, number] | undefined)[]): strin
   return out.join('\n');
 }
 
-/** A change time and the text it was taken for (null until the re-indexed text is in). */
+/**
+ * Text is kept only as a short digest: one re-index can name thousands of files, and holding
+ * their text until the next one would hold the whole repository.
+ */
+const digest = (text: string) => createHash('sha1').update(text).digest('base64');
+
+/** A file's symbols' own text and its other code, by digest. */
+type Sigs = { of: Map<string, string>; top: string };
+
+const sigsOf = (text: string[], symbols: GraphNode[]): Sigs => ({
+  of: new Map(symbols.flatMap((n) => (n.lines ? [[n.id, digest(text.slice(n.lines[0] - 1, n.lines[1]).join('\n'))] as const] : []))),
+  top: digest(outside(text, symbols.map((n) => n.lines))),
+});
+
+/** A change time and the digest of the text it was taken for (null until the re-indexed text is in). */
 type Stamp = { sig: string | null; at: number };
 
 /**
@@ -387,7 +402,7 @@ export class AgentHub {
         live: where.live,
         ...(where.repo ? await this.baseSymbols(where.repo, where.rel!, where.live, kind) : { base: null, baseTop: null }),
         swept,
-        text: null,
+        sigs: null,
         settled: false,
         symAt: new Map(),
         topAt: null,
@@ -485,7 +500,7 @@ export class AgentHub {
         const ids = symbolIds(fid, parsed);
         return {
           base: new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines, layer: layer.get(ids[i]) }])),
-          baseTop: outside(text.split('\n'), parsed.symbols.map((s) => s.lines)),
+          baseTop: digest(outside(text.split('\n'), parsed.symbols.map((s) => s.lines))),
         };
       }
     }
@@ -510,42 +525,43 @@ export class AgentHub {
       // Only source the indexer reads too (a symbol's text is all it's for), so neither a large
       // artifact nor generated code, a test or an ignored file is ever read here.
       const wanted = source ? await sourcePaths(this.realSource(source), [...rels]) : new Set<string>();
-      const read = async () => {
-        const text = new Map<string, string | null>();
-        for (const rel of rels) {
-          // Read as untrusted: only a regular file inside the repository.
-          const at = source && wanted.has(rel) ? await fileWithin(this.realSource(source), rel) : null;
-          text.set(rel, at && at.size <= DEFAULT_LOAD.maxFileBytes ? await fs.promises.readFile(at.abs, 'utf8').catch(() => null) : null);
-        }
-        return text;
+      const read = async (rel: string) => {
+        // Read as untrusted: only a regular file inside the repository.
+        const at = source && wanted.has(rel) ? await fileWithin(this.realSource(source), rel) : null;
+        return at && at.size <= DEFAULT_LOAD.maxFileBytes ? await fs.promises.readFile(at.abs, 'utf8').catch(() => null) : null;
       };
       const files = [...this.agents.values()].flatMap((rec) => [...rec.files.values()].filter((f) => f.repo === repo && rels.has(f.rel!)));
       const gens = new Map(files.map((f) => [f, f.gen]));
-      const before = await read();
+      // One file's text at a time: before by digest, after only for as long as it takes to sign.
+      const before = new Map<string, string | null>();
+      for (const rel of rels) before.set(rel, await read(rel).then((t) => t && digest(t)));
       await this.ws.updateFiles(repo, [...rels]);
-      const after = await read();
       const ix = this.index(this.ws.getGraph());
+      // The digests the graph was built from, only when the file held still the whole time (else
+      // they may not match), and only for a file the indexer took in (else no symbol needs them).
+      const sigs = new Map<string, Sigs | null>();
+      for (const rel of rels) {
+        const fid = fileId(repo, rel);
+        const text = ix.nodes.has(fid) && before.get(rel) != null ? await read(rel) : null;
+        sigs.set(rel, text != null && digest(text) === before.get(rel) ? sigsOf(text.split('\n'), ix.symbols.get(fid) ?? []) : null);
+      }
       const own: FileRec[] = [];
       const others: FileRec[] = [];
       for (const f of files) {
         // A change reported meanwhile has its own re-index coming: this one is already behind it.
         if (gens.get(f) !== f.gen) continue;
         f.fresh = true;
-        // The text the graph was built from, only when it held still the whole time (else it may
-        // not match), and only for a file the indexer took in (else no symbol needs it).
-        const text = after.get(f.rel!);
-        const indexed = ix.nodes.has(fileId(repo, f.rel!));
-        f.text = text != null && text === before.get(f.rel!) && indexed ? text.split('\n') : null;
-        f.settled = !!f.text || !indexed;
+        f.sigs = sigs.get(f.rel!) ?? null;
+        f.settled = !!f.sigs || !ix.nodes.has(fileId(repo, f.rel!));
         (f.settledGen === f.gen ? others : own).push(f);
         f.settledGen = f.gen;
       }
       // This agent's own change: stamped now, while the graph and text are this change's, so a
       // later change before anyone looks at the map doesn't take its time.
-      for (const f of own) this.stamp(f, this.symbolsOf(f, ix), ix, true);
+      for (const f of own) this.stamp(f, this.symbolsOf(f, ix), true);
       // Another agent's change to a file this agent changed too: its text is this agent's new
       // baseline, so the other agent's edit never counts as this one's next change.
-      for (const f of others) this.rebase(f, ix);
+      for (const f of others) this.rebase(f);
     }
     this.version++;
     this.push();
@@ -640,9 +656,9 @@ export class AgentHub {
    * forgotten: which symbols a change touches can read wrong for a while (until the graph catches
    * up, or after another agent moved the lines), and forgetting one would make it new again.
    */
-  private stamp(f: FileRec, symbols: AgentFile['symbols'], ix: ReturnType<AgentHub['index']>, own = false): { symbols: AgentFile['symbols']; top: number | null } {
+  private stamp(f: FileRec, symbols: AgentFile['symbols'], own = false): { symbols: AgentFile['symbols']; top: number | null } {
     const settled = !f.live || f.settled;
-    const sig = this.signer(f, ix);
+    const sig = this.signer(f);
     const out = symbols.map((s) => {
       const cur = advance(f.symAt.get(s.id), settled ? sig(s.id, s.kind) : null, f.at);
       f.symAt.set(s.id, cur);
@@ -664,9 +680,9 @@ export class AgentHub {
    * Another agent changed the file: every time this agent has for it stays, and each takes the
    * text as it is now (found by symbol id, whatever this agent's own line ranges say).
    */
-  private rebase(f: FileRec, ix: ReturnType<AgentHub['index']>) {
-    if (!f.text) return;
-    const sig = this.signer(f, ix);
+  private rebase(f: FileRec) {
+    if (!f.sigs) return;
+    const sig = this.signer(f);
     for (const [id, prev] of f.symAt) {
       const kind = prev.sig?.split(/[\n@]/)[0] as ChangeKind | undefined;
       const now = kind ? sig(id, kind) : null;
@@ -680,18 +696,16 @@ export class AgentHub {
     f.topAt = { sig: top, at: f.topAt.at };
   }
 
-  /** What a symbol's change time is taken for: its kind and its own text; and the same for the file's other code. */
-  private signer(f: FileRec, ix: ReturnType<AgentHub['index']>) {
-    const all = f.repo ? (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []) : [];
-    const lines = new Map(all.map((n) => [n.id, n.lines]));
-    const text = f.live ? f.text : null;
+  /** What a symbol's change time is taken for: its kind and its own text's digest; and the same for the file's other code. */
+  private signer(f: FileRec) {
+    const sigs = f.live ? f.sigs : null;
     const sig = (id: string, kind: ChangeKind): string | null => {
       if (kind === 'deleted') return 'deleted';
-      if (!text) return `${kind}@${f.at}`;
-      const at = lines.get(id);
-      return at ? `${kind}\n${text.slice(at[0] - 1, at[1]).join('\n')}` : null;
+      if (!sigs) return `${kind}@${f.at}`;
+      const at = sigs.of.get(id);
+      return at ? `${kind}\n${at}` : null;
     };
-    sig.top = () => (text ? outside(text, all.map((n) => n.lines)) : `@${f.at}`);
+    sig.top = () => (sigs ? sigs.top : `@${f.at}`);
     return sig;
   }
 
@@ -741,7 +755,7 @@ export class AgentHub {
     for (const rec of this.agents.values()) {
       const files: AgentFile[] = [];
       for (const f of [...rec.files.values()].sort((a, b) => b.at - a.at)) {
-        const { symbols, top } = this.stamp(f, this.symbolsOf(f, ix), ix);
+        const { symbols, top } = this.stamp(f, this.symbolsOf(f, ix));
         let node: string | undefined;
         if (f.repo) {
           const fid = fileId(f.repo, f.rel!);

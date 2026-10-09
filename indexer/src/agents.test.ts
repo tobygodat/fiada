@@ -428,9 +428,28 @@ test('only source files the indexer reads are kept as text, never a large artifa
   await pushed;
   fs.readFile = readFile;
   assert.deepEqual([...new Set(reads.filter((r) => files.includes(r)))], ['src/api.ts'], 'only the source the indexer takes in is read at all');
-  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; text: string[] | null }> }> }).agents;
-  const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.text != null]));
+  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; sigs: unknown }> }> }).agents;
+  const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.sigs != null]));
   assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false, 'dist/api.js': false, 'src/api.test.ts': false });
+});
+
+test('a re-index keeps a digest of each function, not its text', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // A function of some 300 KB: one changes event can name thousands of files like it.
+  const body = '  const x = 1; // padding the function out\n'.repeat(7_000);
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.replace('export function getItem', `export function huge() {\n${body}}\n\nexport function getItem`));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1);
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(dir, 'src/api.ts'), kind: 'modified' }] }]);
+  await pushed;
+  const huge = hub.state().agents[0].files[0].symbols.find((x) => x.name === 'huge');
+  assert.equal(huge?.kind, 'added', 'the new function is on the map');
+  // Everything the hub keeps of the file, as one string: digests and times, with nothing of the text.
+  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, Record<string, unknown>> }> }).agents;
+  const kept = JSON.stringify([...[...recs.values()][0].files.values()], (_, v) => (v instanceof Map ? [...v] : v));
+  assert.ok(kept.length < 4_000, `a few hundred bytes, not the file (${kept.length})`);
+  assert.doesNotMatch(kept, /padding the function out/);
 });
 
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
