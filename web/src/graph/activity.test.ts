@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AgentActivity, AgentFile, GraphEdge, GraphNode, NodeChange } from '@fiada/shared';
-import { agentNodes, describeMarks, reachSentences, rollupActivity, spotlight } from './activity.ts';
+import { agentLooked, agentNodes, describeMarks, reachSentences, rollupActivity, spotlight } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { buildCodeTree, buildFunctionTree } from './tree.ts';
 
@@ -122,6 +122,7 @@ test('a changed route ripples to the client requesting it, across repositories, 
     only({ 'api/app/routes/items.py': change('modified', 'file', 10), 'api/app/routes/items.py#read_items': change('modified', 'symbol', 10) }),
     [],
     null,
+    {},
     edges,
   );
   // The request to read_items is proven; the guessed one goes to create_item, which didn't change.
@@ -136,13 +137,13 @@ test('a changed route ripples to the client requesting it, across repositories, 
 });
 
 test('a dependent reached only by guessed links says so', () => {
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/routes/items.py#create_item': change('modified', 'symbol', 10) }), [], null, edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/routes/items.py#create_item': change('modified', 'symbol', 10) }), [], null, {}, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'inferred');
   assert.deepEqual(ripple(a.get('web')), { reached: 'inferred', ripple: 1 });
 });
 
 test('a file changed as a whole reaches everything that uses its symbols; its own symbols are marked, not counted', () => {
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }), [], null, edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }), [], null, {}, edges);
   assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, 'evidenced');
   assert.equal(a.get('api/app/routes/items.py#create_item')?.reached, 'evidenced');
   // Item uses User inside the changed file: marked, but the changed file isn't counted as its own dependent.
@@ -165,6 +166,7 @@ test('a dependent the agent changed too is marked as a change, not as a dependen
     }),
     [],
     null,
+    {},
     edges,
   );
   assert.equal(a.get('web/src/pages/items.tsx#useItems')?.reached, null);
@@ -175,14 +177,14 @@ test('a dependent the agent changed too is marked as a change, not as a dependen
 
 test('By function counts dependent symbols under their layer and domain', () => {
   const tree = buildFunctionTree(graph);
-  const a = rollupActivity(tree, graphIndex, only({ 'api/app/models.py#Item': change('modified', 'symbol', 10) }), [], null, edges);
+  const a = rollupActivity(tree, graphIndex, only({ 'api/app/models.py#Item': change('modified', 'symbol', 10) }), [], null, {}, edges);
   assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, 'evidenced');
   assert.equal(a.get('domain:items')?.ripple, 2);
   assert.equal(a.get('domain:items/ui')?.ripple, 2);
 });
 
 test('a file that imports a change is a dependent itself, not only the circle round one', () => {
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'web/src/client/api.ts': change('modified', 'file', 10) }), [], null, edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'web/src/client/api.ts': change('modified', 'file', 10) }), [], null, {}, edges);
   // about.tsx imports the changed file directly; items.tsx only holds useItems, which calls into it.
   assert.equal(a.get('web/src/pages/about.tsx')?.direct, true);
   assert.equal(a.get('web/src/pages/items.tsx#useItems')?.direct, true);
@@ -197,7 +199,7 @@ test('a file another agent changed at its top level stays whole, however narrowl
     'api/app/routes/items.py#read_items': by('modified', 'symbol', ['b']),
   };
   // Agent a touched only the top level, so the guessed request to create_item is reached too.
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], null, edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], null, {}, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'evidenced');
   assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, both), ['2 requests from web call these routes, 1 of them inferred.']);
   // With agent a's change gone, b's is narrowed to read_items.
@@ -261,4 +263,51 @@ test('dependents that reach a node in different ways use it', () => {
   const link = (from: string, kind: GraphEdge['kind']): GraphEdge => ({ from, to: target, kind, basis: 'evidenced' });
   assert.deepEqual(reachSentences(g, [link('web/a.ts#a', 'calls'), link('web/b.ts#b', 'calls')], graphIndex), ['2 places in web call this class.']);
   assert.deepEqual(reachSentences(g, [link('web/a.ts#a', 'calls'), link('web/b.ts#b', 'calls'), link('web/c.ts#c', 'type')], graphIndex), ['3 places in web use this class.']);
+});
+
+test('what an agent looked at marks the node, and every circle round it as looked inside', () => {
+  const looked = { 'web/src/pages/items.tsx#useItems': { agents: ['a'], at: 40 }, 'api/app/routes/old.py': { agents: ['b'], at: 50 } };
+  const tree = buildCodeTree(graph);
+  const a = rollupActivity(tree, graphIndex, {}, [], null, looked);
+  assert.equal(a.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
+  assert.equal(a.get('web/src/pages/items.tsx')?.looked, 'inside');
+  assert.equal(a.get('web')?.looked, 'inside');
+  assert.equal(a.get('root')?.looked ?? null, null, 'not on the workspace');
+  // Looking is not changing: no counts, no change mark.
+  assert.deepEqual(pick(a.get('web')), { self: null, added: 0, modified: 0, deleted: 0, at: 0 });
+  assert.match(describeMarks(a.get('web/src/pages/items.tsx#useItems')!, 'code'), /an agent looked at this/);
+  // A node the graph no longer has isn't marked anywhere.
+  assert.equal(a.get('api/app/routes')?.looked ?? null, null);
+
+  // By function shows a file as its symbols: a look at the file marks them.
+  const byFunction = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], null, { 'web/src/pages/items.tsx': { agents: ['a'], at: 40 } });
+  assert.equal(byFunction.get('web/src/pages/items.tsx#ItemsPage')?.looked, 'self');
+  assert.equal(byFunction.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
+  assert.equal(byFunction.get('domain:items')?.looked, 'inside');
+
+  // By function draws no folders: a look at one marks what it holds that the view draws.
+  const folder = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], null, { 'web/src': { agents: ['a'], at: 40 } });
+  assert.equal(folder.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
+  assert.equal(folder.get('domain:items')?.looked, 'inside');
+  // A whole repository marks nothing By function, rather than every symbol in it.
+  const repo = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], null, { web: { agents: ['a'], at: 40 } });
+  assert.equal([...repo.values()].filter((m) => m.looked).length, 0);
+  assert.equal(rollupActivity(tree, graphIndex, {}, [], null, { web: { agents: ['a'], at: 40 } }).get('web')?.looked, 'self');
+
+  assert.deepEqual(Object.keys(agentLooked(looked, 'b')), ['api/app/routes/old.py']);
+  assert.deepEqual(agentLooked(undefined, 'b'), {});
+});
+
+test('lighting an agent lights what it looked at too; the camera goes to what it changed, or else to what it looked at', () => {
+  const tree = buildCodeTree(graph);
+  const looked = { 'web/src/client/api.ts': { agents: ['a'], at: 60 }, 'api/app/routes': { agents: ['b'], at: 60 } };
+  const s = spotlight(tree, graphIndex, nodes, 'a', looked);
+  assert.ok(s?.lit.has('web/src/client/api.ts') && s.lit.has('web/src/client'), 'looked at: lit, with the circles round it');
+  assert.ok(!s?.targets.includes('web/src/client/api.ts'), 'but the camera fits its changes');
+  // An agent that only looked: lit and brought into view by what it looked at.
+  const onlyLooked = spotlight(tree, graphIndex, {}, 'b', looked);
+  assert.deepEqual(onlyLooked?.targets, ['api/app/routes']);
+  assert.ok(onlyLooked?.lit.has('api'));
+  assert.ok(!onlyLooked?.lit.has('web/src/client/api.ts'), "another agent's looks stay dim");
+  assert.equal(spotlight(tree, graphIndex, {}, 'nobody', looked), null);
 });

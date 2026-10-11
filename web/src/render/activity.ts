@@ -1,6 +1,7 @@
 // The agent overlay, drawn over the map's circles: a ring just outside
 // anything an agent added, modified or deleted, a pulse for a few seconds
-// after each change, a green ring where an agent is working right now, and on
+// after each change, a green ring where an agent is working right now, a
+// faint dotted ring on what an agent looked at without changing it, and on
 // closed circles a small count of the changes inside. A dotted ring in the
 // links' own ink marks what depends on a change (the ripple), and the badge
 // counts those dependents too. It stays quiet on
@@ -83,6 +84,24 @@ export function hereGeometry(r: number, changed: boolean) {
   return { gap, line, gapR, lineR, outer: lineR + line / 2 };
 }
 
+/** How strongly the looked-at ring shows: on the node itself, and on a closed circle with a looked-at node inside. */
+export const LOOKED_ALPHA = { self: 0.8, inside: 0.45 } as const;
+
+/** The looked-at ring: a thin dotted line where the change ring would be, never with one. */
+function lookedRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, alpha: number) {
+  const g = ringGeometry(r);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = changeColor('looked');
+  ctx.lineWidth = r < 6 ? 1 : 1.25;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([0.5, r < 6 ? 2.5 : 3.5]);
+  ctx.beginPath();
+  ctx.arc(x, y, g.lineR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+}
+
 function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: number; line: number; gapR: number; lineR: number }, color: string, dash: number[]) {
   ctx.globalAlpha = 0.85;
   ctx.strokeStyle = paper();
@@ -161,15 +180,18 @@ function drawRipples(ctx: CanvasRenderingContext2D, rings: { x: number; y: numbe
       // Dots cost by the length of the ring, so a leaf zoomed far past the screen draws only the part on it.
       const span = view ? visibleArc(d.x, d.y, lineR, view.w, view.h) : FULL;
       if (!span) continue;
-      // Square dots a line wide, evenly round the ring and a little further apart than a dotted link's:
-      // as many small squares draw far faster than a dashed stroke, and at this size read as dots.
-      const step = (line + 3.5) / lineR;
+      // Square dots a line wide, in pairs round the ring, so it reads apart from the evenly dotted
+      // ring on what an agent only looked at. As many small squares draw far faster than a dashed
+      // stroke, and at this size read as dots.
+      const step = (2 * line + 7) / lineR;
+      const pair = (line + 1.5) / lineR;
       const n = Math.max(1, Math.floor((span[1] - span[0]) / step));
       const a0 = span[0] + ((span[1] - span[0]) % step) / 2;
       for (let k = 0; k <= n; k++) {
         const a = a0 + k * step;
         if (a > span[1]) break;
         ctx.fillRect(d.x + lineR * Math.cos(a) - line / 2, d.y + lineR * Math.sin(a) - line / 2, line, line);
+        if (a + pair <= span[1]) ctx.fillRect(d.x + lineR * Math.cos(a + pair) - line / 2, d.y + lineR * Math.sin(a + pair) - line / 2, line, line);
       }
     }
   }
@@ -215,6 +237,8 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self || ripple) : null;
     if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
     if (ripple) ripples.push({ x: d.x, y: d.y, r: d.r, guessed: m.reached === 'inferred' });
+    // Looked at, and nothing changed, working or depending on a change here: the quietest mark there is.
+    if (!m.self && !here && !ripple && (m.looked === 'self' || (m.looked === 'inside' && !d.open && !changeCount(m)))) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
     if (m.self) {
       const color = changeColor(m.self);
       ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);
