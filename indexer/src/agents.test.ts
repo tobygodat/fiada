@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { ActivityState, AgentRef } from '@fiada/shared';
-import { AgentHub, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
+import { AgentHub, outsideSymbols, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
 
@@ -129,6 +129,19 @@ test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(!touches([5, 10], [[5, 4]]));
 });
 
+test('changed lines outside every symbol: an import, not a function and its blank line', () => {
+  const spans: [number, number][] = [[3, 5], [7, 9]];
+  assert.ok(outsideSymbols([[1, 1]], spans), 'an import above everything');
+  assert.ok(outsideSymbols([[1, 4]], spans), 'an import and blank line run into the first function');
+  assert.ok(!outsideSymbols([[6, 9]], spans), 'a function and the blank line before it');
+  assert.ok(!outsideSymbols([[4, 4], [8, 8]], spans));
+  // An empty run says nothing on its own, unless asked; then only strictly inside a symbol.
+  assert.ok(!outsideSymbols([[6, 5]], spans));
+  assert.ok(outsideSymbols([[6, 5]], spans, true));
+  assert.ok(!outsideSymbols([[8, 7]], spans, true));
+  assert.ok(!outsideSymbols(undefined, spans));
+});
+
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
@@ -213,6 +226,19 @@ test("an edit outside every symbol makes the file's change whole", async () => {
   assert.equal(s.nodes['web/src/api.ts#getItem'].kind, 'modified');
   assert.equal(s.nodes['web/src/api.ts#listItems'], undefined);
   assert.deepEqual(s.nodes['web/src/api.ts'].whole, [s.agents[0].id]);
+});
+
+test("deleting a whole function is that function's change, not the file's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // listItems (lines 1–3) and the blank line after it go.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.split('\n').slice(4).join('\n'));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1 && s.nodes['web/src/api.ts#listItems']?.kind === 'deleted');
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified', lines: [[1, 0]], oldLines: [[1, 4]], deletions: 4 }] }]);
+  const s = await pushed;
+  assert.equal(s.nodes['web/src/api.ts#getItem'], undefined);
+  assert.equal(s.nodes['web/src/api.ts'].whole, undefined);
 });
 
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {

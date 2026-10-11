@@ -158,6 +158,26 @@ export function touches(sym: [number, number], ranges: LineRange[]): boolean {
   return ranges.some(([a, b]) => (b >= a ? a <= e && b >= s : s < a && a <= e));
 }
 
+/**
+ * Whether any run of lines falls outside every symbol span: a run touching no symbol,
+ * or leaving more than a line uncovered in a row. An empty run (an insertion or a
+ * removal between lines) counts only with `points`, and then only strictly inside a symbol.
+ */
+export function outsideSymbols(ranges: LineRange[] | undefined, spans: [number, number][], points = false): boolean {
+  return (ranges ?? []).some(([a, b]) => {
+    if (b < a) return points && !spans.some((s) => touches(s, [[a, b]]));
+    let covered = false;
+    let gap = 0;
+    for (let n = a; n <= b; n++) {
+      if (spans.some(([s, e]) => s <= n && n <= e)) {
+        covered = true;
+        gap = 0;
+      } else if (++gap > 1) return true;
+    }
+    return !covered;
+  });
+}
+
 export class AgentHub {
   private agents = new Map<string, AgentRec>();
   private version = 0;
@@ -597,28 +617,22 @@ export class AgentHub {
 
   /**
    * Whether a modified file's edit reached outside every symbol in it: an import, a
-   * top-level statement. A run of changed lines that touches a symbol may spill a
-   * line past it, the blank line that comes with a new function; a removal or an
-   * insertion between lines counts only strictly inside a symbol. Without line
-   * ranges there's no telling, and the symbols the agent named stand for the edit.
+   * top-level statement. Lines it added or changed are held against the symbols they
+   * now sit in, and lines it removed against the symbols they sat in before, so
+   * deleting a whole function is that function's change. A run of changed lines that
+   * touches a symbol may spill a line past it, the blank line that comes with a new
+   * function. Until the file is re-indexed only the old side can be placed: there an
+   * insertion counts only strictly inside a symbol. Without line ranges there's no
+   * telling, and the symbols the agent named stand for the edit.
    */
   private topLevel(f: FileRec, ix: ReturnType<AgentHub['index']>): boolean {
     if (f.kind !== 'modified' || !f.repo) return false;
-    const ranges = f.live && f.fresh ? f.lines : f.oldLines;
-    if (!ranges?.length) return false;
-    const spans = (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []).flatMap((s) => (s.lines ? [s.lines] : []));
-    return ranges.some(([a, b]) => {
-      if (b < a) return !spans.some((s) => touches(s, [[a, b]]));
-      let covered = false;
-      let gap = 0;
-      for (let n = a; n <= b; n++) {
-        if (spans.some(([s, e]) => s <= n && n <= e)) {
-          covered = true;
-          gap = 0;
-        } else if (++gap > 1) return true;
-      }
-      return !covered;
-    });
+    const now = (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []).flatMap((s) => (s.lines ? [s.lines] : []));
+    if (f.live && f.fresh) {
+      const before = f.base ? [...f.base.values()].map((s) => s.lines) : null;
+      return outsideSymbols(f.lines, now) || (!!before && outsideSymbols(f.oldLines, before));
+    }
+    return outsideSymbols(f.oldLines, now, true);
   }
 
   state(): ActivityState {
