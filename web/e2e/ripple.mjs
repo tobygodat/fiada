@@ -128,6 +128,26 @@ try {
   assert.deepEqual(Object.keys((await api('GET', '/api/agent/state')).nodes), [], 'reverted: nothing marked');
   await pause(1500);
   await shot('5-reverted');
+
+  // The agent deletes a route the frontend requests: re-indexing drops it and the requests to it,
+  // and the indexer keeps those requests so the frontend still ripples.
+  const items = path.join(repos.backend, 'app/api/routes/items.py');
+  const before = fs.readFileSync(items, 'utf8');
+  const start = before.indexOf('@router.get("/{id}"');
+  const end = before.indexOf('@router.post("/"');
+  assert.ok(start > 0 && end > start, 'read_item is where the template has it');
+  fs.writeFileSync(items, before.slice(0, start) + before.slice(end));
+  report('changed', 'app/api/routes/items.py');
+  const gone = `${backend}/app/api/routes/items.py#read_item`;
+  let after = await api('GET', '/api/agent/state');
+  for (let i = 0; i < 40 && !after.lost?.some((e) => e.to === gone); i++) {
+    await pause(250);
+    after = await api('GET', '/api/agent/state');
+  }
+  assert.equal(after.nodes[gone]?.kind, 'deleted', 'the route is marked deleted');
+  assert.ok(after.lost?.some((e) => e.to === gone && e.kind === 'http' && e.from.startsWith(`${frontend}/`)), 'the request to it is kept');
+  execFileSync('git', ['checkout', '--', '.'], { cwd: repos.backend });
+  report('changed', 'app/api/routes/items.py');
   await ctx.close();
   console.log('ripple e2e: passed');
 } finally {

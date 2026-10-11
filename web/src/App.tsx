@@ -205,7 +205,9 @@ export function App() {
     if (!Object.keys(nodes).length && !Object.keys(looked).length) return null;
     const one = spot ? s.agents.find((a) => a.id === lit) : undefined;
     const unreadHere = one && unread && readMarks ? agentUnreadIds(one, unread, readMarks, s.nodes) : unread;
-    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere, looked, graph?.edges);
+    // The links into code an agent deleted are gone from the graph; the indexer kept them.
+    const edges = s.lost?.length && graph ? [...graph.edges, ...s.lost] : graph?.edges;
+    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere, looked, edges);
   }, [tree, graphIndex, graph, agents.state, shownChanges, spot, lit, unread, readMarks]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.

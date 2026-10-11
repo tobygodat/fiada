@@ -25,6 +25,7 @@ import type {
   ChangeKind,
   FileChange,
   Graph,
+  GraphEdge,
   GraphNode,
   LineRange,
   LookedAt,
@@ -181,6 +182,12 @@ export function outsideSymbols(ranges: LineRange[] | undefined, spans: [number, 
   });
 }
 
+/** The file a node id belongs to: a symbol's file, or the node itself. */
+const fileOf = (id: string) => {
+  const hash = id.indexOf('#');
+  return hash < 0 ? id : id.slice(0, hash);
+};
+
 export class AgentHub {
   private agents = new Map<string, AgentRec>();
   private version = 0;
@@ -188,6 +195,8 @@ export class AgentHub {
   private cached: { version: number; graph: number; state: ActivityState } | null = null;
   private pushTimer: NodeJS.Timeout | null = null;
   private pendingIndex = new Map<string, Set<string>>();
+  /** File id → links into it from other files, kept from before each re-index, so a deleted node's callers stay known. */
+  private lost = new Map<string, Map<string, GraphEdge>>();
   private indexTimer: NodeJS.Timeout | null = null;
   private realSources = new Map<string, string>();
   private remotes = new Map<string, Promise<string | null>>();
@@ -504,6 +513,7 @@ export class AgentHub {
     const batches = [...this.pendingIndex];
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
+      this.keepIncoming(new Set([...rels].map((rel) => fileId(repo, rel))));
       // The layer each symbol in HEAD has on the map now, while the map still has it: one this
       // re-index takes away keeps the layer it had last, not the one it had when the file first changed.
       const ix = this.index(this.ws.getGraph());
@@ -518,6 +528,17 @@ export class AgentHub {
     }
     this.version++;
     this.push();
+  }
+
+  /** Keeps the links into these files from outside them, as the graph has them now, before a re-index drops any. */
+  private keepIncoming(files: Set<string>) {
+    for (const e of this.ws.getGraph().edges) {
+      const to = fileOf(e.to);
+      if (!files.has(to) || fileOf(e.from) === to) continue;
+      let kept = this.lost.get(to);
+      if (!kept) this.lost.set(to, (kept = new Map()));
+      kept.set(`${e.from}|${e.to}|${e.kind}|${e.detail ?? ''}`, e);
+    }
   }
 
   // ── reading ──
@@ -732,7 +753,16 @@ export class AgentHub {
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked };
+    // Kept links whose target is gone but still marked changed, from code that's still there.
+    const lost: GraphEdge[] = [];
+    for (const [file, kept] of this.lost) {
+      if (!nodes[file]) {
+        this.lost.delete(file);
+        continue;
+      }
+      for (const e of kept.values()) if (!ix.nodes.has(e.to) && ix.nodes.has(e.from) && nodes[e.to]) lost.push(e);
+    }
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, ...(lost.length ? { lost } : {}) };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }
