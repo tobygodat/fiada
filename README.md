@@ -1,5 +1,7 @@
 # Fiada
 
+[![ci](https://github.com/tobygodat/hackgt13/actions/workflows/ci.yml/badge.svg)](https://github.com/tobygodat/hackgt13/actions/workflows/ci.yml)
+
 A map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working.
 
 Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Fiada sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.

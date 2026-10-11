@@ -2,14 +2,18 @@
 // agent, a line or two on what it's doing right now, its task and plan folded
 // under that, and the files it has changed. Clicking an agent lights up what
 // it changed on the map and dims the rest; clicking one of its files or
-// functions takes the map to it, where the detail panel shows the diff. When
-// two agents have changes in one file or folder, a line at the top says where
-// they meet; an edit an agent tried inside a fence is said on its entry. While
-// the detail panel is open the window folds to one line above it.
+// functions takes the map to it, where the detail panel shows the diff. Each
+// agent says how many of its changes you've read since it made them, unread
+// files carry a dot, and "mark all read" catches up without opening each one.
+// When two agents have changes in one file or folder, a line at the top says
+// where they meet; an edit an agent tried inside a fence is said on its entry.
+// While the detail panel is open the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
 import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep, FenceHit } from '@fiada/shared';
+import { readWords } from '../graph/activity.ts';
 import { collisionWords, fenceWords } from '../graph/fences.ts';
+import { agentFileUnread, fileTarget, type ReadMarks } from '../graph/unread.ts';
 import './agent.css';
 
 interface Props {
@@ -18,6 +22,10 @@ interface Props {
   compact: boolean;
   /** The agent whose changes are lit on the map. */
   lit: string | null;
+  /** Changed node ids you haven't opened since their latest change, and what you've opened; null until known. */
+  read: { unread: ReadonlySet<string>; marks: ReadMarks } | null;
+  /** Marks every change read, or one agent's. */
+  onMarkRead(agentId?: string): void;
   /** Lights up one agent's changes on the map, or puts the map back when it's the lit one. */
   onShow(agentId: string): void;
   onSelect(nodeId: string, agentId: string): void;
@@ -43,7 +51,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, lit, onShow, onSelect, onPlace, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, read, onShow, onSelect, onPlace, onMarkRead, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -88,13 +96,24 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onPlace, onC
   }
 
   const working = agents.some((a) => a.state === 'working');
+  const nodes = state?.nodes ?? {};
+  // One agent's file is unread for it when you haven't looked since its own change to it.
+  const unreadFor = read ? (f: AgentFile) => agentFileUnread(f, read.unread, read.marks, nodes) : null;
+  const anyUnread = !!unreadFor && agents.some((a) => a.files.some(unreadFor));
   return (
     <aside className={`queue${compact ? ' over' : ''}`} aria-label="Agents">
       <div className="queue-head">
         <h2 className="queue-title">agents</h2>
-        <button className="queue-act" onClick={() => setCollapsed(true)} aria-expanded>
-          hide
-        </button>
+        <span className="queue-acts">
+          {anyUnread && (
+            <button className="queue-act" onClick={() => onMarkRead()} title="Mark every agent's changes read, without opening them">
+              mark all read
+            </button>
+          )}
+          <button className="queue-act" onClick={() => setCollapsed(true)} aria-expanded>
+            hide
+          </button>
+        </span>
       </div>
       {!!collisions.length && (
         <div className="queue-collisions" role="status">
@@ -114,6 +133,8 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onPlace, onC
             fenced={state?.fenced?.[a.id]}
             onPlace={onPlace}
             lit={a.id === lit}
+            unreadFor={unreadFor}
+            onMarkRead={() => onMarkRead(a.id)}
             onShow={a.files.length ? () => onShow(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
@@ -133,6 +154,11 @@ export function AgentQueue({ state, compact, lit, onShow, onSelect, onPlace, onC
         {working && (
           <span>
             <span className="swatch-ring working" /> working here
+          </span>
+        )}
+        {anyUnread && (
+          <span>
+            <span className="swatch-unread" /> unread
           </span>
         )}
       </div>
@@ -177,13 +203,15 @@ interface CardProps {
   fenced?: FenceHit;
   onPlace(nodeId: string): void;
   lit: boolean;
+  unreadFor: ((f: AgentFile) => boolean) | null;
+  onMarkRead(): void;
   /** Absent when it has changed nothing there is to show. */
   onShow?(): void;
   onSelect(id: string): void;
   onClear?(): void;
 }
 
-function AgentCard({ a, fenced, onPlace, lit, onShow, onSelect, onClear }: CardProps) {
+function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   // Lit on the map: its files open, to go through one by one.
@@ -192,6 +220,7 @@ function AgentCard({ a, fenced, onPlace, lit, onShow, onSelect, onClear }: CardP
   }, [lit]);
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const f of a.files) counts[f.kind]++;
+  const read = unreadFor ? { read: a.files.filter((f) => !unreadFor(f)).length, total: a.files.length } : null;
   // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
   const asked = a.task ?? a.prompt;
   const now: AgentNow | null = a.now ?? (asked ? { text: asked, from: a.task ? 'agent' : 'prompt', at: a.updatedAt } : null);
@@ -260,10 +289,20 @@ function AgentCard({ a, fenced, onPlace, lit, onShow, onSelect, onClear }: CardP
               )}
             </span>
           </button>
+          {read && (
+            <div className={`queue-read${read.read < read.total ? ' some' : ''}`}>
+              <span>{readWords(read.read, read.total)}</span>
+              {read.read < read.total && (
+                <button className="queue-act" onClick={onMarkRead} title="Mark this agent's changes read, without opening them">
+                  mark read
+                </button>
+              )}
+            </div>
+          )}
           {showFiles && (
             <div className="queue-file-list">
               {a.files.map((f) => (
-                <FileRow key={`${f.repo}|${f.path}`} f={f} onSelect={onSelect} />
+                <FileRow key={`${f.repo}|${f.path}`} f={f} unread={!!unreadFor?.(f)} onSelect={onSelect} />
               ))}
             </div>
           )}
@@ -323,22 +362,27 @@ function Steps({ steps }: { steps: AgentStep[] }) {
   );
 }
 
-function FileRow({ f, onSelect }: { f: AgentFile; onSelect(id: string): void }) {
+function FileRow({ f, unread, onSelect }: { f: AgentFile; unread: boolean; onSelect(id: string): void }) {
   const slash = f.path.lastIndexOf('/');
   const dir = slash >= 0 ? f.path.slice(0, slash) : '';
   const base = f.path.slice(slash + 1);
   // A deleted file isn't on the map; selecting its id lands on the folder that stands in for it.
-  const target = f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+  const target = fileTarget(f);
   const symbols = f.symbols.slice(0, MAX_SYMBOLS);
   return (
-    <div className="queue-file-item">
+    <div className={`queue-file-item${unread ? ' unread' : ''}`}>
       <button
         className="queue-file"
         disabled={!target}
         onClick={() => target && onSelect(target)}
-        title={`${f.path}${f.symbols.length ? `\n${f.symbols.map((s) => `${SIGN[s.kind]} ${s.name}`).join('\n')}` : ''}\n${ago(f.at)}`}
+        title={`${f.path}${f.symbols.length ? `\n${f.symbols.map((s) => `${SIGN[s.kind]} ${s.name}`).join('\n')}` : ''}\n${ago(f.at)}${unread ? '\nunread: changed since you last opened it' : ''}`}
       >
         <span className={`chg ${f.kind}`}>{SIGN[f.kind]}</span>
+        {unread && (
+          <span className="queue-unread" title="unread: changed since you last opened it">
+            <span className="queue-hidden">unread</span>
+          </span>
+        )}
         <span className="queue-file-name">
           <span className="queue-file-base">{base}</span>
           {dir && <span className="queue-file-dir">{dir}</span>}

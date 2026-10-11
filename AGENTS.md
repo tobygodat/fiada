@@ -56,7 +56,7 @@ bun run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent
 - `node web/e2e/fences.e2e.mjs <scratch clone> --scratch` drives fences and collisions end to end in Chromium against `bun run dev`, with the real agent hook; it edits the clone and puts it back.
 - `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium; set `CHROMIUM_PATH` if Playwright's browser isn't installed.
 - `bun run test`, not `bun test`: the tests use `node:test`, which bun's own runner doesn't run.
-- There is no CI. Before you push, `bun run typecheck && bun run test && bun run build` must all pass.
+- Before you push, `bun run typecheck && bun run test && bun run build` must all pass. CI (`.github/workflows/ci.yml`) runs the same three on every pull request and push to `main`.
 
 ## Code conventions
 

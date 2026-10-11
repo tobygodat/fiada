@@ -291,61 +291,67 @@ ${domainsText}`;
   };
 
   const layerIds = graph.layers.map((l) => l.id);
-  const schema = obj({
-    files: {
-      type: 'array',
-      items: obj({
-        ref: { type: 'string' },
-        layer: oneOf(['', ...layerIds]),
-        layer_reason: { type: 'string' },
-        domain: oneOf(['', ...domainIds]),
-        reason: { type: 'string' },
-        symbols: { type: 'array', items: obj({ name: { type: 'string' }, domain: oneOf(domainIds), reason: { type: 'string' } }) },
-      }),
-    },
-  });
-  const ask2 = `For every file below:
-- layer: when it needs one, the layer it belongs in, with layer_reason. Otherwise leave both empty.
-- domain: when something in it needs a domain, the domain that code serves, with reason. It applies to everything in the file that needs a domain.
+  // Refs are numbered within each request (F1, F2, …), so requests of one size share a schema, and the schema lists them.
+  const schemaFor = (refs: string[]) =>
+    obj({
+      files: {
+        type: 'array',
+        items: obj({
+          ref: oneOf(refs),
+          layer: oneOf(['', ...layerIds]),
+          layer_reason: { type: 'string' },
+          domain: oneOf(['', ...domainIds]),
+          reason: { type: 'string' },
+          symbols: { type: 'array', items: obj({ name: { type: 'string' }, domain: oneOf(domainIds), reason: { type: 'string' } }) },
+        }),
+      },
+    });
+  const ask2 = `Each file below starts with its ref (F1, F2, …) and then its path. For every file:
+- ref: the file's ref exactly as written, e.g. "F1" (not its path).
+- layer: when it needs one, the layer it belongs in, by id, with layer_reason. Otherwise leave both empty.
+- domain: when something in it needs a domain, the domain that code serves, by id, with reason. It applies to everything in the file that needs a domain.
 - symbols: only for a symbol that clearly serves a different domain than the rest of its file: its name, its domain and why.
-Answer every file, by its ref.`;
+Answer every file.`;
+  const layerOf = pickId(layerIds.map((id) => [id, layerName.get(id) ?? id]));
+  const domainOf = pickId([...finalName]);
 
   const placements: Record<string, SortedPlacement> = {};
-  const refs = new Map<string, LeftoverFile>();
   const batchSize = opts.batchSize ?? 60;
   const run = async (batch: LeftoverFile[], n: number, of: number) => {
-    const first = refs.size + 1;
-    const lines = batch.map((lf, i) => {
-      refs.set(`F${first + i}`, lf);
-      return describeFile(lf, `F${first + i}`);
-    });
+    const byRef = new Map(batch.map((lf, i) => [`F${i + 1}`, lf] as const));
+    const lines = [...byRef].map(([ref, lf]) => describeFile(lf, ref));
+    const label = `leftovers ${n}/${of}`;
     log(`[fiada] sort: placing ${batch.length} files (${n} of ${of})`);
-    const answer = (await ask({ label: `leftovers ${n}/${of}`, system: [INSTRUCTIONS, context], prompt: `${ask2}\n\n${lines.join('\n\n')}`, schema })) as {
-      files?: { ref: string; layer: string; layer_reason: string; domain: string; reason: string; symbols?: { name: string; domain: string; reason: string }[] }[];
-    };
-    const valid = new Set(batch.map((_, i) => `F${first + i}`));
-    const done = new Set<string>();
-    for (const a of answer.files ?? []) {
-      const lf = valid.has(a.ref) ? refs.get(a.ref) : undefined;
-      if (!lf || done.has(a.ref)) continue;
-      done.add(a.ref);
+    const answer = await ask({ label, system: [INSTRUCTIONS, context], prompt: `${ask2}\n\n${lines.join('\n\n')}`, schema: schemaFor([...byRef.keys()]) });
+    const answers = answersIn(answer);
+    const match = matchRef(byRef);
+    const done = new Set<LeftoverFile>();
+    for (const a of answers) {
+      const lf = match(a.ref);
+      if (!lf || done.has(lf)) continue;
+      done.add(lf);
       const p: Partial<SortedPlacement> = {};
-      if (lf.needsLayer && layerIds.includes(a.layer)) {
-        p.layer = a.layer;
-        if (a.layer_reason?.trim()) p.layerReason = a.layer_reason.trim();
+      const layer = lf.needsLayer ? layerOf(a.layer) : undefined;
+      if (layer) {
+        p.layer = layer;
+        if (str(a.layer_reason)) p.layerReason = str(a.layer_reason);
       }
-      if (lf.needsDomain.length && finalName.has(a.domain)) p.domain = a.domain;
-      const reason = a.reason?.trim() || p.layerReason;
+      const domain = lf.needsDomain.length ? domainOf(a.domain) : undefined;
+      if (domain) p.domain = domain;
+      const reason = str(a.reason) || p.layerReason;
       if ((p.layer || p.domain) && reason) {
         if (p.layerReason === reason) delete p.layerReason;
         placements[lf.file.id] = { ...p, reason };
       }
-      for (const s of a.symbols ?? []) {
-        const target = lf.needsDomain.find((x) => x.name === s.name && !placements[x.id]);
-        if (target && target.kind === 'symbol' && finalName.has(s.domain) && s.domain !== p.domain && s.reason?.trim()) placements[target.id] = { domain: s.domain, reason: s.reason.trim() };
+      for (const s of Array.isArray(a.symbols) ? a.symbols : []) {
+        const target = symbolFor(lf.needsDomain.filter((x) => !placements[x.id]), s?.name);
+        const sd = domainOf(s?.domain);
+        if (target && target.kind === 'symbol' && sd && sd !== p.domain && str(s?.reason)) placements[target.id] = { domain: sd, reason: str(s.reason) };
       }
     }
-    return [...valid].filter((r) => !done.has(r)).map((r) => refs.get(r)!);
+    // Say what came back when nothing matched, so a log shows why rather than only that.
+    if (batch.length && !done.size) log(`[fiada] sort: no file in the answer to ${label} matched a ref: ${describeAnswer(answer, answers)}`);
+    return batch.filter((lf) => !done.has(lf));
   };
 
   const batches: LeftoverFile[][] = [];
@@ -358,6 +364,114 @@ Answer every file, by its ref.`;
   }
 
   return { model: opts.model, ...(opts.by ? { by: opts.by } : {}), at: new Date().toISOString(), repos, domains: sortedDomains, placements };
+}
+
+/** One file's answer, as the model sent it: nothing in it is trusted to be there or to be the right type. */
+interface FileAnswer {
+  ref?: unknown;
+  layer?: unknown;
+  layer_reason?: unknown;
+  domain?: unknown;
+  reason?: unknown;
+  symbols?: { name?: unknown; domain?: unknown; reason?: unknown }[];
+}
+
+const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+
+/** The per-file answers: `{ files: [...] }` as asked, or the same list bare, or keyed by ref. */
+function answersIn(answer: unknown): FileAnswer[] {
+  const files = Array.isArray(answer) ? answer : (answer as { files?: unknown } | null)?.files;
+  if (Array.isArray(files)) return files.filter((f): f is FileAnswer => !!f && typeof f === 'object');
+  if (files && typeof files === 'object') return Object.entries(files).flatMap(([ref, f]) => (f && typeof f === 'object' ? [{ ref, ...(f as FileAnswer) }] : []));
+  return [];
+}
+
+/**
+ * A ref as the model wrote it, back to its file: "F3" as asked, but also
+ * "f3", "[F3]", "F3 app/x.py", the file's id, its path in the repository,
+ * or its name when no other file in the request shares it. Models given a
+ * list of labelled paths often answer with the path.
+ */
+export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => LeftoverFile | undefined {
+  // A path or name two files share (src/index.ts in two repositories, Foo.ts and foo.ts in any case) picks neither.
+  const exact = new Map<string, LeftoverFile | null>();
+  const byPath = new Map<string, LeftoverFile | null>();
+  const put = (m: Map<string, LeftoverFile | null>, key: string, lf: LeftoverFile) => m.set(key, m.has(key) && m.get(key) !== lf ? null : lf);
+  for (const [ref, lf] of byRef) {
+    // Labels, ids, paths and names all go in together, so the file labelled F1 and a file whose path is "F1",
+    // or a root index.ts and src/index.ts answered as "index.ts", pick neither.
+    const name = lf.file.id.split('/').pop()!;
+    for (const key of [ref, lf.file.id, lf.file.path, name]) {
+      if (!key) continue;
+      put(exact, key, lf);
+      put(byPath, key.toLowerCase(), lf);
+    }
+  }
+  const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
+  return (ref) => {
+    // As written first, so Foo.ts and foo.ts stay apart; one file's id that is another's path in its repository picks neither.
+    const w = str(ref);
+    const s = clean(w);
+    if (!s) return undefined;
+    const asWritten = exact.has(w) ? (exact.get(w) ?? null) : byPath.has(s) ? (byPath.get(s) ?? null) : undefined;
+    const first = clean(s.split(/\s/)[0]);
+    // A label in any spelling ("f1", "F01", "[F1]", "F1 app/x.py") counts only when, as written, it names no other file.
+    const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
+    const asLabel = label ? byRef.get(`F${label[1]}`) : undefined;
+    if (asLabel) {
+      const named = asWritten !== undefined ? asWritten : byPath.has(first) ? (byPath.get(first) ?? null) : undefined;
+      return named === undefined || named === asLabel ? (byPath.get(`f${label![1]}`) ?? undefined) : undefined;
+    }
+    if (asWritten !== undefined) return asWritten ?? undefined;
+    if (byPath.has(first)) return byPath.get(first) ?? undefined;
+    return byPath.get(first.split('/').pop()!) ?? undefined;
+  };
+}
+
+/**
+ * An id from a list the model picked from: the id as written, or failing
+ * that its id or name in any case, when no other entry's id or name reads
+ * the same.
+ */
+function pickId(entries: (readonly [string, string])[]): (v: unknown) => string | undefined {
+  const ids = new Set(entries.map(([id]) => id));
+  const lower = new Map<string, string | null>();
+  const put = (key: string, id: string) => lower.set(key, lower.has(key) && lower.get(key) !== id ? null : id);
+  for (const [id, name] of entries) {
+    put(id.toLowerCase(), id);
+    put(name.toLowerCase(), id);
+  }
+  return (v) => {
+    const s = str(v);
+    return ids.has(s) ? s : (lower.get(s.toLowerCase()) ?? undefined);
+  };
+}
+
+/**
+ * The symbol a model named, by its id, its name, or its name as the prompt
+ * lists it ("Settings (class, 40 lines)"). The longest name that fits wins,
+ * so "Widget (default) (function, 4 lines)" is Widget (default), not Widget.
+ */
+export function symbolFor<T extends { id: string; name: string }>(symbols: T[], v: unknown): T | undefined {
+  const raw = str(v).trim();
+  const byId = symbols.find((x) => x.id === raw);
+  if (byId) return byId;
+  const tail = raw.split('#').pop()!;
+  let best: T | undefined;
+  for (const x of symbols) {
+    if ((tail === x.name || tail.startsWith(`${x.name} (`)) && x.name.length > (best?.name.length ?? -1)) best = x;
+  }
+  return best;
+}
+
+/** What an answer held, for a log line. */
+function describeAnswer(answer: unknown, answers: FileAnswer[]): string {
+  if (!answers.length) {
+    const keys = answer && typeof answer === 'object' && !Array.isArray(answer) ? Object.keys(answer) : [];
+    return `no files in it${keys.length ? ` (keys: ${keys.slice(0, 5).join(', ')})` : ''}`;
+  }
+  const refs = answers.slice(0, 3).map((a) => JSON.stringify(a.ref ?? null).slice(0, 80));
+  return `${answers.length} files, refs ${refs.join(', ')}${answers.length > 3 ? ', …' : ''}`;
 }
 
 /** The leftovers as folders with file counts, so step 1 sees their shape without every file. */

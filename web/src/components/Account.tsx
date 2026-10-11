@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import type { AgentConnection, Workspace } from '@fiada/shared';
 import { api, sharedKey, signOut } from '../api.ts';
+import { forgetRead } from '../graph/unread.ts';
 import { setupCommand } from '../connect.ts';
 
 export function Account({ workspace }: { workspace: Workspace | null }) {
@@ -40,6 +41,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     if (!window.confirm('Delete your Fiada account? Your map, its imports, clones and summaries go too, and GitHub stops listing Fiada as an app you use. This cannot be undone.')) return;
     try {
       await api.deleteAccount();
+      forgetRead();
       signOut();
     } catch (err) {
       setDeleteError((err as Error).message);
