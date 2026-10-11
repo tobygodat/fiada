@@ -78,8 +78,10 @@ function covers(rest: readonly HunkOwner[]) {
   };
   const now = index(rest.map((r) => r.lines));
   const old = index(rest.map((r) => r.oldLines));
-  // An added row stands only where it is now, unless all a symbol has are its old lines.
+  // An added row stands only where it is now, unless all a symbol has are its old lines; a removed
+  // one only where it was, unless all a symbol has are its lines now.
   const oldOnly = index(rest.map((r) => (r.lines ? undefined : r.oldLines)));
+  const nowOnly = index(rest.map((r) => (r.oldLines ? undefined : r.lines)));
   const spanned = rest.some((r) => r.lines || r.oldLines);
   return {
     /** Symbols known only by name. */
@@ -92,7 +94,8 @@ function covers(rest: readonly HunkOwner[]) {
       return now(...range(m[3], m[4])) || old(...range(m[1], m[2]));
     },
     /** Whether any symbol holds a row, as `of` places it. */
-    holds: (c: string, at: { old: number; new: number }) => now(at.new, at.new) || (c !== '+' ? old : oldOnly)(at.old, at.old),
+    holds: (c: string, at: { old: number; new: number }) =>
+      (c !== '-' ? now : nowOnly)(at.new, at.new) || (c !== '+' ? old : oldOnly)(at.old, at.old),
   };
 }
 
@@ -134,9 +137,11 @@ function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof
   const inside = (at: number, s: readonly [number, number] | undefined, p = 0) => !!s && at >= s[0] - p && at <= s[1] + p;
   // A row is a symbol's by where it stands now, or, removed or unchanged, by where it stood in HEAD
   // (so a function moved far also has the hunk that took it from there); one with only its old
-  // lines (deleted) by those alone.
+  // lines (deleted) by those alone. A removed row stands now only where the next line does, so
+  // with the symbol's old lines known it goes by those: the code taken away just above a function
+  // isn't that function's.
   const of = (r: HunkOwner, c: string, at: { old: number; new: number }, p = 0) =>
-    inside(at.new, r.lines, p) || ((c !== '+' || !r.lines) && inside(at.old, r.oldLines, p));
+    ((c !== '-' || !r.oldLines) && inside(at.new, r.lines, p)) || ((c !== '+' || !r.lines) && inside(at.old, r.oldLines, p));
   // Each row's place on both sides: a removed row stands where the next new line does, an added
   // one where the next old line does.
   let o = Number(m[1]) - 1;
