@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -215,8 +216,14 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   const deny = await hub.check({ agent, tool: 'Edit', files: [{ path: path.join(dir, 'app/core/config.py') }] }, fences);
   assert.deepEqual([deny.decision, deny.fence?.node, deny.file], ['deny', 'api/app/core', 'api/app/core/config.py']);
   // Lines that miss create_item go ahead; lines in it ask.
-  assert.equal((await hub.check({ agent, files: [{ path: path.join(dir, 'app/routes/items.py'), lines: [[1, 2]] }] }, fences)).decision, 'allow');
-  assert.equal((await hub.check({ agent, files: [{ path: path.join(dir, 'app/routes/items.py'), lines: [[5, 6]] }] }, fences)).decision, 'ask');
+  const items = path.join(dir, 'app/routes/items.py');
+  const sha256 = createHash('sha256').update(await fs.readFile(items)).digest('hex');
+  assert.equal((await hub.check({ agent, files: [{ path: items, lines: [[1, 2]], sha256 }] }, fences)).decision, 'allow');
+  assert.equal((await hub.check({ agent, files: [{ path: items, lines: [[5, 6]], sha256 }] }, fences)).decision, 'ask');
+  // Lines counted in other text (another agent changed the file since the hook read it), or with
+  // nothing to say which text, place nothing: the whole file counts.
+  assert.equal((await hub.check({ agent, files: [{ path: items, lines: [[1, 2]], sha256: 'f'.repeat(64) }] }, fences)).decision, 'ask');
+  assert.equal((await hub.check({ agent, files: [{ path: items, lines: [[1, 2]] }] }, fences)).decision, 'ask');
   // Outside every imported repository: nothing to fence.
   assert.equal((await hub.check({ agent, files: [{ path: '/etc/hosts' }] }, fences)).decision, 'allow');
 

@@ -24,6 +24,7 @@
 // settings decide as before.
 
 import './env.ts';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentEvent, AgentEventBody, AgentRef, AgentStep, ChangeKind, FenceCheck, FenceVerdict, FileChange, LineRange, StepStatus } from '@fiada/shared';
@@ -125,7 +126,8 @@ export async function aboutToEdit(tool: string, input: Payload, cwd: string): Pr
     if (!found.length) return { path: abs };
     lines.push(...found);
   }
-  return { path: abs, lines };
+  // The indexer places the lines only in this very text: a file changed since (another agent) counts whole.
+  return { path: abs, lines, sha256: createHash('sha256').update(text).digest('hex') };
 }
 
 /**

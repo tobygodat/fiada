@@ -10,6 +10,7 @@
 // starts with an empty queue.
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -508,8 +509,10 @@ export class AgentHub {
       if (!where.repo) continue;
       const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : [];
       // The hook counted lines in the agent's own copy of the file. They place an edit against a
-      // fenced symbol only when that copy is the one Fiada reads, parsed as it is right now.
-      const symbols = lines.length && where.live ? await this.symbolsNow(where.repo, where.rel!) : null;
+      // fenced symbol only when that copy is the one Fiada reads, holding the very text the hook
+      // read (no other edit since), parsed as it is right now.
+      const sha = typeof f.sha256 === 'string' ? f.sha256 : null;
+      const symbols = lines.length && sha && where.live ? await this.symbolsNow(where.repo, where.rel!, sha) : null;
       files.push({ repo: where.repo, rel: where.rel!, ...(symbols ? { lines, symbols } : {}) });
     }
     const v = fences.verdict(files, this.ws.getGraph());
@@ -523,10 +526,14 @@ export class AgentHub {
     return v;
   }
 
-  /** The symbols of a local repository's file as it is on disk now, by id; null when it can't be read or parsed. */
-  private async symbolsNow(repo: string, rel: string): Promise<Map<string, [number, number]> | null> {
+  /**
+   * The symbols of a local repository's file as it is on disk now, by id; null when it can't be
+   * read or parsed, or no longer holds the text whose digest is `sha256`.
+   */
+  private async symbolsNow(repo: string, rel: string, sha256: string): Promise<Map<string, [number, number]> | null> {
     const source = await this.ws.readSource(repo, rel).catch(() => null);
-    const parsed = source && (await parseFile(rel, source.text).catch(() => null));
+    if (!source || createHash('sha256').update(source.text).digest('hex') !== sha256) return null;
+    const parsed = await parseFile(rel, source.text).catch(() => null);
     if (!parsed) return null;
     const ids = symbolIds(fileId(repo, rel), parsed);
     return new Map(parsed.symbols.map((s, i) => [ids[i], s.lines]));

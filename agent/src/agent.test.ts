@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -344,14 +345,18 @@ test('an edit is placed on the lines it replaces; a write, or text not in the fi
   assert.deepEqual(linesOf(text, 'b', true), [[2, 2], [4, 4]]);
   assert.deepEqual(linesOf(text, 'b\nc'), [[2, 3]]);
   assert.deepEqual(linesOf(text, 'zz'), []);
-  const dir = await repo({ 'app.py': 'def a():\n    return 1\n\n\ndef b():\n    return 2\n' });
-  assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'return 2' }, dir), { path: path.join(dir, 'app.py'), lines: [[6, 6]] });
+  const src = 'def a():\n    return 1\n\n\ndef b():\n    return 2\n';
+  const dir = await repo({ 'app.py': src });
+  // The digest of the text the lines were counted in, so the indexer can tell if it changed since.
+  const sha256 = createHash('sha256').update(src).digest('hex');
+  assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'return 2' }, dir), { path: path.join(dir, 'app.py'), lines: [[6, 6]], sha256 });
   assert.deepEqual(await aboutToEdit('MultiEdit', { file_path: path.join(dir, 'app.py'), edits: [{ old_string: 'def a' }, { old_string: 'def b' }] }, dir), {
     path: path.join(dir, 'app.py'),
     lines: [
       [1, 1],
       [5, 5],
     ],
+    sha256,
   });
   assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'not there' }, dir), { path: path.join(dir, 'app.py') });
   assert.deepEqual(await aboutToEdit('Write', { file_path: 'new.py', content: 'x' }, dir), { path: path.join(dir, 'new.py') });
@@ -410,7 +415,7 @@ test('the hook asks Fiada before an edit lands, as Claude Code runs it, and stay
     assert.equal(asked[0].agent.session, 'fence-test');
     assert.equal(asked[0].agent.root, dir);
     assert.equal(asked[0].tool, 'Edit');
-    assert.deepEqual(asked[0].files, [{ path: path.join(dir, 'core/config.py'), lines: [[1, 1]] }]);
+    assert.deepEqual(asked[0].files, [{ path: path.join(dir, 'core/config.py'), lines: [[1, 1]], sha256: createHash('sha256').update('SECRET = 1\n').digest('hex') }]);
     assert.equal(JSON.parse(await runHook(edit('main.py'), { FIADA_URL: url })).hookSpecificOutput.permissionDecision, 'ask');
     // Allowed: nothing printed, so the person's own permission settings decide.
     assert.equal(await runHook(edit('other.py'), { FIADA_URL: url }), '');

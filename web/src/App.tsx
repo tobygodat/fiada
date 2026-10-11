@@ -391,6 +391,22 @@ export function App() {
     setModeState(m);
   };
 
+  /**
+   * From the agents window: where two agents meet, or the fence an edit
+   * stopped at. Those are repositories, folders and files, which By function
+   * doesn't draw: switch to Code first and select it there.
+   */
+  const placeAfterView = useRef<string | null>(null);
+  const place = useCallback(
+    (id: string) => {
+      if (!tree || tree.view === 'code' || tree.nodes.has(id)) return select(id);
+      remember();
+      placeAfterView.current = id;
+      setView('code');
+    },
+    [tree, select, remember],
+  );
+
   /** From the task queue: a changed file or symbol, or for one that's gone, the circle standing in for it. */
   const selectChange = useCallback(
     (id: string, agentId: string) => {
@@ -450,8 +466,11 @@ export function App() {
     lastTree.current = tree;
     setFrom(undefined);
     const viewChanged = !!prev && prev.view !== tree.view;
-    if (viewChanged && selected) {
-      const at = locate(tree, graphIndex, selected);
+    // Something picked in the view before (`place`) is selected once its view is drawn.
+    const want = (viewChanged && placeAfterView.current) || selected;
+    placeAfterView.current = null;
+    if (viewChanged && want) {
+      const at = locate(tree, graphIndex, want);
       if (at && at !== 'root') {
         setSelected(at);
         setFocus(at);
@@ -621,7 +640,7 @@ export function App() {
           lit={spot ? lit : null}
           onShow={showAgent}
           onSelect={selectChange}
-          onPlace={select}
+          onPlace={place}
           onClear={
             canEdit(ws.workspace)
               ? (id) => {

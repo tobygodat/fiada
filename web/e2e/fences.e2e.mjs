@@ -162,6 +162,15 @@ try {
   await pause(1500);
   assert.equal(await page.locator('.detail-title').innerText(), 'routes');
   await shot('after-collision-map');
+  step('…and from the by-function view, which has no folders, it switches to code first');
+  await page.keyboard.press('Escape');
+  const views = page.getByRole('radiogroup', { name: 'view' });
+  await views.getByRole('radio', { name: 'by function' }).click();
+  await pause(800);
+  await line.click();
+  await pause(1500);
+  assert.equal(await views.getByRole('radio', { name: 'code' }).getAttribute('aria-checked'), 'true');
+  assert.equal(await page.locator('.detail-title').innerText(), 'routes');
 
   // ── 2. fences from the detail panel ──
   step('fence backend/app/core off limits from the detail panel');

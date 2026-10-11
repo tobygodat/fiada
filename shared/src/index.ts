@@ -653,8 +653,11 @@ export interface FenceCheck {
   agent: AgentRef;
   /** Claude Code's tool name, e.g. "Edit". */
   tool?: string;
-  /** `checkout` names the file's own checkout when it isn't in the agent's. */
-  files: { path: string; lines?: LineRange[]; checkout?: { root: string; remote?: string } }[];
+  /**
+   * `checkout` names the file's own checkout when it isn't in the agent's.
+   * `sha256` is the hex digest of the text `lines` were counted in.
+   */
+  files: { path: string; lines?: LineRange[]; sha256?: string; checkout?: { root: string; remote?: string } }[];
 }
 
 /** An edit an agent tried inside a fence, for the agents window. */
