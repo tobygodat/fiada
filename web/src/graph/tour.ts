@@ -6,7 +6,7 @@
 // from the one before. What you've read is remembered per stop, until the
 // agent changes that code again.
 
-import { UNLAYERED, type AgentActivity, type ChangeKind, type Graph, type GraphNode, type NodeChange } from '@fiada/shared';
+import { UNLAYERED, type AgentActivity, type ChangeKind, type Graph, type GraphEdge, type GraphNode, type NodeChange } from '@fiada/shared';
 
 export interface TourStop {
   /** The changed file or function: the stop's identity, and its read mark's. */
@@ -63,10 +63,11 @@ export function tourStops(
   graphIndex: Map<string, GraphNode>,
   agent: AgentActivity,
   nodes: Record<string, NodeChange>,
+  lost: readonly GraphEdge[] = [],
 ): TourStop[] {
   // Each file's classes left out for a method in them, whose own lines its first stop shows.
   const outer = new Map<string, { id: string; at: number; shared?: true; old?: [number, number] }[]>();
-  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id)), outer), graph, graphIndex);
+  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id)), outer), graph, graphIndex, lost);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
   // And each one's lines before the change, gathered in the same pass.
@@ -118,13 +119,16 @@ export function tourStops(
  */
 export function tourCache(): typeof tourStops {
   let last: { graph: object; graphIndex: object; key: string; stops: TourStop[] } | null = null;
-  return (graph, graphIndex, agent, nodes) => {
+  return (graph, graphIndex, agent, nodes, lost = []) => {
     // The indexer's revision of the agent's files; an older indexer's state has none, so the files themselves.
-    const key = agent.filesRev
-      ? `${agent.id}\n${agent.filesRev}`
-      : JSON.stringify([agent.id, agent.files, agent.files.map((f) => (f.repo ? (nodes[`${f.repo}/${f.path}`]?.anchor ?? null) : null))]);
+    // And the links into deleted code the indexer kept, which order the stops as the graph's own do.
+    const key =
+      (agent.filesRev
+        ? `${agent.id}\n${agent.filesRev}`
+        : JSON.stringify([agent.id, agent.files, agent.files.map((f) => (f.repo ? (nodes[`${f.repo}/${f.path}`]?.anchor ?? null) : null))])) +
+      lost.map((e) => `\n${e.from}\t${e.to}`).join('');
     if (last && last.graph === graph && last.graphIndex === graphIndex && last.key === key) return last.stops;
-    last = { graph, graphIndex, key, stops: tourStops(graph, graphIndex, agent, nodes) };
+    last = { graph, graphIndex, key, stops: tourStops(graph, graphIndex, agent, nodes, lost) };
     return last.stops;
   };
 }
@@ -283,7 +287,7 @@ const PAIRS = 4096;
  * callback, a shared type) don't hold anything back. Ties go by repository,
  * path and line, so the order is stable.
  */
-function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphIndex: Map<string, GraphNode>): TourStop[] {
+function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphIndex: Map<string, GraphNode>, lost: readonly GraphEdge[]): TourStop[] {
   if (stops.length < 2) return stops;
   // The layers' own order, as the legend shows them: ranks can be partial and collide with positions.
   const rank = new Map(graph.layers.map((l, i) => [l.id, i]));
@@ -369,7 +373,8 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     }
   };
   const seen = new Set<string>();
-  for (const e of graph.edges) {
+  // The links into code the agent deleted are gone from the graph; the indexer kept them.
+  for (const e of [...graph.edges, ...lost]) {
     const key = `${e.from}\n${e.to}`;
     if (seen.has(key)) continue;
     seen.add(key);

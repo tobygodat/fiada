@@ -181,7 +181,7 @@ export function App() {
   // Kept while the agent's changes are: its status lines and prompts don't order the tour again.
   const [tourStops] = useState(tourCache);
   const stops = useMemo(
-    () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes) : []),
+    () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes, agents.state.lost) : []),
     [graph, graphIndex, tourAgent, agents.state],
   );
   const tourAt = touring ? Math.max(0, stops.findIndex((s) => s.id === touring.stop)) : -1;

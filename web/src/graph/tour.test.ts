@@ -67,6 +67,24 @@ test('stops follow the data flow: page, client, route, model, whatever order the
   ]);
 });
 
+test("a deleted function still waits for the changed code that called it, by the link the indexer kept", () => {
+  // One layer: read_items (changed) called Item, which the agent deleted; the re-index took the link away.
+  const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
+  const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+  const READ = 'api/app/routes/items.py#read_items';
+  const ITEM = 'api/app/models.py#Item';
+  const kept = flat.edges.filter((e) => e.from === READ && e.to === ITEM);
+  assert.ok(kept.length);
+  const after = { ...flat, edges: flat.edges.filter((e) => !(e.from === READ && e.to === ITEM)) };
+  const a = agent([file('api', 'app/models.py', [sym(ITEM, 'deleted')]), file('api', 'app/routes/items.py', [sym(READ)])]);
+  assert.deepEqual(tourStops(after, idx, a, NO_NODES).map((s) => s.id), [ITEM, READ], 'by path alone, the deleted one first');
+  assert.deepEqual(tourStops(after, idx, a, NO_NODES, kept).map((s) => s.id), [READ, ITEM]);
+  // Cached by the links kept, too.
+  const cached = tourCache();
+  assert.deepEqual(cached(after, idx, a, NO_NODES).map((s) => s.id), [ITEM, READ]);
+  assert.deepEqual(cached(after, idx, a, NO_NODES, kept).map((s) => s.id), [READ, ITEM]);
+});
+
 test('inside one layer, a stop waits for the changed code that calls it', () => {
   // All in one layer: Item is used by both routes, so both come before it; create_item before read_items by name.
   const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
