@@ -145,3 +145,14 @@ test('words on a link move off another link that crosses it', () => {
   assert.ok(at.inline, 'still in a gap on its own link');
   assert.equal(curveHits(other, box(at)), false);
 });
+
+test('words keep off a rule already hung from another link', () => {
+  const half = { w: 30, h: 9 };
+  const mine = [0, 100, 200, 100, 400, 100];
+  // A rule from (200, 60) down to words below, kept as a straight link (its control point at its middle).
+  const rule = { pts: [200, 60, 200, 110, 200, 160], w: 1, minX: 200, minY: 60, maxX: 200, maxY: 160 };
+  const box = (p: { x: number; y: number }) => ({ x: p.x - half.w, y: p.y - half.h, w: half.w * 2, h: half.h * 2 });
+  const at = labelSpot(mine, 400, half, 2, (p) => !curveHits(rule, box(p)))!;
+  assert.equal(curveHits(rule, box(at)), false);
+  assert.notEqual(at.x, 200, 'moved off the middle, where the rule runs');
+});

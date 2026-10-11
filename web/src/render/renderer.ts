@@ -741,13 +741,15 @@ export class MapRenderer {
       // Always in the same order, so the words pointed at keep the spot they had.
       labelQueue.sort((p, q) => edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost) || (p.g.key < q.g.key ? -1 : 1));
       ctx.lineJoin = 'round';
+      // Rules already hung, kept clear like links (straight, so the control point is their middle).
+      const rules: DrawnEdge[] = [];
       for (const t of labelQueue) {
         const text = restLabel(t.g);
         if (!text) continue;
         const tw = Math.ceil(this.textWidth(text, 400, 13));
         const box = (p: { x: number; y: number }): Rect => ({ x: Math.round(p.x - tw / 2 - 4), y: Math.round(p.y - 9), w: tw + 8, h: 18 });
-        // Other links: the words' ground would cut them, and a rule across one leaves it unclear whose words these are.
-        const links = this.drawnEdges.filter((e) => e.g.key !== t.g.key);
+        // Other links and rules already hung: the words' ground would cut them, and a rule across one leaves it unclear whose words these are.
+        const links = [...this.drawnEdges.filter((e) => e.g.key !== t.g.key), ...rules];
         const crossesLinks = (a: { x: number; y: number }, z: { x: number; y: number }) => {
           const n = Math.max(1, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
           // From the first step off the link to the box, so its own link's neighbours where it starts don't count.
@@ -782,6 +784,8 @@ export class MapRenderer {
           ctx.moveTo(at.from.x, at.from.y);
           ctx.lineTo(ex, ey);
           ctx.stroke();
+          const { x: fx, y: fy } = at.from;
+          rules.push({ g: t.g, pts: [fx, fy, (fx + ex) / 2, (fy + ey) / 2, ex, ey], w: 1, minX: Math.min(fx, ex), minY: Math.min(fy, ey), maxX: Math.max(fx, ex), maxY: Math.max(fy, ey) });
         }
         ctx.strokeStyle = ink.ground;
         ctx.lineWidth = 6;
