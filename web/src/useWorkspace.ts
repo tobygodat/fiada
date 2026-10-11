@@ -4,10 +4,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Graph, LayerPreset, Workspace } from '@fiada/shared';
 import { api } from './api.ts';
+import { GraphSync, type LoadedGraph } from './graphSync.ts';
 
 export interface WorkspaceHandle {
   workspace: Workspace | null;
   graph: Graph | null;
+  /** The workspace's graph version that `graph` is, behind `workspace.graphVersion` while a newer one loads. */
+  graphVersion: number | null;
   /** Why the indexer can't be reached; null while it answers. */
   offline: string | null;
   add(source: string): Promise<void>;
@@ -25,9 +28,9 @@ export interface WorkspaceHandle {
 
 export function useWorkspace(): WorkspaceHandle {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [graph, setGraph] = useState<Graph | null>(null);
+  const [loaded, setLoaded] = useState<LoadedGraph | null>(null);
   const [offline, setOffline] = useState<string | null>(null);
-  const version = useRef(-1);
+  const graphs = useRef(new GraphSync());
   const timer = useRef<number | undefined>(undefined);
 
   const sync = useCallback(async (ws?: Workspace) => {
@@ -36,10 +39,8 @@ export function useWorkspace(): WorkspaceHandle {
       const next = ws ?? (await api.workspace());
       setOffline(null);
       setWorkspace(next);
-      if (next.graphVersion !== version.current) {
-        version.current = next.graphVersion;
-        setGraph(await api.graph());
-      }
+      const got = await graphs.current.sync(next.graphVersion, api.graph);
+      if (got) setLoaded(got);
       // Quick while repositories index or Claude sorts, so the result shows as soon as it lands.
       timer.current = window.setTimeout(() => sync(), next.busy || next.sorting?.status === 'running' ? 800 : 5000);
     } catch (err) {
@@ -55,7 +56,8 @@ export function useWorkspace(): WorkspaceHandle {
 
   return {
     workspace,
-    graph,
+    graph: loaded?.graph ?? null,
+    graphVersion: loaded?.version ?? null,
     offline,
     add: async (source) => sync(await api.addRepo(source)),
     upload: async (name, archive, replace) => sync(await api.uploadRepo(name, archive, replace)),

@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { AgentEvent } from '@fiada/shared';
+import type { AgentEvent, DependentsAnswer, FindAnswer, ImpactAnswer, NodeRef } from '@fiada/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { firstLine, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
-import { clientId, nowLines, FiadaMcp } from './mcp.ts';
+import { aboutToEdit, fenceAnswer, placed, firstLine, linesOf, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
+import { ask } from './client.ts';
+import { clientId, formatImpact, nowLines, FiadaMcp } from './mcp.ts';
 import { applyConfig, configPath } from './env.ts';
-import { commandsFor, flag, hooksBlock, mergeHooks, nextConfig } from './setup.ts';
+import { commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -167,7 +169,9 @@ test('the MCP server answers the handshake and forwards tool calls', async () =>
   assert.equal(out[0].result.protocolVersion, '2025-03-26');
   assert.ok(out[0].result.capabilities.tools);
   await fresh.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.deepEqual(out[1].result.tools.map((t: any) => t.name), ['status', 'flag_changes']);
+  assert.deepEqual(out[1].result.tools.map((t: any) => t.name), ['status', 'flag_changes', 'where_is', 'who_uses', 'impact']);
+  // The questions only read.
+  for (const t of out[1].result.tools.slice(2)) assert.equal(t.annotations.readOnlyHint, true);
   assert.deepEqual(out[1].result.tools[0].inputSchema.required, ['now']);
 
   await fresh.handle({
@@ -336,4 +340,250 @@ test('setup runs this copy by its path, or through npx when it lives in npx cach
   // And an npx hook written before the package moved to the fiadatech scope.
   const renamed = mergeHooks({ hooks: hooksBlock('npx -y --package=@fiada/agent@0.1.0 fiada hook') }, hooksBlock(installed.hook));
   assert.deepEqual(renamed.hooks.Stop, hooksBlock(installed.hook).Stop);
+});
+
+test('an edit is placed on the lines it replaces; a write, or text not in the file, is the whole file', async () => {
+  const text = 'a\nb\nc\nb\n';
+  assert.deepEqual(linesOf(text, 'b'), [[2, 2]]);
+  assert.deepEqual(linesOf(text, 'b', true), [[2, 2], [4, 4]]);
+  assert.deepEqual(linesOf(text, 'b\nc'), [[2, 3]]);
+  assert.deepEqual(linesOf(text, 'zz'), []);
+  const src = 'def a():\n    return 1\n\n\ndef b():\n    return 2\n';
+  const dir = await repo({ 'app.py': src });
+  // The digest of the text the lines were counted in, so the indexer can tell if it changed since.
+  const sha256 = createHash('sha256').update(src).digest('hex');
+  assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'return 2' }, dir), { path: path.join(dir, 'app.py'), lines: [[6, 6]], sha256 });
+  assert.deepEqual(await aboutToEdit('MultiEdit', { file_path: path.join(dir, 'app.py'), edits: [{ old_string: 'def a' }, { old_string: 'def b' }] }, dir), {
+    path: path.join(dir, 'app.py'),
+    lines: [
+      [1, 1],
+      [5, 5],
+    ],
+    sha256,
+  });
+  assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'not there' }, dir), { path: path.join(dir, 'app.py') });
+  assert.deepEqual(await aboutToEdit('Write', { file_path: 'new.py', content: 'x' }, dir), { path: path.join(dir, 'new.py') });
+  assert.equal(await aboutToEdit('Bash', { command: 'rm -rf app.py' }, dir), null);
+});
+
+test("a file in another checkout than the agent's says which, even one not written yet", async () => {
+  const own = await repo({ 'a.py': 'x\n' });
+  const other = await repo({ 'lib/b.py': 'y\n' });
+  git(other, 'remote', 'add', 'origin', 'https://github.com/acme/other.git');
+  const co = await checkout(own);
+  assert.deepEqual(await placed({ path: path.join(own, 'a.py') }, co), { path: path.join(own, 'a.py'), rel: 'a.py' });
+  const theirs = { root: other, remote: 'https://github.com/acme/other.git' };
+  assert.deepEqual(await placed({ path: path.join(other, 'lib/b.py'), lines: [[1, 1]] }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', lines: [[1, 1]], checkout: theirs });
+  assert.deepEqual(await placed({ path: path.join(other, 'new/deep/c.py') }, co), { path: path.join(other, 'new/deep/c.py'), rel: 'new/deep/c.py', checkout: theirs });
+  // A link is placed where it leads, lines and all, in this checkout or another.
+  await fs.symlink(path.join(own, 'a.py'), path.join(own, 'alias.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'alias.py'), lines: [[1, 1]] }, co), { path: path.join(own, 'a.py'), rel: 'a.py', lines: [[1, 1]] });
+  await fs.symlink(path.join(other, 'lib/b.py'), path.join(own, 'b-link.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'b-link.py') }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', checkout: theirs });
+  // A checkout inside the agent's own (a submodule) is its own repository.
+  const nested = path.join(own, 'vendor/sdk');
+  await fs.mkdir(nested, { recursive: true });
+  git(nested, 'init', '-q');
+  git(nested, 'remote', 'add', 'origin', 'https://github.com/acme/sdk.git');
+  assert.deepEqual(await placed({ path: path.join(nested, 'client.py') }, co), { path: path.join(nested, 'client.py'), rel: 'client.py', checkout: { root: nested, remote: 'https://github.com/acme/sdk.git' } });
+  // A link to a file not written yet is placed where the write would land.
+  await fs.symlink(path.join(other, 'lib/new.py'), path.join(own, 'dangling.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'dangling.py') }, co), { path: path.join(other, 'lib/new.py'), rel: 'lib/new.py', checkout: theirs });
+  // Outside any checkout: nothing to say.
+  const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
+  assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
+});
+
+test("the hook's answer to an edit inside a fence is Claude Code's own decision; outside, it says nothing", () => {
+  assert.equal(fenceAnswer(null), undefined);
+  assert.equal(fenceAnswer({ decision: 'allow' }), undefined);
+  assert.deepEqual(JSON.parse(fenceAnswer({ decision: 'deny', reason: 'off limits' })!), { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'off limits' } });
+  assert.equal(JSON.parse(fenceAnswer({ decision: 'ask', reason: 'ask first' })!).hookSpecificOutput.permissionDecision, 'ask');
+  // Setup asks before every edit tool, and only those.
+  assert.deepEqual(hooksBlock('node /x/fiada-hook.mjs').PreToolUse, [{ matcher: EDIT_MATCHER, hooks: [{ type: 'command', command: 'node /x/fiada-hook.mjs', timeout: 10 }] }]);
+});
+
+test('the hook asks Fiada before an edit lands, as Claude Code runs it, and stays out of the way when Fiada is down', async () => {
+  const dir = await repo({ 'core/config.py': 'SECRET = 1\n', 'main.py': 'print(1)\n' });
+  const asked: any[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url !== '/api/agent/check') return res.end('{"files":[]}');
+      const check = JSON.parse(body);
+      asked.push(check);
+      const p: string = check.files[0].path;
+      res.end(JSON.stringify(p.includes('/core/') ? { decision: 'deny', reason: 'core is off limits' } : p.endsWith('main.py') ? { decision: 'ask', reason: 'main.py: ask first' } : { decision: 'allow' }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const edit = (file: string, extra: object = {}) => ({ session_id: 'fence-test', cwd: dir, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, file), old_string: 'SECRET', new_string: 'KEY', ...extra } });
+  try {
+    const deny = JSON.parse(await runHook(edit('core/config.py'), { FIADA_URL: url }));
+    assert.deepEqual(deny, { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'core is off limits' } });
+    assert.equal(asked[0].agent.session, 'fence-test');
+    assert.equal(asked[0].agent.root, dir);
+    assert.equal(asked[0].tool, 'Edit');
+    assert.deepEqual(asked[0].files, [{ path: path.join(dir, 'core/config.py'), rel: 'core/config.py', lines: [[1, 1]], sha256: createHash('sha256').update('SECRET = 1\n').digest('hex') }]);
+    assert.equal(JSON.parse(await runHook(edit('main.py'), { FIADA_URL: url })).hookSpecificOutput.permissionDecision, 'ask');
+    // Allowed: nothing printed, so the person's own permission settings decide.
+    assert.equal(await runHook(edit('other.py'), { FIADA_URL: url }), '');
+    // Not an edit tool: not asked.
+    const before = asked.length;
+    assert.equal(await runHook({ ...edit('main.py'), tool_name: 'Read' }, { FIADA_URL: url }), '');
+    assert.equal(asked.length, before);
+  } finally {
+    server.close();
+  }
+  // Nobody listening: the edit goes ahead as if there were no fences.
+  assert.equal(await runHook(edit('core/config.py'), { FIADA_URL: 'http://127.0.0.1:9' }), '');
+});
+
+const item: NodeRef = { id: 'api/app/models.py#Item', kind: 'symbol', name: 'Item', repo: 'api', path: 'app/models.py', symbolKind: 'class', lines: [87, 93], layer: 'Data', domain: 'Items' };
+const route: NodeRef = { id: 'api/app/routes/items.py#create_item', kind: 'symbol', name: 'create_item', repo: 'api', path: 'app/routes/items.py', symbolKind: 'function', lines: [61, 72], layer: 'API', domain: 'Items', routes: ['POST /api/v1/items/'] };
+const client: NodeRef = { id: 'web/src/sdk.ts#ItemsService', kind: 'symbol', name: 'ItemsService', repo: 'web', path: 'src/sdk.ts', symbolKind: 'class', lines: [287, 365], layer: 'Client', domain: 'Items' };
+
+test('the read tools ask the map, answer in plain lines, and report what the agent looked at', async () => {
+  const dir = await repo({ 'app/models.py': 'class Item:\n    pass\n' });
+  const sent: AgentEvent[][] = [];
+  const asked: [string, Record<string, unknown>][] = [];
+  const answers: Record<string, any> = {
+    find: { ok: true, body: { query: 'item', hits: [{ ...item, summary: 'The item table.' }, route], more: 4 } satisfies FindAnswer },
+    dependents: {
+      ok: true,
+      body: {
+        target: route,
+        dependents: [{ ...client, crossRepo: true, links: [{ kind: 'http', to: route.id, basis: 'evidenced', evidence: [{ file: 'web/src/sdk.ts', line: 308, code: 'return client.post({' }] }] }],
+        more: 0,
+      } satisfies DependentsAnswer,
+    },
+    impact: {
+      ok: true,
+      body: {
+        target: item,
+        depth: 2,
+        reached: [
+          { ...route, depth: 1, via: item.id, link: 'calls', crossRepo: false },
+          { ...client, depth: 2, via: route.id, link: 'http', crossRepo: true },
+        ],
+        more: 0,
+        byRepo: { api: 1, web: 1 },
+        byLayer: { API: 1, Client: 1 },
+        byDomain: { Items: 2 },
+      } satisfies ImpactAnswer,
+    },
+  };
+  const asker = (async (r: string, params: Record<string, unknown>) => {
+    asked.push([r, params]);
+    return answers[r];
+  }) as typeof ask;
+  process.env.FIADA_CWD = dir;
+  const mcp = new FiadaMcp(() => undefined, async (events) => (sent.push(events), { files: [] }), asker);
+  delete process.env.FIADA_CWD;
+  const call = async (name: string, args: Record<string, unknown>) => (await mcp.call(name, args)) as { content: { text: string }[]; isError?: boolean };
+
+  const where = await call('where_is', { query: 'item', limit: 2 });
+  assert.deepEqual(asked[0], ['find', { q: 'item', limit: 2 }]);
+  const text = where.content[0].text;
+  assert.match(text, /^2 of 6 matches for "item", best first:/);
+  assert.match(text, /1\. Item \(class\) in api\/app\/models\.py:87-93\n   Data layer, Items domain\n   The item table\.\n   id: api\/app\/models\.py#Item/);
+  assert.match(text, /serves POST \/api\/v1\/items\//);
+  // What it was shown is what it looked at.
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(sent[0], [{ agent: sent[0][0].agent, type: 'looked', nodes: [item.id, route.id] }]);
+
+  // An absolute path in its own checkout goes to the map relative to the repository.
+  const users = await call('who_uses', { target: path.join(dir, 'app/routes/items.py#create_item') });
+  assert.deepEqual(asked[1], ['dependents', { node: 'app/routes/items.py#create_item', limit: undefined, depth: undefined }]);
+  assert.match(users.content[0].text, /^1 place uses create_item \(function in api\/app\/routes\/items\.py:61-72\):/);
+  assert.match(users.content[0].text, /- ItemsService \(class\) in web\/src\/sdk\.ts:287-365, another repository\n  http, proven\n    web\/src\/sdk\.ts:308  return client\.post\(\{/);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual((sent[1][0] as { nodes: string[] }).nodes, [route.id]);
+
+  const reach = await call('impact', { target: item.id, depth: 2 });
+  assert.deepEqual(asked[2], ['impact', { node: item.id, limit: undefined, depth: 2 }]);
+  assert.match(reach.content[0].text, /^An edit to Item \(class in api\/app\/models\.py:87-93\) reaches 2 places within 2 links, in 2 repositories\./);
+  assert.match(reach.content[0].text, /Uses it directly:\n- create_item \(function\) in api\/app\/routes\/items\.py:61-72: calls\n2 links away:\n- ItemsService \(class\) in web\/src\/sdk\.ts:287-365: http, another repository/);
+
+  // Several matches: pick one. None: a plain answer, not an error. No indexer: carry on.
+  answers.dependents = { ok: true, body: { target: null, query: 'Item', candidates: [item, { ...item, id: 'web/src/Main.tsx#Item', repo: 'web', path: 'src/Main.tsx', symbolKind: 'type' }] } };
+  assert.match((await call('who_uses', { target: 'Item' })).content[0].text, /could be any of these; ask again with one of their ids:\n- api\/app\/models\.py#Item/);
+  answers.impact = { ok: false, status: 404, error: 'Nothing on the map matches "x".' };
+  const none = await call('impact', { target: 'x' });
+  assert.equal(none.isError, undefined);
+  answers.find = { ok: false, status: 0, error: "Fiada isn't reachable at http://127.0.0.1:9." };
+  assert.equal((await call('where_is', { query: 'x' })).isError, undefined);
+  assert.equal((await call('where_is', {})).isError, true);
+  assert.equal((await call('impact', {})).isError, true);
+  // Questions that found nothing to look at report nothing.
+  assert.equal(sent.length, 3);
+});
+
+test('an edit that reaches nothing says so, and a long answer says how many more', () => {
+  const empty: ImpactAnswer = { target: item, depth: 3, reached: [], more: 0, byRepo: {}, byLayer: {}, byDomain: {} };
+  assert.match(formatImpact(empty), /^Nothing on the map uses Item/);
+  const more = formatImpact({ ...empty, reached: [{ ...route, depth: 1, via: item.id, link: 'calls', crossRepo: false }], more: 7, byRepo: { api: 8 }, byLayer: { API: 8 }, byDomain: { Items: 8 } });
+  assert.match(more, /reaches 8 places within 3 links\./);
+  assert.match(more, /…and 7 more/);
+});
+
+test('the MCP server asks the indexer over HTTP with the agent token', async () => {
+  const seen: { url: string; auth?: string }[] = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url!, auth: req.headers.authorization });
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'POST') return req.resume().on('end', () => res.end('{"files":[]}'));
+    res.end(JSON.stringify({ query: 'cart', hits: [{ id: 'shop/src/cart.ts#addToCart', kind: 'symbol', name: 'addToCart', repo: 'shop', path: 'src/cart.ts', lines: [1, 3] }], more: 0 }));
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const bin = fileURLToPath(new URL('../bin/fiada-mcp.mjs', import.meta.url));
+  try {
+    const child = spawn(process.execPath, [bin], { env: { ...process.env, FIADA_URL: url, FIADA_TOKEN: 'fa_test', FIADA_CONFIG: '/nonexistent' }, stdio: ['pipe', 'pipe', 'ignore'] });
+    let outText = '';
+    child.stdout.on('data', (c) => (outText += c));
+    const rpc = (id: number, method: string, params?: object) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+    rpc(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+    rpc(2, 'tools/call', { name: 'where_is', arguments: { query: 'cart' } });
+    for (let i = 0; i < 100 && !outText.includes('"id":2'); i++) await new Promise((r) => setTimeout(r, 50));
+    for (let i = 0; i < 40 && seen.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+    child.stdin.end();
+    const reply = outText.split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((m) => m.id === 2);
+    assert.match(reply.result.content[0].text, /addToCart \(symbol\) in shop\/src\/cart\.ts:1-3/);
+    assert.equal(seen[0].url, '/api/agent/find?q=cart');
+    assert.equal(seen[0].auth, 'Bearer fa_test');
+    // Then it says what it looked at.
+    assert.equal(seen[1].url, '/api/agent/events');
+  } finally {
+    server.close();
+  }
+});
+
+test('the hook reports a file the agent read as looked at', async () => {
+  const dir = await repo({ 'a.py': 'x = 1\n' });
+  const got: any[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      got.push(...JSON.parse(body));
+      res.setHeader('content-type', 'application/json');
+      res.end('{"files":[]}');
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    await runHook({ session_id: 'read-test', cwd: dir, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: 'a.py' } }, { FIADA_URL: url });
+    assert.deepEqual(got.map((e) => e.type), ['state', 'looked']);
+    assert.deepEqual(got[1].paths, [path.join(dir, 'a.py')]);
+  } finally {
+    server.close();
+  }
+  // Claude Code only runs the hook for Read when setup asks it to.
+  assert.ok(MATCHER.split('|').includes('Read'));
+  assert.equal(hooksBlock('x').PostToolUse[0].matcher, MATCHER);
 });

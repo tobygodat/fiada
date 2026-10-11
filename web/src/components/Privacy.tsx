@@ -27,7 +27,7 @@ export function Privacy() {
         <h2>when you import a repository</h2>
         <p>
           Fiada clones it, or unpacks the folder you upload, on the server that runs the indexer, and reads its source files to draw the map. It
-          keeps the list of what you imported, the layers and rules you set, and the summaries it wrote, so your map is there when you come back.
+          keeps the list of what you imported, the layers and rules you set, the fences you put round parts of the map, and the summaries it wrote, so your map is there when you come back.
           The map itself is worked out again from the code each time and never stored. Nobody else's map shows your repositories.
         </p>
 
@@ -41,13 +41,16 @@ export function Privacy() {
 
         <h2>coding agents</h2>
         <p>
-          If you connect a coding agent, it reports the files it changes, their diffs, what it says it is doing and the first line of your latest
-          prompt. Fiada holds these in memory to draw them on your map, never on disk, and forgets them when you clear them or the indexer restarts.
+          If you connect a coding agent, it reports the files it changes, their diffs, what it says it is doing, the first line of your latest
+          prompt, and the files it reads or asks your map about. Fiada holds these in memory to draw them on your map, never on disk, and forgets
+          them when you clear them or the indexer restarts. Its questions are answered from your own map only.
         </p>
 
         <h2>in your browser</h2>
         <p>
-          Your browser keeps your sign-in and a few preferences (the theme, which panels are open) in local storage. Signing in sets one cookie
+          Your browser keeps your sign-in, a few preferences (the theme, which panels are open), which agent changes you have opened and
+          which you have marked read in a review in local storage. The sign-in goes with each request to the indexer; the preferences and
+          those marks stay in the browser, and deleting your account clears the marks. Signing in sets one cookie
           for the few minutes it takes. There are no analytics, no advertising, and nothing is sold.
         </p>
 

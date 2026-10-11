@@ -249,6 +249,13 @@ async function gitIgnored(root: string, paths: string[]): Promise<Set<string>> {
   });
 }
 
+/** Which of `paths` (repo-relative) count as source a load reads: parsed languages, outside ignored and generated code and tests. */
+export async function sourcePaths(root: string, paths: string[], opts: LoadOptions = DEFAULT_LOAD): Promise<Set<string>> {
+  const maybe = [...new Set(paths)].filter((rel) => !!langOf(rel) && !rel.endsWith('.min.js') && !isIgnored(rel) && (opts.includeTests || !TEST_PATH.test(rel)));
+  const ignored = maybe.length ? await gitIgnored(root, maybe) : new Set<string>();
+  return new Set(maybe.filter((rel) => !ignored.has(rel)));
+}
+
 /**
  * Re-reads only `paths` (repo-relative) of a loaded repo: parses the ones that
  * changed or appeared, drops the ones that are gone or no longer count as
@@ -258,11 +265,10 @@ async function gitIgnored(root: string, paths: string[]): Promise<Set<string>> {
  */
 export async function reloadFiles(repo: ParsedRepo, paths: string[], opts: LoadOptions = DEFAULT_LOAD): Promise<boolean> {
   if (paths.some((p) => MANIFEST.test(p))) return false;
-  const ignored = await gitIgnored(repo.root, paths);
+  const source = await sourcePaths(repo.root, paths, opts);
   const realRoot = await fs.realpath(repo.root);
   for (const rel of new Set(paths)) {
-    const counts = !!langOf(rel) && !rel.endsWith('.min.js') && !isIgnored(rel) && !ignored.has(rel) && (opts.includeTests || !TEST_PATH.test(rel));
-    const file = counts ? await fileWithin(realRoot, rel) : null;
+    const file = source.has(rel) ? await fileWithin(realRoot, rel) : null;
     const text = file && file.size <= opts.maxFileBytes ? await readText(file.abs) : null;
     let parsed: ParsedFile | null = null;
     if (text != null) {

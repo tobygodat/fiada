@@ -15,11 +15,14 @@ import './env.ts';
 import fs from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import type { AccountInfo, AgentConnection, AgentEvent, AuthState, LayerPreset } from '@fiada/shared';
-import { allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, RateLimit, READS } from './access.ts';
+import type { AccountInfo, AgentConnection, AgentEvent, AuthState, FenceCheck, LayerPreset } from '@fiada/shared';
+import { AGENT_READS, allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, RateLimit, READS, whoMayCall } from './access.ts';
+import { answer, QUESTIONS } from './ask.ts';
 import { accountInfo, Auth, authConfigFromEnv, bearer, CALLBACK_PATH, cookie, NONCE_COOKIE, returnAllowed } from './auth.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
+import { FenceError } from './fences.ts';
 import { KEY_HINT, LLMBudget, llmFromEnv } from './llm.ts';
+import { indexGraph, type GraphIndex } from './summaries/describe.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { clonesOf, openTenant, Tenants, type Tenant } from './tenants.ts';
 import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
@@ -55,6 +58,8 @@ const count = (name: string, fallback: number) => {
 // What one caller may do, so nobody can use up the indexer, its disk or its model key for everyone else.
 const changes = new RateLimit(count('FIADA_RATE_LIMIT', 60));
 const agentReports = new RateLimit(count('FIADA_AGENT_RATE_LIMIT', 600));
+/** Questions an agent's read tools may ask a minute (ask.ts): each walks the graph. */
+const agentQuestions = new RateLimit(count('FIADA_AGENT_READ_LIMIT', 300));
 /** Model requests each signed-in person's map may make a day. */
 const budget = new LLMBudget(count('FIADA_LLM_DAILY', 200));
 const MAX_REPOS = count('FIADA_MAX_REPOS', 20);
@@ -136,21 +141,25 @@ app.addHook('onRequest', async (req, reply) => {
   const route = req.url.split('?')[0];
   // Signing in answers for itself.
   if (route === '/api/auth' || route.startsWith('/api/auth/')) return;
+  const asking = READS.has(req.method) && AGENT_READS.has(route);
   if (!auth) {
     if (!READS.has(req.method) && !isLoopback(HOST) && limited(changes, req.ip, reply)) return;
+    if (asking && !isLoopback(HOST) && limited(agentQuestions, req.ip, reply)) return;
     if (KEY && !READS.has(req.method) && !hasKey(req.headers.authorization, KEY)) {
       return reply.code(401).send({ error: "This map is read-only without the indexer's access key. Open it once with ?key=<key> to make changes." });
     }
     req.tenant = shared!;
     return;
   }
-  // Agents may only report; everything else takes a signed-in browser.
-  const agentRoute = req.method === 'POST' && route === '/api/agent/events';
+  // Agents may report and ask the map; everything else takes a signed-in browser.
+  const who = whoMayCall(req.method, route);
   const token = bearer(req.headers.authorization);
-  const account = agentRoute ? await auth.agent(token) : await auth.session(token);
-  if (!account) return reply.code(401).send({ error: agentRoute ? AGENT_SIGN_IN : SIGN_IN, signIn: !agentRoute });
+  const account =
+    who === 'agent' ? await auth.agent(token) : who === 'agent-or-person' ? ((await auth.agent(token)) ?? (await auth.session(token))) : await auth.session(token);
+  if (!account) return reply.code(401).send({ error: who === 'person' ? SIGN_IN : AGENT_SIGN_IN, signIn: who === 'person' });
   if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
-  if (!READS.has(req.method) && limited(agentRoute ? agentReports : changes, account.id, reply)) return;
+  if (!READS.has(req.method) && limited(who === 'agent' ? agentReports : changes, account.id, reply)) return;
+  if (asking && limited(agentQuestions, account.id, reply)) return;
   const info = accountInfo(account);
   people.set(account.id, info);
   req.tenant = await tenants.get(account.id, info);
@@ -315,6 +324,21 @@ app.post('/api/grouping/sort', async (req, reply) => {
   return reply.code(202).send(req.tenant.ws.state());
 });
 
+// Fences: circles marked "ask first" or "off limits". PUT one { node, rule } at a time; rule null takes it down.
+app.get('/api/fences', async (req) => {
+  await req.tenant.fences.fresh();
+  return { fences: req.tenant.fences.all() };
+});
+
+app.put<{ Body: { node?: unknown; rule?: unknown } }>('/api/fences', async (req, reply) => {
+  try {
+    return { fences: await req.tenant.fences.set(req.body?.node, req.body?.rule === undefined ? null : req.body.rule, req.tenant.ws.getGraph()) };
+  } catch (err) {
+    if (err instanceof FenceError) return reply.code(400).send({ error: err.message });
+    throw err;
+  }
+});
+
 app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async (req, reply) => {
   const { repo, path } = req.query;
   if (!repo || !path) return reply.code(400).send({ error: 'Query must be ?repo=<id>&path=<repo-relative path>' });
@@ -344,7 +368,34 @@ app.post('/api/agent/events', { bodyLimit: 32 << 20 }, async (req, reply) => {
   return req.tenant.agents.ingest(events);
 });
 
+// An agent's hook asks before an edit lands: allow, ask the person, or deny.
+app.post('/api/agent/check', async (req, reply) => {
+  const body = req.body as FenceCheck | undefined;
+  if (!body?.agent || typeof body.agent.cwd !== 'string' || typeof body.agent.client !== 'string' || !Array.isArray(body.files)) {
+    return reply.code(400).send({ error: 'Body must be { agent: { client, cwd, … }, files: [{ path, lines? }] }' });
+  }
+  return req.tenant.agents.check(body, req.tenant.fences);
+});
+
 app.get('/api/agent/state', async (req) => req.tenant.agents.state());
+
+// What an agent's read tools ask the map (ask.ts): where something lives, who uses it, what an edit to it reaches.
+// The agent says what it looked at afterwards, as a `looked` event, so the map can mark it.
+const indexes = new WeakMap<object, GraphIndex>();
+function graphIndex(t: Tenant): GraphIndex {
+  const graph = t.ws.getGraph();
+  const shared = t.summaries.index;
+  if (shared?.graph === graph) return shared;
+  let gi = indexes.get(graph);
+  if (!gi) indexes.set(graph, (gi = indexGraph(graph)));
+  return gi;
+}
+for (const q of QUESTIONS) {
+  app.get<{ Querystring: Record<string, string> }>(`/api/agent/${q}`, async (req, reply) => {
+    const { status, body } = answer(graphIndex(req.tenant), q, req.query, (id) => req.tenant.summaries.brief(id));
+    return reply.code(status).send(body);
+  });
+}
 
 app.get('/api/agent/stream', (req, reply) => {
   reply.hijack();

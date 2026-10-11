@@ -6,7 +6,9 @@
 import { useState } from 'react';
 import type { AgentConnection, Workspace } from '@fiada/shared';
 import { api, sharedKey, signOut } from '../api.ts';
+import { forgetRead } from '../graph/unread.ts';
 import { setupCommand } from '../connect.ts';
+import { forgetMarks } from '../graph/tour.ts';
 
 export function Account({ workspace }: { workspace: Workspace | null }) {
   const [open, setOpen] = useState(false);
@@ -40,6 +42,8 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     if (!window.confirm('Delete your Fiada account? Your map, its imports, clones and summaries go too, and GitHub stops listing Fiada as an app you use. This cannot be undone.')) return;
     try {
       await api.deleteAccount();
+      forgetRead();
+      forgetMarks();
       signOut();
     } catch (err) {
       setDeleteError((err as Error).message);
@@ -58,7 +62,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     <section className="section">
       <div className="section-title">agents</div>
       <p className="small muted account-line">
-        Show what Claude Code is doing on this map.{' '}
+        Show what Claude Code is doing on this map, and let it ask the map about your code.{' '}
         <button className="link" aria-expanded={open} onClick={show}>
           {open ? 'hide the setup' : 'connect an agent'}
         </button>
@@ -83,7 +87,8 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
               {said && <> · {said}</>}
             </p>
           )}
-          {account && <p className="small muted">The token lets agents report to your map and nothing else. Keep it to yourself.</p>}
+          <p className="small muted">Claude can then ask the map where code lives, what uses it and what an edit reaches; what it looked at shows as a faint dotted ring.</p>
+          {account && <p className="small muted">The token lets agents report to your map and ask it about your code, and nothing else. Keep it to yourself.</p>}
           {error && (
             <p className="notice" role="alert">
               <span className="lead">Couldn't get the setup.</span> {error}

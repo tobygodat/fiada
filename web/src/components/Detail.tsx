@@ -1,6 +1,6 @@
 // Right-hand panel: what the selected node is and does (its summary, then why
-// it landed in its layer and domain), what it depends on, or the contract
-// behind an edge.
+// it landed in its layer and domain), whether agents may change it (its
+// fence), what it depends on, or the contract behind an edge.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -11,6 +11,8 @@ import {
   type EdgeEvidence,
   type EdgeEvidenceSource,
   type EdgeKind,
+  type Fence,
+  type FenceRule,
   type Graph,
   type GraphEdge,
   type GraphNode,
@@ -21,9 +23,15 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
+import { ownerOf, type HunkOwner, type Theirs } from './diff.ts';
+import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
+import { Choice } from './Sidebar.tsx';
+import { fenceAround } from '../graph/fences.ts';
+import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
+import { stopRev, type ShownDiff, type TourStop } from '../graph/tour.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
@@ -55,7 +63,17 @@ interface Props {
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
+  /** The review tour's agent and the change it's on: its diff alone, not every agent's. */
+  reviewing?: { agent: string; stop: TourStop; onShown?(shown: ShownDiff | null): void } | null;
+  /** Circles marked "ask first" or "off limits". */
+  fences?: readonly Fence[];
+  /** Puts up or takes down a fence; absent when this browser can't change the project. */
+  onFence?(node: string, rule: FenceRule | null): Promise<void>;
+  /** The changes the map is showing: every agent's, or the lit agent's alone. */
+  shownChanges?: ActivityState['nodes'];
   onSelect(id: string): void;
+  /** Takes the map to a repository or folder, switching to the code view when the map is by function. */
+  onPlace?(id: string): void;
 }
 
 export function Detail(p: Props) {
@@ -67,7 +85,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, reviewing, fences, onFence, onSelect, onPlace }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -90,7 +108,10 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
+      {g && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} reviewing={reviewing} />}
+      {g && <Looked id={g.id} activity={activity} />}
+
+      {g && <FenceBlock key={g.id} g={g} fences={fences ?? []} onFence={onFence} onSelect={onPlace ?? onSelect} />}
 
       {repo && (
         <div className="detail-block">
@@ -129,6 +150,72 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
         <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} rev={activity?.nodes[g.kind === 'symbol' ? g.parent : g.id]?.at ?? 0} />
       )}
     </aside>
+  );
+}
+
+type FenceChoice = FenceRule | 'none';
+const FENCE_OPTIONS: [FenceChoice, string, string][] = [
+  ['none', 'none', 'Agents change it as usual.'],
+  ['ask', 'ask first', "Before an agent's file edit inside lands, you're asked."],
+  ['off', 'off limits', "Agents' file edits inside are refused."],
+];
+const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
+const KIND_INSIDE: Record<GraphNode['kind'], string> = { repo: 'in this repository', folder: 'in this module', file: 'in this file', symbol: 'to this symbol' };
+
+/**
+ * Whether agents may change what's inside this circle: none, ask first or off
+ * limits, kept for the project. The agent's hook asks the indexer before each
+ * edit (agent/src/hook.ts). A fence round an ancestor is said, with the way to it.
+ */
+function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: readonly Fence[]; onFence?: Props['onFence']; onSelect(id: string): void }) {
+  const own = fences.find((f) => f.node === g.id);
+  const around = fenceAround(fences, g.id);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value: FenceChoice = own?.rule ?? 'none';
+  const choose = async (rule: FenceChoice) => {
+    if (!onFence || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onFence(g.id, rule === 'none' ? null : rule);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const inside = KIND_INSIDE[g.kind];
+  const sentence =
+    value === 'off'
+      ? `Agents can't change anything ${inside} with their edit tools: the edit is refused before it lands. Shell commands aren't checked.`
+      : value === 'ask'
+        ? `Agents ask you before they change anything ${inside} with their edit tools. Shell commands aren't checked.`
+        : 'Agents change it as usual.';
+  return (
+    <div className="detail-block fence-block" aria-busy={busy}>
+      <div className="block-title">fence</div>
+      {onFence ? (
+        <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
+      ) : (
+        <div className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</div>
+      )}
+      <p className={`fence-words${value === 'none' ? '' : ' ' + value}`}>{sentence}</p>
+      {around && (
+        <p className="fence-words">
+          Inside the {FENCE_WORDS[around.rule]} fence round{' '}
+          <button className="link" onClick={() => onSelect(around.node)}>
+            {around.node}
+          </button>
+          {around.rule === 'off' && value !== 'off' ? ", so agents' edits to it are refused too." : '.'}
+        </p>
+      )}
+      {error && (
+        <p className="fence-words error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -186,15 +273,108 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
   );
 }
 
+/** Who looked at this node without changing it, in words, as the map's dotted ring says it. */
+function Looked({ id, activity }: { id: string; activity?: ActivityState | null }) {
+  const l = activity?.looked?.[id];
+  if (!l) return null;
+  const names = [...new Set(l.agents.map((a) => activity!.agents.find((x) => x.id === a)?.name ?? 'an agent'))];
+  return (
+    <p className="detail-looked">
+      <span className="swatch-ring looked" aria-hidden />
+      looked at by {names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]} · {ago(new Date(l.at).toISOString())}
+    </p>
+  );
+}
+
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
-/** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
-function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | null }) {
-  const own = activity?.nodes[g.id];
-  if (!own) return null;
+/**
+ * The agent's diff when an agent changed this file or symbol (for a symbol, the
+ * hunks that touch it), led by what the change reaches: who calls, imports or
+ * requests it, the same links the map rings with dots.
+ */
+function Changed({
+  g,
+  graph,
+  graphIndex,
+  activity,
+  shown,
+  reviewing,
+}: {
+  g: GraphNode;
+  graph: Graph;
+  graphIndex: Map<string, GraphNode>;
+  activity?: ActivityState | null;
+  shown?: ActivityState['nodes'];
+  reviewing?: Props['reviewing'];
+}) {
+  // On a review tour, the reviewed agent's diff and its own kind of change, not the latest of any agent's.
+  const tour = reviewing?.stop.target === g.id ? reviewing : null;
+  const code = g.kind === 'file' || g.kind === 'symbol';
+  // With one agent lit, only its changes say what they reach, as only they ripple on the map.
+  const nodes = shown ?? activity?.nodes;
+  const shownOwn = code ? nodes?.[g.id] : undefined;
+  const reach = useMemo(() => (shownOwn && shownOwn.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, nodes) : []), [shownOwn, g, graph, graphIndex, nodes]);
+  // Something deleted on the tour stands on what's left (a file on its folder, a function on its
+  // file): its own diff under it, and for a function only the hunks that take it away.
+  // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
+  const rest = tour?.stop.rest?.map((id): HunkOwner => {
+    const n = graphIndex.get(id);
+    const oldLines = tour.stop.restOld?.[id];
+    return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { name: id.slice(id.indexOf('#') + 1), oldLines };
+  });
+  // Another agent's changes in the file are left out of this one's diff.
+  const p = tour?.stop.peer;
+  const peer: Theirs | undefined = p && {
+    owners: p.ids.map((id): HunkOwner => {
+      const n = graphIndex.get(id);
+      return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, p.old?.[id]) : { oldLines: p.old?.[id] };
+    }),
+    top: p.top,
+    // A class left out for its method on this stop: its rows (a field) are this agent's, not the other agent's other code.
+    mine: (tour.stop.carries ?? [])
+      .filter((c) => c.id.includes('#'))
+      .map((c): HunkOwner => {
+        const n = graphIndex.get(c.id);
+        const oldLines = tour.stop.restOld?.[c.id];
+        return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { oldLines };
+      }),
+  };
+  if (tour && tour.stop.id !== g.id) {
+    const fn = tour.stop.id.includes('#');
+    return (
+      <AgentChange
+        node={tour.stop.id}
+        own={fn ? { name: tour.stop.name, oldLines: tour.stop.old } : undefined}
+        rest={rest}
+        peer={peer}
+        rev={stopRev(tour.stop)}
+        kind={tour.stop.kind}
+        agent={tour.agent}
+        what={fn ? tour.stop.name : tour.stop.path}
+        onShown={tour.onShown}
+      />
+    );
+  }
+  const own = code ? activity?.nodes[g.id] : null;
+  const stop = tour?.stop.id === g.id ? tour : null;
+  if (!own && !stop) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+  // Refetched when any agent changes the file; on a tour, never for less than the stop's own change.
+  return (
+    <AgentChange
+      node={g.id}
+      own={g.kind === 'symbol' && g.lines ? ownerOf(g.lines, tour?.stop.id === g.id ? tour.stop.old : undefined) : undefined}
+      rest={rest}
+      peer={peer}
+      rev={Math.max(file?.at ?? own?.at ?? 0, stop ? stopRev(stop.stop) : 0)}
+      kind={stop ? stop.stop.kind : own!.kind}
+      agent={tour?.agent}
+      onShown={stop?.onShown}
+      reach={reach}
+    />
+  );
 }
 
 /**

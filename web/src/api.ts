@@ -1,4 +1,4 @@
-import type { ActivityState, AgentConnection, AuthState, ChangeKind, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
+import type { ActivityState, AgentConnection, AuthState, ChangeKind, Fence, FenceRule, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
 import { apiBase } from './apiBase.ts';
 
 /**
@@ -155,6 +155,8 @@ export interface AgentDiff {
   additions?: number;
   deletions?: number;
   diff?: string;
+  /** When the change that sent `diff` came, behind `at` when a later one sent none. */
+  diffAt?: string;
   at: string;
 }
 
@@ -175,6 +177,9 @@ export const api = {
   summary: (node: string) => call<NodeSummary>(`/api/summary?node=${encodeURIComponent(node)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
   sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
+  fences: () => call<{ fences: Fence[] }>('/api/fences'),
+  /** Puts up or changes the fence round a node; null takes it down. */
+  setFence: (node: string, rule: FenceRule | null) => call<{ fences: Fence[] }>('/api/fences', { method: 'PUT', body: JSON.stringify({ node, rule }) }),
   agentDiffs: (node: string) => call<{ diffs: AgentDiff[] }>(`/api/agent/diff?node=${encodeURIComponent(node)}`),
   clearAgent: (id?: string) => call<ActivityState>(id ? `/api/agent?id=${encodeURIComponent(id)}` : '/api/agent', { method: 'DELETE' }),
 };

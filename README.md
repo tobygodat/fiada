@@ -1,5 +1,7 @@
 # Fiada
 
+[![ci](https://github.com/tobygodat/hackgt13/actions/workflows/ci.yml/badge.svg)](https://github.com/tobygodat/hackgt13/actions/workflows/ci.yml)
+
 A map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working.
 
 Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Fiada sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
@@ -16,6 +18,7 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 - **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash.
 - **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
 - **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
+- **Answers your coding agent's questions.** The same MCP server lets the agent ask the map where a feature lives, what uses a function (with the lines that prove it) and what an edit would reach across repositories, before it changes anything. What it looked at gets a faint dotted ring.
 - **Two views of the same code.** **Code** is the structure as it is on disk. **By function** regroups the same functions by feature, then layer, so a feature that spans a React page, a generated client, a FastAPI route and a table reads as one circle.
 
 | Following an HTTP contract to the code behind it | An agent at work: rings, counts, task and plan |
@@ -60,7 +63,7 @@ cd /path/to/your/repo && claude
 npx -y --package=@fiadatech/agent fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
-It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiadatech/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
+It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiadatech/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, each file or function it touches gets a ring, and what it reads or [asks the map about](#asking-the-map) gets a faint dotted one. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
 
 ## Hosted demo
 
@@ -176,9 +179,23 @@ Fiada can follow a coding agent (Claude Code, Cursor, Codex, or anything that sp
 There are two ways in, and they work best together:
 
 - **Hooks** (deterministic). The agent's own tool hooks run `agent/bin/fiada-hook.mjs` after every edit, so changes show up even when the agent never mentions them. The hook asks git about the agent's working tree: edited files come with their changed lines and a diff against HEAD, and after a shell command it compares the tree with the last call, so files removed with `rm` or `git mv`, generated files and reverts are caught too. Changes already in the tree when the agent started, or made by you between prompts, aren't put on the agent. Claude Code's plan (`TodoWrite`, or `TaskCreate`/`TaskUpdate`) becomes the step list, and your prompt is the task until the agent names its own.
-- **MCP** (the agent's own words). `agent/bin/fiada-mcp.mjs` is a stdio MCP server with two tools: `report_task` (the task, the plan as steps marked `pending`, `active` or `done`, the step it's on, a note) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
+- **MCP** (the agent's own words). `agent/bin/fiada-mcp.mjs` is a stdio MCP server. Two tools report: `status` (one or two lines on what it's doing now, with the task and the plan as steps marked `pending`, `active` or `done`; `report_task` is its older name) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Three more [ask the map](#asking-the-map). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
 
 Both post to the indexer's `/api/agent/events`. A file maps to the graph by path when its repository was imported from a local directory, or by `origin` remote (then folder name) when the agent works in another checkout of an imported repository. When the agent edits a repository Fiada reads in place, the indexer re-parses just the changed files and relinks (about 10 ms on the FastAPI template), so new files and symbols appear on the map, and comparing each file's symbols with HEAD says which functions were added, changed or deleted. The map fetches the new graph without moving the camera. Agent activity isn't stored anywhere; dismissing an agent in the window clears its marks.
+
+### Asking the map
+
+The MCP server also gives the agent three read-only tools, so it can use the map before it changes anything instead of grepping its way around:
+
+| tool | asks | answers with |
+| --- | --- | --- |
+| `where_is` | where a feature, function, class, file or route lives (`"create item"`, `"ItemsService"`, `"POST /items"`) | each match's repository, path and lines, its layer and domain, what it serves, a one-line summary, and an id to pass on |
+| `who_uses` | what calls, imports, renders, references or requests a function, class, file or folder | each user with the `file:line` and code behind every link, whether the link is proven or inferred, and whether it is in another repository |
+| `impact` | what an edit to it reaches: its users, their users, and so on (3 links by default, at most 6) | the reached code nearest first, with counts by repository, layer and domain; HTTP requests matched to routes carry it from a server into the clients that call it |
+
+A target is an id from `where_is`, a path (absolute in the agent's checkout, or relative to the repository), `path#symbol`, or a name; a name that fits several things comes back as a short list to pick from. Every answer comes from the graph the map draws, evidence and all, across every repository imported on the map. The tools call the indexer's `GET /api/agent/find?q=`, `/api/agent/dependents?node=` and `/api/agent/impact?node=&depth=` (each with an optional `&limit=`) with the same `FIADA_URL` and token the reports use; on an indexer people sign in to, an agent token may read these three routes and nothing else besides reporting.
+
+What the agent asked about, and every file it opens with Claude Code's Read tool, is reported as looked at (a `looked` event). The map draws it as a faint dotted ring in `--muted`, apart from the change rings: a changed node shows its change instead, and a closed circle with something looked at inside gets a fainter one. The detail panel says "looked at by Claude Code", and the agent's card lists what it looked at, each a way onto the map.
 
 Each session is its own card, even when two run in the same checkout. The MCP server finds its session from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets for the servers it starts; for other clients, from the parent process it shares with that session's hooks. A file that only turned up when one session compared the working tree goes to whichever session's own tool wrote it.
 
@@ -202,9 +219,15 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
+      }
+    ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate|Read",
         "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
       }
     ],
@@ -214,11 +237,19 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 }
 ```
 
-Then run `bun run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
+Then run `bun run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never fails the agent and blocks only what you fenced off: it gives up on the indexer after 1.5 s, always exits 0, and prints only the status brief and, for an edit inside a fence, Claude Code's own "ask" or "deny". It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
 The same package is on npm as [`@fiadatech/agent`](agent/README.md): `npx -y --package=@fiadatech/agent fiada setup --write .` in your project does what `bun run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
 
 To publish a new version: bump `version` in `agent/package.json`, then `npm publish -w @fiadatech/agent`. Publishing bundles `agent/src` into `agent/dist/cli.js` with esbuild (`bun run agent:build`): one file with no dependencies, since Node won't strip types from a package in `node_modules`. A checkout keeps running the TypeScript source.
+
+### Fences and collisions
+
+Select a repository, folder, file or symbol and set its **fence** in the detail panel: **ask first** or **off limits**. Fences are kept per project (`fences.json` beside the grouping, or the project's MongoDB document). The map draws a dashed ink line inside a circle marked ask first, and a closed line with hatching inside one marked off limits.
+
+Before Claude Code's Edit, Write, MultiEdit or NotebookEdit lands, the `PreToolUse` hook asks the indexer (`POST /api/agent/check`) about the file and, for Edit and MultiEdit, the lines it replaces, so a fence on one function stops only edits that reach it. Lines count only where Fiada reads the checkout in place, placed against the file as it is on disk right then; in any other checkout (a clone on the hosted map, a second worktree) the edit counts as the whole file, so a fenced function's file asks or refuses. A checkout whose `origin` remote matches no imported repository is never fenced by folder name alone. Off limits answers `deny` with the reason, so Claude leaves the file alone; ask first answers `ask`, so Claude Code asks you. Outside every fence, or when Fiada doesn't answer, the hook says nothing and your own permission settings decide. Fences check Claude Code's edit tools only: a shell command (`sed -i`, `>`, `git checkout`) isn't parsed for the files it writes, so it isn't stopped, though what it changed still shows on the map afterwards. The agents window says when an agent was stopped or asked. `fiada-hook check <file>…` prints the verdict for scripts.
+
+When two agents have changes in one file or folder, the agents window says so at the top ("two agents in api/app/routes", with their names) and the map writes "two agents" on that circle, or on the closed circle it's in.
 
 ### Other agents
 
@@ -236,7 +267,7 @@ Set `FIADA_GITHUB_CLIENT_ID` and `FIADA_GITHUB_CLIENT_SECRET` on the indexer and
 - **Each person has their own project.** Their repositories, clones (`$FIADA_HOME/clones/gh-<GitHub user id>/`), grouping, summaries and agent activity are theirs alone: what one person imports or has an agent do never shows on anyone else's map. A project opens on its owner's first request and is let go after 30 idle minutes; opening it again re-indexes from its clones.
 - **Private repositories work.** The sign-in asks GitHub for the `repo` scope, and the person's own token clones and pulls what they import (passed per git command, never written to disk). Their recently pushed repositories are offered under the import box. The token is kept on their account encrypted with AES-GCM; `FIADA_GITHUB_TOKEN` is never used for anyone's project.
 - **Nobody can use it up for everyone else.** Each person may make 60 changes a minute (agents 600 reports), hold 20 repositories of at most 500 MB each, and spend 200 model requests a day on sorting and summaries; past that, the map says so and summaries fall back to lines from the graph. Clones come over https from GitHub, GitLab and Bitbucket only, and nothing in a clone is read through a link that leads out of it. The variables are in [Configuration](#configuration).
-- **People can leave.** **delete account** in the sidebar withdraws Fiada's access at GitHub and deletes the account, the project, its clones and summaries. The map's [/privacy](https://fiada.tech/privacy) page says what is kept; change it with the code.
+- **People can leave.** **delete account** in the sidebar withdraws Fiada's access at GitHub and deletes the account, the project, its clones, fences and summaries. The map's [/privacy](https://fiada.tech/privacy) page says what is kept; change it with the code.
 - **Agents need one command.** **connect an agent** in the sidebar shows `bun run agent:setup --write <project> --url <indexer> --token <token>`. The token lets an agent report to that person's map and nothing else; **new token** revokes the old one.
 
 To set it up, create an OAuth app at GitHub under **Settings > Developer settings > OAuth Apps** with the callback URL `<indexer>/api/auth/github/callback`: `http://localhost:5178/api/auth/github/callback` for `bun run dev` (the dev server forwards the address it was reached at), or `https://<indexer>/api/auth/github/callback` hosted. Put its client id and a client secret in `.env` or the host's variables. The map's origin must be allowed to receive the session: its own origin, the fiada.tech domains, or one in `FIADA_ALLOWED_ORIGINS`. If a proxy in front of the indexer doesn't forward the scheme and host, set `FIADA_PUBLIC_URL`.
@@ -352,7 +383,9 @@ To try the split locally: `docker build -t fiada-indexer . && docker run -p 4178
 bun run test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end,
                      #          agent changes mapped to files and symbols with incremental re-indexing
                      # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
-                     # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools
+                     # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools,
+                     #        the read tools against a stand-in indexer
+                     # ask: where_is, who_uses and impact over a two-repo fixture, and the read routes on a running indexer
                      # sign-in: signed sessions and agent tokens, sealed GitHub tokens, one person's project apart from another's
 FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 bun run test   # also runs the MongoDB store tests
 bun run typecheck

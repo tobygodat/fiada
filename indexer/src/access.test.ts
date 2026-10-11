@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowLocalPaths, defaultHost, hasKey, originMatcher, RateLimit } from './access.ts';
+import { allowLocalPaths, defaultHost, hasKey, originMatcher, RateLimit, whoMayCall } from './access.ts';
 
 test('allowed origins: exact entries, preview wildcards, and none by default', () => {
   const allowed = originMatcher('https://hackgt13.vercel.app, https://hackgt13-*-toby-godats-projects.vercel.app/');
@@ -54,4 +54,16 @@ test('a rate limit counts each caller apart and resets after its window', () => 
   assert.equal(limit.take('a'), 1);
   t = 60_000;
   assert.equal(limit.take('a'), 0);
+});
+
+test('agent tokens report and ask the map; everything else takes a signed-in person', () => {
+  assert.equal(whoMayCall('POST', '/api/agent/events'), 'agent');
+  assert.equal(whoMayCall('POST', '/api/agent/check'), 'agent');
+  assert.equal(whoMayCall('GET', '/api/agent/check'), 'person');
+  for (const route of ['/api/agent/find', '/api/agent/dependents', '/api/agent/impact']) assert.equal(whoMayCall('GET', route), 'agent-or-person');
+  // The read routes only read.
+  assert.equal(whoMayCall('POST', '/api/agent/find'), 'person');
+  assert.equal(whoMayCall('GET', '/api/agent/state'), 'person');
+  assert.equal(whoMayCall('GET', '/api/graph'), 'person');
+  assert.equal(whoMayCall('DELETE', '/api/agent'), 'person');
 });

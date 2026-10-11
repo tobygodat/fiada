@@ -522,6 +522,11 @@ export type AgentEventBody =
   /** One step added or updated, by id (Claude Code's TaskCreate / TaskUpdate). */
   | { type: 'step'; id: string; text?: string; activeText?: string; status?: StepStatus | 'removed' }
   | { type: 'changes'; files: FileChange[] }
+  /**
+   * Code the agent looked at: graph node ids it asked Fiada about (the MCP
+   * read tools), or files it read, absolute or relative to its root (its Read tool).
+   */
+  | { type: 'looked'; nodes?: string[]; paths?: string[] }
   | { type: 'state'; state: AgentState };
 
 export type AgentEvent = { agent: AgentRef; at?: string } & AgentEventBody;
@@ -537,8 +542,34 @@ export interface AgentFile {
   kind: ChangeKind;
   additions?: number;
   deletions?: number;
-  /** Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no longer in the graph. */
-  symbols: { id: string; name: string; kind: ChangeKind }[];
+  /**
+   * Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no
+   * longer in the graph. `at` is the ISO time of the agent's latest change to that symbol itself
+   * (editing another symbol in the file doesn't move it); absent from older indexers. `oldLines`: for a
+   * deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away; for a
+   * modified one, the same when known, so a class is matched with a method it lost. `layer`:
+   * for a deleted symbol, the layer id the map had for it, since it is read on its file. `shared`:
+   * another agent changed it too after this agent did, so some of its rows in this agent's diff
+   * (git's, of the whole file) are that agent's.
+   */
+  symbols: { id: string; name: string; kind: ChangeKind; at?: string; oldLines?: [number, number]; layer?: string; shared?: true }[];
+  /**
+   * ISO time of the agent's latest change to the file's code outside every symbol (an import, a
+   * constant), shown with the file's first function; absent while that code is as HEAD has it, and from older indexers.
+   */
+  topAt?: string;
+  /**
+   * The file's changed symbols that are another agent's, and `topTheirs` when its code outside
+   * every symbol is as another agent left it: this agent's diff is git's for the whole file, so the
+   * rows of those are left out of it on review. Absent when there are none, and from older indexers.
+   */
+  others?: { id: string; kind: ChangeKind; oldLines?: [number, number] }[];
+  topTheirs?: boolean;
+  /**
+   * The file's code outside every symbol that this agent changed, another agent changed too after
+   * it did: some of those rows in this agent's diff are that agent's, as with a symbol's `shared`.
+   */
+  topShared?: true;
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */
@@ -564,6 +595,13 @@ export interface AgentActivity {
   now?: AgentNow;
   steps: AgentStep[];
   files: AgentFile[];
+  /**
+   * Changes when its files do, or the graph they stand on: the same means the same changes to
+   * review, whatever the agent has said since, without comparing every file and symbol again.
+   */
+  filesRev?: string;
+  /** What it has looked at (read, or asked Fiada about) without changing it: how many files and symbols, and the latest, newest first. */
+  looked?: { count: number; nodes: string[] };
   startedAt: string;
   updatedAt: string;
 }
@@ -592,6 +630,11 @@ export interface NodeChange {
   anchor?: string;
   /** 'file' or 'symbol'. */
   unit: 'file' | 'symbol';
+  /**
+   * On a file: the agents whose edit reached outside its symbols (an import, top-level
+   * code), so their change is the whole file's, whatever symbols it also touched.
+   */
+  whole?: string[];
 }
 
 export interface ActivityState {
@@ -602,6 +645,168 @@ export interface ActivityState {
   agents: AgentActivity[];
   /** Graph node id → change: files and symbols agents touched. */
   nodes: Record<string, NodeChange>;
+  /** Places where two or more agents have changes: the same file, or files in the same folder. Deepest first. */
+  collisions: Collision[];
+  /** The latest edit each agent tried inside a fence, by agent id. */
+  fenced: Record<string, FenceHit>;
+  /** Graph node id → who looked at it and when: code agents read or asked about without changing it. Absent from older indexers. */
+  looked?: Record<string, LookedAt>;
+  /**
+   * Links into code agents deleted, as the graph had them before: re-indexing drops a deleted
+   * node and every link into it, and these are what its callers still point at.
+   */
+  lost?: GraphEdge[];
+}
+
+/** A node an agent looked at: asked Fiada about it, or read its file. */
+export interface LookedAt {
+  /** Agent ids. */
+  agents: string[];
+  /** Epoch ms of the latest look. */
+  at: number;
+}
+
+// ── Asking the map ──
+//
+// What an agent can ask Fiada about the code (the MCP server's read tools,
+// GET /api/agent/find, /dependents and /impact): where something lives, what
+// uses it, and what an edit to it reaches. Answers come from the same graph the
+// map draws, so every link carries its evidence.
+
+/** A node, as an answer names it. */
+export interface NodeRef {
+  id: string;
+  kind: NodeKind;
+  name: string;
+  repo: string;
+  /** Repo-relative path of the file (or folder) it is, or is in. */
+  path?: string;
+  symbolKind?: SymbolKind;
+  /** 1-based inclusive lines, for symbols. */
+  lines?: [number, number];
+  /** Layer and domain names, for files and symbols. */
+  layer?: string;
+  domain?: string;
+  /** HTTP routes it serves. */
+  routes?: string[];
+}
+
+/** GET /api/agent/find?q=: where a feature, symbol, file or route lives. */
+export interface FindAnswer {
+  query: string;
+  hits: (NodeRef & { summary?: string })[];
+  /** More matched than were returned. */
+  more: number;
+}
+
+/** A target the read routes couldn't settle on one node for: the closest matches, to pick from. */
+export interface Ambiguous {
+  target: null;
+  query: string;
+  candidates: NodeRef[];
+}
+
+/** One node that uses the target, with every link from it and the code behind each. */
+export interface Dependent extends NodeRef {
+  /** Its links to the target (or to code inside it), strongest first. */
+  links: { kind: EdgeKind; to: string; basis?: EdgeBasis; confidence?: number; reason?: string; evidence: { file: string; line: number; code?: string }[] }[];
+  /** It sits in another repository than the target. */
+  crossRepo: boolean;
+}
+
+/** GET /api/agent/dependents?node=: who calls, imports, renders or requests the target. */
+export interface DependentsAnswer {
+  target: NodeRef;
+  dependents: Dependent[];
+  more: number;
+}
+
+/** A node an edit to the target reaches, and how. */
+export interface Reached extends NodeRef {
+  /** Links between it and the target: 1 uses the target directly. */
+  depth: number;
+  /** The node it uses on the way to the target. */
+  via: string;
+  /** How it uses that node. */
+  link: EdgeKind;
+  basis?: EdgeBasis;
+  crossRepo: boolean;
+}
+
+/** GET /api/agent/impact?node=: what an edit to the target reaches, following dependents outward. */
+export interface ImpactAnswer {
+  target: NodeRef;
+  depth: number;
+  reached: Reached[];
+  /** Reached nodes beyond the ones returned. */
+  more: number;
+  /** Counts over everything reached (not only the ones returned). */
+  byRepo: Record<string, number>;
+  byLayer: Record<string, number>;
+  byDomain: Record<string, number>;
+}
+
+/** Two or more agents with changes in one file or folder. */
+export interface Collision {
+  /** Graph node id of the file or folder they share, e.g. "api/routes". */
+  node: string;
+  unit: 'file' | 'folder';
+  /** Agent ids, two or more. */
+  agents: string[];
+  /** Each agent's changed files under `node`, as graph node ids. */
+  files: Record<string, string[]>;
+}
+
+// ── Fences ──
+//
+// A person marks a circle on the map (repository, folder, file or symbol) as
+// "ask first" or "off limits". The agent's PreToolUse hook asks the indexer
+// before an edit lands: inside an "off limits" fence the edit is refused,
+// inside an "ask first" fence the agent's client asks the person. Fences are
+// kept per project, beside its grouping.
+
+export type FenceRule = 'ask' | 'off';
+
+export interface Fence {
+  /** Graph node id: a repository, folder, file or symbol. */
+  node: string;
+  rule: FenceRule;
+  /** ISO time it was set. */
+  at: string;
+}
+
+/** What the indexer says about an edit an agent is about to make. */
+export interface FenceVerdict {
+  decision: 'allow' | 'ask' | 'deny';
+  /** The fence that decided it: the strictest round any of the files, the nearest on a tie. */
+  fence?: Fence;
+  /** The file it was about, as the map names it ("api/app/main.py"). */
+  file?: string;
+  /** One line for the agent and the person: why, and what to do. */
+  reason?: string;
+}
+
+/** POST /api/agent/check: the files an agent is about to change, with the lines when it knows them. */
+export interface FenceCheck {
+  agent: AgentRef;
+  /** Claude Code's tool name, e.g. "Edit". */
+  tool?: string;
+  /**
+   * `checkout` names the file's own checkout when it isn't in the agent's,
+   * and `rel` is the file's path inside its checkout, with forward slashes, as
+   * the agent's own machine works it out (its paths may not be the indexer's
+   * kind). `sha256` is the hex digest of the text `lines` were counted in.
+   */
+  files: { path: string; rel?: string; lines?: LineRange[]; sha256?: string; checkout?: { root: string; remote?: string } }[];
+}
+
+/** An edit an agent tried inside a fence, for the agents window. */
+export interface FenceHit {
+  node: string;
+  rule: FenceRule;
+  decision: 'ask' | 'deny';
+  file: string;
+  at: string;
 }
 
 // ── Node summaries ──
