@@ -15,7 +15,7 @@ import type { TNode, Tree } from '../graph/tree.ts';
 import { countKind, crossRepo, direction, kindCounts, meetingPoint, restLabel, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
-import { type BadgeCache, drawBadges, drawRings, marksReach } from './activity.ts';
+import { type BadgeCache, curveHits, drawBadges, drawRings, marksReach } from './activity.ts';
 import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, ruleCrossesRing, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
@@ -746,14 +746,27 @@ export class MapRenderer {
         if (!text) continue;
         const tw = Math.ceil(this.textWidth(text, 400, 13));
         const box = (p: { x: number; y: number }): Rect => ({ x: Math.round(p.x - tw / 2 - 4), y: Math.round(p.y - 9), w: tw + 8, h: 18 });
+        // Other links: the words' ground would cut them, and a rule across one leaves it unclear whose words these are.
+        const links = this.drawnEdges.filter((e) => e.g.key !== t.g.key);
+        const crossesLinks = (a: { x: number; y: number }, z: { x: number; y: number }) => {
+          const n = Math.max(1, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
+          // From the first step off the link to the box, so its own link's neighbours where it starts don't count.
+          for (let i = 1; i <= n; i++) {
+            const x = a.x + ((z.x - a.x) * i) / n;
+            const y = a.y + ((z.y - a.y) * i) / n;
+            if (links.some((e) => curveHits(e, { x: x - 0.5, y: y - 0.5, w: 1, h: 1 }))) return true;
+          }
+          return false;
+        };
         const clear = (p: { x: number; y: number }, from?: { x: number; y: number }) => {
           const b = box(p);
+          if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
+          if (this.drawnTags.some((o) => overlaps(b, o, 4)) || this.drawnTabs.some((o) => overlaps(b, o, 4)) || inCircle(b)) return false;
           if (from) {
             const end = { x: Math.max(b.x, Math.min(from.x, b.x + b.w)), y: Math.max(b.y, Math.min(from.y, b.y + b.h)) };
-            if (crossesCircle(from, end) || crossesWords(from, end)) return false;
+            if (crossesCircle(from, end) || crossesWords(from, end) || crossesLinks(from, end)) return false;
           }
-          if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
-          return !this.drawnTags.some((o) => overlaps(b, o, 4)) && !this.drawnTabs.some((o) => overlaps(b, o, 4)) && !inCircle(b);
+          return !links.some((e) => curveHits(e, b));
         };
         const at = labelSpot(t.pts, t.gap, { w: tw / 2 + 4, h: 9 }, t.sw, clear);
         if (!at) continue;

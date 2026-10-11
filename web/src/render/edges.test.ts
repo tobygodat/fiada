@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { EdgeKind, GraphEdge } from '@fiada/shared';
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
+import { curveHits } from './activity.ts';
 import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, labelSpot, restEdges, ruleCrossesRing } from './edges.ts';
 
 const REST_EDGES = EDGE_POLICIES.key.restMax;
@@ -131,4 +132,16 @@ test('a rule to a link\'s words stays off the marks on an open circle\'s rim', (
   assert.equal(ruleCrossesRing({ x: 105, y: -60 }, { x: 105, y: 60 }, ring), true);
   // A rule that ends in the marks themselves crosses them too.
   assert.equal(ruleCrossesRing({ x: 140, y: 0 }, { x: 106, y: 0 }, ring), true);
+});
+
+test('words on a link move off another link that crosses it', () => {
+  const half = { w: 30, h: 9 };
+  const mine = [0, 100, 200, 100, 400, 100];
+  // Another link crossing it upright at the middle, where its words would go first.
+  const other = { pts: [200, 0, 200, 100, 200, 200], w: 2, minX: 200, minY: 0, maxX: 200, maxY: 200 };
+  const box = (p: { x: number; y: number }) => ({ x: p.x - half.w, y: p.y - half.h, w: half.w * 2, h: half.h * 2 });
+  assert.equal(curveHits(other, box(labelSpot(mine, 400, half, 2, () => true)!)), true, 'left alone, the words sit on the other link');
+  const at = labelSpot(mine, 400, half, 2, (p) => !curveHits(other, box(p)))!;
+  assert.ok(at.inline, 'still in a gap on its own link');
+  assert.equal(curveHits(other, box(at)), false);
 });

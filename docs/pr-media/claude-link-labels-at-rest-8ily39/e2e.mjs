@@ -55,16 +55,28 @@ if (cdp) {
 await page.addInitScript(() => {
   const P = CanvasRenderingContext2D.prototype;
   const w = window;
-  w.__frame = { labels: [], words: [] };
+  w.__frame = { labels: [], words: [], curves: [] };
   const fillRect = P.fillRect;
   P.fillRect = function (x, y, ww, hh) {
-    if (x === 0 && y === 0 && ww >= this.canvas.width / 4) w.__frame = { labels: [], words: [] };
+    if (x === 0 && y === 0 && ww >= this.canvas.width / 4) w.__frame = { labels: [], words: [], curves: [] };
     return fillRect.call(this, x, y, ww, hh);
   };
   const box = (ctx, text, x, y) => {
     const m = ctx.measureText(text);
     const left = ctx.textAlign === 'center' ? x - m.width / 2 : ctx.textAlign === 'right' || ctx.textAlign === 'end' ? x - m.width : x;
     return { text, x: left, y: y - 7, w: m.width, h: 14, font: ctx.font, alpha: ctx.globalAlpha, fill: String(ctx.fillStyle) };
+  };
+  // Every link the map strokes: a quadratic curve from the last moveTo.
+  let at = [0, 0];
+  const moveTo = P.moveTo;
+  P.moveTo = function (x, y) {
+    at = [x, y];
+    return moveTo.call(this, x, y);
+  };
+  const quad = P.quadraticCurveTo;
+  P.quadraticCurveTo = function (cx, cy, x, y) {
+    w.__frame.curves.push([...at, cx, cy, x, y]);
+    return quad.call(this, cx, cy, x, y);
   };
   const strokeText = P.strokeText;
   P.strokeText = function (text, x, y) {
@@ -109,6 +121,15 @@ const shot = (name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 
 await shot(before ? 'before-first-screen' : 'after-first-screen');
 const overlap = (a, b, m = 0) => a.x < b.x + b.w + m && b.x < a.x + a.w + m && a.y < b.y + b.h + m && b.y < a.y + a.h + m;
+const crosses = ([x0, y0, cx, cy, x2, y2], b) => {
+  for (let i = 0; i <= 200; i++) {
+    const t = i / 200;
+    const x = (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * cx + t * t * x2;
+    const y = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * cy + t * t * y2;
+    if (x > b.x + 1 && x < b.x + b.w - 1 && y > b.y + 1 && y < b.y + b.h - 1) return true;
+  }
+  return false;
+};
 const checkFrame = async (where) => {
   const f = await frame();
   for (const l of f.labels) {
@@ -118,6 +139,9 @@ const checkFrame = async (where) => {
     const others = f.words.filter((w) => !(w.text === l.text && Math.abs(w.x - l.x) < 1 && Math.abs(w.y - l.y) < 1));
     for (const w of others) assert.ok(!overlap(l, w), `${where}: "${l.text}" collides with "${w.text}"`);
     for (const m of f.labels) if (m !== l) assert.ok(!overlap(l, m, 2), `${where}: "${l.text}" collides with "${m.text}"`);
+    // Only its own link may run through its words (when they sit in a gap cut from it), never another.
+    const through = f.curves.filter((c) => crosses(c, l));
+    assert.ok(through.length <= 1, `${where}: "${l.text}" sits on ${through.length} links`);
   }
   return f;
 };
