@@ -1078,6 +1078,15 @@ export class AgentHub {
     const sig = this.signer(f);
     for (const [id, prev] of f.symAt) {
       if (prev.back) continue;
+      // Put back as the other agent left it, by that agent: its change again, and this agent's taken back.
+      const peer = f.peerSig?.get(id);
+      if (peer !== undefined && peer === (gone(id) ? 'deleted' : f.sigs.of.get(id))) {
+        f.peerSig!.delete(id);
+        f.shared?.delete(id);
+        f.theirs.set(id, peer);
+        f.symAt.set(id, { sig: null, at: prev.at, back: true });
+        continue;
+      }
       if (gone(id)) {
         share(id, prev.sig, 'deleted');
         f.symAt.set(id, { sig: 'deleted', at: prev.at });
@@ -1116,6 +1125,14 @@ export class AgentHub {
   private rebaseTop(f: FileRec) {
     if (!f.topAt) return;
     const top = this.signer(f).top();
+    // Put back as the other agent left it, by that agent: its change again, nothing of it this agent's.
+    if (f.peerTop !== undefined && top === f.peerTop) {
+      f.theirsTop = top;
+      f.peerTop = undefined;
+      f.topShared = undefined;
+      f.topAt = { sig: top, at: f.topAt.at };
+      return;
+    }
     // The other agent changed it again: the version this agent changed from is gone.
     if (top !== f.topAt.sig) f.peerTop = undefined;
     // This agent hadn't changed the file's other code: the other agent's version isn't this
