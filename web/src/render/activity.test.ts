@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
-import { type BadgeCache, BadgeSpace, curveHits, drawBadges, hereGeometry, ringGeometry, rippleRing, type Rect, type Taken, visibleArc } from './activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, hereGeometry, ringGeometry, rippleRing, type Rect, type Taken, unreadGeometry, visibleArc } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
@@ -114,7 +114,7 @@ test('other closed circles are avoided when there is room, and a crowd of badges
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
   // A canvas that draws nothing and measures every character 6px wide.
   const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
-  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, reached: null, direct: false, ripple: 0 }]]);
+  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0 }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};
@@ -126,6 +126,35 @@ test('badge spots are reused while nothing moves, and worked out again when some
   drawBadges(ctx, [{ ...d, x: 520 }], marks, taken, cache);
   assert.notEqual(cache.boxes, first);
   assert.equal(cache.boxes![0].x - first![0].x, 20);
+});
+
+test('a badge says how many changes inside are unread, in words', () => {
+  const drawn: string[] = [];
+  const ctx = new Proxy(
+    {},
+    {
+      get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? (t: string) => drawn.push(t) : () => {}),
+      set: () => true,
+    },
+  ) as unknown as CanvasRenderingContext2D;
+  const mark = (unread: number): Marks => ({ self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread, reached: null, direct: false, ripple: 0 });
+  const d = circle('a', 500, 500, 30);
+  const taken = { edges: [], rects: [], free, view };
+  const read: BadgeCache = {};
+  drawBadges(ctx, [d], new Map([['a', mark(0)]]), taken, read);
+  assert.deepEqual(drawn, ['+1', '~2']);
+  drawn.length = 0;
+  const some: BadgeCache = {};
+  drawBadges(ctx, [d], new Map([['a', mark(2)]]), taken, some);
+  assert.deepEqual(drawn, ['+1', '~2', '2 unread']);
+  assert.ok(some.boxes![0].w > read.boxes![0].w, 'the badge grows to say it');
+});
+
+test('the unread dot sits on the upper left of the ring', () => {
+  const u = unreadGeometry(100, 100, 20, 16);
+  assert.ok(u.x < 100 && u.y < 100);
+  assert.ok(Math.abs(Math.hypot(u.x - 100, u.y - 100) - 20) < 1e-9, 'on the outer ring');
+  assert.ok(u.gap > u.dot, 'a gap of paper round it');
 });
 
 test('a wide badge still sees what is near its far end', () => {
@@ -204,7 +233,7 @@ test('a link running far off screen at high zoom only blocks the spots it really
   assert.equal(curveHits(e, box), false);
 });
 
-const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, reached: null, direct: false, ripple: 0, ...m });
+const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0, ...m });
 
 test('the dotted ripple ring goes only on closed circles that depend on a change and show none of their own', () => {
   assert.equal(rippleRing(marks({ reached: 'evidenced' }), false), true);

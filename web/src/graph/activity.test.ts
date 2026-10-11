@@ -121,6 +121,7 @@ test('a changed route ripples to the client requesting it, across repositories, 
     graphIndex,
     only({ 'api/app/routes/items.py': change('modified', 'file', 10), 'api/app/routes/items.py#read_items': change('modified', 'symbol', 10) }),
     [],
+    null,
     edges,
   );
   // The request to read_items is proven; the guessed one goes to create_item, which didn't change.
@@ -135,13 +136,13 @@ test('a changed route ripples to the client requesting it, across repositories, 
 });
 
 test('a dependent reached only by guessed links says so', () => {
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/routes/items.py#create_item': change('modified', 'symbol', 10) }), [], edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/routes/items.py#create_item': change('modified', 'symbol', 10) }), [], null, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'inferred');
   assert.deepEqual(ripple(a.get('web')), { reached: 'inferred', ripple: 1 });
 });
 
 test('a file changed as a whole reaches everything that uses its symbols; its own symbols are marked, not counted', () => {
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }), [], edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/models.py': change('modified', 'file', 10) }), [], null, edges);
   assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, 'evidenced');
   assert.equal(a.get('api/app/routes/items.py#create_item')?.reached, 'evidenced');
   // Item uses User inside the changed file: marked, but the changed file isn't counted as its own dependent.
@@ -163,6 +164,7 @@ test('a dependent the agent changed too is marked as a change, not as a dependen
       'web/src/client/api.ts#ItemsService': change('modified', 'symbol', 10),
     }),
     [],
+    null,
     edges,
   );
   assert.equal(a.get('web/src/pages/items.tsx#useItems')?.reached, null);
@@ -173,14 +175,14 @@ test('a dependent the agent changed too is marked as a change, not as a dependen
 
 test('By function counts dependent symbols under their layer and domain', () => {
   const tree = buildFunctionTree(graph);
-  const a = rollupActivity(tree, graphIndex, only({ 'api/app/models.py#Item': change('modified', 'symbol', 10) }), [], edges);
+  const a = rollupActivity(tree, graphIndex, only({ 'api/app/models.py#Item': change('modified', 'symbol', 10) }), [], null, edges);
   assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, 'evidenced');
   assert.equal(a.get('domain:items')?.ripple, 2);
   assert.equal(a.get('domain:items/ui')?.ripple, 2);
 });
 
 test('a file that imports a change is a dependent itself, not only the circle round one', () => {
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'web/src/client/api.ts': change('modified', 'file', 10) }), [], edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'web/src/client/api.ts': change('modified', 'file', 10) }), [], null, edges);
   // about.tsx imports the changed file directly; items.tsx only holds useItems, which calls into it.
   assert.equal(a.get('web/src/pages/about.tsx')?.direct, true);
   assert.equal(a.get('web/src/pages/items.tsx#useItems')?.direct, true);
@@ -195,7 +197,7 @@ test('a file another agent changed at its top level stays whole, however narrowl
     'api/app/routes/items.py#read_items': by('modified', 'symbol', ['b']),
   };
   // Agent a touched only the top level, so the guessed request to create_item is reached too.
-  const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], edges);
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], null, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'evidenced');
   assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, both), ['2 requests from web call these routes, 1 of them inferred.']);
   // With agent a's change gone, b's is narrowed to read_items.

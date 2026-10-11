@@ -28,6 +28,10 @@ export interface Marks {
   direct: boolean;
   /** How many dependents sit underneath, in the view's unit like the change counts. */
   ripple: number;
+  /** The node's own change came after you last opened it. */
+  selfUnread: boolean;
+  /** Of the changes counted underneath, how many you haven't opened since. */
+  unread: number;
 }
 
 export type TreeActivity = Map<string, Marks>;
@@ -39,12 +43,14 @@ export function rollupActivity(
   graphIndex: Map<string, GraphNode>,
   nodes: Record<string, NodeChange>,
   agents: readonly AgentActivity[] = [],
+  /** Changed node ids you haven't seen since their latest change (unread.ts). */
+  unread: ReadonlySet<string> | null = null,
   edges: readonly GraphEdge[] = [],
 ): TreeActivity {
   const out: TreeActivity = new Map();
   const get = (id: string) => {
     let m = out.get(id);
-    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, reached: null, direct: false, ripple: 0 }));
+    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0 }));
     return m;
   };
   const unit = tree.view === 'code' ? 'file' : 'symbol';
@@ -58,12 +64,15 @@ export function rollupActivity(
       const m = get(id);
       m.self = c.kind;
       m.at = Math.max(m.at, c.at);
+      m.selfUnread = !!unread?.has(id);
     }
     // Symbols in Code view mark themselves but aren't counted: the file they're in is.
     const counted = c.unit === unit || (unit === 'symbol' && !!own && !own.children.length);
+    const isUnread = counted && !!unread?.has(id);
     for (let cur: string | null = own ? own.parent : at; cur; cur = tree.nodes.get(cur)?.parent ?? null) {
       const m = get(cur);
       if (counted) m[c.kind]++;
+      if (isUnread) m.unread++;
       m.at = Math.max(m.at, c.at);
     }
   }
@@ -222,6 +231,9 @@ function hereIds(f: AgentFile, tree: Tree): string[] {
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
+/** "12 of 19 changes read". */
+export const readWords = (read: number, total: number) => `${read} of ${plural(total, 'change')} read`;
+
 /** "2 files changed: 1 added, 1 modified" for a tooltip. */
 export function describeMarks(m: Marks, view: Tree['view']): string {
   const parts: string[] = [];
@@ -231,7 +243,9 @@ export function describeMarks(m: Marks, view: Tree['view']): string {
   if (n) {
     const kinds = (['added', 'modified', 'deleted'] as const).filter((k) => m[k]).map((k) => `${m[k]} ${k}`);
     parts.push(`${plural(n, view === 'code' ? 'file' : 'symbol')} changed inside: ${kinds.join(', ')}`);
+    parts.push(readWords(n - m.unread, n));
   }
+  if (m.selfUnread) parts.push('changed since you last looked');
   return parts.join(' · ');
 }
 
