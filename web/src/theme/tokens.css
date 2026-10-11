@@ -29,6 +29,7 @@
   --modified: var(--warning); /* changed: needs a look */
   --deleted: var(--danger); /* removed: drawn dashed */
   --working: var(--accent); /* where an agent is working right now */
+  --unread: var(--text); /* changed since you last opened it: a solid dot, and the word "unread" */
   --looked: var(--muted); /* what an agent looked at without changing it: drawn faint and dotted */
 
   /* ── Map: layers, by position in the project's layer list (roles preset order) ──

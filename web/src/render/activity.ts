@@ -7,7 +7,9 @@
 // Change colours mean a change and nothing else (ink, ochre, brick); the one
 // green means "an agent is here now". A gap cut from the paper keeps a ring
 // apart from the circle's own colour, and a badge sits wherever it covers no
-// link, tag or name tab. Every colour and the type come from the design tokens.
+// link, tag or name tab. A change you haven't opened since it was made has a
+// small ink dot on its ring, and a badge says how many inside are unread.
+// Every colour and the type come from the design tokens.
 
 import { changeCount, type Marks, type TreeActivity } from '../graph/activity.ts';
 import type { TNode } from '../graph/tree.ts';
@@ -115,6 +117,26 @@ function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: num
   ctx.setLineDash([]);
 }
 
+/** Where the unread dot sits: on the upper left of the outermost ring, a gap of paper round it. */
+export function unreadGeometry(x: number, y: number, outer: number, r: number) {
+  const dot = r < 6 ? 2 : 3;
+  const a = (-135 * Math.PI) / 180;
+  return { x: x + Math.cos(a) * outer, y: y + Math.sin(a) * outer, dot, gap: dot + 1.5 };
+}
+
+function unreadDot(ctx: CanvasRenderingContext2D, x: number, y: number, outer: number, r: number) {
+  const u = unreadGeometry(x, y, outer, r);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = paper();
+  ctx.beginPath();
+  ctx.arc(u.x, u.y, u.gap, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = token('--unread');
+  ctx.beginPath();
+  ctx.arc(u.x, u.y, u.dot, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 /** Rings and pulses. Returns whether anything is still pulsing, so the caller keeps animating. */
 export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number): boolean {
   let pulsing = false;
@@ -136,6 +158,7 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
         halo(ctx, d.x, d.y, here?.outer ?? g.outer, color, age, 0.7);
         pulsing = true;
       }
+      if (m.selfUnread) unreadDot(ctx, d.x, d.y, here?.outer ?? g.outer, d.r);
     } else if (!d.open && recent && changeCount(m)) {
       // Something inside a closed circle just changed.
       halo(ctx, d.x, d.y, d.r, changeColor(dominant(m)), age, 0.45);
@@ -420,7 +443,7 @@ function measure(ctx: CanvasRenderingContext2D, font: string, text: string): num
 }
 
 /**
- * Count badges on closed circles, "+2 ~1 −1" in `fine` Literata, each count in its change's colour,
+ * Count badges on closed circles, "+2 ~1 −1 2 unread" in `fine` Literata, each count in its change's colour,
  * in a small square-cornered box on the raised surface. Placed clear of links, tags and name tabs.
  */
 export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, taken: Taken, cache: BadgeCache = {}) {
@@ -444,6 +467,8 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
     )
       .filter(([k]) => m[k])
       .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: changeColor(k), w: measure(ctx, font, `${sign}${m[k]}`) }));
+    // How many of those you haven't opened since they changed, in words.
+    if (m.unread) parts.push({ text: `${m.unread} unread`, color: token('--unread'), w: measure(ctx, font, `${m.unread} unread`) });
     const w = Math.ceil(parts.reduce((a, p) => a + p.w, 0) + BADGE_GAP * (parts.length - 1) + BADGE_PAD * 2);
     badges.push({ d, m, w, h: BADGE_H, parts });
   }

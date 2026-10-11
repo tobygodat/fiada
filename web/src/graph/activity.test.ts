@@ -112,7 +112,7 @@ const pick = (m: ReturnType<ReturnType<typeof rollupActivity>['get']>) => m && {
 test('what an agent looked at marks the node, and every circle round it as looked inside', () => {
   const looked = { 'web/src/pages/items.tsx#useItems': { agents: ['a'], at: 40 }, 'api/app/routes/old.py': { agents: ['b'], at: 50 } };
   const tree = buildCodeTree(graph);
-  const a = rollupActivity(tree, graphIndex, {}, [], looked);
+  const a = rollupActivity(tree, graphIndex, {}, [], null, looked);
   assert.equal(a.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
   assert.equal(a.get('web/src/pages/items.tsx')?.looked, 'inside');
   assert.equal(a.get('web')?.looked, 'inside');
@@ -124,19 +124,19 @@ test('what an agent looked at marks the node, and every circle round it as looke
   assert.equal(a.get('api/app/routes')?.looked ?? null, null);
 
   // By function shows a file as its symbols: a look at the file marks them.
-  const byFunction = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], { 'web/src/pages/items.tsx': { agents: ['a'], at: 40 } });
+  const byFunction = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], null, { 'web/src/pages/items.tsx': { agents: ['a'], at: 40 } });
   assert.equal(byFunction.get('web/src/pages/items.tsx#ItemsPage')?.looked, 'self');
   assert.equal(byFunction.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
   assert.equal(byFunction.get('domain:items')?.looked, 'inside');
 
   // By function draws no folders: a look at one marks what it holds that the view draws.
-  const folder = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], { 'web/src': { agents: ['a'], at: 40 } });
+  const folder = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], null, { 'web/src': { agents: ['a'], at: 40 } });
   assert.equal(folder.get('web/src/pages/items.tsx#useItems')?.looked, 'self');
   assert.equal(folder.get('domain:items')?.looked, 'inside');
   // A whole repository marks nothing By function, rather than every symbol in it.
-  const repo = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], { web: { agents: ['a'], at: 40 } });
+  const repo = rollupActivity(buildFunctionTree(graph), graphIndex, {}, [], null, { web: { agents: ['a'], at: 40 } });
   assert.equal([...repo.values()].filter((m) => m.looked).length, 0);
-  assert.equal(rollupActivity(tree, graphIndex, {}, [], { web: { agents: ['a'], at: 40 } }).get('web')?.looked, 'self');
+  assert.equal(rollupActivity(tree, graphIndex, {}, [], null, { web: { agents: ['a'], at: 40 } }).get('web')?.looked, 'self');
 
   assert.deepEqual(Object.keys(agentLooked(looked, 'b')), ['api/app/routes/old.py']);
   assert.deepEqual(agentLooked(undefined, 'b'), {});

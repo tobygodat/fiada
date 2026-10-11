@@ -23,6 +23,10 @@
 .detail-looked { display: flex; align-items: center; gap: var(--space-8); margin: 0; padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--hairline); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 .detail-looked .swatch-ring, .queue-file .swatch-ring.looked { width: 10px; height: 10px; }
 
+/* Unread: the map's solid ink dot. */
+.swatch-unread, .queue-unread { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--unread); }
+.queue-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 /* ── The window: a floating panel over the map ── */
 .queue {
   position: absolute; z-index: 4; top: var(--space-md); right: var(--space-md); width: 340px; max-height: calc(100% - 72px);
@@ -127,6 +131,12 @@
 .queue-file:disabled { cursor: default; }
 .queue-file:disabled .queue-file-base { color: var(--muted); }
 .queue-file-stat { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.queue-file .queue-unread { align-self: center; margin-left: -4px; }
+.queue-file-item.unread .queue-file-base { font-weight: var(--weight-bold); }
+/* "12 of 19 changes read", and the way to catch up without opening each one. */
+.queue-read { display: flex; align-items: baseline; gap: var(--space-8); margin-left: 26px; font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.queue-read.some > span:first-child { color: var(--text); }
+.queue-read .queue-act { margin-left: auto; }
 /* The functions a file's change touched, under its name. */
 .queue-syms {
   display: flex; flex-wrap: wrap; gap: 0 var(--space-sm); padding: 0 0 2px calc(10px + var(--space-8));
