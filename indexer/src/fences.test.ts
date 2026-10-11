@@ -172,6 +172,37 @@ test('two changes saving at once each save their own list, so a failed second sa
   assert.deepEqual(fences.all().map((f) => f.node), ['api/app']);
 });
 
+test('a change whose save failed is never saved by the change queued behind it', async () => {
+  const writes: string[][] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let calls = 0;
+  const store: ProjectStore = {
+    describe: () => 'memory',
+    loadRepos: async () => [],
+    saveRepos: async () => {},
+    loadGrouping: async () => null,
+    saveGrouping: async () => {},
+    loadFences: async () => [],
+    saveFences: async (_id, list) => {
+      if (++calls === 1) {
+        await gate;
+        throw new Error('disk full');
+      }
+      writes.push(list.map((f) => f.node));
+    },
+  };
+  const fences = new Fences(store, 'p');
+  await fences.init();
+  const first = fences.set('api/app', 'ask', GRAPH);
+  const second = fences.set('api/app/core', 'off', GRAPH);
+  release();
+  await assert.rejects(first, /disk full/);
+  await second;
+  assert.deepEqual(writes, [['api/app/core']]);
+  assert.deepEqual(fences.all().map((f) => f.node), ['api/app/core']);
+});
+
 test('fences are read from the store again once stale, so a fence put up by another indexer holds here too', async () => {
   let t = 0;
   const clock = () => new Date(t);

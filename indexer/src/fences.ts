@@ -136,29 +136,33 @@ export class Fences {
     if (this.closed) throw new FenceError('This project is closed.');
     if (typeof node !== 'string' || !node) throw new FenceError('Body must be { "node": "<graph node id>", "rule": "ask" | "off" | null }');
     if (rule !== null && !RULES.includes(rule as FenceRule)) throw new FenceError('rule must be "ask", "off" or null');
-    const rest = this.list.filter((f) => f.node !== node);
-    if (rule === null) {
-      if (rest.length === this.list.length) return this.list;
-    } else {
-      // Taking one down always works, even for a node that has since left the graph.
-      if (!graph.nodes.some((n) => n.id === node)) throw new FenceError(`${node} is not on the map`);
-      if (rest.length >= MAX_FENCES) throw new FenceError(`A project can have at most ${MAX_FENCES} fences.`);
-      rest.push({ node, rule: rule as FenceRule, at: this.now().toISOString() });
-    }
-    const before = this.list;
-    this.list = rest;
-    this.changes++;
     this.pending++;
-    // One save at a time, each of the list this change made: a later change's list is its own save's,
-    // so a failure rolls back only what was never written.
-    const run = this.saving.then(() => this.store.saveFences?.(this.projectId, rest));
+    // Each change is made and saved in turn, on the list the one before left: a change whose
+    // save failed is never part of a later one's, and a failed save rolls back only its own.
+    const run = this.saving.then(async () => {
+      const rest = this.list.filter((f) => f.node !== node);
+      if (rule === null) {
+        if (rest.length === this.list.length) return;
+      } else {
+        // Taking one down always works, even for a node that has since left the graph.
+        if (!graph.nodes.some((n) => n.id === node)) throw new FenceError(`${node} is not on the map`);
+        if (rest.length >= MAX_FENCES) throw new FenceError(`A project can have at most ${MAX_FENCES} fences.`);
+        rest.push({ node, rule: rule as FenceRule, at: this.now().toISOString() });
+      }
+      const before = this.list;
+      this.list = rest;
+      this.changes++;
+      try {
+        await this.store.saveFences?.(this.projectId, rest);
+        this.loadedAt = this.now().getTime();
+      } catch (err) {
+        if (this.list === rest) this.list = before;
+        throw err;
+      }
+    });
     this.saving = run.catch(() => {});
     try {
       await run;
-      this.loadedAt = this.now().getTime();
-    } catch (err) {
-      if (this.list === rest) this.list = before;
-      throw err;
     } finally {
       this.pending--;
     }

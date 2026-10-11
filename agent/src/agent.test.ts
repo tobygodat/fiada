@@ -386,6 +386,9 @@ test("a file in another checkout than the agent's says which, even one not writt
   git(nested, 'init', '-q');
   git(nested, 'remote', 'add', 'origin', 'https://github.com/acme/sdk.git');
   assert.deepEqual(await placed({ path: path.join(nested, 'client.py') }, co), { path: path.join(nested, 'client.py'), rel: 'client.py', checkout: { root: nested, remote: 'https://github.com/acme/sdk.git' } });
+  // A link to a file not written yet is placed where the write would land.
+  await fs.symlink(path.join(other, 'lib/new.py'), path.join(own, 'dangling.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'dangling.py') }, co), { path: path.join(other, 'lib/new.py'), rel: 'lib/new.py', checkout: theirs });
   // Outside any checkout: nothing to say.
   const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
   assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
