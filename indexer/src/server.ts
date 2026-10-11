@@ -317,7 +317,10 @@ app.post('/api/grouping/sort', async (req, reply) => {
 });
 
 // Fences: circles marked "ask first" or "off limits". PUT one { node, rule } at a time; rule null takes it down.
-app.get('/api/fences', async (req) => ({ fences: req.tenant.fences.all() }));
+app.get('/api/fences', async (req) => {
+  await req.tenant.fences.fresh();
+  return { fences: req.tenant.fences.all() };
+});
 
 app.put<{ Body: { node?: unknown; rule?: unknown } }>('/api/fences', async (req, reply) => {
   try {

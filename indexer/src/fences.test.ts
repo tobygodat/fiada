@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { ActivityState, AgentRef, Fence, FenceVerdict, Graph, GraphNode } from '@fiada/shared';
 import { AgentHub, cleanRel, collisions } from './agents.ts';
-import { cleanFences, covers, Fences, verdict } from './fences.ts';
+import { cleanFences, covers, Fences, FRESH_MS, verdict } from './fences.ts';
 import { FileProjectStore, type ProjectStore, type SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
 
@@ -139,6 +139,44 @@ test('a failed save leaves the fences as they were', async () => {
   fail = true;
   await assert.rejects(fences.set('api/app/core', 'off', GRAPH), /another indexer/);
   assert.deepEqual(fences.all().map((f) => f.node), ['api/app']);
+});
+
+test('fences are read from the store again once stale, so a fence put up by another indexer holds here too', async () => {
+  let t = 0;
+  const clock = () => new Date(t);
+  const store = new FileProjectStore(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-fresh-')));
+  const here = new Fences(store, 'p', clock);
+  const there = new Fences(store, 'p', clock);
+  await here.init();
+  await there.init();
+  await there.set('api/app/core', 'off', GRAPH);
+  // Within FRESH_MS this one answers from what it read; after it, from the store.
+  await here.fresh();
+  assert.deepEqual(here.all(), []);
+  t += FRESH_MS;
+  await here.fresh();
+  assert.deepEqual(here.all().map((f) => f.node), ['api/app/core']);
+  assert.equal(here.verdict([file('app/core/config.py')], GRAPH).decision, 'deny');
+  // A read never undoes a change of its own still saving.
+  let release!: () => void;
+  const slow = new Promise<void>((r) => (release = r));
+  const held: ProjectStore = {
+    describe: () => 'slow',
+    loadRepos: async () => [],
+    saveRepos: async () => {},
+    loadGrouping: async () => null,
+    saveGrouping: async () => {},
+    loadFences: async () => [],
+    saveFences: async () => slow,
+  };
+  const mine = new Fences(held, 'p', clock);
+  await mine.init();
+  const putting = mine.set('api/app', 'ask', GRAPH);
+  t += FRESH_MS;
+  await mine.fresh();
+  assert.deepEqual(mine.all().map((f) => f.node), ['api/app']);
+  release();
+  await putting;
 });
 
 test('closing waits for saves under way and takes no more, so a deleted project stays deleted', async () => {

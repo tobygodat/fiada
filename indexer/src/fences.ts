@@ -86,11 +86,21 @@ export function verdict(fences: Fence[], files: FencedFile[], graph: Graph): Fen
   return { decision: 'ask', fence, file, reason: `${where} marked "ask first" on the Fiada map.` };
 }
 
-/** One project's fences, loaded once and saved on every change. */
+/**
+ * How stale the fences may be when an agent asks: another indexer sharing the
+ * store (MongoDB) may have changed them, so older than this they're read again.
+ */
+export const FRESH_MS = 2000;
+
+/** One project's fences, loaded once, saved on every change and read again when stale. */
 export class Fences {
   private list: Fence[] = [];
   private saving: Promise<unknown> = Promise.resolve();
   private closed = false;
+  private loadedAt = 0;
+  /** Changes made here, and those still saving: a read from the store must not undo them. */
+  private changes = 0;
+  private pending = 0;
 
   constructor(
     private store: ProjectStore,
@@ -100,6 +110,20 @@ export class Fences {
 
   async init() {
     this.list = cleanFences(await this.store.loadFences?.(this.projectId));
+    this.loadedAt = this.now().getTime();
+  }
+
+  /** Reads the fences from the store again when they are older than `maxAgeMs`, keeping these if that fails. */
+  async fresh(maxAgeMs = FRESH_MS): Promise<void> {
+    if (this.closed || this.pending || !this.store.loadFences || this.now().getTime() - this.loadedAt < maxAgeMs) return;
+    const before = this.changes;
+    const raw = await this.store.loadFences(this.projectId).then(
+      (r) => ({ r }),
+      () => null,
+    );
+    if (!raw || this.changes !== before || this.pending || this.closed) return;
+    this.list = cleanFences(raw.r);
+    this.loadedAt = this.now().getTime();
   }
 
   all(): Fence[] {
@@ -123,14 +147,19 @@ export class Fences {
     }
     const before = this.list;
     this.list = rest;
+    this.changes++;
+    this.pending++;
     // One save at a time, each with the list as it stands when it runs.
     const run = this.saving.then(() => this.store.saveFences?.(this.projectId, this.list));
     this.saving = run.catch(() => {});
     try {
       await run;
+      this.loadedAt = this.now().getTime();
     } catch (err) {
       if (this.list === rest) this.list = before;
       throw err;
+    } finally {
+      this.pending--;
     }
     return this.list;
   }

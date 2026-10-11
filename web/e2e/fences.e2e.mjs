@@ -189,6 +189,17 @@ try {
   step('a file inside says which fence it is in');
   await open(R, 'backend/app', 'core', 'config.py');
   assert.match(await page.locator('.fence-block').innerText(), new RegExp(`Inside the off-limits fence round ${CORE.replace(/\//g, '\\/')}`));
+  step('…and from the by-function view, its link switches to code to show the fence');
+  await page.keyboard.press('Escape');
+  await views.getByRole('radio', { name: 'by function' }).click();
+  await pause(800);
+  await page.getByRole('combobox').fill('Settings');
+  await page.getByRole('option').filter({ hasText: 'config.py' }).first().click();
+  await pause(1200);
+  await page.locator('.fence-block').getByRole('button', { name: CORE }).click();
+  await pause(1500);
+  assert.equal(await views.getByRole('radio', { name: 'code' }).getAttribute('aria-checked'), 'true');
+  assert.equal(await page.locator('.detail-title').innerText(), 'core');
   step('mark login.py ask first');
   await open(R, 'backend/app', 'api', 'routes', 'login.py');
   await page.locator('.fence-block').getByRole('radio', { name: 'ask first' }).click();

@@ -513,6 +513,8 @@ export class AgentHub {
    * ask or is refused is shown on the agent's entry.
    */
   async check(req: FenceCheck, fences: Fences): Promise<FenceVerdict> {
+    // Another indexer sharing the store may have put a fence up since this one read them.
+    await fences.fresh();
     const files: FencedFile[] = [];
     for (const f of req.files ?? []) {
       if (!f || typeof f.path !== 'string') continue;

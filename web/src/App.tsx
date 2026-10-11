@@ -669,6 +669,7 @@ export function App() {
             fences={fences.fences}
             onFence={canEdit(ws.workspace) ? fences.set : undefined}
             onSelect={select}
+            onPlace={place}
           />
         )}
         <AgentQueue

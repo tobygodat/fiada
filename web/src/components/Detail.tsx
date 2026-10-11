@@ -64,6 +64,8 @@ interface Props {
   /** Puts up or takes down a fence; absent when this browser can't change the project. */
   onFence?(node: string, rule: FenceRule | null): Promise<void>;
   onSelect(id: string): void;
+  /** Takes the map to a repository or folder, switching to the code view when the map is by function. */
+  onPlace?(id: string): void;
 }
 
 export function Detail(p: Props) {
@@ -75,7 +77,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, fences, onFence, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, fences, onFence, onSelect, onPlace }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -100,7 +102,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, fences
 
       {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
 
-      {g && <FenceBlock key={g.id} g={g} fences={fences ?? []} onFence={onFence} onSelect={onSelect} />}
+      {g && <FenceBlock key={g.id} g={g} fences={fences ?? []} onFence={onFence} onSelect={onPlace ?? onSelect} />}
 
       {repo && (
         <div className="detail-block">
