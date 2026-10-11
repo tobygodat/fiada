@@ -162,6 +162,19 @@ test('a change that sends no diff leaves the last diff with the time it came', a
   assert.ok(Date.parse(again.at) > Date.parse(again.diffAt!));
 });
 
+test('a change without a diff in the same millisecond still leaves the last diff behind', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  await fs.writeFile(file, API.replace("'/api/items')", "'/api/items?all=1')"));
+  const at = new Date().toISOString();
+  await hub.ingest([{ agent, at, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts') }] }]);
+  await hub.ingest([{ agent, at, type: 'changes', files: [{ path: file, kind: 'modified' }] }]);
+  const [d] = hub.diffs('web/src/api.ts');
+  assert.ok(Date.parse(d.at) > Date.parse(d.diffAt!));
+});
+
 test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(touches([5, 10], [[10, 12]]));
   assert.ok(!touches([5, 10], [[11, 12]]));

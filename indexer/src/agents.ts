@@ -360,6 +360,7 @@ export class AgentHub {
     const kind: ChangeKind = f.kind === 'added' || f.kind === 'deleted' ? f.kind : 'modified';
     const swept = f.swept === true;
     let file = rec.files.get(key);
+    const known = !!file;
     const others = [...this.agents.values()].filter((r) => r !== rec && r.files.has(key));
     if (!file && swept && others.some((r) => r.state !== 'ended' && !r.files.get(key)!.swept)) {
       // Seen in the working tree, but another live agent in it named this file itself: that agent's change.
@@ -386,6 +387,9 @@ export class AgentHub {
       rec.files.set(key, file);
     }
     if (!swept) file.swept = false;
+    // Each report of a file comes after the last, even within a millisecond, so a later one
+    // that sends no diff always leaves the diff it keeps from before its change.
+    const at = known ? Math.max(now, file.at + 1) : now;
     Object.assign(file, {
       kind,
       lines: f.lines,
@@ -393,8 +397,8 @@ export class AgentHub {
       additions: f.additions,
       deletions: f.deletions,
       diff: typeof f.diff === 'string' ? f.diff : file.diff,
-      diffAt: typeof f.diff === 'string' ? now : file.diffAt,
-      at: now,
+      diffAt: typeof f.diff === 'string' ? at : file.diffAt,
+      at,
       fresh: false,
     });
     if (Array.isArray(f.symbols)) file.named = [...new Set([...file.named, ...f.symbols.filter((s) => typeof s === 'string')])];
