@@ -1,6 +1,6 @@
 # @fiadatech/agent
 
-Shows what your coding agent is doing on [Fiada](https://fiada.tech), a live map of your codebase. As Claude Code works, its task and plan appear in the map's agent window, and every file and function it adds, changes or deletes gets a ring on the map.
+Shows what your coding agent is doing on [Fiada](https://fiada.tech), a live map of your codebase, and lets it ask the map about the code. As Claude Code works, its task and plan appear in the map's agent window, every file and function it adds, changes or deletes gets a ring on the map, and what it reads or asks about gets a faint dotted one.
 
 ## Connect Claude Code
 
@@ -25,6 +25,16 @@ npm install -g @fiadatech/agent
 fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
+## What the agent can ask
+
+Besides `status` and `flag_changes`, which report, the MCP server has three read-only tools that answer from your map, across every repository on it:
+
+- `where_is`: where a feature, function, class, file or route lives, with its path and lines, layer, domain and a one-line summary.
+- `who_uses`: what calls, imports, renders or requests something, with the `file:line` and code behind each link.
+- `impact`: what an edit to something reaches, its users and theirs, nearest first, with counts by repository, layer and domain.
+
+Give them an id from `where_is`, a path, `path#symbol` or a name.
+
 ## Commands
 
 ```
@@ -33,7 +43,7 @@ fiada hook                                                       the tool hook: 
 fiada hook changed <file>… [--kind added|modified|deleted]       report files from a script
 fiada hook status "<what it's doing>"                            say what it's doing
 fiada hook sweep | done | codex '<json>'                         working-tree sweep, turn finished, Codex's notify
-fiada mcp                                                        the stdio MCP server (tools: status, flag_changes)
+fiada mcp                                                        the stdio MCP server (status, flag_changes; where_is, who_uses, impact)
 ```
 
 The hook never gets in the agent's way: it gives up on the indexer after 1.5 s and always exits 0.

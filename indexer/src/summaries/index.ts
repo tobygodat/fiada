@@ -105,6 +105,17 @@ export class Summaries {
     return { ...base, status: 'pending' };
   }
 
+  /** Lookups over the current graph, shared with what agents ask the map (ask.ts). */
+  get index(): GraphIndex | null {
+    return this.gi;
+  }
+
+  /** The best summary a node has right now, without writing one: the generated one when it is written, else the line. */
+  brief(id: string): string | undefined {
+    const gi = this.gi;
+    return (gi && this.summaryOf(gi)(id)) || undefined;
+  }
+
   /** Resolves when nothing is being written (tests and the bench). */
   async idle() {
     for (;;) {

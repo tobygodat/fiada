@@ -1,6 +1,6 @@
 // The task window: a floating panel at the top right with, for each coding
 // agent, a line or two on what it's doing right now, its task and plan folded
-// under that, and the files it has changed. Clicking an agent lights up what
+// under that, the files it has changed, and how much it has looked at. Clicking an agent lights up what
 // it changed on the map and dims the rest; clicking one of its files or
 // functions takes the map to it, where the detail panel shows the diff;
 // "review" walks through them all, one change at a time. Each agent says how
@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
 import { readWords } from '../graph/activity.ts';
 import { agentFileUnread, fileTarget, type ReadMarks } from '../graph/unread.ts';
+import { ago } from './ago.ts';
 import './agent.css';
 
 interface Props {
@@ -71,8 +72,8 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
     }
     setPref(c);
   };
-  // An ended session with nothing left to review has nothing to show.
-  const agents = (state?.agents ?? []).filter((a) => a.state !== 'ended' || a.files.length);
+  // An ended session with nothing left to review, and nothing it looked at, has nothing to show.
+  const agents = (state?.agents ?? []).filter((a) => a.state !== 'ended' || a.files.length || a.looked?.count);
   if (!agents.length) return null;
 
   if (collapsed) {
@@ -93,6 +94,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
   }
 
   const working = agents.some((a) => a.state === 'working');
+  const looked = agents.some((a) => a.looked);
   const nodes = state?.nodes ?? {};
   // One agent's file is unread for it when you haven't looked since its own change to it.
   const unreadFor = read ? (f: AgentFile) => agentFileUnread(f, read.unread, read.marks, nodes) : null;
@@ -120,7 +122,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
             lit={a.id === lit}
             unreadFor={unreadFor}
             onMarkRead={() => onMarkRead(a.id)}
-            onShow={a.files.length ? () => onShow(a.id) : undefined}
+            onShow={a.files.length || a.looked?.count ? () => onShow(a.id) : undefined}
             onReview={reviewable.has(a.id) && reviewing !== a.id ? () => onReview(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
@@ -137,9 +139,17 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
         <span>
           <span className="swatch-ring deleted" /> deleted
         </span>
+        <span>
+          <span className="swatch-ring reached" /> depends on a change
+        </span>
         {working && (
           <span>
             <span className="swatch-ring working" /> working here
+          </span>
+        )}
+        {looked && (
+          <span>
+            <span className="swatch-ring looked" /> looked at
           </span>
         )}
         {anyUnread && (
@@ -199,6 +209,7 @@ interface CardProps {
 function AgentCard({ a, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  const [showLooked, setShowLooked] = useState(false);
   // Lit on the map: its files open, to go through one by one.
   useEffect(() => {
     if (lit) setShowFiles(true);
@@ -288,6 +299,24 @@ function AgentCard({ a, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, 
           )}
         </div>
       )}
+      {a.looked && (
+        <div className="queue-fold">
+          <button className="queue-fold-toggle" onClick={() => setShowLooked((s) => !s)} aria-expanded={showLooked}>
+            <Chevron open={showLooked} />
+            <span className="queue-fold-words">
+              looked at {a.looked.count} place{a.looked.count === 1 ? '' : 's'}
+            </span>
+          </button>
+          {showLooked && (
+            <div className="queue-file-list">
+              {a.looked.nodes.map((id) => (
+                <LookedRow key={id} id={id} onSelect={onSelect} />
+              ))}
+              {a.looked.count > a.looked.nodes.length && <span className="queue-sym-more">and {a.looked.count - a.looked.nodes.length} earlier</span>}
+            </div>
+          )}
+        </div>
+      )}
       <div className="queue-meta">
         <span className="queue-meta-where" title={a.cwd}>
           {a.where} · {ago(a.updatedAt)}
@@ -299,7 +328,7 @@ function AgentCard({ a, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, 
             </button>
           )}
           {onShow && (
-            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed on the map'}>
+            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed or looked at on the map'}>
               {lit ? 'show all' : 'show on map'}
             </button>
           )}
@@ -344,6 +373,24 @@ function Steps({ steps }: { steps: AgentStep[] }) {
       ))}
       {hidden > 0 && <li className="step-more">and {hidden} more</li>}
     </ol>
+  );
+}
+
+/** Something it looked at, by name and where it is; a way onto the map like a changed file. */
+function LookedRow({ id, onSelect }: { id: string; onSelect(id: string): void }) {
+  const hash = id.indexOf('#');
+  const where = hash >= 0 ? id.slice(0, hash) : id.slice(0, Math.max(0, id.lastIndexOf('/')));
+  const name = hash >= 0 ? id.slice(hash + 1).replace(/~\d+$/, '') : id.slice(id.lastIndexOf('/') + 1);
+  return (
+    <div className="queue-file-item">
+      <button className="queue-file" onClick={() => onSelect(id)} title={`${id}\nlooked at, not changed`}>
+        <span className="swatch-ring looked" aria-hidden />
+        <span className="queue-file-name">
+          <span className="queue-file-base">{name}</span>
+          {where && <span className="queue-file-dir">{where}</span>}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -400,9 +447,3 @@ function FileRow({ f, unread, onSelect }: { f: AgentFile; unread: boolean; onSel
   );
 }
 
-function ago(iso: string) {
-  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  return `${Math.round(s / 3600)} h ago`;
-}

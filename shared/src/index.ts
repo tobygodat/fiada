@@ -522,6 +522,11 @@ export type AgentEventBody =
   /** One step added or updated, by id (Claude Code's TaskCreate / TaskUpdate). */
   | { type: 'step'; id: string; text?: string; activeText?: string; status?: StepStatus | 'removed' }
   | { type: 'changes'; files: FileChange[] }
+  /**
+   * Code the agent looked at: graph node ids it asked Fiada about (the MCP
+   * read tools), or files it read, absolute or relative to its root (its Read tool).
+   */
+  | { type: 'looked'; nodes?: string[]; paths?: string[] }
   | { type: 'state'; state: AgentState };
 
 export type AgentEvent = { agent: AgentRef; at?: string } & AgentEventBody;
@@ -574,6 +579,8 @@ export interface AgentActivity {
    * review, whatever the agent has said since, without comparing every file and symbol again.
    */
   filesRev?: string;
+  /** What it has looked at (read, or asked Fiada about) without changing it: how many files and symbols, and the latest, newest first. */
+  looked?: { count: number; nodes: string[] };
   startedAt: string;
   updatedAt: string;
 }
@@ -602,6 +609,11 @@ export interface NodeChange {
   anchor?: string;
   /** 'file' or 'symbol'. */
   unit: 'file' | 'symbol';
+  /**
+   * On a file: the agents whose edit reached outside its symbols (an import, top-level
+   * code), so their change is the whole file's, whatever symbols it also touched.
+   */
+  whole?: string[];
 }
 
 export interface ActivityState {
@@ -612,6 +624,96 @@ export interface ActivityState {
   agents: AgentActivity[];
   /** Graph node id → change: files and symbols agents touched. */
   nodes: Record<string, NodeChange>;
+  /** Graph node id → who looked at it and when: code agents read or asked about without changing it. Absent from older indexers. */
+  looked?: Record<string, LookedAt>;
+}
+
+/** A node an agent looked at: asked Fiada about it, or read its file. */
+export interface LookedAt {
+  /** Agent ids. */
+  agents: string[];
+  /** Epoch ms of the latest look. */
+  at: number;
+}
+
+// ── Asking the map ──
+//
+// What an agent can ask Fiada about the code (the MCP server's read tools,
+// GET /api/agent/find, /dependents and /impact): where something lives, what
+// uses it, and what an edit to it reaches. Answers come from the same graph the
+// map draws, so every link carries its evidence.
+
+/** A node, as an answer names it. */
+export interface NodeRef {
+  id: string;
+  kind: NodeKind;
+  name: string;
+  repo: string;
+  /** Repo-relative path of the file (or folder) it is, or is in. */
+  path?: string;
+  symbolKind?: SymbolKind;
+  /** 1-based inclusive lines, for symbols. */
+  lines?: [number, number];
+  /** Layer and domain names, for files and symbols. */
+  layer?: string;
+  domain?: string;
+  /** HTTP routes it serves. */
+  routes?: string[];
+}
+
+/** GET /api/agent/find?q=: where a feature, symbol, file or route lives. */
+export interface FindAnswer {
+  query: string;
+  hits: (NodeRef & { summary?: string })[];
+  /** More matched than were returned. */
+  more: number;
+}
+
+/** A target the read routes couldn't settle on one node for: the closest matches, to pick from. */
+export interface Ambiguous {
+  target: null;
+  query: string;
+  candidates: NodeRef[];
+}
+
+/** One node that uses the target, with every link from it and the code behind each. */
+export interface Dependent extends NodeRef {
+  /** Its links to the target (or to code inside it), strongest first. */
+  links: { kind: EdgeKind; to: string; basis?: EdgeBasis; confidence?: number; reason?: string; evidence: { file: string; line: number; code?: string }[] }[];
+  /** It sits in another repository than the target. */
+  crossRepo: boolean;
+}
+
+/** GET /api/agent/dependents?node=: who calls, imports, renders or requests the target. */
+export interface DependentsAnswer {
+  target: NodeRef;
+  dependents: Dependent[];
+  more: number;
+}
+
+/** A node an edit to the target reaches, and how. */
+export interface Reached extends NodeRef {
+  /** Links between it and the target: 1 uses the target directly. */
+  depth: number;
+  /** The node it uses on the way to the target. */
+  via: string;
+  /** How it uses that node. */
+  link: EdgeKind;
+  basis?: EdgeBasis;
+  crossRepo: boolean;
+}
+
+/** GET /api/agent/impact?node=: what an edit to the target reaches, following dependents outward. */
+export interface ImpactAnswer {
+  target: NodeRef;
+  depth: number;
+  reached: Reached[];
+  /** Reached nodes beyond the ones returned. */
+  more: number;
+  /** Counts over everything reached (not only the ones returned). */
+  byRepo: Record<string, number>;
+  byLayer: Record<string, number>;
+  byDomain: Record<string, number>;
 }
 
 // ── Node summaries ──

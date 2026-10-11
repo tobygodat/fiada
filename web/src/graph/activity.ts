@@ -1,8 +1,11 @@
 // Agents' changes placed on the tree the map is drawing: which nodes changed
 // themselves, how many changes sit under each node, so a closed circle can say
-// what's inside it, and where an agent is working right now.
+// what's inside it, where an agent is working right now, what agents looked
+// at (read, or asked Fiada about) without changing it, and the ripple: what
+// depends on a change (its callers, importers and the requests to a changed
+// route), so a review can see what an edit reaches, across repositories.
 
-import type { AgentActivity, AgentFile, ChangeKind, GraphNode, NodeChange } from '@fiada/shared';
+import type { AgentActivity, AgentFile, ChangeKind, EdgeKind, GraphEdge, GraphNode, LookedAt, NodeChange } from '@fiada/shared';
 import { locate, type Tree } from './tree.ts';
 
 export interface Marks {
@@ -16,10 +19,22 @@ export interface Marks {
   at: number;
   /** A working agent's latest change is this node ('self') or somewhere under it ('inside'). */
   here: 'self' | 'inside' | null;
+  /**
+   * Something at or under this node depends on a change it isn't part of: calls,
+   * imports, renders, uses or requests a changed node. 'inferred' when every link
+   * that reaches it was guessed rather than proven by the code.
+   */
+  reached: 'evidenced' | 'inferred' | null;
+  /** This node itself links into a change (rather than only something inside it), so it keeps its ring when open. */
+  direct: boolean;
+  /** How many dependents sit underneath, in the view's unit like the change counts. */
+  ripple: number;
   /** The node's own change came after you last opened it. */
   selfUnread: boolean;
   /** Of the changes counted underneath, how many you haven't opened since. */
   unread: number;
+  /** An agent looked at this node ('self') or at something under it ('inside') without changing it. */
+  looked: 'self' | 'inside' | null;
 }
 
 export type TreeActivity = Map<string, Marks>;
@@ -33,11 +48,13 @@ export function rollupActivity(
   agents: readonly AgentActivity[] = [],
   /** Changed node ids you haven't seen since their latest change (unread.ts). */
   unread: ReadonlySet<string> | null = null,
+  looked: Record<string, LookedAt> = {},
+  edges: readonly GraphEdge[] = [],
 ): TreeActivity {
   const out: TreeActivity = new Map();
   const get = (id: string) => {
     let m = out.get(id);
-    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0 }));
+    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, looked: null, reached: null, direct: false, ripple: 0 }));
     return m;
   };
   const unit = tree.view === 'code' ? 'file' : 'symbol';
@@ -82,34 +99,202 @@ export function rollupActivity(
       }
     }
   }
+  // What agents looked at: the node itself where this view draws it, and every circle round it,
+  // so a closed one can say something inside was looked at.
+  const kids = childrenOf(graphIndex);
+  for (const id of Object.keys(looked)) {
+    for (const at of lookedIds(tree, graphIndex, kids, id)) {
+      get(at).looked = 'self';
+      for (let cur = tree.nodes.get(at)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) get(cur).looked ??= 'inside';
+    }
+  }
+
+  if (edges.length) addRipple(out, get, tree, graphIndex, nodes, edges);
   return out;
 }
 
-/** The changes one agent made, out of every agent's. */
+type Children = () => Map<string, string[]>;
+
+/** Every graph node's children, built the first time it's asked for. */
+function childrenOf(graphIndex: Map<string, GraphNode>): Children {
+  let kids: Map<string, string[]> | null = null;
+  return () => {
+    if (!kids) {
+      kids = new Map();
+      for (const g of graphIndex.values()) {
+        const list = kids.get(g.parent);
+        if (list) list.push(g.id);
+        else kids.set(g.parent, [g.id]);
+      }
+    }
+    return kids;
+  };
+}
+
+/**
+ * The circles that stand for a looked-at node in this view: the node itself, or, where the view
+ * doesn't draw it (By function draws no folders, and a file with symbols as its symbols), the
+ * nearest things under it that it does. A whole repository stands for nothing By function:
+ * every symbol in it would be marked.
+ */
+function lookedIds(tree: Tree, graphIndex: Map<string, GraphNode>, kids: Children, id: string): string[] {
+  if (tree.nodes.has(id)) return id === tree.root.id ? [] : [id];
+  if (!graphIndex.has(id) || graphIndex.get(id)!.kind === 'repo') return [];
+  const out: string[] = [];
+  const queue = [id];
+  while (queue.length) {
+    for (const c of kids().get(queue.shift()!) ?? []) {
+      if (tree.nodes.has(c)) out.push(c);
+      else queue.push(c);
+    }
+  }
+  return out;
+}
+
+/** What one agent looked at, out of every agent's. */
+export function agentLooked(looked: Record<string, LookedAt> | undefined, agentId: string): Record<string, LookedAt> {
+  const out: Record<string, LookedAt> = {};
+  for (const [id, l] of Object.entries(looked ?? {})) if (l.agents.includes(agentId)) out[id] = l;
+  return out;
+}
+
+/**
+ * Changed files whose change is narrowed to symbols, each with those symbols:
+ * every agent that changed the file also named the symbols it touched there,
+ * and none of them reached outside those symbols. A file an agent changed at
+ * its top level (an import, a statement outside any function) stays whole, so
+ * what uses any of it is reached.
+ */
+function narrowedFiles(nodes: Record<string, NodeChange>): Map<string, string[]> {
+  const bySymbol = new Map<string, { ids: string[]; agents: Set<string> }>();
+  for (const [id, c] of Object.entries(nodes)) {
+    const hash = id.indexOf('#');
+    if (c.unit !== 'symbol' || hash < 0) continue;
+    const file = id.slice(0, hash);
+    let f = bySymbol.get(file);
+    if (!f) bySymbol.set(file, (f = { ids: [], agents: new Set() }));
+    f.ids.push(id);
+    for (const a of c.agents) f.agents.add(a);
+  }
+  const out = new Map<string, string[]>();
+  for (const [file, f] of bySymbol) {
+    const c = nodes[file];
+    if (!c || (c.agents.every((a) => f.agents.has(a)) && !c.agents.some((a) => c.whole?.includes(a)))) out.set(file, f.ids);
+  }
+  return out;
+}
+
+/**
+ * Whether an edge lands on something an agent changed: the node itself, or a
+ * symbol in a changed file the change wasn't narrowed to symbols in (a change
+ * to a file's top level reaches everything that uses the file).
+ */
+function changedTarget(graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange>) {
+  const narrowed = narrowedFiles(nodes);
+  return (id: string) => {
+    if (nodes[id]) return true;
+    const g = graphIndex.get(id);
+    return g?.kind === 'symbol' && !!nodes[g.parent] && !narrowed.has(g.parent);
+  };
+}
+
+/**
+ * The ripple: every node with a link into a change marks itself `reached`, and
+ * so does the file round it in Code view (where files are the unit); each
+ * circle above counts the dependents inside it once. A dependent the agent
+ * changed itself is already marked, so it isn't counted again, nor is a symbol
+ * in a changed file counted above that file.
+ */
+function addRipple(
+  out: TreeActivity,
+  get: (id: string) => Marks,
+  tree: Tree,
+  graphIndex: Map<string, GraphNode>,
+  nodes: Record<string, NodeChange>,
+  edges: readonly GraphEdge[],
+) {
+  const changed = changedTarget(graphIndex, nodes);
+  const isChanged = (id: string) => !!out.get(id)?.self;
+  // Tree id of each dependent → whether some link proving it reaches a change.
+  const dependents = new Map<string, boolean>();
+  const located = new Map<string, string | null>();
+  for (const e of edges) {
+    if (!changed(e.to) || nodes[e.from]) continue;
+    let at = located.get(e.from);
+    if (at === undefined) located.set(e.from, (at = locate(tree, graphIndex, e.from)));
+    if (!at || at === tree.root.id || isChanged(at)) continue;
+    dependents.set(at, dependents.get(at) || e.basis !== 'inferred');
+  }
+  const mark = (m: Marks, sure: boolean) => {
+    if (sure) m.reached = 'evidenced';
+    else m.reached ??= 'inferred';
+  };
+  // The unit each dependent is counted as: its file in Code view, itself in By function.
+  const units = new Map<string, boolean>();
+  for (const [id, sure] of dependents) {
+    const m = get(id);
+    mark(m, sure);
+    m.direct = true;
+    const n = tree.nodes.get(id)!;
+    const unit = tree.view === 'code' && n.kind === 'symbol' ? n.parent : id;
+    if (!unit || unit === tree.root.id || isChanged(unit)) continue;
+    units.set(unit, units.get(unit) || sure);
+  }
+  for (const [id, sure] of units) {
+    if (id !== tree.root.id) mark(get(id), sure);
+    for (let cur = tree.nodes.get(id)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) {
+      const m = get(cur);
+      m.ripple++;
+      mark(m, sure);
+    }
+  }
+}
+
+/** The changes one agent made, out of every agent's, each credited to that agent alone (so a file another agent also changed narrows as it would for this one). */
 export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): Record<string, NodeChange> {
   const out: Record<string, NodeChange> = {};
-  for (const [id, c] of Object.entries(nodes)) if (c.agents.includes(agentId)) out[id] = c;
+  for (const [id, c] of Object.entries(nodes)) {
+    if (!c.agents.includes(agentId)) continue;
+    const { whole, ...rest } = c;
+    out[id] = whole?.includes(agentId) ? { ...rest, agents: [agentId], whole: [agentId] } : { ...rest, agents: [agentId] };
+  }
   return out;
 }
 
 /** One agent's changes on the map: the circles that stand for them, and those plus every circle round them. */
 export interface Spotlight {
-  /** Tree ids of the changed nodes (for a deleted one, the nearest circle that's left), parents before children. */
+  /**
+   * Tree ids of the changed nodes (for a deleted one, the nearest circle that's left), parents before
+   * children; for an agent that only looked, what it looked at.
+   */
   targets: string[];
-  /** The targets and all their ancestors: what stays lit while the rest of the map dims. */
+  /** The targets, what the agent looked at, and all their ancestors: what stays lit while the rest of the map dims. */
   lit: Set<string>;
 }
 
-export function spotlight(tree: Tree, graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange>, agentId: string): Spotlight | null {
-  const targets = new Set<string>();
+export function spotlight(
+  tree: Tree,
+  graphIndex: Map<string, GraphNode>,
+  nodes: Record<string, NodeChange>,
+  agentId: string,
+  looked: Record<string, LookedAt> = {},
+): Spotlight | null {
+  const changed = new Set<string>();
   for (const [id, c] of Object.entries(nodes)) {
     if (!c.agents.includes(agentId)) continue;
     const at = tree.nodes.has(id) ? id : locate(tree, graphIndex, c.anchor ?? id);
-    if (at && at !== tree.root.id) targets.add(at);
+    if (at && at !== tree.root.id) changed.add(at);
   }
+  const seen = new Set<string>();
+  const kids = childrenOf(graphIndex);
+  for (const [id, l] of Object.entries(looked)) {
+    if (l.agents.includes(agentId)) for (const at of lookedIds(tree, graphIndex, kids, id)) seen.add(at);
+  }
+  // The camera goes to what it changed; to what it looked at only when it changed nothing.
+  const targets = changed.size ? changed : seen;
   if (!targets.size) return null;
   const lit = new Set<string>();
-  for (const id of targets) {
+  for (const id of [...changed, ...seen]) {
     for (let cur: string | null = id; cur && !lit.has(cur); cur = tree.nodes.get(cur)?.parent ?? null) lit.add(cur);
   }
   const depth = (id: string) => tree.nodes.get(id)?.depth ?? 0;
@@ -136,6 +321,7 @@ export function describeMarks(m: Marks, view: Tree['view']): string {
   const parts: string[] = [];
   if (m.here) parts.push(m.here === 'self' ? 'an agent is working here' : 'an agent is working inside');
   if (m.self) parts.push(m.self);
+  else if (m.looked) parts.push(m.looked === 'self' ? 'an agent looked at this' : 'an agent looked inside');
   const n = changeCount(m);
   if (n) {
     const kinds = (['added', 'modified', 'deleted'] as const).filter((k) => m[k]).map((k) => `${m[k]} ${k}`);
@@ -145,3 +331,112 @@ export function describeMarks(m: Marks, view: Tree['view']): string {
   if (m.selfUnread) parts.push('changed since you last looked');
   return parts.join(' · ');
 }
+
+const KIND_VERB: Record<EdgeKind, [string, string]> = {
+  calls: ['calls', 'call'],
+  renders: ['renders', 'render'],
+  imports: ['imports', 'import'],
+  type: ['uses', 'use'],
+  references: ['uses', 'use'],
+  http: ['calls', 'call'],
+};
+
+/** What a changed node is, as the last word of its sentence: "this route", "this type". */
+function thing(g: GraphNode): string {
+  if (g.kind === 'file') return 'file';
+  switch (g.symbolKind) {
+    case 'interface':
+    case 'type':
+      return 'type';
+    case 'class':
+    case 'component':
+    case 'enum':
+      return g.symbolKind;
+    case 'variable':
+      return 'value';
+    default:
+      return 'function';
+  }
+}
+
+/** "web", "web and api", "web, api and jobs". */
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+/**
+ * Who reaches a node, in a sentence or two for its panel: "23 requests from
+ * web call this route", "6 functions in api and 2 in jobs use this type". It
+ * counts the links into the node (into a file, also into its symbols) from
+ * outside it, by repository; requests one per request, everything else one
+ * per node on the other side. For a file whose change `nodes` narrows to some
+ * of its symbols, only links to the file and those symbols count, as on the
+ * map. Says how many were guessed. Empty when nothing
+ * reaches it and it isn't a contract (a route, or an exported symbol or file).
+ */
+export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange> = {}): string[] {
+  const inside = (id: string) => id === g.id || (g.kind === 'file' && id.startsWith(`${g.id}#`));
+  // A file whose change was narrowed to some of its symbols reaches what the map rings: links to
+  // the file itself and to those symbols, not to the symbols the agent left alone.
+  const touched = g.kind === 'file' ? narrowedFiles(nodes).get(g.id) : undefined;
+  const target = touched ? (id: string) => id === g.id || touched.includes(id) : inside;
+  const requests: GraphEdge[] = [];
+  // One per dependent: its strongest link, and whether any link from it is proven.
+  const users = new Map<string, { kind: EdgeKind; sure: boolean }>();
+  for (const e of edges) {
+    if (!target(e.to) || inside(e.from)) continue;
+    if (e.kind === 'http') {
+      requests.push(e);
+      continue;
+    }
+    const u = users.get(e.from);
+    if (!u) users.set(e.from, { kind: e.kind, sure: e.basis !== 'inferred' });
+    else {
+      if (RANK[e.kind] < RANK[u.kind]) u.kind = e.kind;
+      u.sure ||= e.basis !== 'inferred';
+    }
+  }
+  const repoName = (id: string) => {
+    const r = graphIndex.get(id)?.repo ?? id.split('/')[0];
+    return graphIndex.get(r)?.name ?? r;
+  };
+  /** "23 from web and 4 from api", most first. */
+  const byRepo = (ids: string[], noun: [string, string], prep: string) => {
+    const counts = new Map<string, number>();
+    for (const id of ids) counts.set(repoName(id), (counts.get(repoName(id)) ?? 0) + 1);
+    const groups = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+    return andList(groups.map(([repo, n], i) => `${n}${i ? '' : ` ${noun[n === 1 ? 0 : 1]}`} ${prep} ${repo}`));
+  };
+  const guessed = (n: number, total: number) => (n ? (n === total ? (total === 1 ? ', inferred' : ', all inferred') : `, ${n} of them inferred`) : '');
+
+  const out: string[] = [];
+  if (requests.length) {
+    // The routes the requests reach: each request names the route it matched, and a symbol may serve several.
+    const routes = new Set(requests.map((e) => `${e.to}|${e.detail ?? ''}`)).size;
+    const verb = requests.length === 1 ? 'calls' : 'call';
+    const what = routes > 1 ? 'these routes' : 'this route';
+    out.push(`${byRepo(requests.map((e) => e.from), ['request', 'requests'], 'from')} ${verb} ${what}${guessed(requests.filter((e) => e.basis === 'inferred').length, requests.length)}.`);
+  }
+  if (users.size) {
+    const ids = [...users.keys()];
+    const kinds = ids.map((id) => graphIndex.get(id));
+    const noun: [string, string] = kinds.every((n) => n?.kind === 'file')
+      ? ['file', 'files']
+      : kinds.every((n) => n?.kind === 'symbol' && (n.symbolKind === 'function' || n.symbolKind === undefined))
+        ? ['function', 'functions']
+        : kinds.every((n) => n?.kind === 'symbol' && n.symbolKind === 'component')
+          ? ['component', 'components']
+          : ['place', 'places'];
+    // The verb of the kind they share; when they reach it in different ways, they all use it.
+    const ways = new Set([...users.values()].map((u) => u.kind));
+    const kind: EdgeKind = ways.size === 1 ? [...ways][0] : 'references';
+    // A file's symbols are called, but the file itself is used or imported.
+    const verb = KIND_VERB[g.kind === 'file' && kind !== 'imports' ? 'references' : kind][users.size === 1 ? 0 : 1];
+    const unsure = [...users.values()].filter((u) => !u.sure).length;
+    out.push(`${byRepo(ids, noun, 'in')} ${verb} this ${thing(g)}${guessed(unsure, users.size)}.`);
+  }
+  if (!out.length && (g.routes?.length || g.exported)) out.push(`Nothing in the imported repositories reaches this ${g.routes?.length ? 'route' : thing(g)} yet.`);
+  // Sentences start with a capital.
+  return out.map((s) => s[0].toUpperCase() + s.slice(1));
+}
+
+/** Strongest kind of link first, as the detail panel lists them. */
+const RANK: Record<EdgeKind, number> = { http: 0, calls: 1, renders: 2, references: 3, type: 4, imports: 5 };

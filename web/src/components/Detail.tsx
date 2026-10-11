@@ -22,7 +22,9 @@ import {
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { ownerOf, type HunkOwner } from './diff.ts';
+import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
+import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
 import type { ShownDiff, TourStop } from '../graph/tour.ts';
@@ -59,6 +61,8 @@ interface Props {
   activity?: ActivityState | null;
   /** The review tour's agent and the change it's on: its diff alone, not every agent's. */
   reviewing?: { agent: string; stop: TourStop; onShown?(shown: ShownDiff | null): void } | null;
+  /** The changes the map is showing: every agent's, or the lit agent's alone. */
+  shownChanges?: ActivityState['nodes'];
   onSelect(id: string): void;
 }
 
@@ -71,7 +75,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, reviewing, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, reviewing, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -94,7 +98,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, review
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && <Changed g={g} graphIndex={graphIndex} activity={activity} reviewing={reviewing} />}
+      {g && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} reviewing={reviewing} />}
+      {g && <Looked id={g.id} activity={activity} />}
 
       {repo && (
         <div className="detail-block">
@@ -190,14 +195,49 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
   );
 }
 
+/** Who looked at this node without changing it, in words, as the map's dotted ring says it. */
+function Looked({ id, activity }: { id: string; activity?: ActivityState | null }) {
+  const l = activity?.looked?.[id];
+  if (!l) return null;
+  const names = [...new Set(l.agents.map((a) => activity!.agents.find((x) => x.id === a)?.name ?? 'an agent'))];
+  return (
+    <p className="detail-looked">
+      <span className="swatch-ring looked" aria-hidden />
+      looked at by {names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]} · {ago(new Date(l.at).toISOString())}
+    </p>
+  );
+}
+
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
-/** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
-function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null; reviewing?: Props['reviewing'] }) {
+/**
+ * The agent's diff when an agent changed this file or symbol (for a symbol, the
+ * hunks that touch it), led by what the change reaches: who calls, imports or
+ * requests it, the same links the map rings with dots.
+ */
+function Changed({
+  g,
+  graph,
+  graphIndex,
+  activity,
+  shown,
+  reviewing,
+}: {
+  g: GraphNode;
+  graph: Graph;
+  graphIndex: Map<string, GraphNode>;
+  activity?: ActivityState | null;
+  shown?: ActivityState['nodes'];
+  reviewing?: Props['reviewing'];
+}) {
   // On a review tour, the reviewed agent's diff and its own kind of change, not the latest of any agent's.
   const tour = reviewing?.stop.target === g.id ? reviewing : null;
   const code = g.kind === 'file' || g.kind === 'symbol';
+  // With one agent lit, only its changes say what they reach, as only they ripple on the map.
+  const nodes = shown ?? activity?.nodes;
+  const shownOwn = code ? nodes?.[g.id] : undefined;
+  const reach = useMemo(() => (shownOwn && shownOwn.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, nodes) : []), [shownOwn, g, graph, graphIndex, nodes]);
   // Something deleted on the tour stands on what's left (a file on its folder, a function on its
   // file): its own diff under it, and for a function only the hunks that take it away.
   // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
@@ -235,6 +275,7 @@ function Changed({ g, graphIndex, activity, reviewing }: { g: GraphNode; graphIn
       kind={stop ? stop.stop.kind : own!.kind}
       agent={tour?.agent}
       onShown={stop?.onShown}
+      reach={reach}
     />
   );
 }
