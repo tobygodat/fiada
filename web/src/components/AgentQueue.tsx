@@ -2,9 +2,10 @@
 // agent, a line or two on what it's doing right now, its task and plan folded
 // under that, the files it has changed, and how much it has looked at. Clicking an agent lights up what
 // it changed on the map and dims the rest; clicking one of its files or
-// functions takes the map to it, where the detail panel shows the diff. Each
-// agent says how many of its changes you've read since it made them, unread
-// files carry a dot, and "mark all read" catches up without opening each one.
+// functions takes the map to it, where the detail panel shows the diff;
+// "review" walks through them all, one change at a time. Each agent says how
+// many of its changes you've read since it made them, unread files carry a
+// dot, and "mark all read" catches up without opening each one.
 // When two agents have changes in one file or folder, a line at the top says
 // where they meet; an edit an agent tried inside a fence is said on its entry.
 // While the detail panel is open the window folds to one line above it.
@@ -29,6 +30,12 @@ interface Props {
   onMarkRead(agentId?: string): void;
   /** Lights up one agent's changes on the map, or puts the map back when it's the lit one. */
   onShow(agentId: string): void;
+  /** The agent whose changes are being reviewed, one by one. */
+  reviewing: string | null;
+  /** Agents with something on the map to review. */
+  reviewable: ReadonlySet<string>;
+  /** Starts a review tour of one agent's changes. */
+  onReview(agentId: string): void;
   onSelect(nodeId: string, agentId: string): void;
   /** Takes the map to a place two agents share, or to a fence. */
   onPlace(nodeId: string): void;
@@ -52,7 +59,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, lit, read, onShow, onSelect, onPlace, onMarkRead, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, onShow, onReview, onSelect, onPlace, onMarkRead, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -138,6 +145,7 @@ export function AgentQueue({ state, compact, lit, read, onShow, onSelect, onPlac
             unreadFor={unreadFor}
             onMarkRead={() => onMarkRead(a.id)}
             onShow={a.files.length || a.looked?.count ? () => onShow(a.id) : undefined}
+            onReview={reviewable.has(a.id) && reviewing !== a.id ? () => onReview(a.id) : undefined}
             onSelect={(id) => onSelect(id, a.id)}
             onClear={onClear && (() => onClear(a.id))}
           />
@@ -217,11 +225,13 @@ interface CardProps {
   onMarkRead(): void;
   /** Absent when it has changed nothing there is to show. */
   onShow?(): void;
+  /** Absent with nothing on the map to review, or while its review is on. */
+  onReview?(): void;
   onSelect(id: string): void;
   onClear?(): void;
 }
 
-function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onSelect, onClear }: CardProps) {
+function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showLooked, setShowLooked] = useState(false);
@@ -342,6 +352,11 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onS
           {a.where} · {ago(a.updatedAt)}
         </span>
         <span className="queue-acts">
+          {onReview && (
+            <button className="queue-act" onClick={onReview} title="Walk through what this agent changed, one change at a time, in the order data flows">
+              review
+            </button>
+          )}
           {onShow && (
             <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed or looked at on the map'}>
               {lit ? 'show all' : 'show on map'}

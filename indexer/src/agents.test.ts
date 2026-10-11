@@ -122,6 +122,59 @@ test('an agent\'s status line follows what it says, its plan and each new prompt
   assert.deepEqual(now(), { text: 'Add a page parameter', from: 'plan', at: at(8) });
 });
 
+test("an agent's files revision stays through its status lines and moves with its changes", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const change = async (text: string, lines: [number, number][]) => {
+    await fs.writeFile(file, text);
+    const v = ws.version;
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const rev = () => hub.state().agents[0].filesRev;
+  await change(API.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2]]);
+  const r1 = rev();
+  assert.ok(r1);
+  await hub.ingest([{ agent, type: 'prompt', text: 'and the tests' }, { agent, type: 'status', text: 'Running the tests.' }]);
+  assert.equal(rev(), r1);
+  await change(API.replace("'/api/items/' + id", '`/api/items/${id}`'), [[6, 6]]);
+  assert.notEqual(rev(), r1);
+});
+
+test('a change that sends no diff leaves the last diff with the time it came', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  await fs.writeFile(file, API.replace("'/api/items')", "'/api/items?all=1')"));
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts') }] }]);
+  const [first] = hub.diffs('web/src/api.ts');
+  assert.equal(first.diffAt, first.at);
+  await new Promise((r) => setTimeout(r, 5));
+  // Flagged again with no diff (before the edit landed, or git couldn't diff it).
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified' }] }]);
+  const [again] = hub.diffs('web/src/api.ts');
+  assert.equal(again.diff, first.diff);
+  assert.equal(again.diffAt, first.diffAt);
+  assert.ok(Date.parse(again.at) > Date.parse(again.diffAt!));
+});
+
+test('a change without a diff in the same millisecond still leaves the last diff behind', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  await fs.writeFile(file, API.replace("'/api/items')", "'/api/items?all=1')"));
+  const at = new Date().toISOString();
+  await hub.ingest([{ agent, at, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts') }] }]);
+  await hub.ingest([{ agent, at, type: 'changes', files: [{ path: file, kind: 'modified' }] }]);
+  const [d] = hub.diffs('web/src/api.ts');
+  assert.ok(Date.parse(d.at) > Date.parse(d.diffAt!));
+});
+
 test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(touches([5, 10], [[10, 12]]));
   assert.ok(!touches([5, 10], [[11, 12]]));
@@ -210,6 +263,87 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
 
   hub.clear();
   assert.deepEqual(hub.state().agents, []);
+});
+
+test("an edit in another checkout of the repository carries each changed function's lines in HEAD, which the map still has", async () => {
+  const { ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  // A second checkout, named like the imported one: the map isn't re-indexed for it.
+  const other = path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-other-'))), 'web');
+  await fs.mkdir(path.join(other, 'src'), { recursive: true });
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: other, root: other };
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(other, 'src/api.ts'), kind: 'modified', lines: [[36, 36]], oldLines: [[6, 6]] }] }]);
+  const f = hub.state().agents[0].files[0];
+  assert.equal(f.node, 'web/src/api.ts');
+  assert.deepEqual(
+    f.symbols.map((s) => [s.name, s.kind, s.oldLines]),
+    [['getItem', 'modified', [5, 7]]],
+  );
+});
+
+test('a function deleted from a file it stays in carries its lines from HEAD', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // The layer the map has for getItem before it goes, which its stop keeps.
+  const layer = ws.getGraph().nodes.find((n) => n.id === 'web/src/api.ts#getItem')?.layer?.id;
+  assert.ok(layer);
+  // getItem (lines 5-7 in HEAD) goes, with the blank line before it.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.slice(0, API.indexOf('\nexport function getItem')));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1);
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(dir, 'src/api.ts'), kind: 'modified', lines: [[3, 3]], oldLines: [[4, 7]], deletions: 4 }] }]);
+  await pushed;
+  await new Promise((r) => setTimeout(r, 400));
+  const f = hub.state().agents[0].files[0];
+  assert.deepEqual(f.symbols.find((x) => x.name === 'getItem'), { id: 'web/src/api.ts#getItem', name: 'getItem', kind: 'deleted', oldLines: [5, 7], layer });
+});
+
+test('a function deleted after the map moved it to another layer keeps the layer the map had for it last', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  const settle = async (go: () => Promise<void>) => {
+    const v = ws.version;
+    await go();
+    for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  // listItems changes first, so the file's symbols in HEAD are read with the layers they had then.
+  const one = API.replace("'/api/items')", "'/api/items?all=1')");
+  await settle(async () => {
+    await fs.writeFile(file, one);
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', lines: [[2, 2]], oldLines: [[2, 2]] }] }]);
+  });
+  // The project's grouping then puts getItem in another layer.
+  const node = ws.getGraph().nodes.find((n) => n.id === 'web/src/api.ts#getItem')!;
+  node.layer = { ...node.layer!, id: 'moved' };
+  // getItem goes.
+  await settle(async () => {
+    await fs.writeFile(file, one.slice(0, one.indexOf('\nexport function getItem')));
+    await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', lines: [[2, 3]], oldLines: [[2, 7]] }] }]);
+  });
+  assert.equal(hub.state().agents[0].files[0].symbols.find((x) => x.name === 'getItem')?.layer, 'moved');
+});
+
+test('a class that lost a method carries its lines from HEAD, with the method', async () => {
+  // Java lists a class and each method in it.
+  const STORE = 'class Store {\n  int get() {\n    return 1;\n  }\n\n  int put() {\n    return 2;\n  }\n}\n';
+  const { dir, ws } = await localRepo({ 'src/Store.java': STORE });
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const ids = ws.getGraph().nodes.filter((n) => n.id.startsWith('web/src/Store.java#')).map((n) => [n.id, n.lines]);
+  assert.deepEqual(ids, [['web/src/Store.java#Store', [1, 9]], ['web/src/Store.java#Store.get', [2, 4]], ['web/src/Store.java#Store.put', [6, 8]]]);
+  // put (lines 6-8 in HEAD) goes, with the blank line before it.
+  await fs.writeFile(path.join(dir, 'src/Store.java'), STORE.replace('\n  int put() {\n    return 2;\n  }\n', ''));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1);
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: path.join(dir, 'src/Store.java'), kind: 'modified', lines: [[4, 4]], oldLines: [[5, 8]], deletions: 4 }] }]);
+  await pushed;
+  await new Promise((r) => setTimeout(r, 400));
+  const f = hub.state().agents[0].files[0];
+  const of = (name: string) => f.symbols.find((x) => x.id === `web/src/Store.java#${name}`);
+  assert.deepEqual([of('Store')?.kind, of('Store')?.oldLines], ['modified', [1, 9]]);
+  assert.deepEqual([of('Store.put')?.kind, of('Store.put')?.oldLines], ['deleted', [6, 8]]);
 });
 
 test("an edit outside every symbol makes the file's change whole", async () => {

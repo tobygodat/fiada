@@ -50,8 +50,8 @@ export const MAX_LOOKED = 500;
 const LOOKED_LISTED = 20;
 
 const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' };
-/** Symbol names/lines in HEAD's version of a file, keyed by symbol id. */
-type SymbolLines = Map<string, { name: string; lines: [number, number] }>;
+/** Symbol names/lines in HEAD's version of a file, keyed by symbol id, with the layer the map gave each. */
+type SymbolLines = Map<string, { name: string; lines: [number, number]; layer?: string }>;
 
 interface FileRec {
   /** `${repo}/${rel}` for files in an imported repository, else the absolute path. */
@@ -65,6 +65,8 @@ interface FileRec {
   additions?: number;
   deletions?: number;
   diff?: string;
+  /** When the change that sent `diff` came: a later one that sent none leaves it behind `at`. */
+  diffAt?: number;
   /** Symbol names the agent named itself. */
   named: string[];
   at: number;
@@ -416,6 +418,7 @@ export class AgentHub {
     const kind: ChangeKind = f.kind === 'added' || f.kind === 'deleted' ? f.kind : 'modified';
     const swept = f.swept === true;
     let file = rec.files.get(key);
+    const known = !!file;
     const others = [...this.agents.values()].filter((r) => r !== rec && r.files.has(key));
     if (!file && swept && others.some((r) => r.state !== 'ended' && !r.files.get(key)!.swept)) {
       // Seen in the working tree, but another live agent in it named this file itself: that agent's change.
@@ -442,6 +445,9 @@ export class AgentHub {
       rec.files.set(key, file);
     }
     if (!swept) file.swept = false;
+    // Each report of a file comes after the last, even within a millisecond, so a later one
+    // that sends no diff always leaves the diff it keeps from before its change.
+    const at = known ? Math.max(now, file.at + 1) : now;
     Object.assign(file, {
       kind,
       lines: f.lines,
@@ -449,7 +455,8 @@ export class AgentHub {
       additions: f.additions,
       deletions: f.deletions,
       diff: typeof f.diff === 'string' ? f.diff : file.diff,
-      at: now,
+      diffAt: typeof f.diff === 'string' ? at : file.diffAt,
+      at,
       fresh: false,
     });
     if (Array.isArray(f.symbols)) file.named = [...new Set([...file.named, ...f.symbols.filter((s) => typeof s === 'string')])];
@@ -544,11 +551,14 @@ export class AgentHub {
   /**
    * The file's symbols before the agent touched it: parsed from HEAD for a
    * local repo, else what the graph has now (a clone is at HEAD already).
-   * An added file had none.
+   * An added file had none. Each keeps the layer the map has for it now, while
+   * the graph still holds the file as it was, so a deleted symbol is read with it.
    */
   private async baseSymbols(repo: string, rel: string, live: boolean, kind: ChangeKind): Promise<SymbolLines | null> {
     if (kind === 'added') return new Map();
     const fid = fileId(repo, rel);
+    const syms = this.index(this.ws.getGraph()).symbols.get(fid);
+    const layer = new Map(syms?.map((s) => [s.id, s.layer?.id]));
     if (live) {
       const root = this.ws.rootOf(repo);
       const text = root
@@ -558,11 +568,10 @@ export class AgentHub {
         const parsed = await parseFile(rel, text).catch(() => null);
         if (!parsed) return new Map();
         const ids = symbolIds(fid, parsed);
-        return new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines }]));
+        return new Map(parsed.symbols.map((s, i) => [ids[i], { name: s.name, lines: s.lines, layer: layer.get(ids[i]) }]));
       }
     }
-    const syms = this.index(this.ws.getGraph()).symbols.get(fid);
-    return syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0] }])) : null;
+    return syms ? new Map(syms.map((s) => [s.id, { name: s.name, lines: s.lines ?? [0, 0], layer: s.layer?.id }])) : null;
   }
 
   /** Re-indexes changed files of local repos, a moment after the last change so a burst of edits is one rebuild. */
@@ -580,6 +589,15 @@ export class AgentHub {
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
       this.keepIncoming(new Set([...rels].map((rel) => fileId(repo, rel))));
+      // The layer each symbol in HEAD has on the map now, while the map still has it: one this
+      // re-index takes away keeps the layer it had last, not the one it had when the file first changed.
+      const ix = this.index(this.ws.getGraph());
+      for (const rec of this.agents.values())
+        for (const f of rec.files.values()) {
+          if (f.repo !== repo || !rels.has(f.rel!) || !f.base) continue;
+          const now = new Map((ix.symbols.get(fileId(repo, f.rel!)) ?? []).map((n) => [n.id, n.layer?.id]));
+          for (const [id, s] of f.base) if (now.has(id)) s.layer = now.get(id);
+        }
       await this.ws.updateFiles(repo, [...rels]);
       for (const rec of this.agents.values()) for (const f of rec.files.values()) if (f.repo === repo && rels.has(f.rel!)) f.fresh = true;
     }
@@ -658,13 +676,13 @@ export class AgentHub {
   }
 
   /** Diffs agents hold for one file (or the file a symbol is in). */
-  diffs(nodeId: string): { agent: string; name: string; kind: ChangeKind; additions?: number; deletions?: number; diff?: string; at: string }[] {
+  diffs(nodeId: string): { agent: string; name: string; kind: ChangeKind; additions?: number; deletions?: number; diff?: string; diffAt?: string; at: string }[] {
     const key = nodeId.includes('#') ? nodeId.slice(0, nodeId.indexOf('#')) : nodeId;
     const names = this.names();
     const out = [];
     for (const rec of this.agents.values()) {
       const f = rec.files.get(key);
-      if (f) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, at: new Date(f.at).toISOString() });
+      if (f) out.push({ agent: rec.id, name: names.get(rec.id)!, kind: f.kind, additions: f.additions, deletions: f.deletions, diff: f.diff, ...(f.diffAt != null && { diffAt: new Date(f.diffAt).toISOString() }), at: new Date(f.at).toISOString() });
     }
     return out;
   }
@@ -751,11 +769,17 @@ export class AgentHub {
     for (const s of now) {
       const rawName = s.id.slice(s.id.indexOf('#') + 1).replace(/~\d+$/, '');
       if (f.kind === 'added' || (f.fresh && base && !base.has(s.id))) out.push({ id: s.id, name: s.name, kind: 'added' });
-      else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name)) out.push({ id: s.id, name: s.name, kind: 'modified' });
+      else if ((s.lines && newSide && touches(s.lines, newSide)) || named.has(rawName) || named.has(s.name)) {
+        // Its lines in HEAD too, so a class that lost a method can be matched with that method, and a
+        // function moved far with the hunk that took it from there: until the file is re-indexed (never,
+        // for another checkout), the map's own lines are HEAD's.
+        const was = f.live && f.fresh ? base?.get(s.id)?.lines : s.lines;
+        out.push({ id: s.id, name: s.name, kind: 'modified', ...(was && was[0] > 0 && { oldLines: was }) });
+      }
     }
     if (f.fresh && base) {
       const nowIds = new Set(now.map((s) => s.id));
-      for (const [id, s] of base) if (!nowIds.has(id)) out.push({ id, name: s.name, kind: 'deleted' });
+      for (const [id, s] of base) if (!nowIds.has(id)) out.push({ id, name: s.name, kind: 'deleted', ...(s.lines[0] > 0 && { oldLines: s.lines }), ...(s.layer && { layer: s.layer }) });
     }
     return out;
   }
@@ -849,6 +873,7 @@ export class AgentHub {
         now: statusLine(rec.said, rec.steps, rec.stepAt, rec.prompt ? { text: rec.prompt, at: rec.promptAt } : undefined),
         steps: rec.steps,
         files,
+        filesRev: createHash('sha1').update(JSON.stringify([this.ws.version, files])).digest('base64url').slice(0, 16),
         ...(lookedHere.length ? { looked: { count: lookedHere.length, nodes: lookedHere.map(([id]) => id).reverse().slice(0, LOOKED_LISTED) } } : {}),
         startedAt: new Date(rec.startedAt).toISOString(),
         updatedAt: new Date(rec.updatedAt).toISOString(),

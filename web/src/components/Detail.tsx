@@ -23,6 +23,7 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
+import { ownerOf, type HunkOwner } from './diff.ts';
 import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
 import { Choice } from './Sidebar.tsx';
@@ -30,6 +31,7 @@ import { fenceAround } from '../graph/fences.ts';
 import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
+import type { ShownDiff, TourStop } from '../graph/tour.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
@@ -61,6 +63,8 @@ interface Props {
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
+  /** The review tour's agent and the change it's on: its diff alone, not every agent's. */
+  reviewing?: { agent: string; stop: TourStop; onShown?(shown: ShownDiff | null): void } | null;
   /** Circles marked "ask first" or "off limits". */
   fences?: readonly Fence[];
   /** Puts up or takes down a fence; absent when this browser can't change the project. */
@@ -81,7 +85,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, fences, onFence, onSelect, onPlace }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, reviewing, fences, onFence, onSelect, onPlace }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -104,7 +108,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} />}
+      {g && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} reviewing={reviewing} />}
       {g && <Looked id={g.id} activity={activity} />}
 
       {g && <FenceBlock key={g.id} g={g} fences={fences ?? []} onFence={onFence} onSelect={onPlace ?? onSelect} />}
@@ -290,15 +294,68 @@ const sources = new Map<string, Promise<SourceText>>();
  * hunks that touch it), led by what the change reaches: who calls, imports or
  * requests it, the same links the map rings with dots.
  */
-function Changed({ g, graph, graphIndex, activity, shown }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null; shown?: ActivityState['nodes'] }) {
-  const own = activity?.nodes[g.id];
+function Changed({
+  g,
+  graph,
+  graphIndex,
+  activity,
+  shown,
+  reviewing,
+}: {
+  g: GraphNode;
+  graph: Graph;
+  graphIndex: Map<string, GraphNode>;
+  activity?: ActivityState | null;
+  shown?: ActivityState['nodes'];
+  reviewing?: Props['reviewing'];
+}) {
+  // On a review tour, the reviewed agent's diff and its own kind of change, not the latest of any agent's.
+  const tour = reviewing?.stop.target === g.id ? reviewing : null;
+  const code = g.kind === 'file' || g.kind === 'symbol';
   // With one agent lit, only its changes say what they reach, as only they ripple on the map.
   const nodes = shown ?? activity?.nodes;
-  const shownOwn = nodes?.[g.id];
+  const shownOwn = code ? nodes?.[g.id] : undefined;
   const reach = useMemo(() => (shownOwn && shownOwn.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, nodes) : []), [shownOwn, g, graph, graphIndex, nodes]);
-  if (!own) return null;
+  // Something deleted on the tour stands on what's left (a file on its folder, a function on its
+  // file): its own diff under it, and for a function only the hunks that take it away.
+  // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
+  const rest = tour?.stop.rest?.map((id): HunkOwner => {
+    const n = graphIndex.get(id);
+    const oldLines = tour.stop.restOld?.[id];
+    return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { name: id.slice(id.indexOf('#') + 1), oldLines };
+  });
+  if (tour && tour.stop.id !== g.id) {
+    const fn = tour.stop.id.includes('#');
+    return (
+      <AgentChange
+        node={tour.stop.id}
+        own={fn ? { name: tour.stop.name, oldLines: tour.stop.old } : undefined}
+        rest={rest}
+        rev={tour.stop.at}
+        kind={tour.stop.kind}
+        agent={tour.agent}
+        what={fn ? tour.stop.name : tour.stop.path}
+        onShown={tour.onShown}
+      />
+    );
+  }
+  const own = code ? activity?.nodes[g.id] : null;
+  const stop = tour?.stop.id === g.id ? tour : null;
+  if (!own && !stop) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} reach={reach} />;
+  // Refetched when any agent changes the file; on a tour, never for less than the stop's own change.
+  return (
+    <AgentChange
+      node={g.id}
+      own={g.kind === 'symbol' && g.lines ? ownerOf(g.lines, tour?.stop.id === g.id ? tour.stop.old : undefined) : undefined}
+      rest={rest}
+      rev={Math.max(file?.at ?? own?.at ?? 0, stop?.stop.at ?? 0)}
+      kind={stop ? stop.stop.kind : own!.kind}
+      agent={tour?.agent}
+      onShown={stop?.onShown}
+      reach={reach}
+    />
+  );
 }
 
 /**
