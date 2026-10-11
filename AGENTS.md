@@ -54,7 +54,7 @@ bun run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent
 - The MongoDB store tests run only when `FIADA_TEST_MONGODB_URI` is set.
 - `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium; set `CHROMIUM_PATH` if Playwright's browser isn't installed.
 - `bun run test`, not `bun test`: the tests use `node:test`, which bun's own runner doesn't run.
-- There is no CI. Before you push, `bun run typecheck && bun run test && bun run build` must all pass.
+- Before you push, `bun run typecheck && bun run test && bun run build` must all pass. CI (`.github/workflows/ci.yml`) runs the same three on every pull request and push to `main`.
 
 ## Code conventions
 
