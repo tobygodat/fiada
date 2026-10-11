@@ -1,5 +1,6 @@
 # Typecheck, test and build on every pull request and every push to main:
-# the same three commands AGENTS.md asks for before a push.
+# the same three commands AGENTS.md asks for before a push, each in its own
+# job so they run side by side and the run takes as long as the slowest one.
 name: ci
 
 on:
@@ -16,8 +17,14 @@ permissions:
 
 jobs:
   check:
+    name: ${{ matrix.task }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      # One failure doesn't cancel the others, so a run reports all three.
+      fail-fast: false
+      matrix:
+        task: [typecheck, test, build]
     steps:
       - uses: actions/checkout@v5
 
@@ -37,6 +44,4 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
 
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run build
+      - run: bun run ${{ matrix.task }}
