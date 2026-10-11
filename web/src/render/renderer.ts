@@ -708,6 +708,8 @@ export class MapRenderer {
     // circle's name sits in its rim. Only where the words fit along the link
     // with room to spare, clear of every tag, name and closed circle; the
     // strongest links get their words first.
+    // Rules hung from links to their words, kept clear like links (straight, so the control point is their middle).
+    const rules: DrawnEdge[] = [];
     if (labelQueue.length) {
       this.font(400, 13);
       // Closed circles, out to their activity rings and unread dots; open circles only where their rim carries marks.
@@ -741,8 +743,6 @@ export class MapRenderer {
       // Always in the same order, so the words pointed at keep the spot they had.
       labelQueue.sort((p, q) => edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost) || (p.g.key < q.g.key ? -1 : 1));
       ctx.lineJoin = 'round';
-      // Rules already hung, kept clear like links (straight, so the control point is their middle).
-      const rules: DrawnEdge[] = [];
       for (const t of labelQueue) {
         const text = restLabel(t.g);
         if (!text) continue;
@@ -800,7 +800,7 @@ export class MapRenderer {
 
     // ── agent badges, last so they can keep clear of every link, tag and tab ──
     if (scene.activity?.size) {
-      const taken = { edges: this.drawnEdges, rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
+      const taken = { edges: [...this.drawnEdges, ...rules], rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
       drawBadges(ctx, this.drawnNodes, scene.activity, taken, this.badgeCache);
       this.lastFont = '';
     }
