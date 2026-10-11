@@ -477,11 +477,14 @@ export class AgentHub {
   /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
   private async resolve(ref: AgentRef, f: FileChange, byName = true, theirRel?: string): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
+    // The deepest imported folder holding it: a repository nested in another (a submodule) is its own.
+    let best: { id: string; src: string } | null = null;
     for (const r of this.ws.repos) {
       if (r.kind !== 'local' || !this.ws.allowLocal) continue;
       const src = this.realSource(r.source);
-      if (inside(abs, src) && abs !== src) return { abs, repo: r.id, rel: posix(path.relative(src, abs)), live: true };
+      if (inside(abs, src) && abs !== src && (!best || src.length > best.src.length)) best = { id: r.id, src };
     }
+    if (best) return { abs, repo: best.id, rel: posix(path.relative(best.src, abs)), live: true };
     // Another checkout of an imported repository: match it by remote, then by folder name.
     // `theirRel` is the path inside the checkout as the agent's machine worked it out, for an
     // agent whose paths this machine can't read (Windows, against an indexer on Linux).

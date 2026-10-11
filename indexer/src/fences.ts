@@ -149,8 +149,9 @@ export class Fences {
     this.list = rest;
     this.changes++;
     this.pending++;
-    // One save at a time, each with the list as it stands when it runs.
-    const run = this.saving.then(() => this.store.saveFences?.(this.projectId, this.list));
+    // One save at a time, each of the list this change made: a later change's list is its own save's,
+    // so a failure rolls back only what was never written.
+    const run = this.saving.then(() => this.store.saveFences?.(this.projectId, rest));
     this.saving = run.catch(() => {});
     try {
       await run;

@@ -141,6 +141,37 @@ test('a failed save leaves the fences as they were', async () => {
   assert.deepEqual(fences.all().map((f) => f.node), ['api/app']);
 });
 
+test('two changes saving at once each save their own list, so a failed second save leaves what the first wrote', async () => {
+  const writes: string[][] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let calls = 0;
+  const store: ProjectStore = {
+    describe: () => 'memory',
+    loadRepos: async () => [],
+    saveRepos: async () => {},
+    loadGrouping: async () => null,
+    saveGrouping: async () => {},
+    loadFences: async () => [],
+    saveFences: async (_id, list) => {
+      const n = ++calls;
+      if (n === 1) await gate;
+      if (n === 2) throw new Error('disk full');
+      writes.push(list.map((f) => f.node));
+    },
+  };
+  const fences = new Fences(store, 'p');
+  await fences.init();
+  const first = fences.set('api/app', 'ask', GRAPH);
+  const second = fences.set('api/app/core', 'off', GRAPH);
+  release();
+  await first;
+  await assert.rejects(second, /disk full/);
+  // The first save wrote only the first change; the second never landed, here or on disk.
+  assert.deepEqual(writes, [['api/app']]);
+  assert.deepEqual(fences.all().map((f) => f.node), ['api/app']);
+});
+
 test('fences are read from the store again once stale, so a fence put up by another indexer holds here too', async () => {
   let t = 0;
   const clock = () => new Date(t);
@@ -325,6 +356,30 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   ]);
   const met: ActivityState['collisions'] = hub.state().collisions;
   assert.deepEqual(met.map((c) => [c.node, c.unit, c.agents.length]), [['api/app/routes', 'folder', 2]]);
+  hub.close();
+  ws.close();
+});
+
+test('a repository imported from inside another is its own: an edit there meets its fences', async () => {
+  const dir = await localRepo();
+  const sdk = path.join(dir, 'vendor/sdk');
+  await fs.mkdir(sdk, { recursive: true });
+  await fs.writeFile(path.join(sdk, 'client.py'), 'def call():\n    return 1\n');
+  git(sdk, 'init', '-q');
+  const saved: SavedRepo[] = [
+    { id: 'api', name: 'api', source: dir, kind: 'local' },
+    { id: 'sdk', name: 'sdk', source: sdk, kind: 'local' },
+  ];
+  const store: ProjectStore = { describe: () => 'memory', loadRepos: async () => saved, saveRepos: async () => {}, loadGrouping: async () => null, saveGrouping: async () => {} };
+  const ws = new Workspace(store, 'default');
+  await ws.init();
+  for (let i = 0; i < 200 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 20));
+  const fences = new Fences(store, 'default');
+  await fences.set('sdk', 'off', ws.getGraph());
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 'n1', cwd: dir, root: dir };
+  const v = await hub.check({ agent, files: [{ path: path.join(sdk, 'client.py') }] }, fences);
+  assert.deepEqual([v.decision, v.file], ['deny', 'sdk/client.py']);
   hub.close();
   ws.close();
 });

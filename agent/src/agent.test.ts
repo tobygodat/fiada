@@ -380,6 +380,12 @@ test("a file in another checkout than the agent's says which, even one not writt
   assert.deepEqual(await placed({ path: path.join(own, 'alias.py'), lines: [[1, 1]] }, co), { path: path.join(own, 'a.py'), rel: 'a.py', lines: [[1, 1]] });
   await fs.symlink(path.join(other, 'lib/b.py'), path.join(own, 'b-link.py'));
   assert.deepEqual(await placed({ path: path.join(own, 'b-link.py') }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', checkout: theirs });
+  // A checkout inside the agent's own (a submodule) is its own repository.
+  const nested = path.join(own, 'vendor/sdk');
+  await fs.mkdir(nested, { recursive: true });
+  git(nested, 'init', '-q');
+  git(nested, 'remote', 'add', 'origin', 'https://github.com/acme/sdk.git');
+  assert.deepEqual(await placed({ path: path.join(nested, 'client.py') }, co), { path: path.join(nested, 'client.py'), rel: 'client.py', checkout: { root: nested, remote: 'https://github.com/acme/sdk.git' } });
   // Outside any checkout: nothing to say.
   const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
   assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
