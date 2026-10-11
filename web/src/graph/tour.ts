@@ -547,6 +547,17 @@ export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string) => (f?.node
 export const diffShown = (shown: ShownDiff | null, s: TourStop) =>
   !shown || shown.node !== s.id || (shown.rev !== null && shown.rev >= s.at);
 
+/** Which stop is on screen, and whether it's shown: what the detail panel has to have seen before its word on the diff counts. */
+export const shownKey = (s: TourStop | undefined, showing: boolean) => (s ? `${s.id}\n${showing}` : null);
+
+/**
+ * Whether the stop can be marked read. The detail panel says its diff is loading from an effect,
+ * after the render that first shows the stop, so until App's own effect (which runs after the
+ * panel's) has seen the stop as it is now (`settled`), what `shown` says is still about the stop before.
+ */
+export const readyToMark = (s: TourStop | undefined, showing: boolean, settled: string | null, shown: ShownDiff | null) =>
+  !s || (settled === shownKey(s, showing) && diffShown(shown, s));
+
 /** The first stop not read yet at or after `from`, wrapping round; -1 when every one is read. */
 export function nextUnread(stops: readonly TourStop[], marks: ReadMarks, from = 0): number {
   for (let k = 0; k < stops.length; k++) {
