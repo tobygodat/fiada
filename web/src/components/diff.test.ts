@@ -348,6 +348,20 @@ test("a row both agents' changes hold is the innermost one's: a method in a clas
   assert.ok(!mineToo.includes('+    return 10;'));
 });
 
+test("a function this agent added where the other agent deleted one leaves that deletion out, and the other way round", () => {
+  // The other agent deleted old() at lines 1-3; this agent added fresh() in its place.
+  const diff = ['@@ -1,3 +1,3 @@', '-function old() {', '-  return 1;', '-}', '+function fresh() {', '+  return 2;', '+}'].join('\n');
+  const fresh = { lines: [1, 3] as const };
+  const old = { oldLines: [1, 3] as const };
+  const shown = pickHunks(diff, fresh, [fresh], { owners: [old], top: false });
+  assert.ok(shown.includes('+function fresh() {'));
+  assert.ok(!shown.some((l) => l.startsWith('-')), 'the deletion is the other agent\u2019s');
+  // This agent's deletion, the other agent's replacement.
+  const gone = pickHunks(diff, { name: 'old', oldLines: [1, 3] }, [old], { owners: [fresh], top: false });
+  assert.ok(gone.includes('-function old() {'));
+  assert.ok(!gone.some((l) => l.startsWith('+')), 'the new function is the other agent\u2019s');
+});
+
 test("a file two agents added shows each one's functions without the other's", () => {
   const diff = ['@@ -0,0 +1,7 @@', '+export function mine() {', '+  return 1;', '+}', '+', '+export function theirs() {', '+  return 2;', '+}'].join('\n');
   const mine = { lines: [1, 3] as const };

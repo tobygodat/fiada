@@ -79,10 +79,13 @@ function without(all: string[][], theirs: Theirs, stops: readonly HunkOwner[]): 
   const m = covers(mine);
   const any = theirs.top ? covers([...mine, ...theirs.owners]) : null;
   // A row both hold (this agent's method in a class whose field the other agent changed, or the
-  // other way round) is the innermost one's: the one that holds it in the fewest lines.
+  // other way round) is the innermost one's: the one that holds it in the fewest lines. At the same
+  // size, the one holding it on its own side: a removed row is a deleted symbol's, not that of the
+  // one added in its place (which holds it only by where it stands), and an added row the other way round.
   const spanOf = (r: HunkOwner, c: string, at: { old: number; new: number }) => {
-    const s = (c !== '-' || !r.oldLines) && r.lines && at.new >= r.lines[0] && at.new <= r.lines[1] ? r.lines : (c !== '+' || !r.lines) && r.oldLines && at.old >= r.oldLines[0] && at.old <= r.oldLines[1] ? r.oldLines : null;
-    return s ? s[1] - s[0] : Infinity;
+    if ((c !== '-' || !r.oldLines) && r.lines && at.new >= r.lines[0] && at.new <= r.lines[1]) return r.lines[1] - r.lines[0] + (c === '-' ? 0.5 : 0);
+    if ((c !== '+' || !r.lines) && r.oldLines && at.old >= r.oldLines[0] && at.old <= r.oldLines[1]) return r.oldLines[1] - r.oldLines[0] + (c === '+' ? 0.5 : 0);
+    return Infinity;
   };
   const inner = (owners: readonly HunkOwner[], c: string, at: { old: number; new: number }) => Math.min(...owners.map((r) => spanOf(r, c, at)));
   const theirsRow = (c: string, at: { old: number; new: number }) => t.holds(c, at) && (!m.holds(c, at) || inner(theirs.owners, c, at) < inner(mine, c, at));
