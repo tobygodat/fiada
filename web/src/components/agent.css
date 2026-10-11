@@ -200,3 +200,16 @@
 .code.diff .hunk:first-child { padding-top: var(--space-xs); }
 .code.diff .hunk-at { font-family: var(--font-serif); }
 .code.diff .more { padding-left: 24px; font-family: var(--font-serif); color: var(--muted); }
+
+/* Where two agents' changes meet, under the window's title: words in ink, the agents' names under them. */
+.queue-collisions { display: flex; flex-direction: column; gap: var(--space-xs); padding: 0 var(--space-md) var(--space-8); border-bottom: 1px solid var(--hairline); }
+.queue-collision { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: var(--space-xs) 0; }
+.queue-collision-words { color: var(--text); font-size: var(--size-small); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.queue-collision-who { color: var(--muted); font-size: var(--size-fine); }
+.queue-collision:hover .queue-collision-words { color: var(--accent); }
+.queue-folded-more.queue-collision-words { font-size: var(--size-fine); font-weight: var(--weight-regular); max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* An edit an agent tried inside a fence: a sentence, brick when it was refused. */
+.queue-fenced { display: block; text-align: left; margin-top: var(--space-xs); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); overflow-wrap: anywhere; }
+.queue-fenced.deny { color: var(--danger); }
+.queue-fenced:hover { color: var(--accent); }

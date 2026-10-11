@@ -646,3 +646,46 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
   });
   ctx.textAlign = 'center';
 }
+
+const COUNT_WORDS = ['', 'one', 'two', 'three', 'four', 'five'];
+
+/**
+ * How many agents meet at a circle: where they meet, or for a closed circle,
+ * anywhere inside it (ids nest as "repo/folder/file"), as change badges roll up.
+ */
+export function collisionAt(id: string, open: boolean, at: ReadonlyMap<string, number>): number {
+  let n = at.get(id) ?? 0;
+  if (!open) for (const [c, k] of at) if (k > n && (c.startsWith(`${id}/`) || c.startsWith(`${id}#`))) n = k;
+  return n;
+}
+
+/**
+ * Where two or more agents' changes meet: "two agents" in ink at the foot of
+ * the circle, in a gap cut from its rim, as an open circle's name sits at its
+ * top. Returns the boxes it drew, for the badges to keep clear of.
+ */
+export function drawCollisions(ctx: CanvasRenderingContext2D, drawn: Drawn[], at: ReadonlyMap<string, number>): Rect[] {
+  const out: Rect[] = [];
+  if (!at.size) return out;
+  const size = 13;
+  ctx.font = `600 ${size}px ${fonts().serif}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = 1;
+  for (const d of drawn) {
+    const n = collisionAt(d.n.id, d.open, at);
+    if (!n || d.r < 4) continue;
+    const text = `${COUNT_WORDS[n] ?? n} agents`;
+    const w = Math.ceil(ctx.measureText(text).width) + 12;
+    const h = Math.round(size * 1.3) + 4;
+    const x = Math.round(d.x - w / 2);
+    // On the rim of a circle big enough to hold it there, else just under it.
+    const y = Math.round(d.r > 24 ? d.y + d.r - h / 2 : d.y + d.r + 3);
+    ctx.fillStyle = paper();
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = token('--text');
+    ctx.fillText(text, d.x, y + h / 2 + 0.5);
+    out.push({ x, y, w, h });
+  }
+  return out;
+}

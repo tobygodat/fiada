@@ -1,0 +1,181 @@
+// Fences: circles a person marks on the map as "ask first" or "off limits".
+// A fence covers everything inside its circle: a repository, a folder and the
+// files under it, a file, or one symbol's lines. Before an agent's edit lands,
+// its PreToolUse hook asks the indexer (POST /api/agent/check) and gets back
+// a verdict: allow, ask the person, or deny. Off limits beats ask first; on a
+// tie the nearest fence names the reason.
+//
+// Fences are kept per project through the ProjectStore, beside the grouping.
+// A store without fences (one for tests) keeps them in memory.
+
+import type { Fence, FenceRule, FenceVerdict, Graph, GraphNode, LineRange } from '@fiada/shared';
+import { touches } from './agents.ts';
+import type { ProjectStore } from './store.ts';
+
+/** A file an agent is about to change, placed in an imported repository. */
+export interface FencedFile {
+  repo: string;
+  /** Repo-relative, with forward slashes. */
+  rel: string;
+  /** The lines the edit replaces, when the hook could tell; absent means the whole file. */
+  lines?: LineRange[];
+  /**
+   * Where each symbol of the file is now, parsed from the very file the agent
+   * edits. `lines` count only with these: the graph's lines may be of another
+   * revision (a clone, another checkout, a file changed since it was indexed).
+   */
+  symbols?: Map<string, [number, number]>;
+}
+
+const RULES: FenceRule[] = ['ask', 'off'];
+/** More than anyone would mark by hand; keeps one project from growing without end. */
+export const MAX_FENCES = 500;
+
+export class FenceError extends Error {}
+
+/** Only well-formed fences, one per node, from whatever the store held. */
+export function cleanFences(raw: unknown): Fence[] {
+  if (!Array.isArray(raw)) return [];
+  const byNode = new Map<string, Fence>();
+  for (const f of raw) {
+    if (!f || typeof f.node !== 'string' || !f.node || !RULES.includes(f.rule)) continue;
+    byNode.set(f.node, { node: f.node, rule: f.rule, at: typeof f.at === 'string' ? f.at : new Date(0).toISOString() });
+  }
+  return [...byNode.values()].slice(0, MAX_FENCES);
+}
+
+/** Whether `fence` covers this file (and, for a symbol fence, these lines), given the graph's nodes by id. */
+export function covers(fence: Fence, file: FencedFile, nodes: Map<string, GraphNode>): boolean {
+  const key = `${file.repo}/${file.rel}`;
+  if (fence.node === file.repo || fence.node === key || key.startsWith(`${fence.node}/`)) return true;
+  if (!fence.node.startsWith(`${key}#`)) return false;
+  // A symbol: only an edit that reaches its lines, placed in the file as it is now.
+  // Without both the edit may rewrite any of the file, the symbol with it.
+  if (!nodes.has(fence.node)) return false;
+  if (!file.lines || !file.symbols) return true;
+  // Same-named declarations are told apart by their order (`name~2`), which an edit can change:
+  // lines can't be bound to one of them, so the fence holds for the whole file.
+  const base = fence.node.replace(/~\d+$/, '');
+  if (base !== fence.node || [...file.symbols.keys()].filter((id) => id.replace(/~\d+$/, '') === base).length > 1) return true;
+  // Not in the file as it is now (renamed under the fence): it can't be placed, so the fence holds.
+  const at = file.symbols.get(fence.node);
+  return !at || touches(at, file.lines);
+}
+
+/** Off limits first, then the nearest (longest id) fence. */
+const stricter = (a: Fence, b: Fence) => (a.rule !== b.rule ? (a.rule === 'off' ? a : b) : a.node.length >= b.node.length ? a : b);
+
+/** What the fences say about changing these files: the strictest fence round any of them decides. */
+export function verdict(fences: Fence[], files: FencedFile[], graph: Graph): FenceVerdict {
+  if (!fences.length || !files.length) return { decision: 'allow' };
+  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+  let hit: { fence: Fence; file: string } | undefined;
+  for (const file of files) {
+    for (const fence of fences) {
+      if (covers(fence, file, nodes) && (!hit || stricter(hit.fence, fence) !== hit.fence)) hit = { fence, file: `${file.repo}/${file.rel}` };
+    }
+  }
+  if (!hit) return { decision: 'allow' };
+  const { fence, file } = hit;
+  // "api/app/core/config.py is inside api/app/core, which is …"; "api/app/main.py is …" for a fence on the file itself.
+  const sym = fence.node.startsWith(`${file}#`) ? (nodes.get(fence.node)?.name ?? fence.node.slice(file.length + 1)) : null;
+  const where = fence.node === file ? `${file} is` : sym ? `This edit reaches ${sym} in ${file}, which is` : `${file} is inside ${fence.node}, which is`;
+  if (fence.rule === 'off') {
+    return { decision: 'deny', fence, file, reason: `${where} off limits on the Fiada map. Leave it as it is: work around it, or ask the person to take the fence down.` };
+  }
+  return { decision: 'ask', fence, file, reason: `${where} marked "ask first" on the Fiada map.` };
+}
+
+/**
+ * How stale the fences may be when an agent asks: another indexer sharing the
+ * store (MongoDB) may have changed them, so older than this they're read again.
+ */
+export const FRESH_MS = 2000;
+
+/** One project's fences, loaded once, saved on every change and read again when stale. */
+export class Fences {
+  private list: Fence[] = [];
+  private saving: Promise<unknown> = Promise.resolve();
+  private closed = false;
+  private loadedAt = 0;
+  /** Changes made here, and those still saving: a read from the store must not undo them. */
+  private changes = 0;
+  private pending = 0;
+
+  constructor(
+    private store: ProjectStore,
+    private projectId: string,
+    private now: () => Date = () => new Date(),
+  ) {}
+
+  async init() {
+    this.list = cleanFences(await this.store.loadFences?.(this.projectId));
+    this.loadedAt = this.now().getTime();
+  }
+
+  /** Reads the fences from the store again when they are older than `maxAgeMs`, keeping these if that fails. */
+  async fresh(maxAgeMs = FRESH_MS): Promise<void> {
+    if (this.closed || this.pending || !this.store.loadFences || this.now().getTime() - this.loadedAt < maxAgeMs) return;
+    const before = this.changes;
+    const raw = await this.store.loadFences(this.projectId).then(
+      (r) => ({ r }),
+      () => null,
+    );
+    if (!raw || this.changes !== before || this.pending || this.closed) return;
+    this.list = cleanFences(raw.r);
+    this.loadedAt = this.now().getTime();
+  }
+
+  all(): Fence[] {
+    return this.list;
+  }
+
+  /** Puts up, changes or (rule null) takes down the fence round one node of the graph. Returns them all. */
+  async set(node: unknown, rule: unknown, graph: Graph): Promise<Fence[]> {
+    // A project being closed (its account deleted, say) takes no more fences that would save it again.
+    if (this.closed) throw new FenceError('This project is closed.');
+    if (typeof node !== 'string' || !node) throw new FenceError('Body must be { "node": "<graph node id>", "rule": "ask" | "off" | null }');
+    if (rule !== null && !RULES.includes(rule as FenceRule)) throw new FenceError('rule must be "ask", "off" or null');
+    this.pending++;
+    // Each change is made and saved in turn, on the list the one before left: a change whose
+    // save failed is never part of a later one's, and a failed save rolls back only its own.
+    const run = this.saving.then(async () => {
+      const rest = this.list.filter((f) => f.node !== node);
+      if (rule === null) {
+        if (rest.length === this.list.length) return;
+      } else {
+        // Taking one down always works, even for a node that has since left the graph.
+        if (!graph.nodes.some((n) => n.id === node)) throw new FenceError(`${node} is not on the map`);
+        if (rest.length >= MAX_FENCES) throw new FenceError(`A project can have at most ${MAX_FENCES} fences.`);
+        rest.push({ node, rule: rule as FenceRule, at: this.now().toISOString() });
+      }
+      const before = this.list;
+      this.list = rest;
+      this.changes++;
+      try {
+        await this.store.saveFences?.(this.projectId, rest);
+        this.loadedAt = this.now().getTime();
+      } catch (err) {
+        if (this.list === rest) this.list = before;
+        throw err;
+      }
+    });
+    this.saving = run.catch(() => {});
+    try {
+      await run;
+    } finally {
+      this.pending--;
+    }
+    return this.list;
+  }
+
+  /** Takes no more changes and waits for the saves already under way, so nothing is written after this. */
+  async close() {
+    this.closed = true;
+    await this.saving;
+  }
+
+  verdict(files: FencedFile[], graph: Graph): FenceVerdict {
+    return verdict(this.list, files, graph);
+  }
+}

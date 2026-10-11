@@ -58,11 +58,12 @@ export const AGENT_READS = new Set(['/api/agent/find', '/api/agent/dependents', 
 
 /**
  * Who a request to an indexer people sign in to must be: an agent token only
- * reports (POST /api/agent/events); the read routes take an agent token or a
+ * reports (POST /api/agent/events) and asks about fences before an edit
+ * (POST /api/agent/check); the read routes take an agent token or a
  * signed-in browser; everything else takes a signed-in browser.
  */
 export function whoMayCall(method: string, route: string): 'agent' | 'agent-or-person' | 'person' {
-  if (method === 'POST' && route === '/api/agent/events') return 'agent';
+  if (method === 'POST' && (route === '/api/agent/events' || route === '/api/agent/check')) return 'agent';
   if (READS.has(method) && AGENT_READS.has(route)) return 'agent-or-person';
   return 'person';
 }

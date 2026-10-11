@@ -219,6 +219,12 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate|Read",
@@ -231,11 +237,19 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 }
 ```
 
-Then run `bun run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never blocks or fails the agent: it gives up on the indexer after 1.5 s, always exits 0, and prints nothing Claude reads. It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
+Then run `bun run dev`, import the repository you're working in by its local path (so edits re-index), and start Claude Code there. The hook never fails the agent and blocks only what you fenced off: it gives up on the indexer after 1.5 s, always exits 0, and prints only the status brief and, for an edit inside a fence, Claude Code's own "ask" or "deny". It takes about 0.2 s per call on Node 22.18 or later, which runs the TypeScript directly; older Node goes through tsx and adds about 0.3 s.
 
 The same package is on npm as [`@fiadatech/agent`](agent/README.md): `npx -y --package=@fiadatech/agent fiada setup --write .` in your project does what `bun run agent:setup` does here, without a checkout. Its commands are `fiada setup`, `fiada hook` and `fiada mcp` (the hook and MCP server are also `fiada-hook` and `fiada-mcp`).
 
 To publish a new version: bump `version` in `agent/package.json`, then `npm publish -w @fiadatech/agent`. Publishing bundles `agent/src` into `agent/dist/cli.js` with esbuild (`bun run agent:build`): one file with no dependencies, since Node won't strip types from a package in `node_modules`. A checkout keeps running the TypeScript source.
+
+### Fences and collisions
+
+Select a repository, folder, file or symbol and set its **fence** in the detail panel: **ask first** or **off limits**. Fences are kept per project (`fences.json` beside the grouping, or the project's MongoDB document). The map draws a dashed ink line inside a circle marked ask first, and a closed line with hatching inside one marked off limits.
+
+Before Claude Code's Edit, Write, MultiEdit or NotebookEdit lands, the `PreToolUse` hook asks the indexer (`POST /api/agent/check`) about the file and, for Edit and MultiEdit, the lines it replaces, so a fence on one function stops only edits that reach it. Lines count only where Fiada reads the checkout in place, placed against the file as it is on disk right then; in any other checkout (a clone on the hosted map, a second worktree) the edit counts as the whole file, so a fenced function's file asks or refuses. A checkout whose `origin` remote matches no imported repository is never fenced by folder name alone. Off limits answers `deny` with the reason, so Claude leaves the file alone; ask first answers `ask`, so Claude Code asks you. Outside every fence, or when Fiada doesn't answer, the hook says nothing and your own permission settings decide. Fences check Claude Code's edit tools only: a shell command (`sed -i`, `>`, `git checkout`) isn't parsed for the files it writes, so it isn't stopped, though what it changed still shows on the map afterwards. The agents window says when an agent was stopped or asked. `fiada-hook check <file>…` prints the verdict for scripts.
+
+When two agents have changes in one file or folder, the agents window says so at the top ("two agents in api/app/routes", with their names) and the map writes "two agents" on that circle, or on the closed circle it's in.
 
 ### Other agents
 
@@ -253,7 +267,7 @@ Set `FIADA_GITHUB_CLIENT_ID` and `FIADA_GITHUB_CLIENT_SECRET` on the indexer and
 - **Each person has their own project.** Their repositories, clones (`$FIADA_HOME/clones/gh-<GitHub user id>/`), grouping, summaries and agent activity are theirs alone: what one person imports or has an agent do never shows on anyone else's map. A project opens on its owner's first request and is let go after 30 idle minutes; opening it again re-indexes from its clones.
 - **Private repositories work.** The sign-in asks GitHub for the `repo` scope, and the person's own token clones and pulls what they import (passed per git command, never written to disk). Their recently pushed repositories are offered under the import box. The token is kept on their account encrypted with AES-GCM; `FIADA_GITHUB_TOKEN` is never used for anyone's project.
 - **Nobody can use it up for everyone else.** Each person may make 60 changes a minute (agents 600 reports), hold 20 repositories of at most 500 MB each, and spend 200 model requests a day on sorting and summaries; past that, the map says so and summaries fall back to lines from the graph. Clones come over https from GitHub, GitLab and Bitbucket only, and nothing in a clone is read through a link that leads out of it. The variables are in [Configuration](#configuration).
-- **People can leave.** **delete account** in the sidebar withdraws Fiada's access at GitHub and deletes the account, the project, its clones and summaries. The map's [/privacy](https://fiada.tech/privacy) page says what is kept; change it with the code.
+- **People can leave.** **delete account** in the sidebar withdraws Fiada's access at GitHub and deletes the account, the project, its clones, fences and summaries. The map's [/privacy](https://fiada.tech/privacy) page says what is kept; change it with the code.
 - **Agents need one command.** **connect an agent** in the sidebar shows `bun run agent:setup --write <project> --url <indexer> --token <token>`. The token lets an agent report to that person's map and nothing else; **new token** revokes the old one.
 
 To set it up, create an OAuth app at GitHub under **Settings > Developer settings > OAuth Apps** with the callback URL `<indexer>/api/auth/github/callback`: `http://localhost:5178/api/auth/github/callback` for `bun run dev` (the dev server forwards the address it was reached at), or `https://<indexer>/api/auth/github/callback` hosted. Put its client id and a client secret in `.env` or the host's variables. The map's origin must be allowed to receive the session: its own origin, the fiada.tech domains, or one in `FIADA_ALLOWED_ORIGINS`. If a proxy in front of the indexer doesn't forward the scheme and host, set `FIADA_PUBLIC_URL`.

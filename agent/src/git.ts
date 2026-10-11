@@ -41,14 +41,19 @@ export async function checkout(dir: string): Promise<Checkout | null> {
   return { root, remote: remote?.trim() || undefined, head: head?.trim() || undefined };
 }
 
-/** Resolves symlinks in as much of the path as exists (a deleted file's directory still resolves). */
-export async function real(p: string): Promise<string> {
+/**
+ * Resolves symlinks in as much of the path as exists (a deleted file's directory still resolves),
+ * following a link to a file not written yet to where writing it would land.
+ */
+export async function real(p: string, hops = 0): Promise<string> {
   const abs = path.resolve(p);
   try {
     return await fs.realpath(abs);
   } catch {
+    const to = hops < 40 ? await fs.readlink(abs).catch(() => null) : null;
+    if (to !== null) return real(path.resolve(path.dirname(abs), to), hops + 1);
     const parent = path.dirname(abs);
-    return parent === abs ? abs : path.join(await real(parent), path.basename(abs));
+    return parent === abs ? abs : path.join(await real(parent, hops), path.basename(abs));
   }
 }
 

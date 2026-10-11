@@ -1,7 +1,7 @@
 // ProjectStore on MongoDB (Atlas): one document per project in `projects`,
 // keyed by project id, holding the repo list and the grouping side by side.
 //
-//   { _id: "default", repos: [...], reposRev: 3, grouping: {...}, groupingRev: 7, updatedAt }
+//   { _id: "default", repos: [...], reposRev: 3, grouping: {...}, groupingRev: 7, fences: [...], fencesRev: 2, updatedAt }
 //
 // Generated node summaries go in `summaries`, one document each, keyed by
 // project and the hash of what the model read. They're derived and
@@ -15,7 +15,7 @@
 // update, so indexers doing both at once can't undo each other.
 //
 // Each save touches only its own field, so saving repos never overwrites the
-// grouping. Each field also carries a revision: a save applies only on top of
+// grouping or the fences. Each field also carries a revision: a save applies only on top of
 // the revision this process last loaded or saved, so two indexers serving the
 // same project can't silently undo each other's changes; the later one gets a
 // ProjectConflictError telling it to restart instead. Saving a value that
@@ -23,7 +23,7 @@
 // list after indexing doesn't make other indexers stale.
 
 import { MongoClient, type Collection } from 'mongodb';
-import type { Grouping } from '@fiada/shared';
+import type { Fence, Grouping } from '@fiada/shared';
 import type { ProjectStore, SavedRepo, SignedIn, StoredAccount, StoredSummary } from './store.ts';
 
 interface ProjectDoc {
@@ -32,6 +32,8 @@ interface ProjectDoc {
   reposRev?: number;
   grouping?: unknown;
   groupingRev?: number;
+  fences?: unknown;
+  fencesRev?: number;
   updatedAt?: Date;
 }
 
@@ -42,7 +44,7 @@ interface SummaryDoc extends StoredSummary {
 
 type AccountDoc = Omit<StoredAccount, 'id'> & { _id: string };
 
-type Field = 'repos' | 'grouping';
+type Field = 'repos' | 'grouping' | 'fences';
 
 /** Another indexer saved this part of the project after this one loaded it. */
 export class ProjectConflictError extends Error {
@@ -112,6 +114,15 @@ export class MongoProjectStore implements ProjectStore {
     return this.save(projectId, 'grouping', grouping);
   }
 
+  async loadFences(projectId: string): Promise<Fence[] | null> {
+    const value = await this.load(projectId, 'fences');
+    return value == null ? null : Array.isArray(value) ? (value as Fence[]) : [];
+  }
+
+  saveFences(projectId: string, fences: Fence[]) {
+    return this.save(projectId, 'fences', fences);
+  }
+
   async loadSummaries(projectId: string): Promise<Record<string, StoredSummary> | null> {
     const docs = await this.summaries.find({ project: projectId }).toArray();
     if (!docs.length) return null;
@@ -148,7 +159,7 @@ export class MongoProjectStore implements ProjectStore {
   async deleteProject(projectId: string) {
     await Promise.all([this.projects.deleteOne({ _id: projectId }), this.summaries.deleteMany({ project: projectId })]);
     // A project made again under this id starts from nothing, as a new one does.
-    for (const field of ['repos', 'grouping'] as const) {
+    for (const field of ['repos', 'grouping', 'fences'] as const) {
       this.revs.delete(`${projectId}\0${field}`);
       this.stored.delete(`${projectId}\0${field}`);
     }
