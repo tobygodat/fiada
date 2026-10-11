@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { behind, cutShort, diffRows, ownerOf, pickHunks } from './diff.ts';
+import { behind, cutShort, diffRows, ownCounts, ownerOf, pickHunks } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -406,4 +406,18 @@ test("the file's other code taken away right above a changed function shows on t
   const cut = [...mixed.split('\n').slice(0, 3 + 8), '… diff cut at 64 KB'].join('\n');
   assert.ok(pickHunks(cut, b).at(-1)!.startsWith('… diff cut at'));
   assert.ok(pickHunks(cut, a, [a, b]).includes('-const OLD = 1;'));
+});
+
+test("with another agent's rows left out, the counts are this agent's rows, not git's for the whole file", () => {
+  const diff = ['@@ -1,1 +1,2 @@', ' import a', '+import b', '@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y', '@@ -20,7 +21,7 @@', '-  old', '+  new', ' }', ' function theirs() {', '-  p', '+  q', ' }'].join('\n');
+  const mine = { lines: [11, 13] as const };
+  const ours = { lines: [21, 22] as const };
+  const peer = { owners: [{ lines: [23, 25] as const }], top: true };
+  // git's counts for the file: the other agent's import and function too.
+  const d = { diff, additions: 4, deletions: 3 };
+  assert.deepEqual(ownCounts(d), { additions: 4, deletions: 3 }, 'no other agent: as the hook said');
+  assert.deepEqual(ownCounts(d, peer, [mine, ours]), { additions: 2, deletions: 2 });
+  assert.deepEqual(ownCounts(d, { ...peer, top: false }, [mine, ours]), { additions: 3, deletions: 2 }, 'the import is this agent\'s');
+  // Cut short: what's left can't be counted, so nothing is said.
+  assert.equal(ownCounts({ ...d, diff: `${diff}\n… diff cut at 64 KB` }, peer, [mine, ours]), null);
 });

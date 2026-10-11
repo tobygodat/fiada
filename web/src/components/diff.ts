@@ -192,6 +192,23 @@ function keptHeader(h: string[]): string {
 /** How the agent ends a diff it cut short (agent/src/git.ts). */
 const CUT = '… diff cut at ';
 
+/**
+ * The lines an agent added and took away in a file, as its diff's header says them. The hook's
+ * counts are git's for the whole file, so with another agent's rows in it (`peer`) they're counted
+ * from what's left once those are taken out, and left unsaid when the diff was cut short.
+ */
+export function ownCounts(
+  d: { diff?: string; additions?: number; deletions?: number },
+  peer?: Theirs,
+  mine: readonly HunkOwner[] = [],
+): { additions?: number; deletions?: number } | null {
+  if (!peer || !d.diff) return { additions: d.additions, deletions: d.deletions };
+  const rows = pickHunks(d.diff, undefined, mine, peer);
+  if (cutShort(rows)) return null;
+  const n = (c: string) => rows.filter((l) => l[0] === c).length;
+  return { additions: n('+'), deletions: n('-') };
+}
+
 /** A diff from before the agent's latest change to the file: that change came without one. */
 export const behind = (d: { diff?: string; diffAt?: string; at: string }) => !!d.diff && !!d.diffAt && Date.parse(d.diffAt) < Date.parse(d.at);
 

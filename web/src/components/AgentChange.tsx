@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { ChangeKind } from '@fiada/shared';
 import { api, type AgentDiff } from '../api.ts';
 import { shownRev, type FetchedDiffs, type ShownDiff } from '../graph/tour.ts';
-import { behind, cutShort, diffRows, pickHunks, type HunkOwner, type Theirs } from './diff.ts';
+import { behind, cutShort, diffRows, ownCounts, pickHunks, type HunkOwner, type Theirs } from './diff.ts';
 import './agent.css';
 
 interface Props {
@@ -97,13 +97,14 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
       {mine && !list.length && !diffs?.failed && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d, k) => {
         const shown = diffRows(picked[k]);
+        const n = ownCounts(d, peer, [...(own ? [own] : []), ...(rest ?? [])]);
         return (
           <div key={d.agent} className="agent-diff">
             <div className="agent-diff-head">
               <span className={`swatch-ring ${d.kind}`} aria-hidden />
               <span>
                 <b>{d.name}</b> {VERB[d.kind]} this file
-                {d.additions || d.deletions ? ` · ${[d.additions ? `+${d.additions}` : '', d.deletions ? `−${d.deletions}` : ''].filter(Boolean).join(' ')}` : ''} · {ago(d.at)}
+                {n?.additions || n?.deletions ? ` · ${[n.additions ? `+${n.additions}` : '', n.deletions ? `−${n.deletions}` : ''].filter(Boolean).join(' ')}` : ''} · {ago(d.at)}
                 {behind(d) && ' · this diff is from before its latest change, which came without one'}
               </span>
             </div>
