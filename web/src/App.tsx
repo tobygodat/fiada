@@ -12,7 +12,7 @@ import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { onMap } from './graph/search.ts';
-import { diffShown, loadMarks, markStop, nextUnread, reviewable, saveMarks, tourCache, tourOver, type ReadMarks as TourMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
+import { loadMarks, markStop, nextUnread, readyToMark, reviewable, saveMarks, shownKey, tourCache, tourOver, type ReadMarks as TourMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import { agentUnreadIds, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
 import {
@@ -702,6 +702,13 @@ export function App() {
   // Zoom mode has no "opened" place: the breadcrumb follows the camera, to the
   // innermost open circle under the middle of the free area.
   const detailOpen = !!(selected || contract);
+
+  // The tour's stop, whether it's on screen, and the last way App's effects saw it (see readyToMark).
+  const stop = stops[tourAt];
+  const showing = !!stop && !!tree && !selectedEdge && selected === locate(tree, graphIndex, stop.target);
+  const stopKey = shownKey(stop, showing);
+  const [settled, setSettled] = useState<string | null>(null);
+  useEffect(() => setSettled(stopKey), [stopKey]);
   const crumbsAt = useMemo(() => {
     if (mode !== 'zoom' || !tree || !zoomVis) return null;
     return (cam: Camera) => {
@@ -828,8 +835,8 @@ export function App() {
             marks={marks}
             layers={graph?.layers ?? []}
             besideDetail={detailOpen}
-            showing={!!tree && !selectedEdge && !!stops[tourAt] && selected === locate(tree, graphIndex, stops[tourAt].target)}
-            ready={!stops[tourAt] || diffShown(shownDiff, stops[tourAt])}
+            showing={showing}
+            ready={readyToMark(stop, showing, settled, shownDiff)}
             cut={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.cut}
             behind={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.behind}
             onGo={goStop}

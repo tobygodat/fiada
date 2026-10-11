@@ -375,3 +375,35 @@ test("a diff from before the agent's latest change says so", () => {
   assert.equal(behind({ ...d, diff: undefined }), false);
   assert.equal(behind({ ...d, diffAt: undefined }), false);
 });
+
+test("the file's other code taken away right above a changed function shows on the stop that carries it, not as that function's", () => {
+  // HEAD: a constant at 32 (changed), another at 35 (taken away), b at 36–38 (changed), now at 35–37.
+  const hunk = [
+    '@@ -30,12 +30,11 @@',
+    ' line 30',
+    ' line 31',
+    '-const LIMIT = 10;',
+    '+const LIMIT = 20;',
+    ' line 33',
+    ' line 34',
+    '-const OLD = 1;',
+    ' function b() {',
+    '-  return 1;',
+    '+  return 2;',
+    ' }',
+    ' line 39',
+    ' line 40',
+    ' line 41',
+  ];
+  const mixed = ['@@ -5,1 +5,1 @@', '-  return a;', '+  return a + 1;', ...hunk].join('\n');
+  const a = { lines: [4, 6], oldLines: [4, 6] } as const;
+  const b = { lines: [35, 37], oldLines: [36, 38] } as const;
+  const first = pickHunks(mixed, a, [a, b]);
+  assert.ok(first.includes('+const LIMIT = 20;'));
+  assert.ok(first.includes('-const OLD = 1;'), 'the constant taken away shows on the stop that carries the rest');
+  assert.ok(!first.includes('+  return 2;'), "not b's own change");
+  // The diff cut right after the constant was taken away: b's stop says so, and the constant still shows on the carrying stop.
+  const cut = [...mixed.split('\n').slice(0, 3 + 8), '… diff cut at 64 KB'].join('\n');
+  assert.ok(pickHunks(cut, b).at(-1)!.startsWith('… diff cut at'));
+  assert.ok(pickHunks(cut, a, [a, b]).includes('-const OLD = 1;'));
+});

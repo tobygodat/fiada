@@ -81,7 +81,7 @@ function without(all: string[][], theirs: Theirs, stops: readonly HunkOwner[]): 
   // A row both hold (this agent's method in a class whose field the other agent changed, or the
   // other way round) is the innermost one's: the one that holds it in the fewest lines.
   const spanOf = (r: HunkOwner, c: string, at: { old: number; new: number }) => {
-    const s = r.lines && at.new >= r.lines[0] && at.new <= r.lines[1] ? r.lines : (c !== '+' || !r.lines) && r.oldLines && at.old >= r.oldLines[0] && at.old <= r.oldLines[1] ? r.oldLines : null;
+    const s = (c !== '-' || !r.oldLines) && r.lines && at.new >= r.lines[0] && at.new <= r.lines[1] ? r.lines : (c !== '+' || !r.lines) && r.oldLines && at.old >= r.oldLines[0] && at.old <= r.oldLines[1] ? r.oldLines : null;
     return s ? s[1] - s[0] : Infinity;
   };
   const inner = (owners: readonly HunkOwner[], c: string, at: { old: number; new: number }) => Math.min(...owners.map((r) => spanOf(r, c, at)));
@@ -156,8 +156,10 @@ function covers(rest: readonly HunkOwner[]) {
   };
   const now = index(rest.map((r) => r.lines));
   const old = index(rest.map((r) => r.oldLines));
-  // An added row stands only where it is now, unless all a symbol has are its old lines.
+  // An added row stands only where it is now, unless all a symbol has are its old lines; a removed
+  // one only where it was, unless all a symbol has are its lines now.
   const oldOnly = index(rest.map((r) => (r.lines ? undefined : r.oldLines)));
+  const nowOnly = index(rest.map((r) => (r.oldLines ? undefined : r.lines)));
   const spanned = rest.some((r) => r.lines || r.oldLines);
   return {
     /** Symbols known only by name. */
@@ -170,7 +172,8 @@ function covers(rest: readonly HunkOwner[]) {
       return now(...range(m[3], m[4])) || old(...range(m[1], m[2]));
     },
     /** Whether any symbol holds a row, as `of` places it. */
-    holds: (c: string, at: { old: number; new: number }) => now(at.new, at.new) || (c !== '+' ? old : oldOnly)(at.old, at.old),
+    holds: (c: string, at: { old: number; new: number }) =>
+      (c !== '-' ? now : nowOnly)(at.new, at.new) || (c !== '+' ? old : oldOnly)(at.old, at.old),
   };
 }
 
@@ -212,9 +215,11 @@ function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof
   const inside = (at: number, s: readonly [number, number] | undefined, p = 0) => !!s && at >= s[0] - p && at <= s[1] + p;
   // A row is a symbol's by where it stands now, or, removed or unchanged, by where it stood in HEAD
   // (so a function moved far also has the hunk that took it from there); one with only its old
-  // lines (deleted) by those alone.
+  // lines (deleted) by those alone. A removed row stands now only where the next line does, so
+  // with the symbol's old lines known it goes by those: the code taken away just above a function
+  // isn't that function's.
   const of = (r: HunkOwner, c: string, at: { old: number; new: number }, p = 0) =>
-    inside(at.new, r.lines, p) || ((c !== '+' || !r.lines) && inside(at.old, r.oldLines, p));
+    ((c !== '-' || !r.oldLines) && inside(at.new, r.lines, p)) || ((c !== '+' || !r.lines) && inside(at.old, r.oldLines, p));
   const rows = placed.map(({ l, o, n, at }) => {
     const row = { l, o, n, mine: false, other: false };
     if (l[0] === '\\') return row;

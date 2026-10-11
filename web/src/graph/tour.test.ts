@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { diffShown, shownRev, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
+import { diffShown, readyToMark, shownKey, shownRev, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -153,6 +153,25 @@ test('a change is marked read only once its own diff is on screen', () => {
   // No diff of this stop on screen: nothing to wait for.
   assert.equal(diffShown(null, again), true);
   assert.equal(diffShown({ node: 'web/src/pages/about.tsx', rev: null }, again), true);
+});
+
+test('a stop just moved to waits to be marked read until the panel has had its say about its diff', () => {
+  const a = agent([{ ...file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage'), sym('web/src/pages/items.tsx#useItems')]), at: '2026-09-27T10:00:00Z' }]);
+  const [one, two] = tourStops(graph, graphIndex, a, NO_NODES);
+  // On the first stop, its diff loaded: ready.
+  const loaded = { node: one.id, rev: one.at };
+  assert.equal(readyToMark(one, true, shownKey(one, true), loaded), true);
+  // The render that moves to the second: the panel's word is still about the first, and App hasn't seen the second yet.
+  assert.equal(readyToMark(two, true, shownKey(one, true), loaded), false);
+  assert.equal(readyToMark(two, true, shownKey(one, true), null), false);
+  // Back at the second stop after a look elsewhere: shown again, not yet seen shown.
+  assert.equal(readyToMark(two, true, shownKey(two, false), null), false);
+  // Seen: then the panel's word counts, loading or loaded.
+  assert.equal(readyToMark(two, true, shownKey(two, true), { node: two.id, rev: null }), false);
+  assert.equal(readyToMark(two, true, shownKey(two, true), { node: two.id, rev: two.at }), true);
+  // No panel diff for it at all: nothing to wait for, once seen.
+  assert.equal(readyToMark(two, true, shownKey(two, true), loaded), true);
+  assert.equal(readyToMark(undefined, false, null, null), true);
 });
 
 test('a tour with nothing left ends, unless a newer graph is still loading', () => {
