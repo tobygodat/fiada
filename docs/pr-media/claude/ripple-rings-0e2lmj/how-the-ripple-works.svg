@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" font-family="Georgia, 'Literata', serif" font-size="15">
+  <rect width="880" height="400" fill="#1b1a19"/>
+  <!-- frontend repo, closed: rolled up -->
+  <circle cx="170" cy="200" r="120" fill="none" stroke="#5a5752"/>
+  <text x="170" y="64" fill="#e8e5df" text-anchor="middle" font-weight="600">frontend</text>
+  <circle cx="170" cy="200" r="66" fill="#2a2726" stroke="#8f8c85"/>
+  <circle cx="170" cy="200" r="71" fill="none" stroke="#a39e96" stroke-width="2" stroke-dasharray="0 5.5" stroke-linecap="round"/>
+  <text x="170" y="196" fill="#e8e5df" text-anchor="middle" font-weight="600">src</text>
+  <text x="170" y="216" fill="#a39e96" text-anchor="middle" font-size="13">closed: dotted ring</text>
+  <rect x="226" y="122" width="38" height="20" rx="2" fill="#252422" stroke="#5a5752"/>
+  <circle cx="238" cy="132" r="4.5" fill="none" stroke="#a39e96" stroke-width="1.5" stroke-dasharray="0 3" stroke-linecap="round"/>
+  <text x="246" y="137" fill="#a39e96" font-size="13">1</text>
+  <!-- backend repo, open -->
+  <circle cx="640" cy="200" r="170" fill="none" stroke="#5a5752"/>
+  <text x="640" y="24" fill="#e8e5df" text-anchor="middle" font-weight="600">backend</text>
+  <!-- changed route -->
+  <circle cx="560" cy="150" r="30" fill="#2a2a2c" stroke="#97b2e1"/>
+  <circle cx="560" cy="150" r="35" fill="none" stroke="#e0b565" stroke-width="2"/>
+  <text x="560" y="155" fill="#e8e5df" text-anchor="middle" font-size="13">read_items</text>
+  <text x="560" y="205" fill="#e0b565" text-anchor="middle" font-size="13">changed</text>
+  <!-- changed type -->
+  <circle cx="700" cy="260" r="30" fill="#2a2a2c" stroke="#75c0c1"/>
+  <circle cx="700" cy="260" r="35" fill="none" stroke="#e0b565" stroke-width="2"/>
+  <text x="700" y="265" fill="#e8e5df" text-anchor="middle" font-size="13">ItemPublic</text>
+  <!-- dependents of the type -->
+  <circle cx="740" cy="130" r="22" fill="#2a2a2c" stroke="#97b2e1"/>
+  <circle cx="740" cy="130" r="27" fill="none" stroke="#a39e96" stroke-width="2" stroke-dasharray="0 5.5" stroke-linecap="round"/>
+  <text x="740" y="134" fill="#e8e5df" text-anchor="middle" font-size="13">read_item</text>
+  <circle cx="590" cy="300" r="22" fill="#2a2a2c" stroke="#97b2e1"/>
+  <circle cx="590" cy="300" r="27" fill="none" stroke="#a39e96" stroke-width="2" stroke-dasharray="0 5.5" stroke-linecap="round"/>
+  <text x="590" y="304" fill="#e8e5df" text-anchor="middle" font-size="13">create_item</text>
+  <!-- links into changes -->
+  <path d="M 236 190 Q 400 120 523 145" fill="none" stroke="#a39e96" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="380" y="128" fill="#a39e96" text-anchor="middle" font-size="13">GET /items/ (evidenced)</text>
+  <line x1="745" y1="157" x2="712" y2="226" stroke="#a39e96" stroke-width="1.5"/>
+  <line x1="614" y1="292" x2="666" y2="270" stroke="#a39e96" stroke-width="1.5"/>
+  <!-- legend -->
+  <text x="20" y="360" fill="#a39e96" font-size="13">1. every link into a changed node (a call, an import, a type use, a request to a route) names a dependent</text>
+  <text x="20" y="380" fill="#a39e96" font-size="13">2. a dependent gets a dotted ring; a closed circle holding dependents gets the ring too, and its badge counts them</text>
+</svg>

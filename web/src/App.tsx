@@ -165,17 +165,19 @@ export function App() {
     () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit, agents.state.looked) : null),
     [tree, graphIndex, agents.state, lit],
   );
+  // One agent lit: the map, and the panel's account of what changes reach, use only its changes.
+  const shownChanges = useMemo(() => (agents.state && spot && lit ? agentNodes(agents.state.nodes, lit) : agents.state?.nodes), [agents.state, spot, lit]);
   const activity = useMemo(() => {
     const s = agents.state;
-    if (!tree || !s) return null;
+    const nodes = shownChanges;
+    if (!tree || !s || !nodes) return null;
     // One agent lit: the map marks only its changes, unread by its own times, and what it looked at.
-    const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
     const looked = spot && lit ? agentLooked(s.looked, lit) : (s.looked ?? {});
     if (!Object.keys(nodes).length && !Object.keys(looked).length) return null;
     const one = spot ? s.agents.find((a) => a.id === lit) : undefined;
     const unreadHere = one && unread && readMarks ? agentUnreadIds(one, unread, readMarks, s.nodes) : unread;
-    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere, looked);
-  }, [tree, graphIndex, agents.state, spot, lit, unread, readMarks]);
+    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere, looked, graph?.edges);
+  }, [tree, graphIndex, graph, agents.state, shownChanges, spot, lit, unread, readMarks]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;
@@ -633,6 +635,7 @@ export function App() {
             selected={selected}
             contract={contract}
             activity={agents.state}
+            shownChanges={shownChanges}
             onSelect={select}
           />
         )}

@@ -599,6 +599,11 @@ export interface NodeChange {
   anchor?: string;
   /** 'file' or 'symbol'. */
   unit: 'file' | 'symbol';
+  /**
+   * On a file: the agents whose edit reached outside its symbols (an import, top-level
+   * code), so their change is the whole file's, whatever symbols it also touched.
+   */
+  whole?: string[];
 }
 
 export interface ActivityState {

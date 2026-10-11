@@ -23,6 +23,7 @@ import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
+import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
@@ -56,6 +57,8 @@ interface Props {
   contract: Contract | null;
   /** What agents changed, for the diff of a changed file or symbol. */
   activity?: ActivityState | null;
+  /** The changes the map is showing: every agent's, or the lit agent's alone. */
+  shownChanges?: ActivityState['nodes'];
   onSelect(id: string): void;
 }
 
@@ -68,7 +71,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, onSelect }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -91,7 +94,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
 
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
-      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
+      {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} />}
       {g && <Looked id={g.id} activity={activity} />}
 
       {repo && (
@@ -204,12 +207,20 @@ function Looked({ id, activity }: { id: string; activity?: ActivityState | null 
 const MAX_LINES = 400;
 const sources = new Map<string, Promise<SourceText>>();
 
-/** The agent's diff when an agent changed this file or symbol; for a symbol, the hunks that touch it. */
-function Changed({ g, activity }: { g: GraphNode; activity?: ActivityState | null }) {
+/**
+ * The agent's diff when an agent changed this file or symbol (for a symbol, the
+ * hunks that touch it), led by what the change reaches: who calls, imports or
+ * requests it, the same links the map rings with dots.
+ */
+function Changed({ g, graph, graphIndex, activity, shown }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null; shown?: ActivityState['nodes'] }) {
   const own = activity?.nodes[g.id];
+  // With one agent lit, only its changes say what they reach, as only they ripple on the map.
+  const nodes = shown ?? activity?.nodes;
+  const shownOwn = nodes?.[g.id];
+  const reach = useMemo(() => (shownOwn && shownOwn.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, nodes) : []), [shownOwn, g, graph, graphIndex, nodes]);
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
-  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} />;
+  return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} reach={reach} />;
 }
 
 /**
