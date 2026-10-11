@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
-import { type BadgeCache, BadgeSpace, curveHits, drawBadges, drawRings, hereGeometry, LOOKED_ALPHA, ringGeometry, rippleRing, type Rect, type Taken, unreadGeometry, visibleArc } from './activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, drawRings, hereGeometry, LOOKED_ALPHA, marksReach, ringGeometry, rippleRing, type Rect, type Taken, unreadGeometry, visibleArc } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
@@ -283,6 +283,30 @@ test('a ring far bigger than the screen is drawn only where it crosses it', () =
     const rel = Math.atan2(Math.sin(t - arc[0]), Math.cos(t - arc[0]));
     assert.ok(rel >= -1e-9 && rel <= arc[1] - arc[0] + 1e-9, `point at ${t} is drawn`);
   }
+});
+
+test('marks reach out to the outermost ring and the unread dot', () => {
+  const m = marks;
+  const r = 40;
+  assert.equal(marksReach(r, undefined, false), null);
+  // Changes only underneath draw no ring, just a badge (which keeps clear of words itself).
+  assert.equal(marksReach(r, m({ added: 3 }), false), null);
+  assert.equal(marksReach(r, m({ self: 'modified' }), false), ringGeometry(r).outer);
+  const here = hereGeometry(r, true).outer;
+  assert.equal(marksReach(r, m({ self: 'added', here: 'self' }), false), here);
+  assert.equal(marksReach(r, m({ self: 'added', here: 'self', selfUnread: true }), false), here + unreadGeometry(0, 0, here, r).gap);
+  // An agent working inside an open circle rings its children, not the open rim.
+  assert.equal(marksReach(r, m({ here: 'inside' }), true), null);
+  assert.ok(marksReach(r, m({ here: 'inside' }), false)! > r);
+  // The looked-at ring sits on the change ring's line, so it reaches as far.
+  assert.equal(marksReach(r, m({ looked: 'self' }), false), ringGeometry(r).outer);
+  assert.equal(marksReach(r, m({ looked: 'inside' }), true), null);
+  assert.equal(marksReach(r, m({ looked: 'inside', modified: 2 }), false), null);
+  // So does the ripple ring, and it pushes an agent's working ring out as a change ring does.
+  assert.equal(marksReach(r, m({ reached: 'evidenced' }), false), ringGeometry(r).outer);
+  assert.equal(marksReach(r, m({ reached: 'evidenced', here: 'self' }), false), hereGeometry(r, true).outer);
+  assert.equal(marksReach(r, m({ reached: 'evidenced', modified: 1 }), false), null, 'a badge counts it instead');
+  assert.equal(marksReach(3, m({ reached: 'evidenced' }), false), null, 'too small to hold the dots');
 });
 
 /** A canvas that keeps the rings it is asked to stroke: radius, dash and opacity. */

@@ -25,6 +25,7 @@ import type {
   ChangeKind,
   FileChange,
   Graph,
+  GraphEdge,
   GraphNode,
   LineRange,
   LookedAt,
@@ -314,6 +315,12 @@ export function outsideSymbols(ranges: LineRange[] | undefined, spans: [number, 
   });
 }
 
+/** The file a node id belongs to: a symbol's file, or the node itself. */
+const fileOf = (id: string) => {
+  const hash = id.indexOf('#');
+  return hash < 0 ? id : id.slice(0, hash);
+};
+
 export class AgentHub {
   private agents = new Map<string, AgentRec>();
   private version = 0;
@@ -323,6 +330,8 @@ export class AgentHub {
   private hidden = new WeakSet<FileRec>();
   private pushTimer: NodeJS.Timeout | null = null;
   private pendingIndex = new Map<string, Set<string>>();
+  /** File id → links into it from other files, kept from before each re-index, so a deleted node's callers stay known. */
+  private lost = new Map<string, Map<string, GraphEdge>>();
   private indexTimer: NodeJS.Timeout | null = null;
   private realSources = new Map<string, string>();
   private remotes = new Map<string, Promise<string | null>>();
@@ -486,6 +495,7 @@ export class AgentHub {
     const kind: ChangeKind = f.kind === 'added' || f.kind === 'deleted' ? f.kind : 'modified';
     const swept = f.swept === true;
     let file = rec.files.get(key);
+    const known = !!file;
     const others = [...this.agents.values()].filter((r) => r !== rec && r.files.has(key));
     if (!file && swept && others.some((r) => r.state !== 'ended' && !r.files.get(key)!.swept)) {
       // Seen in the working tree, but another live agent in it named this file itself: that agent's change.
@@ -520,6 +530,9 @@ export class AgentHub {
       rec.files.set(key, file);
     }
     if (!swept) file.swept = false;
+    // Each report of a file comes after the last, even within a millisecond, so a later one
+    // that sends no diff always leaves the diff it keeps from before its change.
+    const at = known ? Math.max(now, file.at + 1) : now;
     Object.assign(file, {
       kind,
       lines: f.lines,
@@ -527,8 +540,8 @@ export class AgentHub {
       additions: f.additions,
       deletions: f.deletions,
       diff: typeof f.diff === 'string' ? f.diff : file.diff,
-      diffAt: typeof f.diff === 'string' ? now : file.diffAt,
-      at: now,
+      diffAt: typeof f.diff === 'string' ? at : file.diffAt,
+      at,
       fresh: false,
       settled: false,
       gen: file.gen + 1,
@@ -673,6 +686,7 @@ export class AgentHub {
       // One file's text at a time: before by digest, after only for as long as it takes to sign.
       const before = new Map<string, string | null>();
       for (const rel of rels) before.set(rel, await read(rel).then((t) => (t == null ? null : digest(t))));
+      this.keepIncoming(new Set([...rels].map((rel) => fileId(repo, rel))));
       // The layer each symbol in HEAD has on the map now, while the map still has it: one this
       // re-index takes away keeps the layer it had last, not the one it had when the file first changed.
       const was = this.index(this.ws.getGraph());
@@ -714,6 +728,17 @@ export class AgentHub {
     }
     this.version++;
     this.push();
+  }
+
+  /** Keeps the links into these files from outside them, as the graph has them now, before a re-index drops any. */
+  private keepIncoming(files: Set<string>) {
+    for (const e of this.ws.getGraph().edges) {
+      const to = fileOf(e.to);
+      if (!files.has(to) || fileOf(e.from) === to) continue;
+      let kept = this.lost.get(to);
+      if (!kept) this.lost.set(to, (kept = new Map()));
+      kept.set(`${e.from}|${e.to}|${e.kind}|${e.detail ?? ''}`, e);
+    }
   }
 
   // ── reading ──
@@ -1159,7 +1184,16 @@ export class AgentHub {
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked };
+    // Kept links whose target is gone but still marked changed, from code that's still there.
+    const lost: GraphEdge[] = [];
+    for (const [file, kept] of this.lost) {
+      if (!nodes[file]) {
+        this.lost.delete(file);
+        continue;
+      }
+      for (const e of kept.values()) if (!ix.nodes.has(e.to) && ix.nodes.has(e.from) && nodes[e.to]) lost.push(e);
+    }
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, ...(lost.length ? { lost } : {}) };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }

@@ -191,6 +191,19 @@ test('a change that sends no diff leaves the last diff with the time it came', a
   assert.ok(Date.parse(again.at) > Date.parse(again.diffAt!));
 });
 
+test('a change without a diff in the same millisecond still leaves the last diff behind', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  const file = path.join(dir, 'src/api.ts');
+  await fs.writeFile(file, API.replace("'/api/items')", "'/api/items?all=1')"));
+  const at = new Date().toISOString();
+  await hub.ingest([{ agent, at, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts') }] }]);
+  await hub.ingest([{ agent, at, type: 'changes', files: [{ path: file, kind: 'modified' }] }]);
+  const [d] = hub.diffs('web/src/api.ts');
+  assert.ok(Date.parse(d.at) > Date.parse(d.diffAt!));
+});
+
 test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(touches([5, 10], [[10, 12]]));
   assert.ok(!touches([5, 10], [[11, 12]]));
@@ -1461,6 +1474,24 @@ test("deleting a whole function is that function's change, not the file's", asyn
   const s = await pushed;
   assert.equal(s.nodes['web/src/api.ts#getItem'], undefined);
   assert.equal(s.nodes['web/src/api.ts'].whole, undefined);
+});
+
+test('the links into a deleted function are kept for the ripple; reverting lets them go', async () => {
+  const PAGE = "import { getItem } from './api';\n\nexport function show(id: string) {\n  return getItem(id);\n}\n";
+  const { dir, ws } = await localRepo({ 'src/page.ts': PAGE });
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  assert.ok(ws.getGraph().edges.some((e) => e.from === 'web/src/page.ts#show' && e.to === 'web/src/api.ts#getItem'));
+  // getItem (lines 5–7) and the blank line before it go.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.split('\n').slice(0, 3).join('\n') + '\n');
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1 && s.nodes['web/src/api.ts#getItem']?.kind === 'deleted');
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified', lines: [[4, 3]], oldLines: [[4, 7]], deletions: 4 }] }]);
+  const s = await pushed;
+  assert.ok(!ws.getGraph().nodes.some((n) => n.id === 'web/src/api.ts#getItem'), 're-indexed without it');
+  assert.ok(s.lost?.some((e) => e.from === 'web/src/page.ts#show' && e.to === 'web/src/api.ts#getItem'), 'the call is kept');
+  assert.ok(!s.lost?.some((e) => e.to === 'web/src/api.ts#listItems'), 'links to what is still there are not');
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'reverted' }] }]);
+  assert.equal(hub.state().lost, undefined);
 });
 
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {
