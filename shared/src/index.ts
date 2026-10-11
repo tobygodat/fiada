@@ -616,6 +616,11 @@ export interface ActivityState {
   nodes: Record<string, NodeChange>;
   /** Graph node id → who looked at it and when: code agents read or asked about without changing it. Absent from older indexers. */
   looked?: Record<string, LookedAt>;
+  /**
+   * Links into code agents deleted, as the graph had them before: re-indexing drops a deleted
+   * node and every link into it, and these are what its callers still point at.
+   */
+  lost?: GraphEdge[];
 }
 
 /** A node an agent looked at: asked Fiada about it, or read its file. */
