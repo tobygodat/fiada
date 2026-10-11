@@ -1,6 +1,7 @@
 // The agent overlay, drawn over the map's circles: a ring just outside
 // anything an agent added, modified or deleted, a pulse for a few seconds
-// after each change, a green ring where an agent is working right now, and on
+// after each change, a green ring where an agent is working right now, a
+// faint dotted ring on what an agent looked at without changing it, and on
 // closed circles a small count of the changes inside. It stays quiet on
 // purpose: thin rings, one small badge, and no motion once the agent stops.
 // Change colours mean a change and nothing else (ink, ochre, brick); the one
@@ -81,6 +82,24 @@ export function hereGeometry(r: number, changed: boolean) {
   return { gap, line, gapR, lineR, outer: lineR + line / 2 };
 }
 
+/** How strongly the looked-at ring shows: on the node itself, and on a closed circle with a looked-at node inside. */
+export const LOOKED_ALPHA = { self: 0.8, inside: 0.45 } as const;
+
+/** The looked-at ring: a thin dotted line where the change ring would be, never with one. */
+function lookedRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, alpha: number) {
+  const g = ringGeometry(r);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = changeColor('looked');
+  ctx.lineWidth = r < 6 ? 1 : 1.25;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([0.5, r < 6 ? 2.5 : 3.5]);
+  ctx.beginPath();
+  ctx.arc(x, y, g.lineR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+}
+
 function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: number; line: number; gapR: number; lineR: number }, color: string, dash: number[]) {
   ctx.globalAlpha = 0.85;
   ctx.strokeStyle = paper();
@@ -130,6 +149,8 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     // An agent working here now: on the node itself, or on the closed circle it's inside.
     const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self) : null;
     if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
+    // Looked at, and nothing changed or working here: the quietest mark there is.
+    if (!m.self && !here && (m.looked === 'self' || (m.looked === 'inside' && !d.open && !changeCount(m)))) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
     if (m.self) {
       const color = changeColor(m.self);
       ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);

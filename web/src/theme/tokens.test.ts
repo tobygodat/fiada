@@ -45,7 +45,7 @@ const contrast = (a: string, b: string) => {
 };
 const hueGap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
 
-const CHANGE = ['--added', '--modified', '--deleted', '--working'];
+const CHANGE = ['--added', '--modified', '--deleted', '--working', '--looked'];
 const TINTS = [1, 2, 3, 4, 5].map((i) => `--layer-${i}`);
 const GREYS = [6, 7, 8].map((i) => `--layer-${i}`);
 const REPOS = [1, 2, 3, 4].map((i) => `--repo-${i}`);
@@ -57,7 +57,7 @@ for (const t of ['dark', 'light'] as const) {
     for (const [name, v] of dark) if (/^#|^rgba?\(/.test(v)) assert.ok(light.has(name), `${name} has no light value`);
   });
 
-  test(`${t}: the four change states are four different colours`, () => {
+  test(`${t}: the change states are all different colours`, () => {
     assert.equal(new Set(CHANGE.map(get)).size, CHANGE.length);
   });
 

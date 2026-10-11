@@ -53,6 +53,20 @@ export function allowLocalPaths(host: string, flag = process.env.FIADA_ALLOW_LOC
 /** Methods that only read; everything else changes the project and needs the key when there is one. */
 export const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** What a coding agent may ask the map with its agent token: the read routes in ask.ts. */
+export const AGENT_READS = new Set(['/api/agent/find', '/api/agent/dependents', '/api/agent/impact']);
+
+/**
+ * Who a request to an indexer people sign in to must be: an agent token only
+ * reports (POST /api/agent/events); the read routes take an agent token or a
+ * signed-in browser; everything else takes a signed-in browser.
+ */
+export function whoMayCall(method: string, route: string): 'agent' | 'agent-or-person' | 'person' {
+  if (method === 'POST' && route === '/api/agent/events') return 'agent';
+  if (READS.has(method) && AGENT_READS.has(route)) return 'agent-or-person';
+  return 'person';
+}
+
 /** Whether a request's Authorization header carries the access key. */
 export function hasKey(authorization: string | undefined, key: string): boolean {
   const given = Buffer.from(/^Bearer\s+(.+)$/i.exec(authorization ?? '')?.[1]?.trim() ?? '');

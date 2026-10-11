@@ -17,6 +17,12 @@
 .swatch-ring.modified { border-color: var(--modified); }
 .swatch-ring.deleted { border-color: var(--deleted); border-style: dashed; }
 .swatch-ring.working { border-color: var(--working); }
+.swatch-ring.looked { border-color: var(--looked); border-style: dotted; background: none; }
+
+/* In the detail panel: an agent looked at this without changing it, said as the map's dotted ring says it. */
+.detail-looked { display: flex; align-items: center; gap: var(--space-8); margin: 0; padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--hairline); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
+.detail-looked .swatch-ring, .queue-file .swatch-ring.looked { width: 10px; height: 10px; }
+
 /* Unread: the map's solid ink dot. */
 .swatch-unread, .queue-unread { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--unread); }
 .queue-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

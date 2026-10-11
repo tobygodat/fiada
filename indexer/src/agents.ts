@@ -2,7 +2,8 @@
 // agent package (its MCP server and tool hooks); this keeps one record per
 // agent (a client's session in a working tree), maps the files it changed onto graph
 // nodes, works out which symbols each change touched, re-indexes changed
-// files of local repositories, and pushes the result to the map.
+// files of local repositories, keeps what each agent looked at without
+// changing it, and pushes the result to the map.
 //
 // Nothing here is persisted: activity is live state, and a restarted indexer
 // starts with an empty queue.
@@ -25,6 +26,7 @@ import type {
   Graph,
   GraphNode,
   LineRange,
+  LookedAt,
   NodeChange,
 } from '@fiada/shared';
 import { fileId, symbolIds } from './link.ts';
@@ -32,6 +34,11 @@ import { parseFile } from './parse/index.ts';
 import type { Workspace } from './workspace.ts';
 
 const exec = promisify(execFile);
+
+/** Most nodes one agent's looks are kept for; the oldest go first. */
+export const MAX_LOOKED = 500;
+/** The latest looks each agent's entry lists. */
+const LOOKED_LISTED = 20;
 
 const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' };
 /** Symbol names/lines in HEAD's version of a file, keyed by symbol id. */
@@ -77,6 +84,8 @@ interface AgentRec {
   /** When the plan's active step last changed, so the newer of it and `said` heads the entry. */
   stepAt: number;
   files: Map<string, FileRec>;
+  /** Graph node id → when it last looked at it (asked Fiada about it, or read the file), oldest first. */
+  looked: Map<string, number>;
   startedAt: number;
   updatedAt: number;
 }
@@ -194,8 +203,8 @@ export class AgentHub {
           if (ev.phase === 'start') rec.state = 'waiting';
           else {
             rec.state = 'ended';
-            // Nothing left to review: the agent goes from the queue.
-            if (!rec.files.size) this.agents.delete(rec.id);
+            // Nothing left to review or show: the agent goes from the queue.
+            if (!rec.files.size && !rec.looked.size) this.agents.delete(rec.id);
           }
           break;
         case 'prompt':
@@ -232,6 +241,10 @@ export class AgentHub {
             if (out) reply.files.push(out);
           }
           break;
+        case 'looked':
+          await this.applyLooked(rec, ev, now);
+          rec.state = 'working';
+          break;
         case 'state':
           rec.state = ev.state;
           break;
@@ -255,7 +268,7 @@ export class AgentHub {
    */
   private agentFor(ref: AgentRef): AgentRec {
     const key = agentKey(ref);
-    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], stepAt: 0, promptAt: 0, files: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
+    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], stepAt: 0, promptAt: 0, files: new Map(), looked: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
     if (ref.session) {
       const id = agentId(ref);
       let rec = this.agents.get(id);
@@ -356,6 +369,28 @@ export class AgentHub {
     const ix = this.index(this.ws.getGraph());
     const node = where.repo && ix.nodes.has(key) ? key : undefined;
     return { path: shown, repo: where.repo, node, kind, symbols: node ? this.symbolsOf(file, ix).length : undefined };
+  }
+
+  /** Records what the agent looked at: node ids it asked about, and files it read, where the graph has them. */
+  private async applyLooked(rec: AgentRec, ev: Extract<AgentEvent, { type: 'looked' }>, now: number) {
+    const ix = this.index(this.ws.getGraph());
+    const ids: string[] = [];
+    for (const id of Array.isArray(ev.nodes) ? ev.nodes.slice(0, 100) : []) if (typeof id === 'string' && ix.nodes.has(id)) ids.push(id);
+    for (const p of Array.isArray(ev.paths) ? ev.paths.slice(0, 100) : []) {
+      if (typeof p !== 'string') continue;
+      const where = await this.resolve(rec.ref, { path: p, kind: 'modified' });
+      const id = where.repo && fileId(where.repo, where.rel!);
+      if (id && ix.nodes.has(id)) ids.push(id);
+    }
+    for (const id of ids) {
+      // Again: it moves to the newest end.
+      rec.looked.delete(id);
+      rec.looked.set(id, now);
+    }
+    for (const id of rec.looked.keys()) {
+      if (rec.looked.size <= MAX_LOOKED) break;
+      rec.looked.delete(id);
+    }
   }
 
   /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
@@ -573,6 +608,7 @@ export class AgentHub {
         if (c.at >= cur.at) Object.assign(cur, { kind: c.kind, at: c.at });
       }
     };
+    const looked: Record<string, LookedAt> = {};
     const agents: AgentActivity[] = [];
     const names = this.names();
     for (const rec of this.agents.values()) {
@@ -599,6 +635,16 @@ export class AgentHub {
           diff: !!f.diff,
         });
       }
+      // What it changed itself is marked as changed: the look is in that.
+      const lookedHere = [...rec.looked].filter(([id]) => !nodes[id]?.agents.includes(rec.id));
+      for (const [id, at] of lookedHere) {
+        const cur = looked[id];
+        if (!cur) looked[id] = { agents: [rec.id], at };
+        else {
+          if (!cur.agents.includes(rec.id)) cur.agents.push(rec.id);
+          cur.at = Math.max(cur.at, at);
+        }
+      }
       const root = rec.ref.root ?? rec.ref.cwd;
       const repo = this.ws.repos.find((r) => r.kind === 'local' && this.realSource(r.source) === root);
       agents.push({
@@ -614,12 +660,13 @@ export class AgentHub {
         now: statusLine(rec.said, rec.steps, rec.stepAt, rec.prompt ? { text: rec.prompt, at: rec.promptAt } : undefined),
         steps: rec.steps,
         files,
+        ...(lookedHere.length ? { looked: { count: lookedHere.length, nodes: lookedHere.map(([id]) => id).reverse().slice(0, LOOKED_LISTED) } } : {}),
         startedAt: new Date(rec.startedAt).toISOString(),
         updatedAt: new Date(rec.updatedAt).toISOString(),
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes };
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }

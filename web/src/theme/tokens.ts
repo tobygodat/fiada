@@ -3,7 +3,7 @@
 // edit or a theme switch needs no change here. Outside a browser (node tests) every token is ''.
 
 export type Theme = 'dark' | 'light';
-export type ChangeKind = 'added' | 'modified' | 'deleted' | 'working';
+export type ChangeKind = 'added' | 'modified' | 'deleted' | 'working' | 'looked';
 
 /** Layers 1–8 have a colour each; the rest, and unlayered nodes, are --layer-none. */
 export const LAYER_SLOTS = 8;
@@ -56,7 +56,7 @@ export function repoColor(index: number, a = 1): string {
   return withAlpha(token(`--repo-${(Math.max(0, index) % REPO_SLOTS) + 1}`), a);
 }
 
-/** Colour of a change mark: added, modified, deleted, or an agent working there now. */
+/** Colour of an agent mark: added, modified, deleted, an agent working there now, or code it looked at. */
 export function changeColor(kind: ChangeKind, a = 1): string {
   return withAlpha(token(`--${kind}`), a);
 }
