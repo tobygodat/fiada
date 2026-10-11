@@ -23,7 +23,7 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
-import { ownerOf, type HunkOwner } from './diff.ts';
+import { ownerOf, type HunkOwner, type Theirs } from './diff.ts';
 import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
 import { Choice } from './Sidebar.tsx';
@@ -31,7 +31,7 @@ import { fenceAround } from '../graph/fences.ts';
 import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
-import type { ShownDiff, TourStop } from '../graph/tour.ts';
+import { stopRev, type ShownDiff, type TourStop } from '../graph/tour.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 
 const KIND_LABEL: Record<TNode['kind'], string> = {
@@ -324,6 +324,23 @@ function Changed({
     const oldLines = tour.stop.restOld?.[id];
     return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { name: id.slice(id.indexOf('#') + 1), oldLines };
   });
+  // Another agent's changes in the file are left out of this one's diff.
+  const p = tour?.stop.peer;
+  const peer: Theirs | undefined = p && {
+    owners: p.ids.map((id): HunkOwner => {
+      const n = graphIndex.get(id);
+      return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, p.old?.[id]) : { oldLines: p.old?.[id] };
+    }),
+    top: p.top,
+    // A class left out for its method on this stop: its rows (a field) are this agent's, not the other agent's other code.
+    mine: (tour.stop.carries ?? [])
+      .filter((c) => c.id.includes('#'))
+      .map((c): HunkOwner => {
+        const n = graphIndex.get(c.id);
+        const oldLines = tour.stop.restOld?.[c.id];
+        return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { oldLines };
+      }),
+  };
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
     return (
@@ -331,7 +348,8 @@ function Changed({
         node={tour.stop.id}
         own={fn ? { name: tour.stop.name, oldLines: tour.stop.old } : undefined}
         rest={rest}
-        rev={tour.stop.at}
+        peer={peer}
+        rev={stopRev(tour.stop)}
         kind={tour.stop.kind}
         agent={tour.agent}
         what={fn ? tour.stop.name : tour.stop.path}
@@ -349,7 +367,8 @@ function Changed({
       node={g.id}
       own={g.kind === 'symbol' && g.lines ? ownerOf(g.lines, tour?.stop.id === g.id ? tour.stop.old : undefined) : undefined}
       rest={rest}
-      rev={Math.max(file?.at ?? own?.at ?? 0, stop?.stop.at ?? 0)}
+      peer={peer}
+      rev={Math.max(file?.at ?? own?.at ?? 0, stop ? stopRev(stop.stop) : 0)}
       kind={stop ? stop.stop.kind : own!.kind}
       agent={tour?.agent}
       onShown={stop?.onShown}

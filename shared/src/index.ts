@@ -542,13 +542,34 @@ export interface AgentFile {
   kind: ChangeKind;
   additions?: number;
   deletions?: number;
-  /** Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no longer in the graph. */
   /**
-   * `oldLines`: for a deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away;
-   * for a modified one, the same when known, so a class is matched with a method it lost.
-   * `layer`: for a deleted symbol, the layer id the map had for it, since it is read on its file.
+   * Symbols the change touches, with their own change kinds. Deleted symbols have ids that are no
+   * longer in the graph. `at` is the ISO time of the agent's latest change to that symbol itself
+   * (editing another symbol in the file doesn't move it); absent from older indexers. `oldLines`: for a
+   * deleted symbol, the lines it had in HEAD, so its diff is the hunks that took those away; for a
+   * modified one, the same when known, so a class is matched with a method it lost. `layer`:
+   * for a deleted symbol, the layer id the map had for it, since it is read on its file. `shared`:
+   * another agent changed it too after this agent did, so some of its rows in this agent's diff
+   * (git's, of the whole file) are that agent's.
    */
-  symbols: { id: string; name: string; kind: ChangeKind; oldLines?: [number, number]; layer?: string }[];
+  symbols: { id: string; name: string; kind: ChangeKind; at?: string; oldLines?: [number, number]; layer?: string; shared?: true }[];
+  /**
+   * ISO time of the agent's latest change to the file's code outside every symbol (an import, a
+   * constant), shown with the file's first function; absent while that code is as HEAD has it, and from older indexers.
+   */
+  topAt?: string;
+  /**
+   * The file's changed symbols that are another agent's, and `topTheirs` when its code outside
+   * every symbol is as another agent left it: this agent's diff is git's for the whole file, so the
+   * rows of those are left out of it on review. Absent when there are none, and from older indexers.
+   */
+  others?: { id: string; kind: ChangeKind; oldLines?: [number, number] }[];
+  topTheirs?: boolean;
+  /**
+   * The file's code outside every symbol that this agent changed, another agent changed too after
+   * it did: some of those rows in this agent's diff are that agent's, as with a symbol's `shared`.
+   */
+  topShared?: true;
   /** ISO time of the latest change. */
   at: string;
   /** Whether the indexer holds a diff for it. */

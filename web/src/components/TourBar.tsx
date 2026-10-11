@@ -102,6 +102,11 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
       </div>
       {showing && cut && <div className="tour-cut">the agent cut this diff short: part of the change isn't shown</div>}
       {showing && behind && <div className="tour-cut">its latest change came without a diff: what's shown is from before it</div>}
+      {showing && (stop.shared || stop.topShared) && (
+        <div className="tour-cut">
+          another agent changed {stop.shared ? 'this' : 'the file’s other code'} too: some of its rows here may be theirs
+        </div>
+      )}
       <div className="tour-row">
         <span className="tour-count">
           change {at + 1} of {stops.length}

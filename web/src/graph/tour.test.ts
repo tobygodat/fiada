@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
 import { fixtureGraph } from './fixture.test-util.ts';
-import { diffShown, readyToMark, shownKey, shownRev, forgetMarks, isRead, layerName, loops, nextUnread, reviewable, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
+import { diffShown, readyToMark, shownKey, shownRev, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
@@ -65,6 +65,24 @@ test('stops follow the data flow: page, client, route, model, whatever order the
     'api/app/routes/items.py#read_items',
     'api/app/models.py#Item',
   ]);
+});
+
+test("a deleted function still waits for the changed code that called it, by the link the indexer kept", () => {
+  // One layer: read_items (changed) called Item, which the agent deleted; the re-index took the link away.
+  const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
+  const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+  const READ = 'api/app/routes/items.py#read_items';
+  const ITEM = 'api/app/models.py#Item';
+  const kept = flat.edges.filter((e) => e.from === READ && e.to === ITEM);
+  assert.ok(kept.length);
+  const after = { ...flat, edges: flat.edges.filter((e) => !(e.from === READ && e.to === ITEM)) };
+  const a = agent([file('api', 'app/models.py', [sym(ITEM, 'deleted')]), file('api', 'app/routes/items.py', [sym(READ)])]);
+  assert.deepEqual(tourStops(after, idx, a, NO_NODES).map((s) => s.id), [ITEM, READ], 'by path alone, the deleted one first');
+  assert.deepEqual(tourStops(after, idx, a, NO_NODES, kept).map((s) => s.id), [READ, ITEM]);
+  // Cached by the links kept, too.
+  const cached = tourCache();
+  assert.deepEqual(cached(after, idx, a, NO_NODES).map((s) => s.id), [ITEM, READ]);
+  assert.deepEqual(cached(after, idx, a, NO_NODES, kept).map((s) => s.id), [READ, ITEM]);
 });
 
 test('inside one layer, a stop waits for the changed code that calls it', () => {
@@ -142,10 +160,17 @@ test('a change is marked read only once its own diff is on screen', () => {
   assert.equal(diffShown({ node: again.id, rev: again.at }, again), true);
   // Fetched after another agent's later change to the file: it has this one in it too.
   assert.equal(diffShown({ node: again.id, rev: again.at + 60_000 }, again), true);
+  // The file's other code the stop carries changed since: the diff fetched before that isn't it.
+  const carrying = { ...again, carries: [{ id: 'web/src/pages/items.tsx', at: again.at + 120_000 }] };
+  assert.equal(diffShown({ node: again.id, rev: again.at + 60_000 }, carrying), false);
+  assert.equal(diffShown({ node: again.id, rev: again.at + 120_000 }, carrying), true);
   // A request that failed shows nothing current, whatever it left on screen.
   assert.equal(shownRev({ node: again.id, rev: again.at, list: [] }, again.id), again.at);
   assert.equal(shownRev({ node: again.id, rev: again.at, list: ['older'], failed: true }, again.id), null);
   assert.equal(shownRev({ node: first.id, rev: first.at, list: [] }, 'web/src/pages/about.tsx'), null);
+  // Another agent's tour of the same node: what was fetched for the last tour isn't its diff.
+  assert.equal(shownRev({ node: again.id, agent: 'a', rev: again.at, list: [] }, again.id, 'a'), again.at);
+  assert.equal(shownRev({ node: again.id, agent: 'a', rev: again.at, list: [] }, again.id, 'b'), null);
   // No diff of this stop on screen: nothing to wait for.
   assert.equal(diffShown(null, again), true);
   assert.equal(diffShown({ node: 'web/src/pages/about.tsx', rev: null }, again), true);
@@ -167,6 +192,9 @@ test('a stop just moved to waits to be marked read until the panel has had its s
   assert.equal(readyToMark(two, true, shownKey(two, true), { node: two.id, rev: two.at }), true);
   // No panel diff for it at all: nothing to wait for, once seen.
   assert.equal(readyToMark(two, true, shownKey(two, true), loaded), true);
+  // Another agent's tour on the same stop: not until App has seen it on that tour.
+  assert.equal(readyToMark(two, true, shownKey(two, true, 'a'), { node: two.id, rev: two.at }, 'b'), false);
+  assert.equal(readyToMark(two, true, shownKey(two, true, 'b'), { node: two.id, rev: two.at }, 'b'), true);
   assert.equal(readyToMark(undefined, false, null, null), true);
 });
 
@@ -396,6 +424,26 @@ test("a deleted function's stop carries its lines from before, for its own hunks
   );
   assert.deepEqual(stops[0].restOld, { 'web/src/client/api.ts#Users.get': [10, 12], 'web/src/client/api.ts#Items.get': [30, 32] });
   assert.equal(stops[1].restOld, undefined);
+});
+
+test("a file stop with only its other code left changed reads by that code's own time", () => {
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  // The import changed at t; a function changed later and was taken back, so none is left.
+  const [stop] = tourStops(graph, graphIndex, agent([{ ...file('web', 'src/pages/about.tsx'), at: later, topAt: t }]), NO_NODES);
+  assert.equal(stop.id, 'web/src/pages/about.tsx');
+  assert.equal(stop.at, Date.parse(t));
+  assert.equal(isRead({ 'web/src/pages/about.tsx': Date.parse(t) }, stop), true, 'the import read at t stays read');
+});
+
+test("a stop's diff is fetched again when the other code it carries changes, not only its own", () => {
+  const t = Date.parse('2026-09-27T10:00:00Z');
+  const later = Date.parse('2026-09-27T10:05:00Z');
+  // A deleted function standing on its file, whose import changed later.
+  const [stop] = tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#gone', 'deleted'), at: new Date(t).toISOString() }])]), NO_NODES);
+  assert.equal(stop.target, 'web/src/client/api.ts');
+  assert.equal(stopRev({ ...stop, carries: [] }), t);
+  assert.equal(stopRev({ ...stop, carries: [{ id: 'web/src/client/api.ts', at: later }] }), later);
 });
 
 test("a changed function's stop carries its lines in HEAD too, for a removal hunk left where it was, and is placed by its lines now", () => {
@@ -640,6 +688,64 @@ test('reviewable: only when something the agent changed is on the map', () => {
   assert.equal(reviewable(graphIndex, agent([file('web', 'src/pages/about.tsx')]), nodes), true);
 });
 
+test("a function's own change time is its read mark's: editing another function in its file doesn't unread it", () => {
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  const a = agent([
+    {
+      ...file('web', 'src/client/api.ts', [
+        { ...sym('web/src/client/api.ts#ItemsService'), at: t },
+        { ...sym('web/src/client/api.ts#UsersService'), at: later },
+      ]),
+      at: later,
+    },
+  ]);
+  const stops = Object.fromEntries(tourStops(graph, graphIndex, a, NO_NODES).map((s) => [s.id, s]));
+  const marks: ReadMarks = { 'web/src/client/api.ts#ItemsService': Date.parse(t), 'web/src/client/api.ts#UsersService': Date.parse(t) };
+  assert.equal(isRead(marks, stops['web/src/client/api.ts#ItemsService']), true);
+  assert.equal(isRead(marks, stops['web/src/client/api.ts#UsersService']), false);
+  // From an indexer without per-function times, the file's time counts for each.
+  const old = agent([{ ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]), at: later }]);
+  assert.equal(isRead(marks, tourStops(graph, graphIndex, old, NO_NODES)[0]), false);
+});
+
+test("a change to the file's other code (an import) unreads the stop that shows it, and only that one", () => {
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  const fns = [
+    { ...sym('web/src/client/api.ts#ItemsService'), at: t },
+    { ...sym('web/src/client/api.ts#UsersService'), at: t },
+  ];
+  const stops = (topAt: string, symbols = fns) => tourStops(graph, graphIndex, agent([{ ...file('web', 'src/client/api.ts', symbols), at: topAt, topAt }]), NO_NODES);
+  let marks: ReadMarks = {};
+  for (const s of stops(t)) marks = markStop(marks, s, true);
+  const read = (topAt: string, symbols = fns) => stops(topAt, symbols).map((s) => [s.id, !!s.rest, isRead(marks, s)]);
+  assert.deepEqual(read(t), [
+    ['web/src/client/api.ts#ItemsService', true, true],
+    ['web/src/client/api.ts#UsersService', false, true],
+  ]);
+  // The agent changes an import since: the first stop, which carries the file's other hunks, is new again.
+  assert.deepEqual(read(later), [
+    ['web/src/client/api.ts#ItemsService', true, false],
+    ['web/src/client/api.ts#UsersService', false, true],
+  ]);
+  // The new import read on ItemsService, then the agent takes ItemsService back: UsersService, read
+  // before the import changed, now shows it, and both stay read, since the import's mark is the file's.
+  marks = markStop(marks, stops(later)[0], true);
+  assert.deepEqual(read(later, fns.slice(1)), [['web/src/client/api.ts#UsersService', true, true]]);
+  // Read on UsersService, a later import is new on whichever stop shows it.
+  marks = markStop({}, stops(t, fns.slice(1))[0], true);
+  assert.deepEqual(read(t), [
+    ['web/src/client/api.ts#ItemsService', true, false],
+    ['web/src/client/api.ts#UsersService', false, true],
+  ]);
+  marks = markStop(marks, stops(t)[0], true);
+  assert.deepEqual(read(later).map((r) => r[2]), [false, true]);
+  // Unmarking the stop unmarks the import it shows too.
+  marks = markStop(marks, stops(t)[0], false);
+  assert.equal(marks['web/src/client/api.ts'], undefined);
+});
+
 test('loops: a long chain of stops is walked without running out of stack', () => {
   const n = 100_000;
   const next = Array.from({ length: n }, (_, i) => new Set(i + 1 < n ? [i + 1] : []));
@@ -668,6 +774,43 @@ test('forgetMarks: clears every review’s read marks and nothing else', () => {
   } finally {
     (globalThis as { localStorage?: unknown }).localStorage = was;
   }
+});
+
+test("a class left out for its method is read on the file's first stop: a change to its own lines is new there", () => {
+  const F = 'src/Items.java';
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const node = (name: string, lines: [number, number]) =>
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+  const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
+  const t = '2026-09-27T10:00:00Z';
+  const later = '2026-09-27T10:05:00Z';
+  const stops = (clsAt: string) =>
+    tourStops({ edges: [], layers: graph.layers }, ix, agent([{ ...file('svc', F, [{ ...sym(`svc/${F}#Items`), at: clsAt }, { ...sym(`svc/${F}#Items.add`), at: t }]), at: clsAt }]), NO_NODES);
+  const [stop] = stops(t);
+  assert.equal(stop.id, `svc/${F}#Items.add`);
+  const marks = markStop({}, stop, true);
+  assert.ok(isRead(marks, stops(t)[0]));
+  // The agent changes a field of the class since: the method's stop, which shows that line, is new again.
+  assert.equal(isRead(marks, stops(later)[0]), false);
+  assert.equal(nextUnread(stops(later), marks), 0);
+});
+
+test("a class left out for its method that another agent changed too says so on the stop showing its rows", () => {
+  const F = 'src/Items.java';
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const node = (name: string, lines: [number, number]) =>
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+  const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
+  const stops = (shared: boolean) =>
+    tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), ...(shared && { shared: true as const }) }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
+  const [stop] = stops(true);
+  assert.equal(stop.id, `svc/${F}#Items.add`);
+  assert.equal(stop.shared, true);
+  assert.deepEqual(stop.carries, [{ id: `svc/${F}#Items`, at: stop.carries![0].at }], 'carries keep only id and time');
+  assert.equal(stops(false)[0].shared, undefined);
+  // The class's lines before the change go with the stop too, so its rows are known as this agent's.
+  const withOld = tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), oldLines: [1, 28] as [number, number] }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
+  assert.deepEqual(withOld[0].restOld, { [`svc/${F}#Items`]: [1, 28] });
 });
 
 test("the tour isn't ordered again for an agent's status, only when its changes or their circles change", () => {
@@ -731,6 +874,39 @@ test("with the indexer's revision of an agent's files, a status update doesn't r
   assert.equal(tour(graph, graphIndex, { ...agent(sealed), filesRev: 'r1', note: 'running the tests' }, NO_NODES), first);
   const more = [...files, file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
   assert.equal(tour(graph, graphIndex, { ...agent(more), filesRev: 'r2' }, NO_NODES).length, 2);
+});
+
+test("another agent's changes in a file go with each of that file's stops, so its diff leaves them out", () => {
+  const f = {
+    ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]),
+    others: [{ id: 'web/src/client/api.ts#request', kind: 'modified' as const, oldLines: [3, 9] as [number, number] }],
+    topTheirs: true,
+  };
+  const [stop] = tourStops(graph, graphIndex, agent([f]), NO_NODES);
+  assert.deepEqual(stop.peer, { ids: ['web/src/client/api.ts#request'], old: { 'web/src/client/api.ts#request': [3, 9] }, top: true });
+  // Only the file's other code is the other agent's; and a file stop carries it too.
+  const top = { ...file('web', 'src/client/api.ts'), topTheirs: true };
+  assert.deepEqual(tourStops(graph, graphIndex, agent([top]), NO_NODES)[0].peer, { ids: [], top: true });
+  // A file both agents added: the other agent's functions are left out too.
+  const added = { ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService', 'added')], 'added'), others: [{ id: 'web/src/client/api.ts#request', kind: 'added' as const }] };
+  assert.deepEqual(tourStops(graph, graphIndex, agent([added]), NO_NODES)[0].peer, { ids: ['web/src/client/api.ts#request'], top: false });
+  // Nothing of another agent's: nothing to leave out.
+  assert.equal(tourStops(graph, graphIndex, agent([file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])]), NO_NODES)[0].peer, undefined);
+});
+
+test("a function another agent changed too after this one did says so on its stop", () => {
+  const f = file('web', 'src/client/api.ts', [{ ...sym('web/src/client/api.ts#ItemsService'), shared: true as const }, sym('web/src/client/api.ts#request')]);
+  const stops = tourStops(graph, graphIndex, agent([f]), NO_NODES);
+  assert.deepEqual(Object.fromEntries(stops.map((s) => [s.name, !!s.shared])), { ItemsService: true, request: false });
+});
+
+test("the file's other code another agent changed too after this one says so on the stop that shows it", () => {
+  const at = '2026-01-01T00:00:00.000Z';
+  const f = { ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService'), sym('web/src/client/api.ts#request')]), topAt: at, topShared: true as const };
+  const stops = tourStops(graph, graphIndex, agent([f]), NO_NODES);
+  assert.deepEqual(stops.map((s) => !!s.topShared), [true, false], 'only the stop carrying the file’s other code');
+  const only = { ...file('web', 'src/client/api.ts'), topAt: at, topShared: true as const };
+  assert.equal(tourStops(graph, graphIndex, agent([only]), NO_NODES)[0].topShared, true, 'a file stop');
 });
 
 test("a stop on the Unlayered layer says so, though the project's layers don't list it", () => {

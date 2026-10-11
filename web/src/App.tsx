@@ -12,7 +12,7 @@ import { agentLooked, agentNodes, rollupActivity, spotlight } from './graph/acti
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { onMap } from './graph/search.ts';
-import { loadMarks, nextUnread, readyToMark, reviewable, saveMarks, shownKey, tourCache, tourOver, type ReadMarks as TourMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
+import { loadMarks, markStop, nextUnread, readyToMark, reviewable, saveMarks, shownKey, tourCache, tourOver, type ReadMarks as TourMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import { agentUnreadIds, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
 import {
@@ -181,7 +181,7 @@ export function App() {
   // Kept while the agent's changes are: its status lines and prompts don't order the tour again.
   const [tourStops] = useState(tourCache);
   const stops = useMemo(
-    () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes) : []),
+    () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes, agents.state.lost) : []),
     [graph, graphIndex, tourAgent, agents.state],
   );
   const tourAt = touring ? Math.max(0, stops.findIndex((s) => s.id === touring.stop)) : -1;
@@ -588,9 +588,7 @@ export function App() {
     (i: number, read: boolean) => {
       const s = stops[i];
       if (!touring || !s) return;
-      const next = { ...marks };
-      if (read) next[s.id] = s.at;
-      else delete next[s.id];
+      const next = markStop(marks, s, read);
       setMarks(next);
       saveMarks(tourProject, touring.agent, next);
       if (!read) return;
@@ -749,7 +747,7 @@ export function App() {
   // The tour's stop, whether it's on screen, and the last way App's effects saw it (see readyToMark).
   const stop = stops[tourAt];
   const showing = !!stop && !!tree && !selectedEdge && selected === locate(tree, graphIndex, stop.target);
-  const stopKey = shownKey(stop, showing);
+  const stopKey = shownKey(stop, showing, touring?.agent);
   const [settled, setSettled] = useState<string | null>(null);
   useEffect(() => setSettled(stopKey), [stopKey]);
   const crumbsAt = useMemo(() => {
@@ -884,7 +882,7 @@ export function App() {
             layers={graph?.layers ?? []}
             besideDetail={detailOpen}
             showing={showing}
-            ready={readyToMark(stop, showing, settled, shownDiff)}
+            ready={readyToMark(stop, showing, settled, shownDiff, touring?.agent)}
             cut={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.cut}
             behind={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.behind}
             onGo={goStop}

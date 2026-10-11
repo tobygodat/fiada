@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { behind, cutShort, diffRows, ownerOf, pickHunks } from './diff.ts';
+import { behind, cutShort, diffRows, ownCounts, ownerOf, pickHunks } from './diff.ts';
 
 const diff = [
   'diff --git a/items.py b/items.py',
@@ -292,6 +292,85 @@ test('a diff cut short inside a long hunk, before the change, says so too', () =
   assert.deepEqual(pickHunks(['@@ -1,2 +1,2 @@', ' a', '@@ -10,400 +10,401 @@', '… diff cut at 64 KB'].join('\n'), { lines: [10, 12] }), ['… diff cut at 64 KB, before this change']);
 });
 
+test("another agent's changes in the file are left out of this agent's diff, whoever's stop shows it", () => {
+  const diff = [
+    // An import the other agent added.
+    '@@ -1,1 +1,2 @@', ' import a', '+import b',
+    // This agent's function, lines 11-13 now.
+    '@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y',
+    // One hunk across both: this agent's lines 21-22, the other's function at 23-25.
+    '@@ -20,7 +21,7 @@', '-  old', '+  new', ' }', ' function theirs() {', '-  p', '+  q', ' }',
+  ].join('\n');
+  const mine = { lines: [11, 13] as const };
+  const ours = { lines: [21, 22] as const };
+  const peer = { owners: [{ lines: [23, 25] as const }], top: true };
+  // Without: the import and the other function show as this file's other code.
+  assert.ok(pickHunks(diff, mine, [mine, ours]).includes('+import b'));
+  assert.ok(pickHunks(diff, mine, [mine, ours]).includes('+  q'));
+  const shown = pickHunks(diff, mine, [mine, ours], peer);
+  assert.deepEqual(shown, ['@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y']);
+  // The hunk shared with the other agent's function is cut to this agent's rows.
+  assert.deepEqual(pickHunks(diff, ours, [mine, ours], peer), ['@@ -20,2 +21,2 @@', '-  old', '+  new', ' }']);
+  // The file's other code is this agent's: the import stays.
+  assert.ok(pickHunks(diff, mine, [mine, ours], { ...peer, top: false }).includes('+import b'));
+  assert.ok(!pickHunks(diff, mine, [mine, ours], { ...peer, top: false }).includes('+  q'));
+  // A stop for the file itself: everything but the other agent's.
+  assert.deepEqual(pickHunks(diff, undefined, undefined, { ...peer, top: false }), ['@@ -1,1 +1,2 @@', ' import a', '+import b', '@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y', '@@ -20,2 +21,2 @@', '-  old', '+  new', ' }']);
+  // A deleted function of the other agent's, known by its lines in HEAD.
+  const gone = ['@@ -30,3 +30,0 @@', '-function was() {', '-  r', '-}', '@@ -40,1 +37,1 @@', '-a', '+b'].join('\n');
+  assert.deepEqual(pickHunks(gone, { lines: [37, 37] }, [{ lines: [37, 37] }], { owners: [{ oldLines: [30, 32] }], top: false }), ['@@ -40,1 +37,1 @@', '-a', '+b']);
+});
+
+test("a class this agent changed, left out for its method, keeps its rows when the other agent's are the file's other code", () => {
+  // The other agent's import at line 2; this agent's class field (line 4) and method (7-9).
+  const diff = ['@@ -1,1 +1,2 @@', ' import a', '+import b', '@@ -2,7 +3,7 @@', ' class Store {', '-  int size = 1;', '+  int size = 2;', ' ', '   int get() {', '-    return 1;', '+    return 10;', '   }'].join('\n');
+  const method = { lines: [7, 9] as const };
+  const cls = { lines: [3, 10] as const };
+  const lost = pickHunks(diff, method, [method], { owners: [], top: true });
+  assert.ok(!lost.includes('+  int size = 2;'), 'without it, the field reads as the other agent\u2019s other code');
+  const shown = pickHunks(diff, method, [method], { owners: [], top: true, mine: [cls] });
+  assert.ok(shown.includes('+  int size = 2;'), 'the class\u2019s field is this agent\u2019s');
+  assert.ok(shown.includes('+    return 10;'));
+  assert.ok(!shown.includes('+import b'), 'the import is still the other agent\u2019s');
+});
+
+test("a row both agents' changes hold is the innermost one's: a method in a class whose field the other agent changed", () => {
+  // A class at lines 1-8: the other agent changed its field (line 2), this agent its method (5-7).
+  const diff = ['@@ -1,7 +1,7 @@', ' class Store {', '-  int size = 1;', '+  int size = 2;', ' ', '   int get() {', '-    return 1;', '+    return 10;', '   }'].join('\n');
+  const method = { lines: [5, 7] as const };
+  const cls = { lines: [1, 8] as const };
+  const shown = pickHunks(diff, method, [method], { owners: [cls], top: false });
+  assert.ok(shown.includes('+    return 10;'), 'the method is this agent\u2019s');
+  assert.ok(!shown.includes('+  int size = 2;'), 'the field is the other agent\u2019s');
+  // The other way round: this agent's field, the other agent's method.
+  const mineToo = pickHunks(diff, cls, [cls], { owners: [method], top: false });
+  assert.ok(mineToo.includes('+  int size = 2;'));
+  assert.ok(!mineToo.includes('+    return 10;'));
+});
+
+test("a function this agent added where the other agent deleted one leaves that deletion out, and the other way round", () => {
+  // The other agent deleted old() at lines 1-3; this agent added fresh() in its place.
+  const diff = ['@@ -1,3 +1,3 @@', '-function old() {', '-  return 1;', '-}', '+function fresh() {', '+  return 2;', '+}'].join('\n');
+  const fresh = { lines: [1, 3] as const };
+  const old = { oldLines: [1, 3] as const };
+  const shown = pickHunks(diff, fresh, [fresh], { owners: [old], top: false });
+  assert.ok(shown.includes('+function fresh() {'));
+  assert.ok(!shown.some((l) => l.startsWith('-')), 'the deletion is the other agent\u2019s');
+  // This agent's deletion, the other agent's replacement.
+  const gone = pickHunks(diff, { name: 'old', oldLines: [1, 3] }, [old], { owners: [fresh], top: false });
+  assert.ok(gone.includes('-function old() {'));
+  assert.ok(!gone.some((l) => l.startsWith('+')), 'the new function is the other agent\u2019s');
+});
+
+test("a file two agents added shows each one's functions without the other's", () => {
+  const diff = ['@@ -0,0 +1,7 @@', '+export function mine() {', '+  return 1;', '+}', '+', '+export function theirs() {', '+  return 2;', '+}'].join('\n');
+  const mine = { lines: [1, 3] as const };
+  // (The blank line between them, no function's, is the file's other code, after the function.)
+  assert.deepEqual(pickHunks(diff, mine, [mine], { owners: [{ lines: [5, 7] }], top: false }), ['@@ -0,0 +1,3 @@', '+export function mine() {', '+  return 1;', '+}', '@@ -0,0 +4,1 @@', '+']);
+  // A stop for the whole file: everything but theirs.
+  assert.deepEqual(pickHunks(diff, undefined, undefined, { owners: [{ lines: [5, 7] }], top: false }), ['@@ -0,0 +1,4 @@', '+export function mine() {', '+  return 1;', '+}', '+']);
+});
+
 test('rows that end where the agent cut the diff short say so, wherever the cut lands', () => {
   const cut = ['@@ -1,3 +1,3 @@', ' a', '-b', '+c', '… diff cut at 64 KB'].join('\n');
   // Inside the function's own hunk, and before it.
@@ -341,4 +420,18 @@ test("the file's other code taken away right above a changed function shows on t
   const cut = [...mixed.split('\n').slice(0, 3 + 8), '… diff cut at 64 KB'].join('\n');
   assert.ok(pickHunks(cut, b).at(-1)!.startsWith('… diff cut at'));
   assert.ok(pickHunks(cut, a, [a, b]).includes('-const OLD = 1;'));
+});
+
+test("with another agent's rows left out, the counts are this agent's rows, not git's for the whole file", () => {
+  const diff = ['@@ -1,1 +1,2 @@', ' import a', '+import b', '@@ -10,3 +11,3 @@', ' function mine() {', '-  x', '+  y', '@@ -20,7 +21,7 @@', '-  old', '+  new', ' }', ' function theirs() {', '-  p', '+  q', ' }'].join('\n');
+  const mine = { lines: [11, 13] as const };
+  const ours = { lines: [21, 22] as const };
+  const peer = { owners: [{ lines: [23, 25] as const }], top: true };
+  // git's counts for the file: the other agent's import and function too.
+  const d = { diff, additions: 4, deletions: 3 };
+  assert.deepEqual(ownCounts(d), { additions: 4, deletions: 3 }, 'no other agent: as the hook said');
+  assert.deepEqual(ownCounts(d, peer, [mine, ours]), { additions: 2, deletions: 2 });
+  assert.deepEqual(ownCounts(d, { ...peer, top: false }, [mine, ours]), { additions: 3, deletions: 2 }, 'the import is this agent\'s');
+  // Cut short: what's left can't be counted, so nothing is said.
+  assert.equal(ownCounts({ ...d, diff: `${diff}\n… diff cut at 64 KB` }, peer, [mine, ours]), null);
 });

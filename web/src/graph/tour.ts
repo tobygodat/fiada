@@ -6,7 +6,7 @@
 // from the one before. What you've read is remembered per stop, until the
 // agent changes that code again.
 
-import { UNLAYERED, type AgentActivity, type ChangeKind, type Graph, type GraphNode, type NodeChange } from '@fiada/shared';
+import { UNLAYERED, type AgentActivity, type ChangeKind, type Graph, type GraphEdge, type GraphNode, type NodeChange } from '@fiada/shared';
 
 export interface TourStop {
   /** The changed file or function: the stop's identity, and its read mark's. */
@@ -29,12 +29,29 @@ export interface TourStop {
    */
   rest?: string[];
   /**
+   * With `rest`: the other changed code this stop shows, and when the agent last changed each: the
+   * file's code outside every symbol (under the file's own id), and each class left out for a
+   * method in it (its header, fields). Each keeps its own read mark, so it stays read (or unread)
+   * whichever function stop shows it.
+   */
+  carries?: { id: string; at: number }[];
+  /**
    * A function's lines before the change: a deleted one's diff is the hunks that took those away,
    * and a changed one's also takes the hunk that removed it from there when it moved far.
    */
   old?: [number, number];
   /** With `rest`: the same for each function in it. */
   restOld?: Record<string, [number, number]>;
+  /**
+   * Another agent's changes in the file, left out of this agent's diff (git's, of the whole file):
+   * its changed symbols, with their lines before the change when known, and `top` when the file's
+   * code outside every symbol is its too.
+   */
+  peer?: { ids: string[]; old?: Record<string, [number, number]>; top: boolean };
+  /** Another agent changed this function too after this agent did: some of its rows are that agent's. */
+  shared?: true;
+  /** The same for the file's code outside every symbol, on the stop that shows it (`rest`'s, or the file's own). */
+  topShared?: true;
 }
 
 /**
@@ -46,8 +63,11 @@ export function tourStops(
   graphIndex: Map<string, GraphNode>,
   agent: AgentActivity,
   nodes: Record<string, NodeChange>,
+  lost: readonly GraphEdge[] = [],
 ): TourStop[] {
-  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id))), graph, graphIndex);
+  // Each file's classes left out for a method in them, whose own lines its first stop shows.
+  const outer = new Map<string, { id: string; at: number; shared?: true; old?: [number, number] }[]>();
+  const out = order(collect(graphIndex, agent, nodes, new Set(graph.layers.map((l) => l.id)), outer), graph, graphIndex, lost);
   // The first function stop of each file carries the file's other hunks.
   const fns = new Map<string, string[]>();
   // And each one's lines before the change, gathered in the same pass.
@@ -65,13 +85,29 @@ export function tourStops(
       else olds.set(f, { [s.id]: s.old });
     }
   }
+  // It's new again too when the agent changes that code (an import, a constant) since.
+  const top = new Map(agent.files.filter((f) => f.repo && f.topAt).map((f) => [`${f.repo}/${f.path}`, Date.parse(f.topAt!)]));
+  const topShared = new Set(agent.files.filter((f) => f.repo && f.topAt && f.topShared).map((f) => `${f.repo}/${f.path}`));
   const marked = new Set<string>();
   return out.map((s) => {
     const f = fileOf(s);
     if (!f || marked.has(f)) return s;
     marked.add(f);
-    const old = olds.get(f);
-    return { ...s, rest: fns.get(f)!, ...(old && { restOld: old }) };
+    const at = top.get(f);
+    // Each class left out for a method keeps its lines before the change too, so its rows are known as this agent's.
+    const outerOld = Object.fromEntries((outer.get(f) ?? []).filter((c) => c.old).map((c) => [c.id, c.old!]));
+    const old = olds.get(f) || Object.keys(outerOld).length ? { ...olds.get(f), ...outerOld } : undefined;
+    const carries = [...(at != null ? [{ id: f, at }] : []), ...(outer.get(f) ?? []).map((c) => ({ id: c.id, at: c.at }))];
+    // A class left out for a method in it, that another agent changed too: its rows show here.
+    const shared = s.shared || outer.get(f)?.some((c) => c.shared);
+    return {
+      ...s,
+      rest: fns.get(f)!,
+      ...(carries.length && { carries }),
+      ...(old && { restOld: old }),
+      ...(shared && { shared: true as const }),
+      ...(topShared.has(f) && { topShared: true as const }),
+    };
   });
 }
 
@@ -83,13 +119,16 @@ export function tourStops(
  */
 export function tourCache(): typeof tourStops {
   let last: { graph: object; graphIndex: object; key: string; stops: TourStop[] } | null = null;
-  return (graph, graphIndex, agent, nodes) => {
+  return (graph, graphIndex, agent, nodes, lost = []) => {
     // The indexer's revision of the agent's files; an older indexer's state has none, so the files themselves.
-    const key = agent.filesRev
-      ? `${agent.id}\n${agent.filesRev}`
-      : JSON.stringify([agent.id, agent.files, agent.files.map((f) => (f.repo ? (nodes[`${f.repo}/${f.path}`]?.anchor ?? null) : null))]);
+    // And the links into deleted code the indexer kept, which order the stops as the graph's own do.
+    const key =
+      (agent.filesRev
+        ? `${agent.id}\n${agent.filesRev}`
+        : JSON.stringify([agent.id, agent.files, agent.files.map((f) => (f.repo ? (nodes[`${f.repo}/${f.path}`]?.anchor ?? null) : null))])) +
+      lost.map((e) => `\n${e.from}\t${e.to}`).join('');
     if (last && last.graph === graph && last.graphIndex === graphIndex && last.key === key) return last.stops;
-    last = { graph, graphIndex, key, stops: tourStops(graph, graphIndex, agent, nodes) };
+    last = { graph, graphIndex, key, stops: tourStops(graph, graphIndex, agent, nodes, lost) };
     return last.stops;
   };
 }
@@ -117,7 +156,13 @@ export function reviewable(graphIndex: Map<string, GraphNode>, agent: AgentActiv
 }
 
 /** The stops, in the order the agent's files list them. */
-function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes: Record<string, NodeChange>, layers?: Set<string>): TourStop[] {
+function collect(
+  graphIndex: Map<string, GraphNode>,
+  agent: AgentActivity,
+  nodes: Record<string, NodeChange>,
+  layers?: Set<string>,
+  outer?: Map<string, { id: string; at: number; shared?: true; old?: [number, number] }[]>,
+): TourStop[] {
   const stops: TourStop[] = [];
   const seen = new Set<string>();
   const add = (s: TourStop) => {
@@ -162,9 +207,27 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
     // (Only a circle the map still has: a removed repository leaves an anchor that isn't.)
     const anchor = nodes[file]?.anchor;
     const stand = graphIndex.has(file) ? file : f.node && graphIndex.has(f.node) ? f.node : anchor && graphIndex.has(anchor) ? anchor : null;
-    const base = { path: f.path, repo: f.repo };
+    const peer =
+      f.kind !== 'deleted' && (f.others?.length || f.topTheirs)
+        ? {
+            ids: (f.others ?? []).map((s) => s.id),
+            ...(f.others?.some((s) => s.oldLines) && { old: Object.fromEntries(f.others.filter((s) => s.oldLines).map((s) => [s.id, s.oldLines!])) }),
+            top: !!f.topTheirs,
+          }
+        : undefined;
+    const base = { path: f.path, repo: f.repo, ...(peer && { peer }) };
     if (f.symbols.length && f.kind !== 'deleted') {
-      for (const s of innermost(f.symbols, graphIndex)) {
+      const inner = innermost(f.symbols, graphIndex);
+      if (outer && inner.length < f.symbols.length) {
+        const kept = new Set(inner);
+        outer.set(
+          file,
+          f.symbols
+            .filter((s) => !kept.has(s))
+            .map((s) => ({ id: s.id, at: s.at ? Date.parse(s.at) : at, ...(s.shared && { shared: true as const }), ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }) })),
+        );
+      }
+      for (const s of inner) {
         const live = s.kind !== 'deleted' && graphIndex.has(s.id);
         const target = live ? s.id : stand;
         if (!target) continue;
@@ -172,10 +235,12 @@ function collect(graphIndex: Map<string, GraphNode>, agent: AgentActivity, nodes
         // while the project still has that layer (Unlayered it always has, though it isn't listed).
         const kept = !live && s.layer && (s.layer === UNLAYERED || layers?.has(s.layer)) ? s.layer : null;
         const layer = kept ?? layerOf(target);
-        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at, ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }) });
+        // The function's own change time, so editing another function in the file doesn't unread it.
+        add({ ...base, id: s.id, target, name: s.name, kind: s.kind, layer, at: s.at ? Date.parse(s.at) : at, ...(s.kind !== 'added' && s.oldLines && { old: s.oldLines }), ...(s.shared && { shared: true as const }) });
       }
     } else if (stand) {
-      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at });
+      // Only the file's other code left changed (an import): its own time, not the file's latest.
+      add({ ...base, id: file, target: stand, name: f.path.slice(f.path.lastIndexOf('/') + 1), kind: f.kind, layer: layerOf(stand), at: f.topAt ? Date.parse(f.topAt) : at, ...(f.topShared && { topShared: true as const }) });
     }
   }
   return stops;
@@ -222,7 +287,7 @@ const PAIRS = 4096;
  * callback, a shared type) don't hold anything back. Ties go by repository,
  * path and line, so the order is stable.
  */
-function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphIndex: Map<string, GraphNode>): TourStop[] {
+function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphIndex: Map<string, GraphNode>, lost: readonly GraphEdge[]): TourStop[] {
   if (stops.length < 2) return stops;
   // The layers' own order, as the legend shows them: ranks can be partial and collide with positions.
   const rank = new Map(graph.layers.map((l, i) => [l.id, i]));
@@ -308,7 +373,8 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
     }
   };
   const seen = new Set<string>();
-  for (const e of graph.edges) {
+  // The links into code the agent deleted are gone from the graph; the indexer kept them.
+  for (const e of [...graph.edges, ...lost]) {
     const key = `${e.from}\n${e.to}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -515,8 +581,21 @@ export const tourOver = (stops: readonly TourStop[], agentGraph?: number, loaded
 /** Read marks: for each stop id, the change time it was read at. */
 export type ReadMarks = Record<string, number>;
 
-/** Read, and not changed again since. */
-export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at;
+/** Read, and not changed again since: the stop's own code, and the file's other code it shows. */
+export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= s.at && (s.carries ?? []).every((c) => (marks[c.id] ?? -1) >= c.at);
+
+/** When what a stop shows last changed: its own code or the other code it carries, so its diff is fetched again when either moves. */
+export const stopRev = (s: TourStop) => Math.max(s.at, ...(s.carries ?? []).map((c) => c.at));
+
+/** The marks with a stop read (as it is now) or unread again, the file's other code it shows with it. */
+export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMarks {
+  const next = { ...marks };
+  for (const { id, at } of [{ id: s.id, at: s.at }, ...(s.carries ?? [])]) {
+    if (read) next[id] = at;
+    else delete next[id];
+  }
+  return next;
+}
 
 /** The tour's diff on screen: the stop id it's for and the change time it was fetched for (null while it loads). */
 export interface ShownDiff {
@@ -531,13 +610,16 @@ export interface ShownDiff {
 /** What a node's diff request left: its diffs, or (failed) the last ones it had while it says so. */
 export interface FetchedDiffs<T> {
   node: string;
+  /** Whose diff it is, on a review tour: another agent's tour of the same node asks again. */
+  agent?: string;
   rev: number;
   list: T[];
   failed?: true;
 }
 
 /** The change time of the node's diff on screen: null while it loads, or when the last request for it failed. */
-export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string) => (f?.node === node && !f.failed ? f.rev : null);
+export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string, agent?: string) =>
+  f?.node === node && f.agent === agent && !f.failed ? f.rev : null;
 
 /**
  * Whether marking the stop read reads what was shown: not while its diff is loading, or while an
@@ -545,18 +627,18 @@ export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string) => (f?.node
  * (the map is on something else) there's nothing to wait for.
  */
 export const diffShown = (shown: ShownDiff | null, s: TourStop) =>
-  !shown || shown.node !== s.id || (shown.rev !== null && shown.rev >= s.at);
+  !shown || shown.node !== s.id || (shown.rev !== null && shown.rev >= stopRev(s));
 
-/** Which stop is on screen, and whether it's shown: what the detail panel has to have seen before its word on the diff counts. */
-export const shownKey = (s: TourStop | undefined, showing: boolean) => (s ? `${s.id}\n${showing}` : null);
+/** Which stop is on screen, on whose tour, and whether it's shown: what the detail panel has to have seen before its word on the diff counts. */
+export const shownKey = (s: TourStop | undefined, showing: boolean, agent?: string) => (s ? `${s.id}\n${agent ?? ''}\n${showing}` : null);
 
 /**
  * Whether the stop can be marked read. The detail panel says its diff is loading from an effect,
  * after the render that first shows the stop, so until App's own effect (which runs after the
  * panel's) has seen the stop as it is now (`settled`), what `shown` says is still about the stop before.
  */
-export const readyToMark = (s: TourStop | undefined, showing: boolean, settled: string | null, shown: ShownDiff | null) =>
-  !s || (settled === shownKey(s, showing) && diffShown(shown, s));
+export const readyToMark = (s: TourStop | undefined, showing: boolean, settled: string | null, shown: ShownDiff | null, agent?: string) =>
+  !s || (settled === shownKey(s, showing, agent) && diffShown(shown, s));
 
 /** The first stop not read yet at or after `from`, wrapping round; -1 when every one is read. */
 export function nextUnread(stops: readonly TourStop[], marks: ReadMarks, from = 0): number {
