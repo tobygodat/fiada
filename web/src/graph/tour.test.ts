@@ -150,6 +150,9 @@ test('a change is marked read only once its own diff is on screen', () => {
   assert.equal(shownRev({ node: again.id, rev: again.at, list: [] }, again.id), again.at);
   assert.equal(shownRev({ node: again.id, rev: again.at, list: ['older'], failed: true }, again.id), null);
   assert.equal(shownRev({ node: first.id, rev: first.at, list: [] }, 'web/src/pages/about.tsx'), null);
+  // Another agent's tour of the same node: what was fetched for the last tour isn't its diff.
+  assert.equal(shownRev({ node: again.id, agent: 'a', rev: again.at, list: [] }, again.id, 'a'), again.at);
+  assert.equal(shownRev({ node: again.id, agent: 'a', rev: again.at, list: [] }, again.id, 'b'), null);
   // No diff of this stop on screen: nothing to wait for.
   assert.equal(diffShown(null, again), true);
   assert.equal(diffShown({ node: 'web/src/pages/about.tsx', rev: null }, again), true);
@@ -171,6 +174,9 @@ test('a stop just moved to waits to be marked read until the panel has had its s
   assert.equal(readyToMark(two, true, shownKey(two, true), { node: two.id, rev: two.at }), true);
   // No panel diff for it at all: nothing to wait for, once seen.
   assert.equal(readyToMark(two, true, shownKey(two, true), loaded), true);
+  // Another agent's tour on the same stop: not until App has seen it on that tour.
+  assert.equal(readyToMark(two, true, shownKey(two, true, 'a'), { node: two.id, rev: two.at }, 'b'), false);
+  assert.equal(readyToMark(two, true, shownKey(two, true, 'b'), { node: two.id, rev: two.at }, 'b'), true);
   assert.equal(readyToMark(undefined, false, null, null), true);
 });
 

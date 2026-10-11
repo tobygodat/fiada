@@ -747,7 +747,7 @@ export function App() {
   // The tour's stop, whether it's on screen, and the last way App's effects saw it (see readyToMark).
   const stop = stops[tourAt];
   const showing = !!stop && !!tree && !selectedEdge && selected === locate(tree, graphIndex, stop.target);
-  const stopKey = shownKey(stop, showing);
+  const stopKey = shownKey(stop, showing, touring?.agent);
   const [settled, setSettled] = useState<string | null>(null);
   useEffect(() => setSettled(stopKey), [stopKey]);
   const crumbsAt = useMemo(() => {
@@ -882,7 +882,7 @@ export function App() {
             layers={graph?.layers ?? []}
             besideDetail={detailOpen}
             showing={showing}
-            ready={readyToMark(stop, showing, settled, shownDiff)}
+            ready={readyToMark(stop, showing, settled, shownDiff, touring?.agent)}
             cut={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.cut}
             behind={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.behind}
             onGo={goStop}

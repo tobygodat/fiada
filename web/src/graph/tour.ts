@@ -605,13 +605,16 @@ export interface ShownDiff {
 /** What a node's diff request left: its diffs, or (failed) the last ones it had while it says so. */
 export interface FetchedDiffs<T> {
   node: string;
+  /** Whose diff it is, on a review tour: another agent's tour of the same node asks again. */
+  agent?: string;
   rev: number;
   list: T[];
   failed?: true;
 }
 
 /** The change time of the node's diff on screen: null while it loads, or when the last request for it failed. */
-export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string) => (f?.node === node && !f.failed ? f.rev : null);
+export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string, agent?: string) =>
+  f?.node === node && f.agent === agent && !f.failed ? f.rev : null;
 
 /**
  * Whether marking the stop read reads what was shown: not while its diff is loading, or while an
@@ -621,16 +624,16 @@ export const shownRev = <T>(f: FetchedDiffs<T> | null, node: string) => (f?.node
 export const diffShown = (shown: ShownDiff | null, s: TourStop) =>
   !shown || shown.node !== s.id || (shown.rev !== null && shown.rev >= stopRev(s));
 
-/** Which stop is on screen, and whether it's shown: what the detail panel has to have seen before its word on the diff counts. */
-export const shownKey = (s: TourStop | undefined, showing: boolean) => (s ? `${s.id}\n${showing}` : null);
+/** Which stop is on screen, on whose tour, and whether it's shown: what the detail panel has to have seen before its word on the diff counts. */
+export const shownKey = (s: TourStop | undefined, showing: boolean, agent?: string) => (s ? `${s.id}\n${agent ?? ''}\n${showing}` : null);
 
 /**
  * Whether the stop can be marked read. The detail panel says its diff is loading from an effect,
  * after the render that first shows the stop, so until App's own effect (which runs after the
  * panel's) has seen the stop as it is now (`settled`), what `shown` says is still about the stop before.
  */
-export const readyToMark = (s: TourStop | undefined, showing: boolean, settled: string | null, shown: ShownDiff | null) =>
-  !s || (settled === shownKey(s, showing) && diffShown(shown, s));
+export const readyToMark = (s: TourStop | undefined, showing: boolean, settled: string | null, shown: ShownDiff | null, agent?: string) =>
+  !s || (settled === shownKey(s, showing, agent) && diffShown(shown, s));
 
 /** The first stop not read yet at or after `from`, wrapping round; -1 when every one is read. */
 export function nextUnread(stops: readonly TourStop[], marks: ReadMarks, from = 0): number {

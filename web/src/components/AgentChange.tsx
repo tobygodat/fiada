@@ -43,24 +43,26 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
   const [diffs, setDiffs] = useState<FetchedDiffs<AgentDiff> | null>(null);
   // Asking again after a failed request.
   const [attempt, setAttempt] = useState(0);
-  const key = `${node}|${rev}`;
+  // Another agent's tour of the same node is another request, whatever the file's time.
+  const key = `${node}|${rev}|${agent ?? ''}`;
   // A long diff shows its first rows, and the rest on asking: nothing of the change is out of reach.
   const [whole, setWhole] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     api.agentDiffs(node).then(
-      (r) => live && setDiffs({ node, rev, list: r.diffs }),
+      (r) => live && setDiffs({ node, agent, rev, list: r.diffs }),
       // Whatever of this node was on screen stays, said to be out of date.
-      () => live && setDiffs((d) => ({ node, rev, list: d?.node === node ? d.list : [], failed: true })),
+      () => live && setDiffs((d) => ({ node, agent, rev, list: d?.node === node && d.agent === agent ? d.list : [], failed: true })),
     );
     return () => {
       live = false;
     };
-  }, [key, node, attempt]);
+  }, [key, node, agent, attempt]);
 
-  // Only this node's diffs: the last node's stay in state until the new request lands.
+  // Only this node's diffs, fetched for this tour: the last ones stay in state until the new request lands.
   // (An older diff of this same node is fine to show while a newer one loads.)
-  const mine = diffs?.node === node ? diffs.list.filter((d) => !agent || d.agent === agent) : null;
+  const ours = diffs?.node === node && diffs.agent === agent ? diffs : null;
+  const mine = ours ? ours.list.filter((d) => !agent || d.agent === agent) : null;
   const list = mine ?? [];
   const picked = list.map((d) => (d.diff ? pickHunks(d.diff, own, rest, peer) : []));
   const cut = picked.some(cutShort);
@@ -68,7 +70,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
 
   // Which change of it is on screen, so a review tour doesn't mark a newer one (or one it couldn't
   // load) read, and says when the agent cut short what it shows or sent no diff of its latest change.
-  const loaded = shownRev(diffs, node);
+  const loaded = shownRev(diffs, node, agent);
   useEffect(() => {
     onShown?.({ node, rev: loaded, ...(cut && { cut }), ...(old && { behind: old }) });
   }, [onShown, node, loaded, cut, old]);
@@ -86,7 +88,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
         </p>
       )}
       {!mine && <div className="agent-note">loading the diff…</div>}
-      {diffs?.node === node && diffs.failed && (
+      {ours?.failed && (
         <div className="agent-note">
           The diff couldn't be loaded{list.length ? '; this is the one from before' : ''}.{' '}
           <button className="link" onClick={() => setAttempt((n) => n + 1)}>
@@ -94,7 +96,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
           </button>
         </div>
       )}
-      {mine && !list.length && !diffs?.failed && <div className="agent-note">No diff was recorded for this change.</div>}
+      {mine && !list.length && !ours?.failed && <div className="agent-note">No diff was recorded for this change.</div>}
       {list.map((d, k) => {
         const shown = diffRows(picked[k]);
         const n = ownCounts(d, peer, [...(own ? [own] : []), ...(rest ?? [])]);
