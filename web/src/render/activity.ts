@@ -222,6 +222,27 @@ function unreadDot(ctx: CanvasRenderingContext2D, x: number, y: number, outer: n
   ctx.fill();
 }
 
+/**
+ * How far out from its centre a circle's steady marks reach (its change ring,
+ * the green "working here" ring, the ripple and looked-at rings and the unread dot),
+ * or null when it has none.
+ * Words drawn later keep outside this. The fading pulse is left out: it is
+ * gone in a few seconds, and words that dodged it would jump when it ends.
+ */
+export function marksReach(r: number, m: Marks | undefined, open: boolean): number | null {
+  if (!m) return null;
+  const ripple = rippleRing(m, open);
+  const here = m.here === 'self' || (m.here === 'inside' && !open) ? hereGeometry(r, !!m.self || ripple) : null;
+  if (!here && !m.self && !(ripple && r >= RIPPLE_MIN_R) && !looks(m, open)) return null;
+  const outer = here?.outer ?? ringGeometry(r).outer;
+  return m.self && m.selfUnread ? outer + unreadGeometry(0, 0, outer, r).gap : outer;
+}
+
+/** Whether the looked-at ring shows, given nothing changed or working here. */
+function looks(m: Marks, open: boolean) {
+  return m.looked === 'self' || (m.looked === 'inside' && !open && !changeCount(m));
+}
+
 /** Rings and pulses. Returns whether anything is still pulsing, so the caller keeps animating. */
 export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number, view?: { w: number; h: number }): boolean {
   let pulsing = false;
@@ -238,7 +259,7 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
     if (ripple) ripples.push({ x: d.x, y: d.y, r: d.r, guessed: m.reached === 'inferred' });
     // Looked at, and nothing changed, working or depending on a change here: the quietest mark there is.
-    if (!m.self && !here && !ripple && (m.looked === 'self' || (m.looked === 'inside' && !d.open && !changeCount(m)))) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
+    if (!m.self && !here && !ripple && m.looked && looks(m, d.open)) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
     if (m.self) {
       const color = changeColor(m.self);
       ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);

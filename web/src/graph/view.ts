@@ -185,6 +185,25 @@ export function contractLabel(c: Pick<Contract, 'items' | 'inferred'>): string {
   return `${main}${total > n ? ` +${total - n}` : ''}${guessed}`;
 }
 
+// Plainer still, for the words on a resting link.
+const REST_WORD: Record<EdgeKind, [string, string]> = { ...KIND_WORD, type: ['type', 'types'], http: ['request', 'requests'] };
+
+/**
+ * The words on a link at rest, before anyone points at it: how many and what
+ * ("12 calls", "3 requests", "1 import"), or the total and the two leading
+ * kinds when no one kind makes up two thirds ("159 calls & renders"). "?"
+ * when every interaction behind it was guessed.
+ */
+export function restLabel(c: Pick<Contract, 'items' | 'inferred'>): string {
+  const counts = kindCounts(c);
+  if (!counts.length) return '';
+  const [[kind, n], second] = counts;
+  const total = c.items.length;
+  const guessed = c.inferred === total ? '?' : '';
+  if (second && n * 3 < total * 2) return `${total} ${REST_WORD[kind][1]} & ${REST_WORD[second[0]][1]}${guessed}`;
+  return `${n} ${REST_WORD[kind][n === 1 ? 0 : 1]}${guessed}`;
+}
+
 /**
  * Edges resolved once per tree to integer node indices, so re-aggregating
  * them for a new set of visible nodes is a few array lookups per edge rather

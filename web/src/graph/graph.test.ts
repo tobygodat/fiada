@@ -5,7 +5,7 @@ import { directZoom, enclose, frame, freeArea, smoothZoom, zoomAt, type Camera }
 import { fixtureGraph } from './fixture.test-util.ts';
 import { closedRadius, layoutExpanded, type Circle } from './layout.ts';
 import { buildCodeTree, buildFunctionTree, locate, type Tree } from './tree.ts';
-import { aggregateEdges, clickAction, contractLabel, crossRepo, direction, expandedNodes, indexEdges, meetingPoint, withCollapsed, withPathOpen, withPathsOpen, type Visible } from './view.ts';
+import { aggregateEdges, clickAction, contractLabel, crossRepo, direction, expandedNodes, indexEdges, meetingPoint, restLabel, withCollapsed, withPathOpen, withPathsOpen, type Visible } from './view.ts';
 
 const graph = fixtureGraph();
 const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
@@ -143,6 +143,20 @@ test('link labels say what the link is', () => {
   // No one kind makes up two thirds: name the leading ones.
   assert.equal(label([e('calls'), e('calls'), e('type'), e('type')]), '4 calls & types');
   assert.equal(label([e('calls'), e('calls'), e('type'), e('type'), e('http')]), '5 calls, types…');
+});
+
+test('resting links say how many and what, in plain words', () => {
+  const e = (kind: EdgeKind, basis?: 'inferred') => ({ from: 'a', to: 'b', kind, basis });
+  const label = (items: ReturnType<typeof e>[]) => restLabel({ items, inferred: items.filter((x) => x.basis).length });
+  assert.equal(label([e('calls')]), '1 call');
+  assert.equal(label(Array.from({ length: 12 }, () => e('calls'))), '12 calls');
+  assert.equal(label([e('http'), e('http'), e('http')]), '3 requests');
+  assert.equal(label([e('imports'), e('imports')]), '2 imports');
+  // A few of another kind don't crowd the words: the main kind only, no "+1".
+  assert.equal(label([e('calls'), e('calls'), e('calls'), e('imports')]), '3 calls');
+  assert.equal(label([e('calls'), e('calls'), e('type'), e('type')]), '4 calls & types');
+  assert.equal(label([e('http', 'inferred'), e('http', 'inferred')]), '2 requests?');
+  assert.equal(label([]), '');
 });
 
 test('a link sits in the innermost circle holding both ends', () => {
