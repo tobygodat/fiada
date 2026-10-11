@@ -3,6 +3,7 @@
 //   bun run build
 //   bun run index vercel/next.js --out "$PWD/next.graph.json"
 //   bun run --cwd web bench "$PWD/next.graph.json"
+//   bun run --cwd web bench "$PWD/next.graph.json" --changes 40   with the agent overlay on
 //
 // Needs a Chromium for Playwright (bunx playwright install chromium), or set
 // CHROMIUM_PATH to one that's already installed.
@@ -26,6 +27,9 @@ if (!graphFile) {
 }
 const opt = (name, d) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : d);
 const frames = Number(opt('--frames', 80));
+// --changes N: an agent has just changed the N symbols the most code depends on, so the overlay
+// draws its rings, badges and the ripple on everything that depends on them; the worst case.
+const changes = Number(opt('--changes', 0));
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 if (!fs.existsSync(path.join(dist, 'index.html'))) {
   console.error('web/dist is missing: run bun run build first');
@@ -41,9 +45,28 @@ const workspace = {
   suggestions: [],
   project: { id: 'bench', groupingLocation: 'bench' },
 };
+const activity = (() => {
+  if (!changes) return null;
+  const into = new Map();
+  for (const e of graph.edges) into.set(e.to, (into.get(e.to) ?? 0) + 1);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const top = [...into].filter(([id]) => byId.get(id)?.kind === 'symbol').sort((a, b) => b[1] - a[1]).slice(0, changes);
+  const at = Date.now() - 60_000;
+  const nodes = {};
+  for (const [id] of top) {
+    nodes[id] = { kind: 'modified', agents: ['bench'], at, unit: 'symbol' };
+    nodes[byId.get(id).parent] = { kind: 'modified', agents: ['bench'], at, unit: 'file' };
+  }
+  return { version: 1, graphVersion: 1, agents: [], nodes };
+})();
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' };
 const server = http.createServer((req, res) => {
   const p = decodeURIComponent(req.url.split('?')[0]);
+  if (p === '/api/agent/stream' && activity) {
+    // Held open, as the indexer's is, so the map gets the state once and keeps it.
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    return res.write(`data: ${JSON.stringify(activity)}\n\n`);
+  }
   const f = path.join(dist, p === '/' ? 'index.html' : p);
   if (!f.startsWith(dist) || !fs.existsSync(f)) return res.writeHead(404).end();
   res.writeHead(200, { 'content-type': types[path.extname(f)] ?? 'application/octet-stream' });
@@ -108,7 +131,8 @@ for (const mode of ['click', 'zoom']) {
 }
 
 const n = graph.nodes.length;
-console.log(`${graphFile}: ${n} nodes, ${graph.edges.length} edges; frame intervals in ms (dropped = frames over 20ms)`);
+console.log(`${graphFile}: ${n} nodes, ${graph.edges.length} edges${activity ? `, ${changes} symbols changed by an agent` : ''}; frame intervals in ms (dropped = frames over 20ms)`);
 console.table(rows);
 await browser.close();
+server.closeAllConnections?.();
 server.close();

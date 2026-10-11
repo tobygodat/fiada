@@ -41,8 +41,9 @@ export function Privacy() {
 
         <h2>coding agents</h2>
         <p>
-          If you connect a coding agent, it reports the files it changes, their diffs, what it says it is doing and the first line of your latest
-          prompt. Fiada holds these in memory to draw them on your map, never on disk, and forgets them when you clear them or the indexer restarts.
+          If you connect a coding agent, it reports the files it changes, their diffs, what it says it is doing, the first line of your latest
+          prompt, and the files it reads or asks your map about. Fiada holds these in memory to draw them on your map, never on disk, and forgets
+          them when you clear them or the indexer restarts. Its questions are answered from your own map only.
         </p>
 
         <h2>in your browser</h2>

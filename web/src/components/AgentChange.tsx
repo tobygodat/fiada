@@ -26,6 +26,8 @@ interface Props {
   agent?: string;
   /** Told which change of the node is on screen (null rev while it loads), and null when it goes. */
   onShown?(shown: ShownDiff | null): void;
+  /** What the change reaches, in a sentence or two: who calls, imports or requests it. */
+  reach?: string[];
 }
 
 const MAX_LINES = 500;
@@ -37,7 +39,7 @@ const ago = (iso: string) => {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
-export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onShown }: Props) {
+export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onShown, reach = [] }: Props) {
   const [diffs, setDiffs] = useState<FetchedDiffs<AgentDiff> | null>(null);
   // Asking again after a failed request.
   const [attempt, setAttempt] = useState(0);
@@ -77,6 +79,12 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
         {VERB[kind]} by an agent
         {what && <bdi> · {what}</bdi>}
       </div>
+      {reach.length > 0 && (
+        <p className="agent-reach">
+          <span className="swatch-ring reached" aria-hidden />
+          <span>{reach.join(' ')}</span>
+        </p>
+      )}
       {!mine && <div className="agent-note">loading the diff…</div>}
       {diffs?.node === node && diffs.failed && (
         <div className="agent-note">

@@ -41,8 +41,8 @@ export function commandsFor(bin: string, pkg = PACKAGE): { hook: string; mcp: st
 
 const { hook: HOOK, mcp: MCP } = commandsFor(fileURLToPath(new URL('../bin/', import.meta.url)));
 
-/** Tools whose results can change files or the plan. Read-only tools are left out so they cost nothing. */
-export const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate';
+/** Tools whose results can change files or the plan, and Read, so the map can mark what the agent read. Searches are left out so they cost nothing. */
+export const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate|Read';
 
 type HookEntry = { matcher?: string; hooks: { type: 'command'; command: string; timeout?: number }[] };
 
@@ -132,6 +132,9 @@ export async function runSetup(args: string[]) {
 2. The hooks, in your project's .claude/settings.local.json (or .claude/settings.json to share them, or ~/.claude/settings.json for every project):
 
 ${JSON.stringify({ hooks: hooksBlock() }, null, 2).replace(/^/gm, '   ')}
+
+The MCP server's tools: status and flag_changes report what the agent is doing; where_is, who_uses and impact let it ask the map
+where code lives, what uses it and what an edit reaches.
 
 Or let this do both, in your project:  npx -y --package=@fiadatech/agent fiada setup --write .
 
