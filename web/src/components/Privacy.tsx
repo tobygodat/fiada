@@ -27,7 +27,7 @@ export function Privacy() {
         <h2>when you import a repository</h2>
         <p>
           Fiada clones it, or unpacks the folder you upload, on the server that runs the indexer, and reads its source files to draw the map. It
-          keeps the list of what you imported, the layers and rules you set, and the summaries it wrote, so your map is there when you come back.
+          keeps the list of what you imported, the layers and rules you set, the fences you put round parts of the map, and the summaries it wrote, so your map is there when you come back.
           The map itself is worked out again from the code each time and never stored. Nobody else's map shows your repositories.
         </p>
 

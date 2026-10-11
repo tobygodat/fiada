@@ -7,6 +7,7 @@
 // testing. Everything else (what's selected, what's open) lives in React and
 // arrives through setScene.
 
+import type { FenceRule } from '@fiada/shared';
 import type { TreeActivity } from '../graph/activity.ts';
 import type { Camera } from '../graph/camera.ts';
 import { directZoom, easeInOut, freeArea, smoothZoom, zoomAt } from '../graph/camera.ts';
@@ -15,7 +16,8 @@ import type { TNode, Tree } from '../graph/tree.ts';
 import { countKind, crossRepo, direction, kindCounts, meetingPoint, restLabel, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
-import { type BadgeCache, curveHits, drawBadges, drawRings, marksReach } from './activity.ts';
+import { type BadgeCache, curveHits, drawBadges, drawCollisions, drawRings, marksReach } from './activity.ts';
+import { drawFences } from './fences.ts';
 import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, ruleCrossesRing, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
@@ -64,6 +66,10 @@ export interface Scene {
   activity?: TreeActivity | null;
   /** One agent's changes and every circle round them, shown at full strength while the rest dims. */
   lit?: ReadonlySet<string> | null;
+  /** Circles marked "ask first" or "off limits" (fences.ts). */
+  fenced?: ReadonlyMap<string, FenceRule> | null;
+  /** Circles where two or more agents' changes meet, with how many agents. */
+  collisions?: ReadonlyMap<string, number> | null;
 }
 
 export interface RendererEvents {
@@ -587,6 +593,7 @@ export class MapRenderer {
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen, unlit: unlit && !sel && !hovered });
     }
     ctx.globalAlpha = 1;
+    if (scene.fenced?.size) drawFences(ctx, this.drawnNodes, scene.fenced, UNLIT);
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now(), { w, h });
 
     // ── labels ──
@@ -702,6 +709,10 @@ export class MapRenderer {
     }
     ctx.globalAlpha = 1;
 
+    // ── where agents meet, before the words on links so those keep clear of it ──
+    const met = scene.collisions?.size ? drawCollisions(ctx, this.drawnNodes, scene.collisions) : [];
+    if (met.length) this.lastFont = '';
+
     // ── words on resting links ──
     // What a link is, said before anyone points at it: "12 calls", "3 requests".
     // No box: muted Literata set in a gap cut from the line, the way an open
@@ -724,7 +735,7 @@ export class MapRenderer {
       // tags, open circles' names and other links' words.
       const crossesWords = (a: { x: number; y: number }, z: { x: number; y: number }) => {
         const n = Math.max(2, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
-        const rects = [...this.drawnTags, ...this.drawnTabs];
+        const rects = [...this.drawnTags, ...this.drawnTabs, ...met];
         for (let i = 0; i < n; i++) {
           const x = a.x + ((z.x - a.x) * i) / n;
           const y = a.y + ((z.y - a.y) * i) / n;
@@ -763,7 +774,7 @@ export class MapRenderer {
         const clear = (p: { x: number; y: number }, from?: { x: number; y: number }) => {
           const b = box(p);
           if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
-          if (this.drawnTags.some((o) => overlaps(b, o, 4)) || this.drawnTabs.some((o) => overlaps(b, o, 4)) || inCircle(b)) return false;
+          if (this.drawnTags.some((o) => overlaps(b, o, 4)) || this.drawnTabs.some((o) => overlaps(b, o, 4)) || met.some((o) => overlaps(b, o, 4)) || inCircle(b)) return false;
           if (from) {
             const end = { x: Math.max(b.x, Math.min(from.x, b.x + b.w)), y: Math.max(b.y, Math.min(from.y, b.y + b.h)) };
             if (crossesCircle(from, end) || crossesWords(from, end) || crossesLinks(from, end)) return false;
@@ -798,9 +809,9 @@ export class MapRenderer {
       ctx.lineJoin = 'miter';
     }
 
-    // ── agent badges, last so they can keep clear of every link, tag and tab ──
+    // ── agent badges, last so they can keep clear of every link, tag, tab and meeting ──
     if (scene.activity?.size) {
-      const taken = { edges: [...this.drawnEdges, ...rules], rects: [...this.drawnTags, ...this.drawnTabs], free: tagBox, view: { w, h } };
+      const taken = { edges: [...this.drawnEdges, ...rules], rects: [...this.drawnTags, ...this.drawnTabs, ...met], free: tagBox, view: { w, h } };
       drawBadges(ctx, this.drawnNodes, scene.activity, taken, this.badgeCache);
       this.lastFont = '';
     }

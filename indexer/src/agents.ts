@@ -3,12 +3,15 @@
 // agent (a client's session in a working tree), maps the files it changed onto graph
 // nodes, works out which symbols each change touched, re-indexes changed
 // files of local repositories, keeps what each agent looked at without
-// changing it, and pushes the result to the map.
+// changing it, and pushes the result to the map. It also answers an agent's
+// hook before an edit lands (check, with fences.ts) and says where two
+// agents' changes meet (collisions).
 //
 // Nothing here is persisted: activity is live state, and a restarted indexer
 // starts with an empty queue.
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -22,6 +25,10 @@ import type {
   AgentState,
   AgentStep,
   ChangeKind,
+  Collision,
+  FenceCheck,
+  FenceHit,
+  FenceVerdict,
   FileChange,
   Graph,
   GraphEdge,
@@ -30,6 +37,7 @@ import type {
   LookedAt,
   NodeChange,
 } from '@fiada/shared';
+import type { Fences, FencedFile } from './fences.ts';
 import { fileId, symbolIds } from './link.ts';
 import { parseFile } from './parse/index.ts';
 import type { Workspace } from './workspace.ts';
@@ -85,6 +93,8 @@ interface AgentRec {
   /** When the plan's active step last changed, so the newer of it and `said` heads the entry. */
   stepAt: number;
   files: Map<string, FileRec>;
+  /** The latest edit it tried inside a fence this turn. */
+  fenced?: FenceHit;
   /** Graph node id → when it last looked at it (asked Fiada about it, or read the file), oldest first. */
   looked: Map<string, number>;
   startedAt: number;
@@ -153,10 +163,51 @@ export function remoteKey(url: string): string {
     .toLowerCase();
 }
 
+/** A repo-relative path an agent sent, if it is one: forward slashes, inside the repository. */
+export function cleanRel(rel: unknown): string | undefined {
+  if (typeof rel !== 'string' || !rel || rel.includes('\\') || rel.startsWith('/') || /^[a-z]:/i.test(rel)) return undefined;
+  const parts = rel.split('/');
+  return parts.some((p) => !p || p === '.' || p === '..') ? undefined : rel;
+}
+
 /** Whether a changed-line range touches a symbol's lines. Pure removals only count strictly inside it. */
 export function touches(sym: [number, number], ranges: LineRange[]): boolean {
   const [s, e] = sym;
   return ranges.some(([a, b]) => (b >= a ? a <= e && b >= s : s < a && a <= e));
+}
+
+/**
+ * Where two or more agents' changes meet: each file or folder (never a whole
+ * repository) holding changes of more than one agent, deepest first. A folder
+ * is left out when a place inside it already says the same agents meet there.
+ */
+export function collisions(agents: Pick<AgentActivity, 'id' | 'files'>[], nodes: Map<string, Pick<GraphNode, 'id' | 'kind' | 'parent'>>): Collision[] {
+  const at = new Map<string, Map<string, Set<string>>>();
+  for (const a of agents) {
+    for (const f of a.files) {
+      // A file not on the map (new and not indexed yet, or deleted) meets others in the nearest folder that is.
+      const key = f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+      if (!key) continue;
+      let start = nodes.get(key);
+      for (let p = key; !start && p.lastIndexOf('/') > 0; ) start = nodes.get((p = p.slice(0, p.lastIndexOf('/'))));
+      for (let n = start; n && (n.kind === 'file' || n.kind === 'folder'); n = nodes.get(n.parent)) {
+        let who = at.get(n.id);
+        if (!who) at.set(n.id, (who = new Map()));
+        let files = who.get(a.id);
+        if (!files) who.set(a.id, (files = new Set()));
+        files.add(key);
+      }
+    }
+  }
+  const met = [...at].filter(([, who]) => who.size > 1).sort((a, b) => b[0].length - a[0].length);
+  const out: Collision[] = [];
+  for (const [id, who] of met) {
+    const ids = [...who.keys()].sort();
+    const same = out.some((c) => c.node.startsWith(`${id}/`) && c.agents.join() === ids.join());
+    if (same) continue;
+    out.push({ node: id, unit: nodes.get(id)!.kind === 'file' ? 'file' : 'folder', agents: ids, files: Object.fromEntries(ids.map((a) => [a, [...who.get(a)!]])) });
+  }
+  return out;
 }
 
 /**
@@ -243,6 +294,7 @@ export class AgentHub {
           rec.note = undefined;
           // A new turn: last turn's line no longer says what it's doing.
           rec.said = undefined;
+          rec.fenced = undefined;
           if (rec.steps.every((s) => s.status === 'done')) rec.steps = [];
           rec.state = 'working';
           break;
@@ -423,17 +475,22 @@ export class AgentHub {
   }
 
   /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
-  private async resolve(ref: AgentRef, f: FileChange): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
+  private async resolve(ref: AgentRef, f: FileChange, byName = true, theirRel?: string): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
+    // The deepest imported folder holding it: a repository nested in another (a submodule) is its own.
+    let best: { id: string; src: string } | null = null;
     for (const r of this.ws.repos) {
       if (r.kind !== 'local' || !this.ws.allowLocal) continue;
       const src = this.realSource(r.source);
-      if (inside(abs, src) && abs !== src) return { abs, repo: r.id, rel: posix(path.relative(src, abs)), live: true };
+      if (inside(abs, src) && abs !== src && (!best || src.length > best.src.length)) best = { id: r.id, src };
     }
+    if (best) return { abs, repo: best.id, rel: posix(path.relative(best.src, abs)), live: true };
     // Another checkout of an imported repository: match it by remote, then by folder name.
-    const co = f.checkout ?? (ref.root && inside(abs, ref.root) ? { root: ref.root, remote: ref.remote } : null);
-    if (co && inside(abs, co.root)) {
-      const rel = posix(path.relative(co.root, abs));
+    // `theirRel` is the path inside the checkout as the agent's machine worked it out, for an
+    // agent whose paths this machine can't read (Windows, against an indexer on Linux).
+    const co = f.checkout ?? (ref.root && (theirRel || inside(abs, ref.root)) ? { root: ref.root, remote: ref.remote } : null);
+    if (co && (theirRel || inside(abs, co.root))) {
+      const rel = theirRel ?? posix(path.relative(co.root, abs));
       if (co.remote) {
         const want = remoteKey(co.remote);
         for (const r of this.ws.repos) {
@@ -441,7 +498,8 @@ export class AgentHub {
           if (theirs && remoteKey(theirs) === want) return { abs, repo: r.id, rel, live: false };
         }
       }
-      const named = this.ws.repos.find((r) => r.name === path.basename(co.root));
+      // A checkout whose remote matched nothing is some other repository, whatever its folder is called.
+      const named = byName || !co.remote ? this.ws.repos.find((r) => r.name === path.basename(co.root)) : undefined;
       if (named) return { abs, repo: named.id, rel, live: false };
     }
     return { abs, live: false };
@@ -515,6 +573,56 @@ export class AgentHub {
     this.push();
   }
 
+  // ── fences ──
+
+  /**
+   * What the fences say about an edit the agent is about to make. Files
+   * outside every imported repository are never fenced. An edit that has to
+   * ask or is refused is shown on the agent's entry.
+   */
+  async check(req: FenceCheck, fences: Fences): Promise<FenceVerdict> {
+    // Another indexer sharing the store may have put a fence up since this one read them.
+    await fences.fresh();
+    const files: FencedFile[] = [];
+    for (const f of req.files ?? []) {
+      if (!f || typeof f.path !== 'string') continue;
+      // A file in another checkout than the agent's says which, as the post-edit sweep does.
+      const co = f.checkout && typeof f.checkout.root === 'string' && f.checkout.root ? { root: f.checkout.root, remote: typeof f.checkout.remote === 'string' ? f.checkout.remote : undefined } : undefined;
+      const rel = cleanRel(f.rel);
+      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified', checkout: co }, false, rel);
+      if (!where.repo) continue;
+      const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : [];
+      // The hook counted lines in the agent's own copy of the file. They place an edit against a
+      // fenced symbol only when that copy is the one Fiada reads, holding the very text the hook
+      // read (no other edit since), parsed as it is right now.
+      const sha = typeof f.sha256 === 'string' ? f.sha256 : null;
+      const symbols = lines.length && sha && where.live ? await this.symbolsNow(where.repo, where.rel!, sha) : null;
+      files.push({ repo: where.repo, rel: where.rel!, ...(symbols ? { lines, symbols } : {}) });
+    }
+    const v = fences.verdict(files, this.ws.getGraph());
+    if (v.decision !== 'allow' && v.fence && v.file) {
+      const rec = this.agentFor(req.agent);
+      rec.fenced = { node: v.fence.node, rule: v.fence.rule, decision: v.decision, file: v.file, at: new Date().toISOString() };
+      rec.updatedAt = Date.now();
+      this.version++;
+      this.push();
+    }
+    return v;
+  }
+
+  /**
+   * The symbols of a local repository's file as it is on disk now, by id; null when it can't be
+   * read or parsed, or no longer holds the text whose digest is `sha256`.
+   */
+  private async symbolsNow(repo: string, rel: string, sha256: string): Promise<Map<string, [number, number]> | null> {
+    const source = await this.ws.readSource(repo, rel).catch(() => null);
+    if (!source || createHash('sha256').update(source.text).digest('hex') !== sha256) return null;
+    const parsed = await parseFile(rel, source.text).catch(() => null);
+    if (!parsed) return null;
+    const ids = symbolIds(fileId(repo, rel), parsed);
+    return new Map(parsed.symbols.map((s, i) => [ids[i], s.lines]));
+  }
+
   /** Keeps the links into these files from outside them, as the graph has them now, before a re-index drops any. */
   private keepIncoming(files: Set<string>) {
     for (const e of this.ws.getGraph().edges) {
@@ -574,7 +682,7 @@ export class AgentHub {
     }, 60);
   }
 
-  private indexCache: { graph: Graph; nodes: Set<string>; symbols: Map<string, GraphNode[]>; folders: Map<string, string> } | null = null;
+  private indexCache: { graph: Graph; nodes: Set<string>; symbols: Map<string, GraphNode[]>; folders: Map<string, string>; byId: Map<string, GraphNode> } | null = null;
 
   private index(graph: Graph) {
     if (this.indexCache?.graph === graph) return this.indexCache;
@@ -582,8 +690,10 @@ export class AgentHub {
     const symbols = new Map<string, GraphNode[]>();
     const folders = new Map<string, string>(); // `${repo}/${dir}` → folder node id, for every dir a collapsed folder covers
     const folderPath = new Map<string, string>();
+    const byId = new Map<string, GraphNode>();
     for (const n of graph.nodes) {
       nodes.add(n.id);
+      byId.set(n.id, n);
       if (n.kind === 'symbol') {
         const list = symbols.get(n.parent) ?? [];
         list.push(n);
@@ -596,7 +706,7 @@ export class AgentHub {
       const stop = folderPath.get(n.parent) ?? '';
       for (let d = n.path; d && d !== '.' && d !== stop; d = path.posix.dirname(d)) folders.set(`${n.repo}/${d}`, n.id);
     }
-    return (this.indexCache = { graph, nodes, symbols, folders });
+    return (this.indexCache = { graph, nodes, symbols, folders, byId });
   }
 
   /** Nearest folder (or the repo) in the graph for a path that isn't there itself. */
@@ -731,6 +841,8 @@ export class AgentHub {
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const fenced: Record<string, FenceHit> = {};
+    for (const rec of this.agents.values()) if (rec.fenced) fenced[rec.id] = rec.fenced;
     // Kept links whose target is gone but still marked changed, from code that's still there.
     const lost: GraphEdge[] = [];
     for (const [file, kept] of this.lost) {
@@ -740,7 +852,7 @@ export class AgentHub {
       }
       for (const e of kept.values()) if (!ix.nodes.has(e.to) && ix.nodes.has(e.from) && nodes[e.to]) lost.push(e);
     }
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, ...(lost.length ? { lost } : {}) };
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, collisions: collisions(agents, ix.byId), fenced, ...(lost.length ? { lost } : {}) };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }

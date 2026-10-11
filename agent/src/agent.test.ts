@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,11 +10,11 @@ import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { firstLine, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
+import { aboutToEdit, fenceAnswer, placed, firstLine, linesOf, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
 import { ask } from './client.ts';
 import { clientId, formatImpact, nowLines, FiadaMcp } from './mcp.ts';
 import { applyConfig, configPath } from './env.ts';
-import { commandsFor, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
+import { commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -339,6 +340,106 @@ test('setup runs this copy by its path, or through npx when it lives in npx cach
   // And an npx hook written before the package moved to the fiadatech scope.
   const renamed = mergeHooks({ hooks: hooksBlock('npx -y --package=@fiada/agent@0.1.0 fiada hook') }, hooksBlock(installed.hook));
   assert.deepEqual(renamed.hooks.Stop, hooksBlock(installed.hook).Stop);
+});
+
+test('an edit is placed on the lines it replaces; a write, or text not in the file, is the whole file', async () => {
+  const text = 'a\nb\nc\nb\n';
+  assert.deepEqual(linesOf(text, 'b'), [[2, 2]]);
+  assert.deepEqual(linesOf(text, 'b', true), [[2, 2], [4, 4]]);
+  assert.deepEqual(linesOf(text, 'b\nc'), [[2, 3]]);
+  assert.deepEqual(linesOf(text, 'zz'), []);
+  const src = 'def a():\n    return 1\n\n\ndef b():\n    return 2\n';
+  const dir = await repo({ 'app.py': src });
+  // The digest of the text the lines were counted in, so the indexer can tell if it changed since.
+  const sha256 = createHash('sha256').update(src).digest('hex');
+  assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'return 2' }, dir), { path: path.join(dir, 'app.py'), lines: [[6, 6]], sha256 });
+  assert.deepEqual(await aboutToEdit('MultiEdit', { file_path: path.join(dir, 'app.py'), edits: [{ old_string: 'def a' }, { old_string: 'def b' }] }, dir), {
+    path: path.join(dir, 'app.py'),
+    lines: [
+      [1, 1],
+      [5, 5],
+    ],
+    sha256,
+  });
+  assert.deepEqual(await aboutToEdit('Edit', { file_path: 'app.py', old_string: 'not there' }, dir), { path: path.join(dir, 'app.py') });
+  assert.deepEqual(await aboutToEdit('Write', { file_path: 'new.py', content: 'x' }, dir), { path: path.join(dir, 'new.py') });
+  assert.equal(await aboutToEdit('Bash', { command: 'rm -rf app.py' }, dir), null);
+});
+
+test("a file in another checkout than the agent's says which, even one not written yet", async () => {
+  const own = await repo({ 'a.py': 'x\n' });
+  const other = await repo({ 'lib/b.py': 'y\n' });
+  git(other, 'remote', 'add', 'origin', 'https://github.com/acme/other.git');
+  const co = await checkout(own);
+  assert.deepEqual(await placed({ path: path.join(own, 'a.py') }, co), { path: path.join(own, 'a.py'), rel: 'a.py' });
+  const theirs = { root: other, remote: 'https://github.com/acme/other.git' };
+  assert.deepEqual(await placed({ path: path.join(other, 'lib/b.py'), lines: [[1, 1]] }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', lines: [[1, 1]], checkout: theirs });
+  assert.deepEqual(await placed({ path: path.join(other, 'new/deep/c.py') }, co), { path: path.join(other, 'new/deep/c.py'), rel: 'new/deep/c.py', checkout: theirs });
+  // A link is placed where it leads, lines and all, in this checkout or another.
+  await fs.symlink(path.join(own, 'a.py'), path.join(own, 'alias.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'alias.py'), lines: [[1, 1]] }, co), { path: path.join(own, 'a.py'), rel: 'a.py', lines: [[1, 1]] });
+  await fs.symlink(path.join(other, 'lib/b.py'), path.join(own, 'b-link.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'b-link.py') }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', checkout: theirs });
+  // A checkout inside the agent's own (a submodule) is its own repository.
+  const nested = path.join(own, 'vendor/sdk');
+  await fs.mkdir(nested, { recursive: true });
+  git(nested, 'init', '-q');
+  git(nested, 'remote', 'add', 'origin', 'https://github.com/acme/sdk.git');
+  assert.deepEqual(await placed({ path: path.join(nested, 'client.py') }, co), { path: path.join(nested, 'client.py'), rel: 'client.py', checkout: { root: nested, remote: 'https://github.com/acme/sdk.git' } });
+  // A link to a file not written yet is placed where the write would land.
+  await fs.symlink(path.join(other, 'lib/new.py'), path.join(own, 'dangling.py'));
+  assert.deepEqual(await placed({ path: path.join(own, 'dangling.py') }, co), { path: path.join(other, 'lib/new.py'), rel: 'lib/new.py', checkout: theirs });
+  // Outside any checkout: nothing to say.
+  const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
+  assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
+});
+
+test("the hook's answer to an edit inside a fence is Claude Code's own decision; outside, it says nothing", () => {
+  assert.equal(fenceAnswer(null), undefined);
+  assert.equal(fenceAnswer({ decision: 'allow' }), undefined);
+  assert.deepEqual(JSON.parse(fenceAnswer({ decision: 'deny', reason: 'off limits' })!), { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'off limits' } });
+  assert.equal(JSON.parse(fenceAnswer({ decision: 'ask', reason: 'ask first' })!).hookSpecificOutput.permissionDecision, 'ask');
+  // Setup asks before every edit tool, and only those.
+  assert.deepEqual(hooksBlock('node /x/fiada-hook.mjs').PreToolUse, [{ matcher: EDIT_MATCHER, hooks: [{ type: 'command', command: 'node /x/fiada-hook.mjs', timeout: 10 }] }]);
+});
+
+test('the hook asks Fiada before an edit lands, as Claude Code runs it, and stays out of the way when Fiada is down', async () => {
+  const dir = await repo({ 'core/config.py': 'SECRET = 1\n', 'main.py': 'print(1)\n' });
+  const asked: any[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url !== '/api/agent/check') return res.end('{"files":[]}');
+      const check = JSON.parse(body);
+      asked.push(check);
+      const p: string = check.files[0].path;
+      res.end(JSON.stringify(p.includes('/core/') ? { decision: 'deny', reason: 'core is off limits' } : p.endsWith('main.py') ? { decision: 'ask', reason: 'main.py: ask first' } : { decision: 'allow' }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const edit = (file: string, extra: object = {}) => ({ session_id: 'fence-test', cwd: dir, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, file), old_string: 'SECRET', new_string: 'KEY', ...extra } });
+  try {
+    const deny = JSON.parse(await runHook(edit('core/config.py'), { FIADA_URL: url }));
+    assert.deepEqual(deny, { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'core is off limits' } });
+    assert.equal(asked[0].agent.session, 'fence-test');
+    assert.equal(asked[0].agent.root, dir);
+    assert.equal(asked[0].tool, 'Edit');
+    assert.deepEqual(asked[0].files, [{ path: path.join(dir, 'core/config.py'), rel: 'core/config.py', lines: [[1, 1]], sha256: createHash('sha256').update('SECRET = 1\n').digest('hex') }]);
+    assert.equal(JSON.parse(await runHook(edit('main.py'), { FIADA_URL: url })).hookSpecificOutput.permissionDecision, 'ask');
+    // Allowed: nothing printed, so the person's own permission settings decide.
+    assert.equal(await runHook(edit('other.py'), { FIADA_URL: url }), '');
+    // Not an edit tool: not asked.
+    const before = asked.length;
+    assert.equal(await runHook({ ...edit('main.py'), tool_name: 'Read' }, { FIADA_URL: url }), '');
+    assert.equal(asked.length, before);
+  } finally {
+    server.close();
+  }
+  // Nobody listening: the edit goes ahead as if there were no fences.
+  assert.equal(await runHook(edit('core/config.py'), { FIADA_URL: 'http://127.0.0.1:9' }), '');
 });
 
 const item: NodeRef = { id: 'api/app/models.py#Item', kind: 'symbol', name: 'Item', repo: 'api', path: 'app/models.py', symbolKind: 'class', lines: [87, 93], layer: 'Data', domain: 'Items' };

@@ -6,7 +6,7 @@ import './env.ts';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
-import type { AgentEvent, AgentRef } from '@fiada/shared';
+import type { AgentEvent, AgentRef, FenceCheck, FenceVerdict } from '@fiada/shared';
 import { checkout, real, type Checkout } from './git.ts';
 
 const exec = promisify(execFile);
@@ -53,6 +53,24 @@ export async function ask<T>(route: 'find' | 'dependents' | 'impact', params: Re
     return { ok: false, status: res.status, error: body?.error ?? `Fiada answered ${res.status}.` };
   } catch {
     return { ok: false, status: 0, error: `Fiada isn't reachable at ${FIADA_URL}.` };
+  }
+}
+
+/**
+ * Asks the indexer whether the fences on the map let these files change.
+ * Null when Fiada didn't answer in time: the edit goes ahead as if there were no fences.
+ */
+export async function check(body: FenceCheck, timeoutMs = 1500): Promise<FenceVerdict | null> {
+  try {
+    const res = await fetch(`${FIADA_URL}/api/agent/check`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return res.ok ? ((await res.json()) as FenceVerdict) : null;
+  } catch {
+    return null;
   }
 }
 
