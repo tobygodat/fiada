@@ -108,8 +108,8 @@ export function markAllRead(marks: ReadMarks, nodes: Record<string, NodeChange>)
 
 /**
  * One agent's changes marked read, at the time of its own last change to each
- * file: a node another agent changed after it stays unread. Returns the new
- * marks, or null when there was nothing new to mark.
+ * file, and to each function in it: a node another agent changed after it stays
+ * unread. Returns the new marks, or null when there was nothing new to mark.
  */
 export function markAgentRead(marks: ReadMarks, a: AgentActivity): ReadMarks | null {
   let out: ReadMarks | null = null;
@@ -117,14 +117,20 @@ export function markAgentRead(marks: ReadMarks, a: AgentActivity): ReadMarks | n
     const at = Date.parse(f.at);
     const file = fileTarget(f);
     if (!Number.isFinite(at) || !file) continue;
-    for (const id of [file, ...f.symbols.map((s) => s.id)]) {
-      if ((marks[id] ?? 0) >= at) continue;
+    for (const [id, t] of [[file, at] as const, ...f.symbols.map((s) => [s.id, symbolAt(s, at)] as const)]) {
+      if ((marks[id] ?? 0) >= t) continue;
       out ??= { ...marks };
-      out[id] = at;
+      out[id] = t;
     }
   }
   return out;
 }
+
+/** A function's own change time, or (from an indexer without them) its file's. */
+const symbolAt = (s: AgentFile['symbols'][number], fileAt: number) => {
+  const t = s.at ? Date.parse(s.at) : NaN;
+  return Number.isFinite(t) ? t : fileAt;
+};
 
 /** The map id a changed file is shown at. */
 export const fileTarget = (f: AgentFile) => f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
@@ -151,9 +157,9 @@ export function agentUnreadIds(a: AgentActivity, unread: ReadonlySet<string>, ma
     const id = fileTarget(f);
     if (!id || !agentFileUnread(f, unread, marks, nodes)) continue;
     out.add(id);
-    // Its functions you haven't opened since its own change, whatever another agent did after.
+    // Its functions you haven't opened since its own change to each, whatever another agent did after.
     const at = Date.parse(f.at);
-    for (const s of f.symbols) if (unread.has(s.id) && !((marks[s.id] ?? 0) >= at)) out.add(s.id);
+    for (const s of f.symbols) if (unread.has(s.id) && !((marks[s.id] ?? 0) >= symbolAt(s, at))) out.add(s.id);
   }
   return out;
 }

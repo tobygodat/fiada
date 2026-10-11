@@ -169,3 +169,37 @@ test('read marks are kept per project and survive bad storage', () => {
     delete (globalThis as { localStorage?: unknown }).localStorage;
   }
 });
+
+test("a lit agent's functions go by its own change time to each, not its latest to the file", () => {
+  // a changed foo at 10; b changed foo at 20; a changed bar at 30. You opened foo at 20.
+  const three: Record<string, NodeChange> = {
+    'web/src/pages/items.tsx': change('modified', 'file', 30, ['a', 'b']),
+    'web/src/pages/items.tsx#foo': change('modified', 'symbol', 20, ['a', 'b']),
+    'web/src/pages/items.tsx#bar': change('modified', 'symbol', 30, ['a']),
+  };
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const a = {
+    id: 'a',
+    files: [
+      {
+        repo: 'web',
+        path: 'src/pages/items.tsx',
+        node: 'web/src/pages/items.tsx',
+        kind: 'modified',
+        symbols: [
+          { id: 'web/src/pages/items.tsx#foo', name: 'foo', kind: 'modified', at: iso(10) },
+          { id: 'web/src/pages/items.tsx#bar', name: 'bar', kind: 'modified', at: iso(30) },
+        ],
+        at: iso(30),
+      },
+    ],
+  } as unknown as AgentActivity;
+  const opened = { 'web/src/pages/items.tsx#foo': 20 };
+  const u = unreadIds(three, opened);
+  // Lit, a shows bar unread, not foo: its change to foo came before you opened it.
+  assert.deepEqual([...agentUnreadIds(a, u, opened, three)].sort(), ['web/src/pages/items.tsx', 'web/src/pages/items.tsx#bar']);
+  // Marking a read marks each function at a's own time for it, not its latest change to the file.
+  const marks = markAgentRead({}, a)!;
+  assert.equal(marks['web/src/pages/items.tsx#foo'], 10);
+  assert.equal(marks['web/src/pages/items.tsx#bar'], 30);
+});
