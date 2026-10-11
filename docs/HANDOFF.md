@@ -81,7 +81,7 @@ Toby asked for each change to be built end to end, with unit tests, a browser en
 
 ## Hooking up a coding agent
 
-The agent package reports edits to an indexer. It never gets in the agent's way: it gives up after 1.5 s and always exits 0.
+The agent package reports edits to an indexer. It always exits 0, and each request to the indexer (a report or a fence check) gives up after 1.5 s. Its git commands can take up to 10 s each, and Claude Code gives each hook 10 s, so a slow checkout can still stall an edit for a few seconds.
 
 **Local, from a checkout of this repo.** Run `bun run dev`, import the repository you'll work in by its local path (so edits re-index in place), then:
 
