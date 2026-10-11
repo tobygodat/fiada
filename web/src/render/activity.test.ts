@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
-import { type BadgeCache, BadgeSpace, curveHits, drawBadges, hereGeometry, ringGeometry, type Rect, type Taken, unreadGeometry } from './activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, hereGeometry, marksReach, ringGeometry, type Rect, type Taken, unreadGeometry } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
@@ -231,4 +231,19 @@ test('a link running far off screen at high zoom only blocks the spots it really
   const box = place(d, { edges: [e], rects: [] });
   assert.equal(touches(box), false, 'the badge went somewhere clear');
   assert.equal(curveHits(e, box), false);
+});
+
+test('marks reach out to the outermost ring and the unread dot', () => {
+  const m = (over: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, ...over });
+  const r = 40;
+  assert.equal(marksReach(r, undefined, false), null);
+  // Changes only underneath draw no ring, just a badge (which keeps clear of words itself).
+  assert.equal(marksReach(r, m({ added: 3 }), false), null);
+  assert.equal(marksReach(r, m({ self: 'modified' }), false), ringGeometry(r).outer);
+  const here = hereGeometry(r, true).outer;
+  assert.equal(marksReach(r, m({ self: 'added', here: 'self' }), false), here);
+  assert.equal(marksReach(r, m({ self: 'added', here: 'self', selfUnread: true }), false), here + unreadGeometry(0, 0, here, r).gap);
+  // An agent working inside an open circle rings its children, not the open rim.
+  assert.equal(marksReach(r, m({ here: 'inside' }), true), null);
+  assert.ok(marksReach(r, m({ here: 'inside' }), false)! > r);
 });

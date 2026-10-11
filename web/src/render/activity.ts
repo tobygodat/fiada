@@ -118,6 +118,20 @@ function unreadDot(ctx: CanvasRenderingContext2D, x: number, y: number, outer: n
   ctx.fill();
 }
 
+/**
+ * How far out from its centre a circle's steady marks reach (its change ring,
+ * the green "working here" ring and the unread dot), or null when it has none.
+ * Words drawn later keep outside this. The fading pulse is left out: it is
+ * gone in a few seconds, and words that dodged it would jump when it ends.
+ */
+export function marksReach(r: number, m: Marks | undefined, open: boolean): number | null {
+  if (!m) return null;
+  const here = m.here === 'self' || (m.here === 'inside' && !open) ? hereGeometry(r, !!m.self) : null;
+  if (!here && !m.self) return null;
+  const outer = here?.outer ?? ringGeometry(r).outer;
+  return m.self && m.selfUnread ? outer + unreadGeometry(0, 0, outer, r).gap : outer;
+}
+
 /** Rings and pulses. Returns whether anything is still pulsing, so the caller keeps animating. */
 export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number): boolean {
   let pulsing = false;

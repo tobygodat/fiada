@@ -15,7 +15,7 @@ import type { TNode, Tree } from '../graph/tree.ts';
 import { countKind, crossRepo, direction, kindCounts, meetingPoint, restLabel, visibleNodes, type Contract, type ExpandMode, type Visible } from '../graph/view.ts';
 import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
-import { type BadgeCache, drawBadges, drawRings } from './activity.ts';
+import { type BadgeCache, drawBadges, drawRings, marksReach } from './activity.ts';
 import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
@@ -710,7 +710,13 @@ export class MapRenderer {
     // strongest links get their words first.
     if (labelQueue.length) {
       this.font(400, 13);
-      const closed = this.drawnNodes.filter((d) => !d.open && d.r > 2);
+      // Closed circles, out to their activity rings and unread dots; open circles only where their rim carries marks.
+      const marked = (d: DrawnNode) => marksReach(d.r, scene.activity?.get(d.n.id), d.open);
+      const closed = this.drawnNodes.filter((d) => !d.open && d.r > 2).map((d) => ({ x: d.x, y: d.y, r: marked(d) ?? d.r }));
+      const rims = this.drawnNodes.flatMap((d) => {
+        const reach = d.open ? marked(d) : null;
+        return reach == null ? [] : [{ x: d.x, y: d.y, r: d.r, reach }];
+      });
       const overlaps = (b: Rect, o: Rect, m: number) => b.x < o.x + o.w + m && o.x < b.x + b.w + m && b.y < o.y + o.h + m && o.y < b.y + b.h + m;
       // A rule from the link to its words mustn't run over a closed circle.
       // Nor through words already set: tags, open circles' names and other links' words.
@@ -725,12 +731,10 @@ export class MapRenderer {
         return false;
       };
       const crossesCircle = (a: { x: number; y: number }, z: { x: number; y: number }) => closed.some((d) => distToSegment(d.x, d.y, a.x, a.y, z.x, z.y) < d.r + 1);
+      const nearest = (b: Rect, d: { x: number; y: number }) => Math.hypot(Math.max(b.x, Math.min(d.x, b.x + b.w)) - d.x, Math.max(b.y, Math.min(d.y, b.y + b.h)) - d.y);
+      const farthest = (b: Rect, d: { x: number; y: number }) => Math.hypot(Math.max(Math.abs(b.x - d.x), Math.abs(b.x + b.w - d.x)), Math.max(Math.abs(b.y - d.y), Math.abs(b.y + b.h - d.y)));
       const inCircle = (b: Rect) =>
-        closed.some((d) => {
-          const nx = Math.max(b.x, Math.min(d.x, b.x + b.w));
-          const ny = Math.max(b.y, Math.min(d.y, b.y + b.h));
-          return (nx - d.x) ** 2 + (ny - d.y) ** 2 < (d.r + 2) ** 2;
-        });
+        closed.some((d) => nearest(b, d) < d.r + 2) || rims.some((d) => nearest(b, d) < d.reach + 2 && farthest(b, d) > d.r - 2);
       // Always in the same order, so the words pointed at keep the spot they had.
       labelQueue.sort((p, q) => edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost) || (p.g.key < q.g.key ? -1 : 1));
       ctx.lineJoin = 'round';
