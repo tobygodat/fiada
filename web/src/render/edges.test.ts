@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import type { EdgeKind, GraphEdge } from '@fiada/shared';
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
-import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, restEdges } from './edges.ts';
+import { curveHits } from './activity.ts';
+import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, labelSpot, restEdges, ruleCrossesRing } from './edges.ts';
 
 const REST_EDGES = EDGE_POLICIES.key.restMax;
 
@@ -85,4 +86,73 @@ test('edges bend around circles in their way', () => {
   // Neighbours that almost touch get a short, nearly straight link.
   const near = curve({ x: 0, y: 0, r: 50 }, { x: 104, y: 0, r: 50 }, DEFAULT_BEND);
   assert.ok(Math.abs(near.my) < 1);
+});
+
+test('the resting overview says what its links are; the other presets keep their own look', () => {
+  assert.equal(EDGE_POLICIES.key.restLabels, true);
+  assert.equal(EDGE_POLICIES.key.restTags, false, 'words, not boxed tags, at rest');
+  // Every link already carries a tag, and no links means no words.
+  assert.equal(EDGE_POLICIES.all.restLabels, false);
+  assert.equal(EDGE_POLICIES.none.restLabels, false);
+});
+
+test('words go in a gap on a long link, beside a short one, and never where they are not clear', () => {
+  const half = { w: 30, h: 9 };
+  // Long and level: in the line, at its middle.
+  const long = labelSpot([0, 0, 100, 0, 200, 0], 200, half, 2, () => true)!;
+  assert.deepEqual([long.x, long.y, long.inline], [100, 0, true]);
+  // Short: beside it, the box clear of the stroke.
+  const short = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, () => true)!;
+  assert.equal(short.inline, false);
+  assert.ok(Math.abs(short.y) >= half.h + 1, 'the box clears the line');
+  assert.equal(short.from, undefined, 'right beside the line needs no rule');
+  // An upright link puts the words to one side, by their half width.
+  const upright = labelSpot([0, 0, 0, 25, 0, 50], 50, half, 2, () => true)!;
+  assert.ok(Math.abs(upright.x) >= half.w + 1);
+  // The middle is blocked: it moves along the line, or hangs further off on a rule.
+  const offMiddle = labelSpot([0, 0, 100, 0, 200, 0], 200, half, 2, (p) => Math.abs(p.x - 100) > 15)!;
+  assert.ok(offMiddle.inline && Math.abs(offMiddle.x - 100) > 15);
+  const far = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, (p) => Math.abs(p.y) > 30)!;
+  assert.ok(far.from && Math.abs(far.y) > 30, 'hung from the link by a rule');
+  assert.equal(labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, () => false), null);
+  // The rule is checked too: a spot whose rule is blocked is passed over for one whose rule is clear.
+  const ruled = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, (p, from) => Math.abs(p.y) > 30 && (!from || from.y > 0))!;
+  assert.ok(ruled.from && ruled.from.y > 0 && ruled.y > 30);
+});
+
+test('a rule to a link\'s words stays off the marks on an open circle\'s rim', () => {
+  // An open circle of radius 100 at the origin whose marks reach out to 110.
+  const ring = { x: 0, y: 0, inner: 99, outer: 111 };
+  // From a link inside the circle out past the rim: crosses the marks.
+  assert.equal(ruleCrossesRing({ x: 80, y: 0 }, { x: 130, y: 0 }, ring), true);
+  // Wholly inside the circle, or wholly outside it: clear.
+  assert.equal(ruleCrossesRing({ x: 20, y: 0 }, { x: 60, y: 30 }, ring), false);
+  assert.equal(ruleCrossesRing({ x: 130, y: -40 }, { x: 160, y: 40 }, ring), false);
+  // Outside at both ends but grazing the marks on the way: crosses.
+  assert.equal(ruleCrossesRing({ x: 105, y: -60 }, { x: 105, y: 60 }, ring), true);
+  // A rule that ends in the marks themselves crosses them too.
+  assert.equal(ruleCrossesRing({ x: 140, y: 0 }, { x: 106, y: 0 }, ring), true);
+});
+
+test('words on a link move off another link that crosses it', () => {
+  const half = { w: 30, h: 9 };
+  const mine = [0, 100, 200, 100, 400, 100];
+  // Another link crossing it upright at the middle, where its words would go first.
+  const other = { pts: [200, 0, 200, 100, 200, 200], w: 2, minX: 200, minY: 0, maxX: 200, maxY: 200 };
+  const box = (p: { x: number; y: number }) => ({ x: p.x - half.w, y: p.y - half.h, w: half.w * 2, h: half.h * 2 });
+  assert.equal(curveHits(other, box(labelSpot(mine, 400, half, 2, () => true)!)), true, 'left alone, the words sit on the other link');
+  const at = labelSpot(mine, 400, half, 2, (p) => !curveHits(other, box(p)))!;
+  assert.ok(at.inline, 'still in a gap on its own link');
+  assert.equal(curveHits(other, box(at)), false);
+});
+
+test('words keep off a rule already hung from another link', () => {
+  const half = { w: 30, h: 9 };
+  const mine = [0, 100, 200, 100, 400, 100];
+  // A rule from (200, 60) down to words below, kept as a straight link (its control point at its middle).
+  const rule = { pts: [200, 60, 200, 110, 200, 160], w: 1, minX: 200, minY: 60, maxX: 200, maxY: 160 };
+  const box = (p: { x: number; y: number }) => ({ x: p.x - half.w, y: p.y - half.h, w: half.w * 2, h: half.h * 2 });
+  const at = labelSpot(mine, 400, half, 2, (p) => !curveHits(rule, box(p)))!;
+  assert.equal(curveHits(rule, box(at)), false);
+  assert.notEqual(at.x, 200, 'moved off the middle, where the rule runs');
 });

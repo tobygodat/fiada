@@ -32,6 +32,12 @@ export interface EdgePolicy {
   boost: number;
   /** Letter tags on resting links too, not just on the ones in focus. */
   restTags: boolean;
+  /**
+   * Plain words on resting links that have room for them ("12 calls",
+   * "3 requests"): no box, set in a gap cut from the line, and gone the
+   * moment anything is in focus.
+   */
+  restLabels: boolean;
   /** Opacity of resting links while a circle or contract is in focus. */
   restFade: number;
   /** Bend links around closed circles rather than through them. */
@@ -40,11 +46,11 @@ export interface EdgePolicy {
 
 export const EDGE_POLICIES = {
   /** The few strongest links at rest; a circle's own links when you point at it or select it. */
-  key: { restMax: 6, perContainer: 3, focusMax: 8, restPower: 0.3, restMinItems: 2, boost: 3, restTags: false, restFade: 0.12, route: true },
+  key: { restMax: 6, perContainer: 3, focusMax: 8, restPower: 0.3, restMinItems: 2, boost: 3, restTags: false, restLabels: true, restFade: 0.12, route: true },
   /** Every link and tag, as the map used to draw them. */
-  all: { restMax: Infinity, perContainer: Infinity, focusMax: Infinity, restPower: 0, restMinItems: 1, boost: 1, restTags: true, restFade: 0.12, route: true },
+  all: { restMax: Infinity, perContainer: Infinity, focusMax: Infinity, restPower: 0, restMinItems: 1, boost: 1, restTags: true, restLabels: false, restFade: 0.12, route: true },
   /** No links until you point at a circle. */
-  none: { restMax: 0, perContainer: 0, focusMax: 8, restPower: 0, restMinItems: 1, boost: 3, restTags: false, restFade: 0, route: true },
+  none: { restMax: 0, perContainer: 0, focusMax: 8, restPower: 0, restMinItems: 1, boost: 3, restTags: false, restLabels: false, restFade: 0, route: true },
 } satisfies Record<string, EdgePolicy>;
 
 export type EdgePreset = keyof typeof EDGE_POLICIES;
@@ -93,6 +99,74 @@ export function restEdges(
     if (!more) break;
   }
   return out;
+}
+
+/**
+ * Whether a straight rule from `a` to `z` runs over a ring round (`x`, `y`)
+ * between radii `inner` and `outer`, such as the marks on an open circle's
+ * rim: it comes within `outer` of the centre and has an end out past `inner`.
+ * A rule wholly inside the ring's hole, or wholly clear of it, doesn't.
+ */
+export function ruleCrossesRing(a: { x: number; y: number }, z: { x: number; y: number }, ring: { x: number; y: number; inner: number; outer: number }): boolean {
+  const dx = z.x - a.x;
+  const dy = z.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((ring.x - a.x) * dx + (ring.y - a.y) * dy) / l2)) : 0;
+  const near = Math.hypot(ring.x - (a.x + t * dx), ring.y - (a.y + t * dy));
+  const far = Math.max(Math.hypot(a.x - ring.x, a.y - ring.y), Math.hypot(z.x - ring.x, z.y - ring.y));
+  return near < ring.outer && far > ring.inner;
+}
+
+/**
+ * Where a resting link's words go: in a gap cut from the line near its middle
+ * when the link is long enough to keep a stretch of line either side, else
+ * just beside the line, above or below it, hung from it by a short rule
+ * when neighbouring circles push the words further off. Points nearer the
+ * middle win.
+ * `half` is half the words' box; `ok` says whether a box centred there is
+ * clear (of the view's edges, tags, names and closed circles), and for words
+ * on a rule, whether the rule from `from` is clear too. Null when nothing fits.
+ */
+export function labelSpot(
+  [x1, y1, cx, cy, x2, y2]: readonly number[],
+  gap: number,
+  half: { w: number; h: number },
+  lineWidth: number,
+  ok: (p: { x: number; y: number }, from?: { x: number; y: number }) => boolean,
+): { x: number; y: number; inline: boolean; from?: { x: number; y: number } } | null {
+  const ts = [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7];
+  const point = (t: number) => {
+    const u = 1 - t;
+    return { x: u * u * x1 + 2 * u * t * cx + t * t * x2, y: u * u * y1 + 2 * u * t * cy + t * t * y2 };
+  };
+  if (gap >= half.w * 2 + 48) {
+    for (const t of ts) {
+      const p = point(t);
+      if (ok(p)) return { ...p, inline: true };
+    }
+  }
+  // Beside the line: along its normal, far enough that the box clears the stroke whichever way the line runs.
+  const clear = lineWidth / 2 + 3;
+  for (const more of [0, 12, 26, 42, 60]) {
+    for (const t of ts) {
+      const { x, y } = point(t);
+      const u = 1 - t;
+      const tx = 2 * u * (cx - x1) + 2 * t * (x2 - cx);
+      const ty = 2 * u * (cy - y1) + 2 * t * (y2 - cy);
+      const d = Math.hypot(tx, ty) || 1;
+      const nx = -ty / d;
+      const ny = tx / d;
+      // The box's reach along the normal: its half height across a level line, its half width beside an upright one.
+      const off = Math.abs(nx) * half.w + Math.abs(ny) * half.h + clear + more;
+      for (const side of [-1, 1]) {
+        const p = { x: x + nx * off * side, y: y + ny * off * side };
+        // Further off only where circles crowd the line; the words then hang from it by a short rule.
+        const from = more ? { x: x + nx * (clear - 1) * side, y: y + ny * (clear - 1) * side } : undefined;
+        if (ok(p, from)) return { ...p, inline: false, from };
+      }
+    }
+  }
+  return null;
 }
 
 /** Sideways offset of the curve's control point, as a share of the gap between the two rims. */
