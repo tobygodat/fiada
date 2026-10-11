@@ -16,7 +16,7 @@ import { countKind, crossRepo, direction, kindCounts, meetingPoint, restLabel, v
 import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
 import { type BadgeCache, drawBadges, drawRings, marksReach } from './activity.ts';
-import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, type EdgePolicy, type EdgePreset } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, ruleCrossesRing, type EdgePolicy, type EdgePreset } from './edges.ts';
 
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
@@ -718,8 +718,8 @@ export class MapRenderer {
         return reach == null ? [] : [{ x: d.x, y: d.y, r: d.r, reach }];
       });
       const overlaps = (b: Rect, o: Rect, m: number) => b.x < o.x + o.w + m && o.x < b.x + b.w + m && b.y < o.y + o.h + m && o.y < b.y + b.h + m;
-      // A rule from the link to its words mustn't run over a closed circle.
-      // Nor through words already set: tags, open circles' names and other links' words.
+      // A rule from the link to its words mustn't run through words already set:
+      // tags, open circles' names and other links' words.
       const crossesWords = (a: { x: number; y: number }, z: { x: number; y: number }) => {
         const n = Math.max(2, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
         const rects = [...this.drawnTags, ...this.drawnTabs];
@@ -730,7 +730,10 @@ export class MapRenderer {
         }
         return false;
       };
-      const crossesCircle = (a: { x: number; y: number }, z: { x: number; y: number }) => closed.some((d) => distToSegment(d.x, d.y, a.x, a.y, z.x, z.y) < d.r + 1);
+      // Nor over a closed circle, or across the marks on an open one's rim.
+      const crossesCircle = (a: { x: number; y: number }, z: { x: number; y: number }) =>
+        closed.some((d) => distToSegment(d.x, d.y, a.x, a.y, z.x, z.y) < d.r + 1) ||
+        rims.some((d) => ruleCrossesRing(a, z, { x: d.x, y: d.y, inner: d.r - 1, outer: d.reach + 1 }));
       const nearest = (b: Rect, d: { x: number; y: number }) => Math.hypot(Math.max(b.x, Math.min(d.x, b.x + b.w)) - d.x, Math.max(b.y, Math.min(d.y, b.y + b.h)) - d.y);
       const farthest = (b: Rect, d: { x: number; y: number }) => Math.hypot(Math.max(Math.abs(b.x - d.x), Math.abs(b.x + b.w - d.x)), Math.max(Math.abs(b.y - d.y), Math.abs(b.y + b.h - d.y)));
       const inCircle = (b: Rect) =>

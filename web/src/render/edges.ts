@@ -102,6 +102,22 @@ export function restEdges(
 }
 
 /**
+ * Whether a straight rule from `a` to `z` runs over a ring round (`x`, `y`)
+ * between radii `inner` and `outer`, such as the marks on an open circle's
+ * rim: it comes within `outer` of the centre and has an end out past `inner`.
+ * A rule wholly inside the ring's hole, or wholly clear of it, doesn't.
+ */
+export function ruleCrossesRing(a: { x: number; y: number }, z: { x: number; y: number }, ring: { x: number; y: number; inner: number; outer: number }): boolean {
+  const dx = z.x - a.x;
+  const dy = z.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((ring.x - a.x) * dx + (ring.y - a.y) * dy) / l2)) : 0;
+  const near = Math.hypot(ring.x - (a.x + t * dx), ring.y - (a.y + t * dy));
+  const far = Math.max(Math.hypot(a.x - ring.x, a.y - ring.y), Math.hypot(z.x - ring.x, z.y - ring.y));
+  return near < ring.outer && far > ring.inner;
+}
+
+/**
  * Where a resting link's words go: in a gap cut from the line near its middle
  * when the link is long enough to keep a stretch of line either side, else
  * just beside the line, above or below it, hung from it by a short rule

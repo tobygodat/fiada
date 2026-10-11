@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { EdgeKind, GraphEdge } from '@fiada/shared';
 import type { Circle } from '../graph/layout.ts';
 import type { Contract } from '../graph/view.ts';
-import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, labelSpot, restEdges } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, EDGE_POLICIES, labelSpot, restEdges, ruleCrossesRing } from './edges.ts';
 
 const REST_EDGES = EDGE_POLICIES.key.restMax;
 
@@ -117,4 +117,18 @@ test('words go in a gap on a long link, beside a short one, and never where they
   // The rule is checked too: a spot whose rule is blocked is passed over for one whose rule is clear.
   const ruled = labelSpot([0, 0, 25, 0, 50, 0], 50, half, 2, (p, from) => Math.abs(p.y) > 30 && (!from || from.y > 0))!;
   assert.ok(ruled.from && ruled.from.y > 0 && ruled.y > 30);
+});
+
+test('a rule to a link\'s words stays off the marks on an open circle\'s rim', () => {
+  // An open circle of radius 100 at the origin whose marks reach out to 110.
+  const ring = { x: 0, y: 0, inner: 99, outer: 111 };
+  // From a link inside the circle out past the rim: crosses the marks.
+  assert.equal(ruleCrossesRing({ x: 80, y: 0 }, { x: 130, y: 0 }, ring), true);
+  // Wholly inside the circle, or wholly outside it: clear.
+  assert.equal(ruleCrossesRing({ x: 20, y: 0 }, { x: 60, y: 30 }, ring), false);
+  assert.equal(ruleCrossesRing({ x: 130, y: -40 }, { x: 160, y: 40 }, ring), false);
+  // Outside at both ends but grazing the marks on the way: crosses.
+  assert.equal(ruleCrossesRing({ x: 105, y: -60 }, { x: 105, y: 60 }, ring), true);
+  // A rule that ends in the marks themselves crosses them too.
+  assert.equal(ruleCrossesRing({ x: 140, y: 0 }, { x: 106, y: 0 }, ring), true);
 });
