@@ -2,9 +2,10 @@
 // agent package (its MCP server and tool hooks); this keeps one record per
 // agent (a client's session in a working tree), maps the files it changed onto graph
 // nodes, works out which symbols each change touched, re-indexes changed
-// files of local repositories, and pushes the result to the map. It also
-// answers an agent's hook before an edit lands (check, with fences.ts) and
-// says where two agents' changes meet (collisions).
+// files of local repositories, keeps what each agent looked at without
+// changing it, and pushes the result to the map. It also answers an agent's
+// hook before an edit lands (check, with fences.ts) and says where two
+// agents' changes meet (collisions).
 //
 // Nothing here is persisted: activity is live state, and a restarted indexer
 // starts with an empty queue.
@@ -30,8 +31,10 @@ import type {
   FenceVerdict,
   FileChange,
   Graph,
+  GraphEdge,
   GraphNode,
   LineRange,
+  LookedAt,
   NodeChange,
 } from '@fiada/shared';
 import type { Fences, FencedFile } from './fences.ts';
@@ -40,6 +43,11 @@ import { parseFile } from './parse/index.ts';
 import type { Workspace } from './workspace.ts';
 
 const exec = promisify(execFile);
+
+/** Most nodes one agent's looks are kept for; the oldest go first. */
+export const MAX_LOOKED = 500;
+/** The latest looks each agent's entry lists. */
+const LOOKED_LISTED = 20;
 
 const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' };
 /** Symbol names/lines in HEAD's version of a file, keyed by symbol id. */
@@ -87,6 +95,8 @@ interface AgentRec {
   files: Map<string, FileRec>;
   /** The latest edit it tried inside a fence this turn. */
   fenced?: FenceHit;
+  /** Graph node id → when it last looked at it (asked Fiada about it, or read the file), oldest first. */
+  looked: Map<string, number>;
   startedAt: number;
   updatedAt: number;
 }
@@ -200,6 +210,32 @@ export function collisions(agents: Pick<AgentActivity, 'id' | 'files'>[], nodes:
   return out;
 }
 
+/**
+ * Whether any run of lines falls outside every symbol span: a run touching no symbol,
+ * or leaving more than a line uncovered in a row. An empty run (an insertion or a
+ * removal between lines) counts only with `points`, and then only strictly inside a symbol.
+ */
+export function outsideSymbols(ranges: LineRange[] | undefined, spans: [number, number][], points = false): boolean {
+  return (ranges ?? []).some(([a, b]) => {
+    if (b < a) return points && !spans.some((s) => touches(s, [[a, b]]));
+    let covered = false;
+    let gap = 0;
+    for (let n = a; n <= b; n++) {
+      if (spans.some(([s, e]) => s <= n && n <= e)) {
+        covered = true;
+        gap = 0;
+      } else if (++gap > 1) return true;
+    }
+    return !covered;
+  });
+}
+
+/** The file a node id belongs to: a symbol's file, or the node itself. */
+const fileOf = (id: string) => {
+  const hash = id.indexOf('#');
+  return hash < 0 ? id : id.slice(0, hash);
+};
+
 export class AgentHub {
   private agents = new Map<string, AgentRec>();
   private version = 0;
@@ -207,6 +243,8 @@ export class AgentHub {
   private cached: { version: number; graph: number; state: ActivityState } | null = null;
   private pushTimer: NodeJS.Timeout | null = null;
   private pendingIndex = new Map<string, Set<string>>();
+  /** File id → links into it from other files, kept from before each re-index, so a deleted node's callers stay known. */
+  private lost = new Map<string, Map<string, GraphEdge>>();
   private indexTimer: NodeJS.Timeout | null = null;
   private realSources = new Map<string, string>();
   private remotes = new Map<string, Promise<string | null>>();
@@ -245,8 +283,8 @@ export class AgentHub {
           if (ev.phase === 'start') rec.state = 'waiting';
           else {
             rec.state = 'ended';
-            // Nothing left to review: the agent goes from the queue.
-            if (!rec.files.size) this.agents.delete(rec.id);
+            // Nothing left to review or show: the agent goes from the queue.
+            if (!rec.files.size && !rec.looked.size) this.agents.delete(rec.id);
           }
           break;
         case 'prompt':
@@ -284,6 +322,10 @@ export class AgentHub {
             if (out) reply.files.push(out);
           }
           break;
+        case 'looked':
+          await this.applyLooked(rec, ev, now);
+          rec.state = 'working';
+          break;
         case 'state':
           rec.state = ev.state;
           break;
@@ -307,7 +349,7 @@ export class AgentHub {
    */
   private agentFor(ref: AgentRef): AgentRec {
     const key = agentKey(ref);
-    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], stepAt: 0, promptAt: 0, files: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
+    const fresh = (id: string): AgentRec => ({ id, ref, state: 'working', steps: [], stepAt: 0, promptAt: 0, files: new Map(), looked: new Map(), startedAt: Date.now(), updatedAt: Date.now() });
     if (ref.session) {
       const id = agentId(ref);
       let rec = this.agents.get(id);
@@ -410,6 +452,28 @@ export class AgentHub {
     return { path: shown, repo: where.repo, node, kind, symbols: node ? this.symbolsOf(file, ix).length : undefined };
   }
 
+  /** Records what the agent looked at: node ids it asked about, and files it read, where the graph has them. */
+  private async applyLooked(rec: AgentRec, ev: Extract<AgentEvent, { type: 'looked' }>, now: number) {
+    const ix = this.index(this.ws.getGraph());
+    const ids: string[] = [];
+    for (const id of Array.isArray(ev.nodes) ? ev.nodes.slice(0, 100) : []) if (typeof id === 'string' && ix.nodes.has(id)) ids.push(id);
+    for (const p of Array.isArray(ev.paths) ? ev.paths.slice(0, 100) : []) {
+      if (typeof p !== 'string') continue;
+      const where = await this.resolve(rec.ref, { path: p, kind: 'modified' });
+      const id = where.repo && fileId(where.repo, where.rel!);
+      if (id && ix.nodes.has(id)) ids.push(id);
+    }
+    for (const id of ids) {
+      // Again: it moves to the newest end.
+      rec.looked.delete(id);
+      rec.looked.set(id, now);
+    }
+    for (const id of rec.looked.keys()) {
+      if (rec.looked.size <= MAX_LOOKED) break;
+      rec.looked.delete(id);
+    }
+  }
+
   /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
   private async resolve(ref: AgentRef, f: FileChange, byName = true, theirRel?: string): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
@@ -498,6 +562,7 @@ export class AgentHub {
     const batches = [...this.pendingIndex];
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
+      this.keepIncoming(new Set([...rels].map((rel) => fileId(repo, rel))));
       await this.ws.updateFiles(repo, [...rels]);
       for (const rec of this.agents.values()) for (const f of rec.files.values()) if (f.repo === repo && rels.has(f.rel!)) f.fresh = true;
     }
@@ -553,6 +618,17 @@ export class AgentHub {
     if (!parsed) return null;
     const ids = symbolIds(fileId(repo, rel), parsed);
     return new Map(parsed.symbols.map((s, i) => [ids[i], s.lines]));
+  }
+
+  /** Keeps the links into these files from outside them, as the graph has them now, before a re-index drops any. */
+  private keepIncoming(files: Set<string>) {
+    for (const e of this.ws.getGraph().edges) {
+      const to = fileOf(e.to);
+      if (!files.has(to) || fileOf(e.from) === to) continue;
+      let kept = this.lost.get(to);
+      if (!kept) this.lost.set(to, (kept = new Map()));
+      kept.set(`${e.from}|${e.to}|${e.kind}|${e.detail ?? ''}`, e);
+    }
   }
 
   // ── reading ──
@@ -667,6 +743,26 @@ export class AgentHub {
     return out;
   }
 
+  /**
+   * Whether a modified file's edit reached outside every symbol in it: an import, a
+   * top-level statement. Lines it added or changed are held against the symbols they
+   * now sit in, and lines it removed against the symbols they sat in before, so
+   * deleting a whole function is that function's change. A run of changed lines that
+   * touches a symbol may spill a line past it, the blank line that comes with a new
+   * function. Until the file is re-indexed only the old side can be placed: there an
+   * insertion counts only strictly inside a symbol. Without line ranges there's no
+   * telling, and the symbols the agent named stand for the edit.
+   */
+  private topLevel(f: FileRec, ix: ReturnType<AgentHub['index']>): boolean {
+    if (f.kind !== 'modified' || !f.repo) return false;
+    const now = (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []).flatMap((s) => (s.lines ? [s.lines] : []));
+    if (f.live && f.fresh) {
+      const before = f.base ? [...f.base.values()].map((s) => s.lines) : null;
+      return outsideSymbols(f.lines, now) || (!!before && outsideSymbols(f.oldLines, before));
+    }
+    return outsideSymbols(f.oldLines, now, true);
+  }
+
   state(): ActivityState {
     const graph = this.ws.getGraph();
     if (this.cached && this.cached.version === this.version && this.cached.graph === this.ws.version) return this.cached.state;
@@ -680,6 +776,7 @@ export class AgentHub {
         if (c.at >= cur.at) Object.assign(cur, { kind: c.kind, at: c.at });
       }
     };
+    const looked: Record<string, LookedAt> = {};
     const agents: AgentActivity[] = [];
     const names = this.names();
     for (const rec of this.agents.values()) {
@@ -692,6 +789,10 @@ export class AgentHub {
           const folder = ix.folders.get(fid);
           node = ix.nodes.has(fid) ? fid : folder;
           mark(node ?? fid, { kind: f.kind, at: f.at, unit: 'file', anchor: node ? undefined : this.anchor(ix, f.repo, f.rel!) }, rec.id);
+          if (this.topLevel(f, ix)) {
+            const c = nodes[node ?? fid];
+            if (!c.whole?.includes(rec.id)) (c.whole ??= []).push(rec.id);
+          }
           for (const s of symbols) mark(s.id, { kind: s.kind, at: f.at, unit: 'symbol', anchor: ix.nodes.has(s.id) ? undefined : (node ?? this.anchor(ix, f.repo, f.rel!)) }, rec.id);
         }
         files.push({
@@ -705,6 +806,16 @@ export class AgentHub {
           at: new Date(f.at).toISOString(),
           diff: !!f.diff,
         });
+      }
+      // What it changed itself is marked as changed: the look is in that.
+      const lookedHere = [...rec.looked].filter(([id]) => !nodes[id]?.agents.includes(rec.id));
+      for (const [id, at] of lookedHere) {
+        const cur = looked[id];
+        if (!cur) looked[id] = { agents: [rec.id], at };
+        else {
+          if (!cur.agents.includes(rec.id)) cur.agents.push(rec.id);
+          cur.at = Math.max(cur.at, at);
+        }
       }
       const root = rec.ref.root ?? rec.ref.cwd;
       const repo = this.ws.repos.find((r) => r.kind === 'local' && this.realSource(r.source) === root);
@@ -721,6 +832,7 @@ export class AgentHub {
         now: statusLine(rec.said, rec.steps, rec.stepAt, rec.prompt ? { text: rec.prompt, at: rec.promptAt } : undefined),
         steps: rec.steps,
         files,
+        ...(lookedHere.length ? { looked: { count: lookedHere.length, nodes: lookedHere.map(([id]) => id).reverse().slice(0, LOOKED_LISTED) } } : {}),
         startedAt: new Date(rec.startedAt).toISOString(),
         updatedAt: new Date(rec.updatedAt).toISOString(),
       });
@@ -728,7 +840,16 @@ export class AgentHub {
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const fenced: Record<string, FenceHit> = {};
     for (const rec of this.agents.values()) if (rec.fenced) fenced[rec.id] = rec.fenced;
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, collisions: collisions(agents, ix.byId), fenced };
+    // Kept links whose target is gone but still marked changed, from code that's still there.
+    const lost: GraphEdge[] = [];
+    for (const [file, kept] of this.lost) {
+      if (!nodes[file]) {
+        this.lost.delete(file);
+        continue;
+      }
+      for (const e of kept.values()) if (!ix.nodes.has(e.to) && ix.nodes.has(e.from) && nodes[e.to]) lost.push(e);
+    }
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, collisions: collisions(agents, ix.byId), fenced, ...(lost.length ? { lost } : {}) };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }

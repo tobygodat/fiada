@@ -47,6 +47,7 @@ Three meanings, three palettes, no hue shared between them. They colour map mark
 | `--modified` | `--warning` | a solid ochre ring; `~1` |
 | `--deleted` | `--danger` | a dashed brick ring, the node a ghost; `−1` |
 | `--working` | `--accent` | the green pulse where an agent is working now; the "working" word in the agent window |
+| `--looked` | `--muted` | a faint dotted ring on code an agent read or asked Fiada about without changing it; "looked at" in the detail panel and the agent window |
 | `--unread` | `--text` | a small solid ink dot on the ring of a change you haven't opened since it was made; `3 unread` in the badge |
 
 **Layers**, by position in the project's layer list (the roles preset's order). Quiet tints from the cool half of the wheel, clear of brick (33°), ochre (75°) and green (143–155°), then three cool greys:
@@ -72,6 +73,7 @@ Three meanings, three palettes, no hue shared between them. They colour map mark
 - Links are `--muted` at rest, `--text` when selected. Dashed means cross-repository; dotted means inferred.
 - A link's letter tag is `fine` Literata in a `--radius-sm` box on `--ground-raised` with a `--hairline-strong` border; selected, it takes `--selection` and a `--text` border.
 - Change rings sit outside the rim. Count badges read `+2 ~1 −1` in `fine`, each count in its state's colour, in a `--radius-sm` box on `--ground-raised`.
+- **The ripple (Fiada):** what depends on a change (calls it, imports it, uses its type, requests its route) takes a ring of paired `--muted` dots where a change ring would sit, fainter when every link reaching it was guessed. The dots come in pairs so it reads apart from the evenly dotted looked-at ring, which it replaces where both apply. It is the links' ink, not a change colour. A closed circle holding dependents takes the ring too, and its badge counts them after a small dotted ring: `~2 ◌3`.
 
 ## Type
 

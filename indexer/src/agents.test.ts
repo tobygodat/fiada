@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { ActivityState, AgentRef } from '@fiada/shared';
-import { AgentHub, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
+import { AgentHub, outsideSymbols, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
 
@@ -129,6 +129,19 @@ test('line ranges touch a symbol; pure removals only inside it', () => {
   assert.ok(!touches([5, 10], [[5, 4]]));
 });
 
+test('changed lines outside every symbol: an import, not a function and its blank line', () => {
+  const spans: [number, number][] = [[3, 5], [7, 9]];
+  assert.ok(outsideSymbols([[1, 1]], spans), 'an import above everything');
+  assert.ok(outsideSymbols([[1, 4]], spans), 'an import and blank line run into the first function');
+  assert.ok(!outsideSymbols([[6, 9]], spans), 'a function and the blank line before it');
+  assert.ok(!outsideSymbols([[4, 4], [8, 8]], spans));
+  // An empty run says nothing on its own, unless asked; then only strictly inside a symbol.
+  assert.ok(!outsideSymbols([[6, 5]], spans));
+  assert.ok(outsideSymbols([[6, 5]], spans, true));
+  assert.ok(!outsideSymbols([[8, 7]], spans, true));
+  assert.ok(!outsideSymbols(undefined, spans));
+});
+
 test('an agent edit is mapped to its file and symbols, and the file re-indexed', async () => {
   const { dir, ws } = await localRepo();
   const hub = new AgentHub(ws);
@@ -171,6 +184,8 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
   assert.equal(s.nodes['web/src/api.ts#getItem'].kind, 'modified');
   assert.equal(s.nodes['web/src/api.ts#searchItems'].kind, 'added');
   assert.equal(s.nodes['web/src/api.ts#listItems'], undefined);
+  // Every changed line sat in or beside a symbol, so the change is those symbols'.
+  assert.equal(s.nodes['web/src/api.ts'].whole, undefined);
   // The deleted file left the graph; its folder stands in for it on the map.
   assert.equal(s.nodes['web/src/old.ts'].kind, 'deleted');
   assert.equal(s.nodes['web/src/old.ts'].anchor, 'web/src');
@@ -195,6 +210,53 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
 
   hub.clear();
   assert.deepEqual(hub.state().agents, []);
+});
+
+test("an edit outside every symbol makes the file's change whole", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // An import goes on top and getItem changes: lines 1–2 are new, and getItem is at 7–9 now.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), "import { base } from './base';\n\n" + API.replace("'/api/items/' + id", 'base + id'));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1 && !!s.nodes['web/src/api.ts#getItem']);
+  await hub.ingest([
+    { agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified', lines: [[1, 2], [8, 8]], oldLines: [[1, 0], [6, 6]], additions: 3, deletions: 1 }] },
+  ]);
+  const s = await pushed;
+  assert.equal(s.nodes['web/src/api.ts#getItem'].kind, 'modified');
+  assert.equal(s.nodes['web/src/api.ts#listItems'], undefined);
+  assert.deepEqual(s.nodes['web/src/api.ts'].whole, [s.agents[0].id]);
+});
+
+test("deleting a whole function is that function's change, not the file's", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // listItems (lines 1–3) and the blank line after it go.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.split('\n').slice(4).join('\n'));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1 && s.nodes['web/src/api.ts#listItems']?.kind === 'deleted');
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified', lines: [[1, 0]], oldLines: [[1, 4]], deletions: 4 }] }]);
+  const s = await pushed;
+  assert.equal(s.nodes['web/src/api.ts#getItem'], undefined);
+  assert.equal(s.nodes['web/src/api.ts'].whole, undefined);
+});
+
+test('the links into a deleted function are kept for the ripple; reverting lets them go', async () => {
+  const PAGE = "import { getItem } from './api';\n\nexport function show(id: string) {\n  return getItem(id);\n}\n";
+  const { dir, ws } = await localRepo({ 'src/page.ts': PAGE });
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  assert.ok(ws.getGraph().edges.some((e) => e.from === 'web/src/page.ts#show' && e.to === 'web/src/api.ts#getItem'));
+  // getItem (lines 5–7) and the blank line before it go.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), API.split('\n').slice(0, 3).join('\n') + '\n');
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1 && s.nodes['web/src/api.ts#getItem']?.kind === 'deleted');
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified', lines: [[4, 3]], oldLines: [[4, 7]], deletions: 4 }] }]);
+  const s = await pushed;
+  assert.ok(!ws.getGraph().nodes.some((n) => n.id === 'web/src/api.ts#getItem'), 're-indexed without it');
+  assert.ok(s.lost?.some((e) => e.from === 'web/src/page.ts#show' && e.to === 'web/src/api.ts#getItem'), 'the call is kept');
+  assert.ok(!s.lost?.some((e) => e.to === 'web/src/api.ts#listItems'), 'links to what is still there are not');
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'reverted' }] }]);
+  assert.equal(hub.state().lost, undefined);
 });
 
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {
@@ -281,4 +343,55 @@ test('a deleted file stands on the collapsed folder that now covers its director
   assert.ok(ws.getGraph().nodes.some((n) => n.id === 'web/lib/deep/x'));
   assert.equal(s.nodes['web/lib/deep/one.ts'].anchor, 'web/lib/deep/x');
   assert.equal(s.nodes['web/lib/deep/one.ts#one'].kind, 'deleted');
+});
+
+test('what an agent looked at: nodes it asked about and files it read, apart from what it changed', async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  await hub.ingest([
+    { agent, type: 'state', state: 'waiting' },
+    // Asked about two symbols (one no longer in the graph), and read a file by its path.
+    { agent, type: 'looked', nodes: ['web/src/api.ts#getItem', 'web/src/gone.ts#x'] },
+    { agent, type: 'looked', paths: [path.join(dir, 'src/old.ts'), '/not/in/any/repo.ts'] },
+  ]);
+  let s = hub.state();
+  assert.deepEqual(Object.keys(s.looked ?? {}).sort(), ['web/src/api.ts#getItem', 'web/src/old.ts']);
+  assert.deepEqual(s.looked!['web/src/old.ts'].agents, [s.agents[0].id]);
+  // Looking is working.
+  assert.equal(s.agents[0].state, 'working');
+  // Newest first.
+  assert.deepEqual(s.agents[0].looked, { count: 2, nodes: ['web/src/old.ts', 'web/src/api.ts#getItem'] });
+
+  // Another agent looks at the same symbol: both are named on it.
+  const other: AgentRef = { client: 'cursor', cwd: dir, root: dir };
+  await hub.ingest([{ agent: other, type: 'looked', nodes: ['web/src/api.ts#getItem', 'web/src/old.ts'] }]);
+  assert.equal(hub.state().looked!['web/src/api.ts#getItem'].agents.length, 2);
+  const cursorId = hub.state().agents.find((a) => a.client === 'cursor')!.id;
+
+  // Once it changes a file it looked at, the file is marked changed, not looked at, for that agent;
+  // another agent's look at it stays.
+  await hub.ingest([{ agent, type: 'changes', files: [{ path: 'src/old.ts', kind: 'modified', oldLines: [[2, 2]] }] }]);
+  s = hub.state();
+  assert.equal(s.nodes['web/src/old.ts'].kind, 'modified');
+  assert.deepEqual(s.looked!['web/src/old.ts'].agents, [cursorId]);
+  assert.equal(s.agents.find((a) => a.client === 'cursor')!.looked!.count, 2);
+  assert.ok(s.looked!['web/src/api.ts#getItem']);
+  assert.deepEqual(s.agents.find((a) => a.client === 'claude-code')!.looked, { count: 1, nodes: ['web/src/api.ts#getItem'] });
+
+  // A session that only looked keeps what it looked at when it ends, until it's dismissed;
+  // one that neither changed nor looked at anything goes.
+  const idle: AgentRef = { client: 'codex', session: 'idle', cwd: dir, root: dir };
+  await hub.ingest([
+    { agent: idle, type: 'session', phase: 'start' },
+    { agent: other, type: 'session', phase: 'end' },
+    { agent: idle, type: 'session', phase: 'end' },
+  ]);
+  s = hub.state();
+  assert.equal(s.agents.find((a) => a.client === 'cursor')!.state, 'ended');
+  assert.equal(s.agents.find((a) => a.client === 'codex'), undefined);
+  assert.equal(s.looked!['web/src/api.ts#getItem'].agents.length, 2);
+
+  hub.clear();
+  assert.deepEqual(hub.state().looked, {});
 });

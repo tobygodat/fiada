@@ -2,7 +2,8 @@
 // hooks, so the map is right even when the agent never calls the MCP tools.
 //
 // With no arguments it reads a hook payload on stdin and works out who sent it:
-//   Claude Code  SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd
+//   Claude Code  SessionStart, UserPromptSubmit, PreToolUse (edits, checked against
+//                fences), PostToolUse (edits, plans and files it reads), Stop, SessionEnd
 //   Cursor       beforeSubmitPrompt, afterFileEdit, stop
 //
 // Commands, for other agents and scripts:
@@ -196,6 +197,8 @@ async function claudeToolUse(p: Payload, key: string, co: Checkout | null): Prom
       },
     ];
   }
+  // A file it read: looked at, on the map.
+  if (tool === 'Read' && typeof input.file_path === 'string') return [{ type: 'looked', paths: [path.resolve(p.cwd ?? process.cwd(), input.file_path)] }];
   if (READ_ONLY.has(tool)) return [];
   const file = EDIT_TOOLS.has(tool) ? (input.file_path ?? input.notebook_path) : undefined;
   const cwd = p.cwd ?? process.cwd();

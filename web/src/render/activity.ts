@@ -1,7 +1,10 @@
 // The agent overlay, drawn over the map's circles: a ring just outside
 // anything an agent added, modified or deleted, a pulse for a few seconds
-// after each change, a green ring where an agent is working right now, and on
-// closed circles a small count of the changes inside. It stays quiet on
+// after each change, a green ring where an agent is working right now, a
+// faint dotted ring on what an agent looked at without changing it, and on
+// closed circles a small count of the changes inside. A dotted ring in the
+// links' own ink marks what depends on a change (the ripple), and the badge
+// counts those dependents too. It stays quiet on
 // purpose: thin rings, one small badge, and no motion once the agent stops.
 // Change colours mean a change and nothing else (ink, ochre, brick); the one
 // green means "an agent is here now". A gap cut from the paper keeps a ring
@@ -81,6 +84,24 @@ export function hereGeometry(r: number, changed: boolean) {
   return { gap, line, gapR, lineR, outer: lineR + line / 2 };
 }
 
+/** How strongly the looked-at ring shows: on the node itself, and on a closed circle with a looked-at node inside. */
+export const LOOKED_ALPHA = { self: 0.8, inside: 0.45 } as const;
+
+/** The looked-at ring: a thin dotted line where the change ring would be, never with one. */
+function lookedRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, alpha: number) {
+  const g = ringGeometry(r);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = changeColor('looked');
+  ctx.lineWidth = r < 6 ? 1 : 1.25;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([0.5, r < 6 ? 2.5 : 3.5]);
+  ctx.beginPath();
+  ctx.arc(x, y, g.lineR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+}
+
 function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: number; line: number; gapR: number; lineR: number }, color: string, dash: number[]) {
   ctx.globalAlpha = 0.85;
   ctx.strokeStyle = paper();
@@ -97,6 +118,89 @@ function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: num
   ctx.stroke();
   ctx.setLineDash([]);
 }
+
+/**
+ * Whether a circle takes the dotted ripple ring. It shows no change of its own
+ * (a changed circle has its ring). Closed, it or something in it depends on a
+ * change and it holds no changes (those get a badge, which counts the ripple).
+ * Open, its children carry the ring, unless the circle itself links into a change
+ * (a file-level import), which no child would show.
+ */
+export const rippleRing = (m: Marks, open: boolean) => !!m.reached && !m.self && (open ? m.direct : !changeCount(m));
+
+const FULL: [number, number] = [0, Math.PI * 2];
+
+/**
+ * The part of a circle's outline that can be on a w×h screen, as angles
+ * [from, to], or null when none of it is. A ring small enough to stay cheap
+ * is drawn whole; past that, the screen seen from a centre outside it spans
+ * less than half a turn, and from a centre inside it, a ring that reaches
+ * past every corner is off screen altogether.
+ */
+export function visibleArc(x: number, y: number, r: number, w: number, h: number, pad = 4): [number, number] | null {
+  const nx = Math.max(-pad, Math.min(x, w + pad));
+  const ny = Math.max(-pad, Math.min(y, h + pad));
+  if (Math.hypot(nx - x, ny - y) > r + pad) return null;
+  const corners = [
+    [-pad, -pad],
+    [w + pad, -pad],
+    [-pad, h + pad],
+    [w + pad, h + pad],
+  ];
+  if (corners.every(([cx, cy]) => Math.hypot(cx - x, cy - y) < r - pad)) return null;
+  if (r < 400 || (nx === x && ny === y)) return FULL;
+  const mid = Math.atan2(h / 2 - y, w / 2 - x);
+  let lo = 0;
+  let hi = 0;
+  for (const [cx, cy] of corners) {
+    let a = Math.atan2(cy - y, cx - x) - mid;
+    a -= Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
+    lo = Math.min(lo, a);
+    hi = Math.max(hi, a);
+  }
+  return [mid + lo, mid + hi];
+}
+
+/**
+ * The ripple: dots in the links' ink where a change ring would sit, fainter
+ * when every link reaching it was guessed. The space between the dots keeps
+ * them apart from the circle's own colour, so unlike a change ring it needs no
+ * gap cut from the paper. A big change reaches hundreds of circles, so they're
+ * drawn together, one path for each thickness and strength of dots, and a
+ * circle too small to hold a ring of dots goes without.
+ */
+function drawRipples(ctx: CanvasRenderingContext2D, rings: { x: number; y: number; r: number; guessed: boolean }[], view?: { w: number; h: number }) {
+  if (!rings.length) return;
+  ctx.fillStyle = token('--muted');
+  for (const guessed of [false, true]) {
+    ctx.globalAlpha = guessed ? 0.5 : 1;
+    for (const d of rings) {
+      if (d.guessed !== guessed || d.r < RIPPLE_MIN_R) continue;
+      const { lineR, line } = ringGeometry(d.r);
+      // Dots cost by the length of the ring, so a leaf zoomed far past the screen draws only the part on it.
+      const span = view ? visibleArc(d.x, d.y, lineR, view.w, view.h) : FULL;
+      if (!span) continue;
+      // Square dots a line wide, in pairs round the ring, so it reads apart from the evenly dotted
+      // ring on what an agent only looked at. As many small squares draw far faster than a dashed
+      // stroke, and at this size read as dots.
+      const step = (2 * line + 7) / lineR;
+      const pair = (line + 1.5) / lineR;
+      const n = Math.max(1, Math.floor((span[1] - span[0]) / step));
+      const a0 = span[0] + ((span[1] - span[0]) % step) / 2;
+      for (let k = 0; k <= n; k++) {
+        const a = a0 + k * step;
+        if (a > span[1]) break;
+        ctx.fillRect(d.x + lineR * Math.cos(a) - line / 2, d.y + lineR * Math.sin(a) - line / 2, line, line);
+        if (a + pair <= span[1]) ctx.fillRect(d.x + lineR * Math.cos(a + pair) - line / 2, d.y + lineR * Math.sin(a + pair) - line / 2, line, line);
+      }
+    }
+  }
+}
+
+/** Below this radius a circle is too small for a ring of dots to read. */
+const RIPPLE_MIN_R = 4;
+/** Below this radius a circle holding dependents but no changes shows its ring without a count. */
+const RIPPLE_BADGE_R = 24;
 
 /** Where the unread dot sits: on the upper left of the outermost ring, a gap of paper round it. */
 export function unreadGeometry(x: number, y: number, outer: number, r: number) {
@@ -119,17 +223,22 @@ function unreadDot(ctx: CanvasRenderingContext2D, x: number, y: number, outer: n
 }
 
 /** Rings and pulses. Returns whether anything is still pulsing, so the caller keeps animating. */
-export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number): boolean {
+export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number, view?: { w: number; h: number }): boolean {
   let pulsing = false;
+  const ripples: { x: number; y: number; r: number; guessed: boolean }[] = [];
   for (const d of drawn) {
     const m = marks.get(d.n.id);
     if (!m) continue;
     const age = now - m.at;
     const recent = age >= 0 && age < PULSE_MS;
     const g = ringGeometry(d.r);
+    const ripple = rippleRing(m, d.open);
     // An agent working here now: on the node itself, or on the closed circle it's inside.
-    const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self) : null;
+    const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self || ripple) : null;
     if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
+    if (ripple) ripples.push({ x: d.x, y: d.y, r: d.r, guessed: m.reached === 'inferred' });
+    // Looked at, and nothing changed, working or depending on a change here: the quietest mark there is.
+    if (!m.self && !here && !ripple && (m.looked === 'self' || (m.looked === 'inside' && !d.open && !changeCount(m)))) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
     if (m.self) {
       const color = changeColor(m.self);
       ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);
@@ -144,6 +253,7 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
       pulsing = true;
     }
   }
+  drawRipples(ctx, ripples, view);
   ctx.globalAlpha = 1;
   return pulsing;
 }
@@ -408,6 +518,8 @@ const BADGE_SIZE = 13;
 const BADGE_H = 20;
 const BADGE_PAD = 6;
 const BADGE_GAP = 6;
+/** The ripple's mark in a badge: a 9px dotted ring and the space after it. */
+const RIPPLE_MARK = 13;
 const badgeFont = () => `400 ${BADGE_SIZE}px ${fonts().serif || 'serif'}`;
 
 // Widths by font and text: a badge reads a few short strings, so each is measured once.
@@ -428,16 +540,19 @@ function measure(ctx: CanvasRenderingContext2D, font: string, text: string): num
 export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, taken: Taken, cache: BadgeCache = {}) {
   const font = badgeFont();
   ctx.font = font;
-  const badges: { d: Drawn; m: Marks; w: number; h: number; parts: { text: string; color: string; w: number }[] }[] = [];
+  const badges: { d: Drawn; m: Marks; w: number; h: number; parts: { text: string; color: string; w: number; dots?: boolean }[] }[] = [];
+  const muted = token('--muted');
   for (const d of drawn) {
     const m = !d.open && marks.get(d.n.id);
-    if (!m || !changeCount(m)) continue;
-    // Small circles get a dot, the rest the counts.
+    // A circle holding only dependents gets their count once it's big enough to be a place you'd
+    // look into; smaller ones keep just the ripple ring, and a crowded map keeps few badges.
+    if (!m || !(changeCount(m) || (m.ripple && d.r >= RIPPLE_BADGE_R))) continue;
+    // Small circles get a dot for their changes.
     if (d.r < 9) {
       badges.push({ d, m, w: 5, h: 5, parts: [] });
       continue;
     }
-    const parts = (
+    const parts: { text: string; color: string; w: number; dots?: boolean }[] = (
       [
         ['added', '+'],
         ['modified', '~'],
@@ -448,6 +563,8 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
       .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: changeColor(k), w: measure(ctx, font, `${sign}${m[k]}`) }));
     // How many of those you haven't opened since they changed, in words.
     if (m.unread) parts.push({ text: `${m.unread} unread`, color: token('--unread'), w: measure(ctx, font, `${m.unread} unread`) });
+    // Dependents inside: a small dotted ring, as on the map, then how many.
+    if (m.ripple) parts.push({ text: String(m.ripple), color: muted, w: RIPPLE_MARK + measure(ctx, font, String(m.ripple)), dots: true });
     const w = Math.ceil(parts.reduce((a, p) => a + p.w, 0) + BADGE_GAP * (parts.length - 1) + BADGE_PAD * 2);
     badges.push({ d, m, w, h: BADGE_H, parts });
   }
@@ -488,8 +605,21 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
     ctx.stroke();
     let tx = x - 0.5 + BADGE_PAD;
     for (const p of b.parts) {
+      const cy = y - 0.5 + b.h / 2;
+      if (p.dots) {
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'round';
+        ctx.setLineDash([0, 3]);
+        ctx.beginPath();
+        ctx.arc(tx + 4.5, cy + 0.5, 4.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineCap = 'butt';
+        ctx.lineWidth = 1;
+      }
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, tx, y - 0.5 + b.h / 2 + 0.5);
+      ctx.fillText(p.text, tx + (p.dots ? RIPPLE_MARK : 0), cy + 0.5);
       tx += p.w + BADGE_GAP;
     }
   });

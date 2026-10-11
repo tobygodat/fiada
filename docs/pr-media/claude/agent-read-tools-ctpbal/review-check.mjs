@@ -1,0 +1,51 @@
+// Live check for the second Codex review: a session that only asks the map, then ends.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+const [checkout, indexer, map, media] = process.argv.slice(2);
+const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../..');
+const { chromium } = await import(path.join(repo, 'node_modules/playwright/index.mjs'));
+const SESSION = 'look-only';
+const env = { ...process.env, FIADA_URL: indexer, FIADA_CONFIG: '/nonexistent', CLAUDE_CODE_SESSION_ID: SESSION, FIADA_CWD: checkout };
+const bin = (n) => path.join(repo, 'agent/bin', n);
+const hook = (payload) => new Promise((r) => { const c = spawn(process.execPath, [bin('fiada-hook.mjs')], { env, stdio: ['pipe', 'ignore', 'inherit'] }); c.on('close', r); c.stdin.end(JSON.stringify({ session_id: SESSION, cwd: checkout, transcript_path: '/dev/null', ...payload })); });
+const mcp = spawn(process.execPath, [bin('fiada-mcp.mjs')], { cwd: checkout, env, stdio: ['pipe', 'pipe', 'inherit'] });
+let buf = ''; const waiting = new Map(); let id = 0;
+mcp.stdout.on('data', (c) => { buf += c; for (let nl; (nl = buf.indexOf('\n')) >= 0; ) { const m = JSON.parse(buf.slice(0, nl)); buf = buf.slice(nl + 1); waiting.get(m.id)?.(m); } });
+const rpc = (method, params) => new Promise((r) => { const i = ++id; waiting.set(i, r); mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method, params }) + '\n'); });
+const state = async () => (await fetch(`${indexer}/api/agent/state`)).json();
+
+await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-code', version: '2.1' } });
+const asked = await rpc('tools/call', { name: 'impact', arguments: { target: 'backend/app/api/routes', depth: 1, limit: 3 } });
+console.log(asked.result.content[0].text.split('\n')[0]);
+mcp.stdin.end();
+await hook({ hook_event_name: 'SessionEnd', reason: 'exit' });
+let s = await state();
+const a = s.agents.find((x) => x.state === 'ended' && x.looked?.count);
+assert.ok(a, 'the ended session that only looked is still listed');
+assert.ok(s.looked['backend/app/api/routes'], 'its look at the routes folder is kept');
+console.log('ended agent kept:', a.name, a.looked);
+
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await ctx.addInitScript(() => { try { if (!sessionStorage.getItem('e2e')) { localStorage.setItem('strata-theme', 'dark'); localStorage.setItem('strata.expandMode', 'click'); sessionStorage.setItem('e2e', '1'); } } catch {} });
+const page = await ctx.newPage();
+const errors = []; page.on('pageerror', (e) => errors.push(e.message)); page.on('console', (m) => m.type() === 'error' && !/favicon/.test(m.text()) && errors.push(m.text()));
+await page.goto(map);
+await page.getByText('session ended').first().waitFor();
+const show = page.getByRole('button', { name: 'show on map' });
+assert.equal(await show.count(), 1, 'an agent that only looked can be shown on the map');
+await show.click();
+await page.getByText(/showing what Claude Code changed or looked at/).waitFor();
+await page.waitForTimeout(1200);
+await page.screenshot({ path: path.join(media, 'after-08-only-looked-lit.png') });
+await page.keyboard.press('Escape');
+await page.getByRole('radio', { name: 'by function' }).or(page.getByRole('button', { name: 'by function' })).first().click();
+await page.waitForTimeout(1500);
+await page.screenshot({ path: path.join(media, 'after-09-folder-by-function.png') });
+assert.deepEqual(errors, []);
+await browser.close();
+// Clean up: dismiss the agent.
+await fetch(`${indexer}/api/agent`, { method: 'DELETE' }).catch(() => {});
+console.log('every check passed');

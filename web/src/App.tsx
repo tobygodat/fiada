@@ -7,7 +7,7 @@ import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { Search } from './components/Search.tsx';
 import { TopBar } from './components/TopBar.tsx';
-import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
+import { agentLooked, agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { onMap } from './graph/search.ts';
@@ -95,7 +95,7 @@ export function App() {
   const [zoomVis, setZoomVis] = useState<Visible | null>(null);
   const [from, setFrom] = useState<Map<string, Circle> | undefined>();
   const [history, setHistory] = useState<Place[]>([]);
-  /** The agent whose changes are lit on the map, picked in the agents window. */
+  /** The agent whose changes, and what it looked at, are lit on the map, picked in the agents window. */
   const [litAgent, setLitAgent] = useState<string | null>(null);
   const renderer = useRef<MapRenderer | null>(null);
   const intent = useRef<CameraIntent | null>(null);
@@ -164,19 +164,24 @@ export function App() {
 
   const lit = litAgent && agents.state?.agents.some((a) => a.id === litAgent) ? litAgent : null;
   const spot = useMemo(
-    () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit) : null),
+    () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit, agents.state.looked) : null),
     [tree, graphIndex, agents.state, lit],
   );
+  // One agent lit: the map, and the panel's account of what changes reach, use only its changes.
+  const shownChanges = useMemo(() => (agents.state && spot && lit ? agentNodes(agents.state.nodes, lit) : agents.state?.nodes), [agents.state, spot, lit]);
   const activity = useMemo(() => {
     const s = agents.state;
-    if (!tree || !s) return null;
-    // One agent lit: the map marks only its changes, unread by its own times.
-    const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
-    if (!Object.keys(nodes).length) return null;
+    const nodes = shownChanges;
+    if (!tree || !s || !nodes) return null;
+    // One agent lit: the map marks only its changes, unread by its own times, and what it looked at.
+    const looked = spot && lit ? agentLooked(s.looked, lit) : (s.looked ?? {});
+    if (!Object.keys(nodes).length && !Object.keys(looked).length) return null;
     const one = spot ? s.agents.find((a) => a.id === lit) : undefined;
     const unreadHere = one && unread && readMarks ? agentUnreadIds(one, unread, readMarks, s.nodes) : unread;
-    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere);
-  }, [tree, graphIndex, agents.state, spot, lit, unread, readMarks]);
+    // The links into code an agent deleted are gone from the graph; the indexer kept them.
+    const edges = s.lost?.length && graph ? [...graph.edges, ...s.lost] : graph?.edges;
+    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere, looked, edges);
+  }, [tree, graphIndex, graph, agents.state, shownChanges, spot, lit, unread, readMarks]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;
@@ -455,15 +460,16 @@ export function App() {
   );
 
   /**
-   * From the agents window: light up everything one agent changed and every
-   * circle round it, dim the rest, open the way down to the changes (click
-   * mode, while that stays small) and bring them all into view. The same
-   * agent again puts the map back.
+   * From the agents window: light up everything one agent changed or looked at
+   * and every circle round it, dim the rest, open the way down to the changes
+   * (or, if it changed nothing, to what it looked at; click mode, while that
+   * stays small) and bring them all into view. The same agent again puts the
+   * map back.
    */
   const showAgent = useCallback(
     (id: string) => {
       if (spot && lit === id) return setLitAgent(null);
-      const s = tree && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, id) : null;
+      const s = tree && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, id, agents.state.looked) : null;
       if (!tree || !s) return;
       setLitAgent(id);
       remember();
@@ -668,6 +674,7 @@ export function App() {
             activity={agents.state}
             fences={fences.fences}
             onFence={canEdit(ws.workspace) ? fences.set : undefined}
+            shownChanges={shownChanges}
             onSelect={select}
             onPlace={place}
           />
@@ -718,11 +725,11 @@ function Legend({
   layers: { id: string; name: string }[];
   mode: ExpandMode;
   besideDetail: boolean;
-  /** Name of the agent whose changes are lit. */
+  /** Name of the agent whose changes, and what it looked at, are lit. */
   lit: string | null;
 }) {
   const hint = lit
-    ? `showing what ${lit} changed · esc for the whole map`
+    ? `showing what ${lit} changed or looked at · esc for the whole map`
     : mode === 'click'
       ? 'point at a circle for its links · click for details, again to open it · scroll to zoom'
       : 'point at a circle for its links · scroll to zoom and open circles';
