@@ -136,6 +136,15 @@ test('a changed route ripples to the client requesting it, across repositories, 
   assert.equal(a.get('api')?.ripple, 0);
 });
 
+test('a deleted symbol ripples through the links the indexer kept for it', () => {
+  // The graph no longer has the symbol; the activity state still marks it, and a kept link points at it.
+  const gone = { 'api/app/models.py#Gone': { ...change('deleted', 'symbol', 10), anchor: 'api/app/models.py' } };
+  const kept: GraphEdge = { from: 'web/src/client/api.ts#ItemsService', to: 'api/app/models.py#Gone', kind: 'calls', basis: 'evidenced' };
+  const a = rollupActivity(buildCodeTree(graph), graphIndex, gone, [], null, {}, [...edges, kept]);
+  assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'evidenced');
+  assert.equal(a.get('web')?.ripple, 1);
+});
+
 test('a dependent reached only by guessed links says so', () => {
   const a = rollupActivity(buildCodeTree(graph), graphIndex, only({ 'api/app/routes/items.py#create_item': change('modified', 'symbol', 10) }), [], null, {}, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'inferred');
