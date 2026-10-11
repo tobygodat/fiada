@@ -1,6 +1,6 @@
-// Back, the breadcrumb of the focused path, and the altitude indicator.
+// Back, the breadcrumb of the focused path, search, and the altitude indicator.
 
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import type { Camera } from '../graph/camera.ts';
 import type { TNode, View } from '../graph/tree.ts';
 import type { MapRenderer } from '../render/renderer.ts';
@@ -18,6 +18,8 @@ interface Props {
   fitK: number;
   busy: boolean;
   canGoBack: boolean;
+  /** The search box, when there is a map to search. */
+  search?: ReactNode;
   onBack(): void;
   onCrumb(id: string): void;
 }
@@ -27,7 +29,7 @@ const ALTITUDES: Record<View, string[]> = {
   function: ['domains', 'layers', 'symbols'],
 };
 
-export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK, busy, canGoBack, onBack, onCrumb }: Props) {
+export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK, busy, canGoBack, search, onBack, onCrumb }: Props) {
   const alts = ALTITUDES[view];
   const crumbs = useCameraCrumbs(renderer, crumbsAt) ?? given;
   const idx = Math.max(0, Math.min(alts.length - 1, altitude));
@@ -50,6 +52,7 @@ export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK
         ))}
       </nav>
       <div className="topbar-right">
+        {search}
         {busy && <span className="muted small busy">indexing…</span>}
         <div className="altitudes" title="How far down the map is open">
           {alts.map((a, i) => (
