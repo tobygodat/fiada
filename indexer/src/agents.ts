@@ -152,6 +152,13 @@ const inside = (p: string, dir: string) => p === dir || p.startsWith(dir.endsWit
 const posix = (p: string) => p.split(path.sep).join('/');
 
 /** "github.com/org/repo" from any spelling of a remote URL. */
+/** The folder a git origin names when it is a path on this machine (a clone of a local repository), else null. */
+export function localOrigin(url: string): string | null {
+  const u = url.trim();
+  if (u.startsWith('file://')) return u.slice('file://'.length) || null;
+  return path.isAbsolute(u) ? u : null;
+}
+
 export function remoteKey(url: string): string {
   return url
     .trim()
@@ -493,6 +500,13 @@ export class AgentHub {
       const rel = theirRel ?? posix(path.relative(co.root, abs));
       if (co.remote) {
         const want = remoteKey(co.remote);
+        // A clone of a local import (git clone /path/to/it) has that folder as its origin.
+        const local = this.ws.allowLocal ? localOrigin(co.remote) : null;
+        if (local) {
+          const src = this.realSource(local);
+          const r = this.ws.repos.find((r) => r.kind === 'local' && this.realSource(r.source) === src);
+          if (r) return { abs, repo: r.id, rel, live: false };
+        }
         for (const r of this.ws.repos) {
           const theirs = r.kind === 'git' ? r.source : r.kind === 'upload' ? (r.remote ?? null) : this.ws.allowLocal ? await this.localRemote(r.source) : null;
           if (theirs && remoteKey(theirs) === want) return { abs, repo: r.id, rel, live: false };

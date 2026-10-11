@@ -369,6 +369,12 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   assert.equal((await hub.check({ agent: windows, files: [winFile] }, fences)).decision, 'allow');
   assert.equal((await hub.check({ agent: windows, files: [{ ...winFile, rel: 'app/core/config.py' }] }, fences)).decision, 'deny');
   assert.equal((await hub.check({ agent: windows, files: [{ ...winFile, rel: '../other/app/core/config.py' }] }, fences)).decision, 'allow');
+  // A clone of the local import made with `git clone <its folder>`: its origin is that folder.
+  const copy = path.join(elsewhere, 'my-copy');
+  execFileSync('git', ['clone', '-q', dir, copy]);
+  const copier: AgentRef = { client: 'claude-code', session: 's7', cwd: copy, root: copy, remote: dir };
+  assert.equal((await hub.check({ agent: copier, files: [{ path: path.join(copy, 'app/core/config.py') }] }, fences)).decision, 'deny');
+  assert.equal((await hub.check({ agent: copier, files: [{ path: path.join(copy, 'app/routes/users.py') }] }, fences)).decision, 'allow');
   // A checkout of some other repository that happens to share the folder name is not fenced.
   const stranger: AgentRef = { ...away, session: 's4', remote: 'https://github.com/someone/else.git' };
   assert.equal((await hub.check({ agent: stranger, files: [{ path: path.join(clone, 'app/core/config.py') }] }, fences)).decision, 'allow');
