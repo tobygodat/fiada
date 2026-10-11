@@ -226,7 +226,7 @@ test('what reaches a changed route, type or file, in a sentence', () => {
   const node = (id: string, extra: Partial<GraphNode> = {}) => ({ ...graphIndex.get(id)!, ...extra });
   assert.deepEqual(reachSentences(node('api/app/routes/items.py#read_items'), edges, graphIndex), ['1 request from web calls this route.']);
   assert.deepEqual(reachSentences(node('api/app/routes/items.py#create_item'), edges, graphIndex), ['1 request from web calls this route, inferred.']);
-  assert.deepEqual(reachSentences(node('api/app/models.py#Item', { symbolKind: 'class' }), edges, graphIndex), ['2 functions in api call this class.']);
+  assert.deepEqual(reachSentences(node('api/app/models.py#Item', { symbolKind: 'class' }), edges, graphIndex), ['2 functions in api use this class.']);
   assert.deepEqual(reachSentences(node('api/app/models.py'), edges, graphIndex), ['2 functions in api use this file.']);
   // A file serving routes: requests to any of them, and calls to its symbols from outside it.
   assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex), ['2 requests from web call these routes, 1 of them inferred.']);
@@ -245,4 +245,20 @@ test('requests from several repositories are counted by repository, most first',
   assert.deepEqual(reachSentences({ ...graphIndex.get(route)!, routes: ['GET /items/'] }, many, graphIndex), ['3 requests from web and 1 from mobile call this route.']);
   const three = [...many, req('jobs/e.py#e')];
   assert.deepEqual(reachSentences(graphIndex.get(route)!, three, graphIndex), ['3 requests from web, 1 from jobs and 1 from mobile call this route.']);
+});
+
+test('a handler serving several routes says "these routes" only when requests reach more than one', () => {
+  const route = 'api/app/routes/items.py#read_items';
+  const g = { ...graphIndex.get(route)!, routes: ['GET /items/', 'GET /items/all'] };
+  const req = (from: string, detail: string): GraphEdge => ({ from, to: route, kind: 'http', basis: 'evidenced', detail });
+  assert.deepEqual(reachSentences(g, [req('web/a.ts#a', 'GET /items/')], graphIndex), ['1 request from web calls this route.']);
+  assert.deepEqual(reachSentences(g, [req('web/a.ts#a', 'GET /items/'), req('web/b.ts#b', 'GET /items/all')], graphIndex), ['2 requests from web call these routes.']);
+});
+
+test('dependents that reach a node in different ways use it', () => {
+  const target = 'api/app/models.py#Item';
+  const g = { ...graphIndex.get(target)!, symbolKind: 'class' as const };
+  const link = (from: string, kind: GraphEdge['kind']): GraphEdge => ({ from, to: target, kind, basis: 'evidenced' });
+  assert.deepEqual(reachSentences(g, [link('web/a.ts#a', 'calls'), link('web/b.ts#b', 'calls')], graphIndex), ['2 places in web call this class.']);
+  assert.deepEqual(reachSentences(g, [link('web/a.ts#a', 'calls'), link('web/b.ts#b', 'calls'), link('web/c.ts#c', 'type')], graphIndex), ['3 places in web use this class.']);
 });

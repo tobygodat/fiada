@@ -334,8 +334,8 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
 
   const out: string[] = [];
   if (requests.length) {
-    // The routes the requests reach: in a file, the symbols serving them; a symbol may serve several.
-    const routes = g.kind === 'file' ? new Set(requests.map((e) => e.to)).size : (g.routes?.length ?? 1);
+    // The routes the requests reach: each request names the route it matched, and a symbol may serve several.
+    const routes = new Set(requests.map((e) => `${e.to}|${e.detail ?? ''}`)).size;
     const verb = requests.length === 1 ? 'calls' : 'call';
     const what = routes > 1 ? 'these routes' : 'this route';
     out.push(`${byRepo(requests.map((e) => e.from), ['request', 'requests'], 'from')} ${verb} ${what}${guessed(requests.filter((e) => e.basis === 'inferred').length, requests.length)}.`);
@@ -350,10 +350,9 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
         : kinds.every((n) => n?.kind === 'symbol' && n.symbolKind === 'component')
           ? ['component', 'components']
           : ['place', 'places'];
-    // The verb of the strongest kind most of them share.
-    const tally = new Map<EdgeKind, number>();
-    for (const u of users.values()) tally.set(u.kind, (tally.get(u.kind) ?? 0) + 1);
-    const kind = [...tally].sort((a, b) => b[1] - a[1] || RANK[a[0]] - RANK[b[0]])[0][0];
+    // The verb of the kind they share; when they reach it in different ways, they all use it.
+    const ways = new Set([...users.values()].map((u) => u.kind));
+    const kind: EdgeKind = ways.size === 1 ? [...ways][0] : 'references';
     // A file's symbols are called, but the file itself is used or imported.
     const verb = KIND_VERB[g.kind === 'file' && kind !== 'imports' ? 'references' : kind][users.size === 1 ? 0 : 1];
     const unsure = [...users.values()].filter((u) => !u.sure).length;
