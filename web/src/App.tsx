@@ -12,6 +12,7 @@ import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/ca
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
 import { onMap } from './graph/search.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
+import { agentUnreadIds, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds, type ReadMarks } from './graph/unread.ts';
 import {
   aggregateEdges,
   clickAction,
@@ -125,6 +126,40 @@ export function App() {
     [graph, shownTheme],
   );
 
+  // What you've opened of the agents' changes, kept per project in this browser.
+  const project = ws.workspace?.project.id ?? null;
+  const [read, setRead] = useState<{ project: string | null; marks: ReadMarks }>({ project: null, marks: {} });
+  const readMarks = read.project === project ? read.marks : null;
+  useEffect(() => {
+    if (project) setRead({ project, marks: loadRead(project) });
+  }, [project]);
+  const updateRead = useCallback(
+    (next: (marks: ReadMarks) => ReadMarks | null) =>
+      setRead((cur) => {
+        if (!cur.project) return cur;
+        const marks = next(cur.marks);
+        if (!marks) return cur;
+        saveRead(cur.project, marks);
+        return { project: cur.project, marks };
+      }),
+    [],
+  );
+  const unread = useMemo(() => (agents.state && readMarks ? unreadIds(agents.state.nodes, readMarks) : null), [agents.state, readMarks]);
+  const readState = useMemo(() => (unread && readMarks ? { unread, marks: readMarks } : null), [unread, readMarks]);
+  // Opening a node reads its changes, and keeps reading new ones while it stays open.
+  const changedNodes = agents.state?.nodes;
+  useEffect(() => {
+    if (selected && changedNodes) updateRead((marks) => markRead(marks, selected, changedNodes));
+  }, [selected, changedNodes, updateRead, read.project]);
+  const readAll = useCallback(
+    (agentId?: string) => {
+      const a = agentId ? agents.state?.agents.find((x) => x.id === agentId) : null;
+      if (a) updateRead((marks) => markAgentRead(marks, a));
+      else if (changedNodes && !agentId) updateRead((marks) => markAllRead(marks, changedNodes));
+    },
+    [agents.state, changedNodes, updateRead],
+  );
+
   const lit = litAgent && agents.state?.agents.some((a) => a.id === litAgent) ? litAgent : null;
   const spot = useMemo(
     () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit) : null),
@@ -133,11 +168,13 @@ export function App() {
   const activity = useMemo(() => {
     const s = agents.state;
     if (!tree || !s) return null;
-    // One agent lit: the map marks only its changes.
+    // One agent lit: the map marks only its changes, unread by its own times.
     const nodes = spot && lit ? agentNodes(s.nodes, lit) : s.nodes;
     if (!Object.keys(nodes).length) return null;
-    return rollupActivity(tree, graphIndex, nodes, spot ? s.agents.filter((a) => a.id === lit) : s.agents);
-  }, [tree, graphIndex, agents.state, spot, lit]);
+    const one = spot ? s.agents.find((a) => a.id === lit) : undefined;
+    const unreadHere = one && unread && readMarks ? agentUnreadIds(one, unread, readMarks, s.nodes) : unread;
+    return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere);
+  }, [tree, graphIndex, agents.state, spot, lit, unread, readMarks]);
 
   // Agents' changes were re-indexed: fetch the new graph now rather than at the next poll.
   const reload = ws.reload;
@@ -601,8 +638,10 @@ export function App() {
           state={agents.state}
           compact={!!(selected || contract)}
           lit={spot ? lit : null}
+          read={readState}
           onShow={showAgent}
           onSelect={selectChange}
+          onMarkRead={readAll}
           onClear={
             canEdit(ws.workspace)
               ? (id) => {
