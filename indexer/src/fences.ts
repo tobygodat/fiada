@@ -53,6 +53,10 @@ export function covers(fence: Fence, file: FencedFile, nodes: Map<string, GraphN
   // Without both the edit may rewrite any of the file, the symbol with it.
   if (!nodes.has(fence.node)) return false;
   if (!file.lines || !file.symbols) return true;
+  // Same-named declarations are told apart by their order (`name~2`), which an edit can change:
+  // lines can't be bound to one of them, so the fence holds for the whole file.
+  const base = fence.node.replace(/~\d+$/, '');
+  if (base !== fence.node || [...file.symbols.keys()].filter((id) => id.replace(/~\d+$/, '') === base).length > 1) return true;
   // Not in the file as it is now (renamed under the fence): it can't be placed, so the fence holds.
   const at = file.symbols.get(fence.node);
   return !at || touches(at, file.lines);

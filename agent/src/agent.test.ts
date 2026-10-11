@@ -368,15 +368,15 @@ test("a file in another checkout than the agent's says which, even one not writt
   const other = await repo({ 'lib/b.py': 'y\n' });
   git(other, 'remote', 'add', 'origin', 'https://github.com/acme/other.git');
   const co = await checkout(own);
-  assert.deepEqual(await placed({ path: path.join(own, 'a.py') }, co), { path: path.join(own, 'a.py') });
+  assert.deepEqual(await placed({ path: path.join(own, 'a.py') }, co), { path: path.join(own, 'a.py'), rel: 'a.py' });
   const theirs = { root: other, remote: 'https://github.com/acme/other.git' };
-  assert.deepEqual(await placed({ path: path.join(other, 'lib/b.py'), lines: [[1, 1]] }, co), { path: path.join(other, 'lib/b.py'), lines: [[1, 1]], checkout: theirs });
-  assert.deepEqual(await placed({ path: path.join(other, 'new/deep/c.py') }, co), { path: path.join(other, 'new/deep/c.py'), checkout: theirs });
+  assert.deepEqual(await placed({ path: path.join(other, 'lib/b.py'), lines: [[1, 1]] }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', lines: [[1, 1]], checkout: theirs });
+  assert.deepEqual(await placed({ path: path.join(other, 'new/deep/c.py') }, co), { path: path.join(other, 'new/deep/c.py'), rel: 'new/deep/c.py', checkout: theirs });
   // A link is placed where it leads, lines and all, in this checkout or another.
   await fs.symlink(path.join(own, 'a.py'), path.join(own, 'alias.py'));
-  assert.deepEqual(await placed({ path: path.join(own, 'alias.py'), lines: [[1, 1]] }, co), { path: path.join(own, 'a.py'), lines: [[1, 1]] });
+  assert.deepEqual(await placed({ path: path.join(own, 'alias.py'), lines: [[1, 1]] }, co), { path: path.join(own, 'a.py'), rel: 'a.py', lines: [[1, 1]] });
   await fs.symlink(path.join(other, 'lib/b.py'), path.join(own, 'b-link.py'));
-  assert.deepEqual(await placed({ path: path.join(own, 'b-link.py') }, co), { path: path.join(other, 'lib/b.py'), checkout: theirs });
+  assert.deepEqual(await placed({ path: path.join(own, 'b-link.py') }, co), { path: path.join(other, 'lib/b.py'), rel: 'lib/b.py', checkout: theirs });
   // Outside any checkout: nothing to say.
   const loose = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-loose-')));
   assert.deepEqual(await placed({ path: path.join(loose, 'd.py') }, co), { path: path.join(loose, 'd.py') });
@@ -415,7 +415,7 @@ test('the hook asks Fiada before an edit lands, as Claude Code runs it, and stay
     assert.equal(asked[0].agent.session, 'fence-test');
     assert.equal(asked[0].agent.root, dir);
     assert.equal(asked[0].tool, 'Edit');
-    assert.deepEqual(asked[0].files, [{ path: path.join(dir, 'core/config.py'), lines: [[1, 1]], sha256: createHash('sha256').update('SECRET = 1\n').digest('hex') }]);
+    assert.deepEqual(asked[0].files, [{ path: path.join(dir, 'core/config.py'), rel: 'core/config.py', lines: [[1, 1]], sha256: createHash('sha256').update('SECRET = 1\n').digest('hex') }]);
     assert.equal(JSON.parse(await runHook(edit('main.py'), { FIADA_URL: url })).hookSpecificOutput.permissionDecision, 'ask');
     // Allowed: nothing printed, so the person's own permission settings decide.
     assert.equal(await runHook(edit('other.py'), { FIADA_URL: url }), '');

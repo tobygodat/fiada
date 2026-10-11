@@ -8,7 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { ActivityState, AgentRef, Fence, FenceVerdict, Graph, GraphNode } from '@fiada/shared';
-import { AgentHub, collisions } from './agents.ts';
+import { AgentHub, cleanRel, collisions } from './agents.ts';
 import { cleanFences, covers, Fences, verdict } from './fences.ts';
 import { FileProjectStore, type ProjectStore, type SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
@@ -55,6 +55,12 @@ test('a fence covers its own circle and everything inside it, and a symbol only 
   assert.ok(covers(sym, file('app/routes/items.py', [[30, 31]], {}), nodes));
   // Without lines the edit may rewrite the whole file, the symbol with it.
   assert.ok(covers(sym, file('app/routes/items.py'), nodes));
+  // Same-named declarations are told apart by order, which an edit can change: the whole file is covered.
+  const both = { 'api/app/routes/items.py#create_item': [10, 20] as [number, number], 'api/app/routes/items.py#create_item~2': [40, 50] as [number, number] };
+  assert.ok(covers(sym, file('app/routes/items.py', [[30, 31]], both), nodes));
+  const second = fence('api/app/routes/items.py#create_item~2', 'off');
+  const withSecond = new Map([...nodes, [second.node, node(second.node, 'symbol', 'api/app/routes/items.py', { lines: [40, 50] })]]);
+  assert.ok(covers(second, file('app/routes/items.py', [[30, 31]], both), withSecond));
   assert.ok(!covers(sym, file('app/routes/users.py'), nodes));
 });
 
@@ -178,6 +184,17 @@ test('collisions: the deepest file or folder two agents share, never a whole rep
   // A third agent further up makes a second, wider meeting place.
   const three = collisions([agent('a', 'api/app/routes/items.py'), agent('b', 'api/app/routes/users.py'), agent('c', 'api/app/core/config.py')], nodes);
   assert.deepEqual(three.map((c) => [c.node, c.agents.length]), [['api/app/routes', 2], ['api/app', 3]]);
+  // Files not on the map (one just added, one deleted) meet in the nearest folder that is.
+  const off = (id: string, rel: string) => ({ id, files: [{ repo: 'api', path: rel, kind: 'added' as const, symbols: [], at: '', diff: false }] });
+  assert.deepEqual(collisions([off('a', 'app/routes/new.py'), off('b', 'app/routes/gone/old.py')], nodes), [
+    { node: 'api/app/routes', unit: 'folder', agents: ['a', 'b'], files: { a: ['api/app/routes/new.py'], b: ['api/app/routes/gone/old.py'] } },
+  ]);
+  assert.deepEqual(collisions([off('a', 'app/routes/new.py'), agent('b', 'api/app/routes/users.py')], nodes).map((c) => c.node), ['api/app/routes']);
+});
+
+test('an agent may say where a file is inside its checkout, but only as a plain repo-relative path', () => {
+  assert.equal(cleanRel('app/core/config.py'), 'app/core/config.py');
+  for (const bad of [undefined, 3, '', '/etc/passwd', 'C:/x', 'app\\core', '../x', 'app/../../x', 'app//x', './app']) assert.equal(cleanRel(bad), undefined, String(bad));
 });
 
 async function localRepo() {
@@ -196,6 +213,7 @@ async function localRepo() {
   git(dir, 'config', 'user.name', 'test');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-qm', 'init');
+  git(dir, 'remote', 'add', 'origin', 'https://github.com/acme/api.git');
   return dir;
 }
 
@@ -244,6 +262,13 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   const target = { path: path.join(clone, 'app/core/config.py') };
   assert.equal((await hub.check({ agent: neighbour, files: [target] }, fences)).decision, 'allow');
   assert.equal((await hub.check({ agent: neighbour, files: [{ ...target, checkout: { root: clone } }] }, fences)).decision, 'deny');
+  // An agent on Windows, against an indexer that can't read its paths: the path inside the
+  // checkout it sends, with its remote, places the file.
+  const windows: AgentRef = { client: 'claude-code', session: 's6', cwd: 'C:\\work\\api', root: 'C:\\work\\api', remote: 'https://github.com/acme/api.git' };
+  const winFile = { path: 'C:\\work\\api\\app\\core\\config.py' };
+  assert.equal((await hub.check({ agent: windows, files: [winFile] }, fences)).decision, 'allow');
+  assert.equal((await hub.check({ agent: windows, files: [{ ...winFile, rel: 'app/core/config.py' }] }, fences)).decision, 'deny');
+  assert.equal((await hub.check({ agent: windows, files: [{ ...winFile, rel: '../other/app/core/config.py' }] }, fences)).decision, 'allow');
   // A checkout of some other repository that happens to share the folder name is not fenced.
   const stranger: AgentRef = { ...away, session: 's4', remote: 'https://github.com/someone/else.git' };
   assert.equal((await hub.check({ agent: stranger, files: [{ path: path.join(clone, 'app/core/config.py') }] }, fences)).decision, 'allow');

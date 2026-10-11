@@ -654,10 +654,12 @@ export interface FenceCheck {
   /** Claude Code's tool name, e.g. "Edit". */
   tool?: string;
   /**
-   * `checkout` names the file's own checkout when it isn't in the agent's.
-   * `sha256` is the hex digest of the text `lines` were counted in.
+   * `checkout` names the file's own checkout when it isn't in the agent's,
+   * and `rel` is the file's path inside its checkout, with forward slashes, as
+   * the agent's own machine works it out (its paths may not be the indexer's
+   * kind). `sha256` is the hex digest of the text `lines` were counted in.
    */
-  files: { path: string; lines?: LineRange[]; sha256?: string; checkout?: { root: string; remote?: string } }[];
+  files: { path: string; rel?: string; lines?: LineRange[]; sha256?: string; checkout?: { root: string; remote?: string } }[];
 }
 
 /** An edit an agent tried inside a fence, for the agents window. */

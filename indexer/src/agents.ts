@@ -153,6 +153,13 @@ export function remoteKey(url: string): string {
     .toLowerCase();
 }
 
+/** A repo-relative path an agent sent, if it is one: forward slashes, inside the repository. */
+export function cleanRel(rel: unknown): string | undefined {
+  if (typeof rel !== 'string' || !rel || rel.includes('\\') || rel.startsWith('/') || /^[a-z]:/i.test(rel)) return undefined;
+  const parts = rel.split('/');
+  return parts.some((p) => !p || p === '.' || p === '..') ? undefined : rel;
+}
+
 /** Whether a changed-line range touches a symbol's lines. Pure removals only count strictly inside it. */
 export function touches(sym: [number, number], ranges: LineRange[]): boolean {
   const [s, e] = sym;
@@ -168,13 +175,17 @@ export function collisions(agents: Pick<AgentActivity, 'id' | 'files'>[], nodes:
   const at = new Map<string, Map<string, Set<string>>>();
   for (const a of agents) {
     for (const f of a.files) {
-      if (!f.node) continue;
-      for (let n = nodes.get(f.node); n && (n.kind === 'file' || n.kind === 'folder'); n = nodes.get(n.parent)) {
+      // A file not on the map (new and not indexed yet, or deleted) meets others in the nearest folder that is.
+      const key = f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+      if (!key) continue;
+      let start = nodes.get(key);
+      for (let p = key; !start && p.lastIndexOf('/') > 0; ) start = nodes.get((p = p.slice(0, p.lastIndexOf('/'))));
+      for (let n = start; n && (n.kind === 'file' || n.kind === 'folder'); n = nodes.get(n.parent)) {
         let who = at.get(n.id);
         if (!who) at.set(n.id, (who = new Map()));
         let files = who.get(a.id);
         if (!files) who.set(a.id, (files = new Set()));
-        files.add(f.node);
+        files.add(key);
       }
     }
   }
@@ -400,7 +411,7 @@ export class AgentHub {
   }
 
   /** Which imported repository a changed file belongs to, and whether Fiada reads that very directory. */
-  private async resolve(ref: AgentRef, f: FileChange, byName = true): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
+  private async resolve(ref: AgentRef, f: FileChange, byName = true, theirRel?: string): Promise<{ abs: string; repo?: string; rel?: string; live: boolean }> {
     const abs = path.resolve(ref.root ?? ref.cwd, f.path);
     for (const r of this.ws.repos) {
       if (r.kind !== 'local' || !this.ws.allowLocal) continue;
@@ -408,9 +419,11 @@ export class AgentHub {
       if (inside(abs, src) && abs !== src) return { abs, repo: r.id, rel: posix(path.relative(src, abs)), live: true };
     }
     // Another checkout of an imported repository: match it by remote, then by folder name.
-    const co = f.checkout ?? (ref.root && inside(abs, ref.root) ? { root: ref.root, remote: ref.remote } : null);
-    if (co && inside(abs, co.root)) {
-      const rel = posix(path.relative(co.root, abs));
+    // `theirRel` is the path inside the checkout as the agent's machine worked it out, for an
+    // agent whose paths this machine can't read (Windows, against an indexer on Linux).
+    const co = f.checkout ?? (ref.root && (theirRel || inside(abs, ref.root)) ? { root: ref.root, remote: ref.remote } : null);
+    if (co && (theirRel || inside(abs, co.root))) {
+      const rel = theirRel ?? posix(path.relative(co.root, abs));
       if (co.remote) {
         const want = remoteKey(co.remote);
         for (const r of this.ws.repos) {
@@ -504,8 +517,9 @@ export class AgentHub {
     for (const f of req.files ?? []) {
       if (!f || typeof f.path !== 'string') continue;
       // A file in another checkout than the agent's says which, as the post-edit sweep does.
-      const co = f.checkout && typeof f.checkout.root === 'string' && path.isAbsolute(f.checkout.root) ? { root: f.checkout.root, remote: typeof f.checkout.remote === 'string' ? f.checkout.remote : undefined } : undefined;
-      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified', checkout: co }, false);
+      const co = f.checkout && typeof f.checkout.root === 'string' && f.checkout.root ? { root: f.checkout.root, remote: typeof f.checkout.remote === 'string' ? f.checkout.remote : undefined } : undefined;
+      const rel = cleanRel(f.rel);
+      const where = await this.resolve(req.agent, { path: f.path, kind: 'modified', checkout: co }, false, rel);
       if (!where.repo) continue;
       const lines = Array.isArray(f.lines) ? f.lines.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)) : [];
       // The hook counted lines in the agent's own copy of the file. They place an edit against a

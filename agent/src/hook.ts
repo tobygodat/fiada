@@ -138,11 +138,12 @@ export async function aboutToEdit(tool: string, input: Payload, cwd: string): Pr
  */
 export async function placed(file: FenceCheck['files'][number], co: Checkout | null): Promise<FenceCheck['files'][number]> {
   const abs = await real(file.path);
-  if (co && (abs + path.sep).startsWith(co.root + path.sep)) return { ...file, path: abs };
+  const rel = (root: string) => path.relative(root, abs).split(path.sep).join('/');
+  if (co && (abs + path.sep).startsWith(co.root + path.sep)) return { ...file, path: abs, rel: rel(co.root) };
   let dir = path.dirname(abs);
   while (dir !== path.dirname(dir) && !(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) dir = path.dirname(dir);
   const theirs = await checkout(dir).catch(() => null);
-  return theirs ? { ...file, path: abs, checkout: { root: theirs.root, remote: theirs.remote } } : { ...file, path: abs };
+  return theirs ? { ...file, path: abs, rel: rel(theirs.root), checkout: { root: theirs.root, remote: theirs.remote } } : { ...file, path: abs };
 }
 
 /** Claude Code's answer to PreToolUse for an edit inside a fence; nothing for one outside every fence. */
