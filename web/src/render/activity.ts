@@ -1,6 +1,7 @@
 // The agent overlay, drawn over the map's circles: a ring just outside
 // anything an agent added, modified or deleted, a pulse for a few seconds
-// after each change, a green ring where an agent is working right now, and on
+// after each change, a green ring where an agent is working right now, a
+// faint dotted ring on what an agent looked at without changing it, and on
 // closed circles a small count of the changes inside. It stays quiet on
 // purpose: thin rings, one small badge, and no motion once the agent stops.
 // Change colours mean a change and nothing else (ink, ochre, brick); the one
@@ -81,6 +82,24 @@ export function hereGeometry(r: number, changed: boolean) {
   return { gap, line, gapR, lineR, outer: lineR + line / 2 };
 }
 
+/** How strongly the looked-at ring shows: on the node itself, and on a closed circle with a looked-at node inside. */
+export const LOOKED_ALPHA = { self: 0.8, inside: 0.45 } as const;
+
+/** The looked-at ring: a thin dotted line where the change ring would be, never with one. */
+function lookedRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, alpha: number) {
+  const g = ringGeometry(r);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = changeColor('looked');
+  ctx.lineWidth = r < 6 ? 1 : 1.25;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([0.5, r < 6 ? 2.5 : 3.5]);
+  ctx.beginPath();
+  ctx.arc(x, y, g.lineR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+}
+
 function ring(ctx: CanvasRenderingContext2D, x: number, y: number, g: { gap: number; line: number; gapR: number; lineR: number }, color: string, dash: number[]) {
   ctx.globalAlpha = 0.85;
   ctx.strokeStyle = paper();
@@ -120,16 +139,21 @@ function unreadDot(ctx: CanvasRenderingContext2D, x: number, y: number, outer: n
 
 /**
  * How far out from its centre a circle's steady marks reach (its change ring,
- * the green "working here" ring and the unread dot), or null when it has none.
+ * the green "working here" ring, the looked-at ring and the unread dot), or null when it has none.
  * Words drawn later keep outside this. The fading pulse is left out: it is
  * gone in a few seconds, and words that dodged it would jump when it ends.
  */
 export function marksReach(r: number, m: Marks | undefined, open: boolean): number | null {
   if (!m) return null;
   const here = m.here === 'self' || (m.here === 'inside' && !open) ? hereGeometry(r, !!m.self) : null;
-  if (!here && !m.self) return null;
+  if (!here && !m.self && !looks(m, open)) return null;
   const outer = here?.outer ?? ringGeometry(r).outer;
   return m.self && m.selfUnread ? outer + unreadGeometry(0, 0, outer, r).gap : outer;
+}
+
+/** Whether the looked-at ring shows, given nothing changed or working here. */
+function looks(m: Marks, open: boolean) {
+  return m.looked === 'self' || (m.looked === 'inside' && !open && !changeCount(m));
 }
 
 /** Rings and pulses. Returns whether anything is still pulsing, so the caller keeps animating. */
@@ -144,6 +168,8 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     // An agent working here now: on the node itself, or on the closed circle it's inside.
     const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self) : null;
     if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
+    // Looked at, and nothing changed or working here: the quietest mark there is.
+    if (!m.self && !here && m.looked && looks(m, d.open)) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
     if (m.self) {
       const color = changeColor(m.self);
       ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);

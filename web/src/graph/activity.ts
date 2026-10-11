@@ -1,8 +1,9 @@
 // Agents' changes placed on the tree the map is drawing: which nodes changed
 // themselves, how many changes sit under each node, so a closed circle can say
-// what's inside it, and where an agent is working right now.
+// what's inside it, where an agent is working right now, and what agents
+// looked at (read, or asked Fiada about) without changing it.
 
-import type { AgentActivity, AgentFile, ChangeKind, GraphNode, NodeChange } from '@fiada/shared';
+import type { AgentActivity, AgentFile, ChangeKind, GraphNode, LookedAt, NodeChange } from '@fiada/shared';
 import { locate, type Tree } from './tree.ts';
 
 export interface Marks {
@@ -20,6 +21,8 @@ export interface Marks {
   selfUnread: boolean;
   /** Of the changes counted underneath, how many you haven't opened since. */
   unread: number;
+  /** An agent looked at this node ('self') or at something under it ('inside') without changing it. */
+  looked: 'self' | 'inside' | null;
 }
 
 export type TreeActivity = Map<string, Marks>;
@@ -33,11 +36,12 @@ export function rollupActivity(
   agents: readonly AgentActivity[] = [],
   /** Changed node ids you haven't seen since their latest change (unread.ts). */
   unread: ReadonlySet<string> | null = null,
+  looked: Record<string, LookedAt> = {},
 ): TreeActivity {
   const out: TreeActivity = new Map();
   const get = (id: string) => {
     let m = out.get(id);
-    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0 }));
+    if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, looked: null }));
     return m;
   };
   const unit = tree.view === 'code' ? 'file' : 'symbol';
@@ -82,6 +86,60 @@ export function rollupActivity(
       }
     }
   }
+  // What agents looked at: the node itself where this view draws it, and every circle round it,
+  // so a closed one can say something inside was looked at.
+  const kids = childrenOf(graphIndex);
+  for (const id of Object.keys(looked)) {
+    for (const at of lookedIds(tree, graphIndex, kids, id)) {
+      get(at).looked = 'self';
+      for (let cur = tree.nodes.get(at)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) get(cur).looked ??= 'inside';
+    }
+  }
+  return out;
+}
+
+type Children = () => Map<string, string[]>;
+
+/** Every graph node's children, built the first time it's asked for. */
+function childrenOf(graphIndex: Map<string, GraphNode>): Children {
+  let kids: Map<string, string[]> | null = null;
+  return () => {
+    if (!kids) {
+      kids = new Map();
+      for (const g of graphIndex.values()) {
+        const list = kids.get(g.parent);
+        if (list) list.push(g.id);
+        else kids.set(g.parent, [g.id]);
+      }
+    }
+    return kids;
+  };
+}
+
+/**
+ * The circles that stand for a looked-at node in this view: the node itself, or, where the view
+ * doesn't draw it (By function draws no folders, and a file with symbols as its symbols), the
+ * nearest things under it that it does. A whole repository stands for nothing By function:
+ * every symbol in it would be marked.
+ */
+function lookedIds(tree: Tree, graphIndex: Map<string, GraphNode>, kids: Children, id: string): string[] {
+  if (tree.nodes.has(id)) return id === tree.root.id ? [] : [id];
+  if (!graphIndex.has(id) || graphIndex.get(id)!.kind === 'repo') return [];
+  const out: string[] = [];
+  const queue = [id];
+  while (queue.length) {
+    for (const c of kids().get(queue.shift()!) ?? []) {
+      if (tree.nodes.has(c)) out.push(c);
+      else queue.push(c);
+    }
+  }
+  return out;
+}
+
+/** What one agent looked at, out of every agent's. */
+export function agentLooked(looked: Record<string, LookedAt> | undefined, agentId: string): Record<string, LookedAt> {
+  const out: Record<string, LookedAt> = {};
+  for (const [id, l] of Object.entries(looked ?? {})) if (l.agents.includes(agentId)) out[id] = l;
   return out;
 }
 
@@ -94,22 +152,38 @@ export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): 
 
 /** One agent's changes on the map: the circles that stand for them, and those plus every circle round them. */
 export interface Spotlight {
-  /** Tree ids of the changed nodes (for a deleted one, the nearest circle that's left), parents before children. */
+  /**
+   * Tree ids of the changed nodes (for a deleted one, the nearest circle that's left), parents before
+   * children; for an agent that only looked, what it looked at.
+   */
   targets: string[];
-  /** The targets and all their ancestors: what stays lit while the rest of the map dims. */
+  /** The targets, what the agent looked at, and all their ancestors: what stays lit while the rest of the map dims. */
   lit: Set<string>;
 }
 
-export function spotlight(tree: Tree, graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange>, agentId: string): Spotlight | null {
-  const targets = new Set<string>();
+export function spotlight(
+  tree: Tree,
+  graphIndex: Map<string, GraphNode>,
+  nodes: Record<string, NodeChange>,
+  agentId: string,
+  looked: Record<string, LookedAt> = {},
+): Spotlight | null {
+  const changed = new Set<string>();
   for (const [id, c] of Object.entries(nodes)) {
     if (!c.agents.includes(agentId)) continue;
     const at = tree.nodes.has(id) ? id : locate(tree, graphIndex, c.anchor ?? id);
-    if (at && at !== tree.root.id) targets.add(at);
+    if (at && at !== tree.root.id) changed.add(at);
   }
+  const seen = new Set<string>();
+  const kids = childrenOf(graphIndex);
+  for (const [id, l] of Object.entries(looked)) {
+    if (l.agents.includes(agentId)) for (const at of lookedIds(tree, graphIndex, kids, id)) seen.add(at);
+  }
+  // The camera goes to what it changed; to what it looked at only when it changed nothing.
+  const targets = changed.size ? changed : seen;
   if (!targets.size) return null;
   const lit = new Set<string>();
-  for (const id of targets) {
+  for (const id of [...changed, ...seen]) {
     for (let cur: string | null = id; cur && !lit.has(cur); cur = tree.nodes.get(cur)?.parent ?? null) lit.add(cur);
   }
   const depth = (id: string) => tree.nodes.get(id)?.depth ?? 0;
@@ -136,6 +210,7 @@ export function describeMarks(m: Marks, view: Tree['view']): string {
   const parts: string[] = [];
   if (m.here) parts.push(m.here === 'self' ? 'an agent is working here' : 'an agent is working inside');
   if (m.self) parts.push(m.self);
+  else if (m.looked) parts.push(m.looked === 'self' ? 'an agent looked at this' : 'an agent looked inside');
   const n = changeCount(m);
   if (n) {
     const kinds = (['added', 'modified', 'deleted'] as const).filter((k) => m[k]).map((k) => `${m[k]} ${k}`);

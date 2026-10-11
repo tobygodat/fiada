@@ -21,6 +21,7 @@ import {
 } from '@fiada/shared';
 import { api, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
+import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
@@ -91,6 +92,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, onSele
       <Summary id={n.id} rev={graph.generatedAt} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
       {g && (g.kind === 'file' || g.kind === 'symbol') && <Changed g={g} activity={activity} />}
+      {g && <Looked id={g.id} activity={activity} />}
 
       {repo && (
         <div className="detail-block">
@@ -183,6 +185,19 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
       <p>{text}</p>
       <div className="summary-note">{note}</div>
     </div>
+  );
+}
+
+/** Who looked at this node without changing it, in words, as the map's dotted ring says it. */
+function Looked({ id, activity }: { id: string; activity?: ActivityState | null }) {
+  const l = activity?.looked?.[id];
+  if (!l) return null;
+  const names = [...new Set(l.agents.map((a) => activity!.agents.find((x) => x.id === a)?.name ?? 'an agent'))];
+  return (
+    <p className="detail-looked">
+      <span className="swatch-ring looked" aria-hidden />
+      looked at by {names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]} · {ago(new Date(l.at).toISOString())}
+    </p>
   );
 }
 

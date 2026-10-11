@@ -1,5 +1,6 @@
-// Sends events to the Fiada indexer. An agent must never wait on Fiada or
-// fail because it's down, so every send is short and swallows errors.
+// Talks to the Fiada indexer: sends events, and asks the map questions for
+// the MCP server's read tools. An agent must never wait on Fiada or fail
+// because it's down, so every call is short and swallows errors.
 
 import './env.ts';
 import { execFile } from 'node:child_process';
@@ -32,6 +33,26 @@ export async function send(events: AgentEvent[], timeoutMs = 1500): Promise<Inge
     return res.ok ? ((await res.json()) as IngestReply) : null;
   } catch {
     return null;
+  }
+}
+
+/** What the indexer said to a question, or why there's no answer. */
+export type Asked<T> = { ok: true; body: T } | { ok: false; status: number; error: string };
+
+/** Asks the indexer's map a question (GET /api/agent/<route>). Never throws: an indexer that's down is an answer too. */
+export async function ask<T>(route: 'find' | 'dependents' | 'impact', params: Record<string, string | number | undefined>, timeoutMs = 8000): Promise<Asked<T>> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, String(v));
+  try {
+    const res = await fetch(`${FIADA_URL}/api/agent/${route}?${qs}`, {
+      headers: KEY ? { authorization: `Bearer ${KEY}` } : {},
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    if (res.ok && body) return { ok: true, body };
+    return { ok: false, status: res.status, error: body?.error ?? `Fiada answered ${res.status}.` };
+  } catch {
+    return { ok: false, status: 0, error: `Fiada isn't reachable at ${FIADA_URL}.` };
   }
 }
 

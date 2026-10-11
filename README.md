@@ -18,6 +18,7 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 - **Says what each circle does.** Selecting a node shows a short generated summary above its calls and callers, cached by content hash.
 - **Separates what it knows from what it guessed.** Every contract lists the lines of code behind it. Links the indexer only inferred are dotted, with a `?`, a confidence and a reason.
 - **Shows your coding agent working.** Claude Code's hooks and an MCP server report each edit; the map rings what was added, changed or deleted, counts changes on closed circles, and shows the diff when you click.
+- **Answers your coding agent's questions.** The same MCP server lets the agent ask the map where a feature lives, what uses a function (with the lines that prove it) and what an edit would reach across repositories, before it changes anything. What it looked at gets a faint dotted ring.
 - **Two views of the same code.** **Code** is the structure as it is on disk. **By function** regroups the same functions by feature, then layer, so a feature that spans a React page, a generated client, a FastAPI route and a table reads as one circle.
 
 | Following an HTTP contract to the code behind it | An agent at work: rings, counts, task and plan |
@@ -62,7 +63,7 @@ cd /path/to/your/repo && claude
 npx -y --package=@fiadatech/agent fiada setup --write . --url=https://<indexer> --token=<token>
 ```
 
-It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiadatech/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, and each file or function it touches gets a ring. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
+It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no variables need setting. `npm install -g @fiadatech/agent`, then `fiada setup …`, does the same with a faster hook. Give Claude a task and watch the map: its task and plan appear in the agents window, each file or function it touches gets a ring, and what it reads or [asks the map about](#asking-the-map) gets a faint dotted one. If you start `claude` from inside another Claude Code session, `unset CLAUDE_CODE_SESSION_ID` first. Cursor, Codex and scripts are covered in [Watching a coding agent](#watching-a-coding-agent).
 
 ## Hosted demo
 
@@ -178,9 +179,23 @@ Fiada can follow a coding agent (Claude Code, Cursor, Codex, or anything that sp
 There are two ways in, and they work best together:
 
 - **Hooks** (deterministic). The agent's own tool hooks run `agent/bin/fiada-hook.mjs` after every edit, so changes show up even when the agent never mentions them. The hook asks git about the agent's working tree: edited files come with their changed lines and a diff against HEAD, and after a shell command it compares the tree with the last call, so files removed with `rm` or `git mv`, generated files and reverts are caught too. Changes already in the tree when the agent started, or made by you between prompts, aren't put on the agent. Claude Code's plan (`TodoWrite`, or `TaskCreate`/`TaskUpdate`) becomes the step list, and your prompt is the task until the agent names its own.
-- **MCP** (the agent's own words). `agent/bin/fiada-mcp.mjs` is a stdio MCP server with two tools: `report_task` (the task, the plan as steps marked `pending`, `active` or `done`, the step it's on, a note) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
+- **MCP** (the agent's own words). `agent/bin/fiada-mcp.mjs` is a stdio MCP server. Two tools report: `status` (one or two lines on what it's doing now, with the task and the plan as steps marked `pending`, `active` or `done`; `report_task` is its older name) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Three more [ask the map](#asking-the-map). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
 
 Both post to the indexer's `/api/agent/events`. A file maps to the graph by path when its repository was imported from a local directory, or by `origin` remote (then folder name) when the agent works in another checkout of an imported repository. When the agent edits a repository Fiada reads in place, the indexer re-parses just the changed files and relinks (about 10 ms on the FastAPI template), so new files and symbols appear on the map, and comparing each file's symbols with HEAD says which functions were added, changed or deleted. The map fetches the new graph without moving the camera. Agent activity isn't stored anywhere; dismissing an agent in the window clears its marks.
+
+### Asking the map
+
+The MCP server also gives the agent three read-only tools, so it can use the map before it changes anything instead of grepping its way around:
+
+| tool | asks | answers with |
+| --- | --- | --- |
+| `where_is` | where a feature, function, class, file or route lives (`"create item"`, `"ItemsService"`, `"POST /items"`) | each match's repository, path and lines, its layer and domain, what it serves, a one-line summary, and an id to pass on |
+| `who_uses` | what calls, imports, renders, references or requests a function, class, file or folder | each user with the `file:line` and code behind every link, whether the link is proven or inferred, and whether it is in another repository |
+| `impact` | what an edit to it reaches: its users, their users, and so on (3 links by default, at most 6) | the reached code nearest first, with counts by repository, layer and domain; HTTP requests matched to routes carry it from a server into the clients that call it |
+
+A target is an id from `where_is`, a path (absolute in the agent's checkout, or relative to the repository), `path#symbol`, or a name; a name that fits several things comes back as a short list to pick from. Every answer comes from the graph the map draws, evidence and all, across every repository imported on the map. The tools call the indexer's `GET /api/agent/find?q=`, `/api/agent/dependents?node=` and `/api/agent/impact?node=&depth=` (each with an optional `&limit=`) with the same `FIADA_URL` and token the reports use; on an indexer people sign in to, an agent token may read these three routes and nothing else besides reporting.
+
+What the agent asked about, and every file it opens with Claude Code's Read tool, is reported as looked at (a `looked` event). The map draws it as a faint dotted ring in `--muted`, apart from the change rings: a changed node shows its change instead, and a closed circle with something looked at inside gets a fainter one. The detail panel says "looked at by Claude Code", and the agent's card lists what it looked at, each a way onto the map.
 
 Each session is its own card, even when two run in the same checkout. The MCP server finds its session from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets for the servers it starts; for other clients, from the parent process it shares with that session's hooks. A file that only turned up when one session compared the working tree goes to whichever session's own tool wrote it.
 
@@ -206,7 +221,7 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate|Read",
         "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
       }
     ],
@@ -354,7 +369,9 @@ To try the split locally: `docker build -t fiada-indexer . && docker run -p 4178
 bun run test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end,
                      #          agent changes mapped to files and symbols with incremental re-indexing
                      # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
-                     # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools
+                     # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools,
+                     #        the read tools against a stand-in indexer
+                     # ask: where_is, who_uses and impact over a two-repo fixture, and the read routes on a running indexer
                      # sign-in: signed sessions and agent tokens, sealed GitHub tokens, one person's project apart from another's
 FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 bun run test   # also runs the MongoDB store tests
 bun run typecheck

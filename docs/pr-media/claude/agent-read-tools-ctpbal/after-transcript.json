@@ -1,0 +1,26 @@
+[
+  [
+    "where_is",
+    {
+      "query": "create item",
+      "limit": 4
+    },
+    "4 of 18 matches for \"create item\", best first:\n1. create_item (function) in backend/app/api/routes/items.py:61-72\n   API layer, Items domain; serves POST /api/v1/items/\n   Handles POST /api/v1/items/. Called over HTTP by ItemsService.\n   id: backend/app/api/routes/items.py#create_item\n2. create_item (function) in backend/app/crud.py:66-71\n   Data layer, Items domain\n   Function that calls Item. Nothing in the map calls it.\n   id: backend/app/crud.py#create_item\n3. itemsCreateItemErrors (type) in frontend/src/client/types.gen.ts:816-821\n   Contract layer, Items domain\n   Type used by ItemsService and itemsCreateItemError.\n   id: frontend/src/client/types.gen.ts#itemsCreateItemErrors\n4. itemsCreateItemResponses (type) in frontend/src/client/types.gen.ts:825-830\n   Contract layer, Items domain\n   Type used by ItemsService and itemsCreateItemResponse.\n   id: frontend/src/client/types.gen.ts#itemsCreateItemResponses"
+  ],
+  [
+    "who_uses",
+    {
+      "target": "backend/app/api/routes/items.py#create_item"
+    },
+    "1 place uses create_item (function in backend/app/api/routes/items.py:61-72):\n- ItemsService (class) in frontend/src/client/sdk.gen.ts:287-365, another repository\n  http, proven\n    frontend/src/client/sdk.gen.ts:308  return (options.client ?? client).post<itemsCreateItemResponses, itemsCreateItemErrors, ThrowOnError>({\n    backend/app/api/routes/items.py:61  @router.post(\"/\", response_model=ItemPublic)\n  id: frontend/src/client/sdk.gen.ts#ItemsService"
+  ],
+  [
+    "impact",
+    {
+      "target": "<checkout>/backend/app/models.py#Item",
+      "depth": 3,
+      "limit": 15
+    },
+    "An edit to Item (class in backend/app/models.py:87-93) reaches 49 places within 3 links, in 2 repositories.\nBy repository: backend 33, frontend 16.\nBy layer: API 22, UI 12, Data 11, Client 4.\nBy domain: Users 25, Items 11, Admin 5, Shared 4, Login 2, Auth 1, Reset password 1.\nUses it directly:\n- create_item (function) in backend/app/api/routes/items.py:61-72: calls\n- delete_item (function) in backend/app/api/routes/items.py:99-113: references\n- read_item (function) in backend/app/api/routes/items.py:48-58: references\n- read_items (function) in backend/app/api/routes/items.py:13-45: references\n- update_item (function) in backend/app/api/routes/items.py:75-96: references\n- delete_user (function) in backend/app/api/routes/users.py:214-232: references\n- create_item (function) in backend/app/crud.py:66-71: calls\n- User (class) in backend/app/models.py:51-55: type\n2 links away:\n- ItemsService (class) in frontend/src/client/sdk.gen.ts:287-365: http, another repository\n- UsersService (class) in frontend/src/client/sdk.gen.ts:99-258: http, another repository\n- deps.py (file) in backend/app/api/deps.py: references\n- get_current_active_superuser (function) in backend/app/api/deps.py:52-57: type\n- get_current_user (function) in backend/app/api/deps.py:30-46: type\n- create_user (function) in backend/app/api/routes/private.py:23-38: calls\n- read_user_by_id (function) in backend/app/api/routes/users.py:162-179: references\n…and 34 more; ask with a larger limit, or a smaller depth."
+  ]
+]

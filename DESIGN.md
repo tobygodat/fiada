@@ -47,6 +47,7 @@ Three meanings, three palettes, no hue shared between them. They colour map mark
 | `--modified` | `--warning` | a solid ochre ring; `~1` |
 | `--deleted` | `--danger` | a dashed brick ring, the node a ghost; `−1` |
 | `--working` | `--accent` | the green pulse where an agent is working now; the "working" word in the agent window |
+| `--looked` | `--muted` | a faint dotted ring on code an agent read or asked Fiada about without changing it; "looked at" in the detail panel and the agent window |
 | `--unread` | `--text` | a small solid ink dot on the ring of a change you haven't opened since it was made; `3 unread` in the badge |
 
 **Layers**, by position in the project's layer list (the roles preset's order). Quiet tints from the cool half of the wheel, clear of brick (33°), ochre (75°) and green (143–155°), then three cool greys:
