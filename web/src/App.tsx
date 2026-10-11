@@ -5,11 +5,13 @@ import { AgentQueue } from './components/AgentQueue.tsx';
 import { Detail } from './components/Detail.tsx';
 import { MapView } from './components/MapView.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { Search } from './components/Search.tsx';
 import { TopBar } from './components/TopBar.tsx';
 import { TourBar } from './components/TourBar.tsx';
 import { agentNodes, rollupActivity, spotlight } from './graph/activity.ts';
 import { enclose, frame, freeArea, type Camera, type Viewport } from './graph/camera.ts';
 import { layout, layoutExpanded, type Circle } from './graph/layout.ts';
+import { onMap } from './graph/search.ts';
 import { diffShown, loadMarks, nextUnread, reviewable, saveMarks, tourCache, tourOver, type ReadMarks, type ShownDiff, type TourStop } from './graph/tour.ts';
 import { ancestors, buildCodeTree, buildFunctionTree, locate, type TKind, type Tree, type View } from './graph/tree.ts';
 import {
@@ -104,6 +106,8 @@ export function App() {
 
   const graphIndex = useMemo(() => new Map<string, GraphNode>((graph?.nodes ?? []).map((n) => [n.id, n])), [graph]);
   const tree = useMemo(() => (graph ? (view === 'code' ? buildCodeTree(graph) : buildFunctionTree(graph)) : null), [graph, view]);
+  /** What search can find: only what this view draws, so every pick lands on the map. */
+  const searchable = useMemo(() => (graph && tree ? onMap(graph.nodes, tree) : []), [graph, tree]);
   const expanded = useMemo(() => (tree ? (expandedBy[view] ?? defaultExpanded(tree)) : new Set<string>()), [tree, expandedBy, view]);
   const staticL = useMemo(() => (tree && mode === 'zoom' ? layout(tree) : null), [tree, mode]);
   const clickL = useMemo(() => (tree && mode === 'click' ? layoutExpanded(tree, expanded) : null), [tree, mode, expanded]);
@@ -628,6 +632,8 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // An IME's keys (Esc cancels a composition) are still typing.
+      if (e.isComposing) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
       if (e.key === 'Escape') {
@@ -690,6 +696,7 @@ export function App() {
         fitK={fitK}
         busy={!!ws.workspace?.busy}
         canGoBack={history.length > 0}
+        search={searchable.length ? <Search nodes={searchable} onPick={select} /> : undefined}
         onBack={back}
         onCrumb={crumb}
       />
