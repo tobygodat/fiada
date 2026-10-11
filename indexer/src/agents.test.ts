@@ -171,6 +171,8 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
   assert.equal(s.nodes['web/src/api.ts#getItem'].kind, 'modified');
   assert.equal(s.nodes['web/src/api.ts#searchItems'].kind, 'added');
   assert.equal(s.nodes['web/src/api.ts#listItems'], undefined);
+  // Every changed line sat in or beside a symbol, so the change is those symbols'.
+  assert.equal(s.nodes['web/src/api.ts'].whole, undefined);
   // The deleted file left the graph; its folder stands in for it on the map.
   assert.equal(s.nodes['web/src/old.ts'].kind, 'deleted');
   assert.equal(s.nodes['web/src/old.ts'].anchor, 'web/src');
@@ -195,6 +197,22 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
 
   hub.clear();
   assert.deepEqual(hub.state().agents, []);
+});
+
+test("an edit outside every symbol makes the file's change whole", async () => {
+  const { dir, ws } = await localRepo();
+  const hub = new AgentHub(ws);
+  const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
+  // An import goes on top and getItem changes: lines 1–2 are new, and getItem is at 7–9 now.
+  await fs.writeFile(path.join(dir, 'src/api.ts'), "import { base } from './base';\n\n" + API.replace("'/api/items/' + id", 'base + id'));
+  const pushed = nextPush(hub, (s) => s.graphVersion > 1 && !!s.nodes['web/src/api.ts#getItem']);
+  await hub.ingest([
+    { agent, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified', lines: [[1, 2], [8, 8]], oldLines: [[1, 0], [6, 6]], additions: 3, deletions: 1 }] },
+  ]);
+  const s = await pushed;
+  assert.equal(s.nodes['web/src/api.ts#getItem'].kind, 'modified');
+  assert.equal(s.nodes['web/src/api.ts#listItems'], undefined);
+  assert.deepEqual(s.nodes['web/src/api.ts'].whole, [s.agents[0].id]);
 });
 
 test('two sessions in one checkout are two agents, and a sweep does not claim the other one\'s edit', async () => {

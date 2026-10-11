@@ -207,6 +207,14 @@ test('a file another agent changed at its top level stays whole, however narrowl
   const spotB = agentNodes(both, 'b');
   assert.deepEqual(spotB['api/app/routes/items.py'].agents, ['b']);
   assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, spotB), ['1 request from web calls this route.']);
+  // One agent that changed read_items and also the file's top level (an import, say) changed the whole file.
+  const mixed = { ...onlyB, 'api/app/routes/items.py': { ...by('modified', 'file', ['b']), whole: ['b'] } };
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, mixed), ['2 requests from web call these routes, 1 of them inferred.']);
+  // Spotlit, an agent keeps its own top-level edit and drops the other's.
+  const twoWhole = { ...both, 'api/app/routes/items.py': { ...by('modified', 'file', ['a', 'b']), whole: ['a'] } };
+  assert.equal(agentNodes(twoWhole, 'b')['api/app/routes/items.py'].whole, undefined);
+  assert.deepEqual(agentNodes(mixed, 'b')['api/app/routes/items.py'].whole, ['b']);
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, agentNodes(twoWhole, 'b')), ['1 request from web calls this route.']);
 });
 
 test('without edges there is no ripple', () => {

@@ -560,6 +560,32 @@ export class AgentHub {
     return out;
   }
 
+  /**
+   * Whether a modified file's edit reached outside every symbol in it: an import, a
+   * top-level statement. A run of changed lines that touches a symbol may spill a
+   * line past it, the blank line that comes with a new function; a removal or an
+   * insertion between lines counts only strictly inside a symbol. Without line
+   * ranges there's no telling, and the symbols the agent named stand for the edit.
+   */
+  private topLevel(f: FileRec, ix: ReturnType<AgentHub['index']>): boolean {
+    if (f.kind !== 'modified' || !f.repo) return false;
+    const ranges = f.live && f.fresh ? f.lines : f.oldLines;
+    if (!ranges?.length) return false;
+    const spans = (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []).flatMap((s) => (s.lines ? [s.lines] : []));
+    return ranges.some(([a, b]) => {
+      if (b < a) return !spans.some((s) => touches(s, [[a, b]]));
+      let covered = false;
+      let gap = 0;
+      for (let n = a; n <= b; n++) {
+        if (spans.some(([s, e]) => s <= n && n <= e)) {
+          covered = true;
+          gap = 0;
+        } else if (++gap > 1) return true;
+      }
+      return !covered;
+    });
+  }
+
   state(): ActivityState {
     const graph = this.ws.getGraph();
     if (this.cached && this.cached.version === this.version && this.cached.graph === this.ws.version) return this.cached.state;
@@ -585,6 +611,10 @@ export class AgentHub {
           const folder = ix.folders.get(fid);
           node = ix.nodes.has(fid) ? fid : folder;
           mark(node ?? fid, { kind: f.kind, at: f.at, unit: 'file', anchor: node ? undefined : this.anchor(ix, f.repo, f.rel!) }, rec.id);
+          if (this.topLevel(f, ix)) {
+            const c = nodes[node ?? fid];
+            if (!c.whole?.includes(rec.id)) (c.whole ??= []).push(rec.id);
+          }
           for (const s of symbols) mark(s.id, { kind: s.kind, at: f.at, unit: 'symbol', anchor: ix.nodes.has(s.id) ? undefined : (node ?? this.anchor(ix, f.repo, f.rel!)) }, rec.id);
         }
         files.push({

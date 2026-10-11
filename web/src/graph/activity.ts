@@ -102,9 +102,10 @@ export function rollupActivity(
 
 /**
  * Changed files whose change is narrowed to symbols, each with those symbols:
- * every agent that changed the file also named the symbols it touched there. A
- * file another agent changed only at its top level stays whole, so what uses
- * any of it is reached.
+ * every agent that changed the file also named the symbols it touched there,
+ * and none of them reached outside those symbols. A file an agent changed at
+ * its top level (an import, a statement outside any function) stays whole, so
+ * what uses any of it is reached.
  */
 function narrowedFiles(nodes: Record<string, NodeChange>): Map<string, string[]> {
   const bySymbol = new Map<string, { ids: string[]; agents: Set<string> }>();
@@ -118,7 +119,10 @@ function narrowedFiles(nodes: Record<string, NodeChange>): Map<string, string[]>
     for (const a of c.agents) f.agents.add(a);
   }
   const out = new Map<string, string[]>();
-  for (const [file, f] of bySymbol) if (!nodes[file] || nodes[file].agents.every((a) => f.agents.has(a))) out.set(file, f.ids);
+  for (const [file, f] of bySymbol) {
+    const c = nodes[file];
+    if (!c || (c.agents.every((a) => f.agents.has(a)) && !c.agents.some((a) => c.whole?.includes(a)))) out.set(file, f.ids);
+  }
   return out;
 }
 
@@ -191,7 +195,11 @@ function addRipple(
 /** The changes one agent made, out of every agent's, each credited to that agent alone (so a file another agent also changed narrows as it would for this one). */
 export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): Record<string, NodeChange> {
   const out: Record<string, NodeChange> = {};
-  for (const [id, c] of Object.entries(nodes)) if (c.agents.includes(agentId)) out[id] = { ...c, agents: [agentId] };
+  for (const [id, c] of Object.entries(nodes)) {
+    if (!c.agents.includes(agentId)) continue;
+    const { whole, ...rest } = c;
+    out[id] = whole?.includes(agentId) ? { ...rest, agents: [agentId], whole: [agentId] } : { ...rest, agents: [agentId] };
+  }
   return out;
 }
 

@@ -199,7 +199,10 @@ const sources = new Map<string, Promise<SourceText>>();
  */
 function Changed({ g, graph, graphIndex, activity, shown }: { g: GraphNode; graph: Graph; graphIndex: Map<string, GraphNode>; activity?: ActivityState | null; shown?: ActivityState['nodes'] }) {
   const own = activity?.nodes[g.id];
-  const reach = useMemo(() => (own && own.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, shown ?? activity?.nodes) : []), [own, g, graph, graphIndex, shown, activity]);
+  // With one agent lit, only its changes say what they reach, as only they ripple on the map.
+  const nodes = shown ?? activity?.nodes;
+  const shownOwn = nodes?.[g.id];
+  const reach = useMemo(() => (shownOwn && shownOwn.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, nodes) : []), [shownOwn, g, graph, graphIndex, nodes]);
   if (!own) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
   return <AgentChange node={g.id} lines={g.kind === 'symbol' ? g.lines : undefined} rev={file?.at ?? own.at} kind={own.kind} reach={reach} />;
