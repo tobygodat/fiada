@@ -115,7 +115,7 @@ export function Sidebar(p: Props) {
 }
 
 /** One of a few, as a row of words: the chosen one is ink over a green line. */
-function Choice<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string, string?][]; onChange(v: T): void }) {
+export function Choice<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string, string?][]; onChange(v: T): void }) {
   return (
     <div className="choice" role="radiogroup" aria-label={label}>
       {options.map(([v, text, title]) => (

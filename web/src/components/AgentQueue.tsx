@@ -5,12 +5,15 @@
 // functions takes the map to it, where the detail panel shows the diff;
 // "review" walks through them all, one change at a time. Each agent says how
 // many of its changes you've read since it made them, unread files carry a
-// dot, and "mark all read" catches up without opening each one. While the
-// detail panel is open the window folds to one line above it.
+// dot, and "mark all read" catches up without opening each one.
+// When two agents have changes in one file or folder, a line at the top says
+// where they meet; an edit an agent tried inside a fence is said on its entry.
+// While the detail panel is open the window folds to one line above it.
 
 import { useEffect, useState } from 'react';
-import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep } from '@fiada/shared';
+import type { ActivityState, AgentActivity, AgentFile, AgentNow, AgentStep, FenceHit } from '@fiada/shared';
 import { readWords } from '../graph/activity.ts';
+import { collisionWords, fenceWords } from '../graph/fences.ts';
 import { agentFileUnread, fileTarget, type ReadMarks } from '../graph/unread.ts';
 import { ago } from './ago.ts';
 import './agent.css';
@@ -34,6 +37,8 @@ interface Props {
   /** Starts a review tour of one agent's changes. */
   onReview(agentId: string): void;
   onSelect(nodeId: string, agentId: string): void;
+  /** Takes the map to a place two agents share, or to a fence. */
+  onPlace(nodeId: string): void;
   /** Dismisses an agent; absent when this browser can't change the project. */
   onClear?(agentId: string): void;
 }
@@ -45,7 +50,6 @@ const DERIVED = { plan: 'from the plan', prompt: 'from your prompt' } as const;
 const MAX_STEPS = 6;
 /** Changed functions listed under a file before "and N more". */
 const MAX_SYMBOLS = 5;
-
 const COLLAPSED_KEY = 'strata.queueCollapsed';
 const readCollapsed = () => {
   try {
@@ -55,7 +59,7 @@ const readCollapsed = () => {
   }
 };
 
-export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, onShow, onReview, onSelect, onMarkRead, onClear }: Props) {
+export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, onShow, onReview, onSelect, onPlace, onMarkRead, onClear }: Props) {
   const [pref, setPref] = useState(readCollapsed);
   // Opened while the detail panel is showing: stays open until closed or the panel goes.
   const [peek, setPeek] = useState(false);
@@ -75,6 +79,8 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
   // An ended session with nothing left to review, and nothing it looked at, has nothing to show.
   const agents = (state?.agents ?? []).filter((a) => a.state !== 'ended' || a.files.length || a.looked?.count);
   if (!agents.length) return null;
+  const names = new Map(agents.map((a) => [a.id, a.name]));
+  const collisions = (state?.collisions ?? []).filter((c) => c.agents.filter((id) => names.has(id)).length > 1);
 
   if (collapsed) {
     const lead = agents.find((a) => a.id === lit) ?? agents[0];
@@ -87,7 +93,11 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
           {word && text ? ' · ' : ''}
           {text}
         </span>
-        {agents.length > 1 && <span className="queue-folded-more">{agents.length} agents</span>}
+        {collisions.length ? (
+          <span className="queue-folded-more queue-collision-words">{collisionWords(collisions[0], true)}</span>
+        ) : (
+          agents.length > 1 && <span className="queue-folded-more">{agents.length} agents</span>
+        )}
         <span className="queue-act">show</span>
       </button>
     );
@@ -114,11 +124,23 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
           </button>
         </span>
       </div>
+      {!!collisions.length && (
+        <div className="queue-collisions" role="status">
+          {collisions.map((c) => (
+            <button key={c.node} className="queue-collision" onClick={() => onPlace(c.node)} title={`Show ${c.node} on the map`}>
+              <span className="queue-collision-words">{collisionWords(c)}</span>
+              <span className="queue-collision-who">{c.agents.map((id) => names.get(id) ?? id).join(' and ')}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="queue-list">
         {agents.map((a) => (
           <AgentCard
             key={a.id}
             a={a}
+            fenced={state?.fenced?.[a.id]}
+            onPlace={onPlace}
             lit={a.id === lit}
             unreadFor={unreadFor}
             onMarkRead={() => onMarkRead(a.id)}
@@ -195,6 +217,9 @@ function Chevron({ open }: { open: boolean }) {
 
 interface CardProps {
   a: AgentActivity;
+  /** The latest edit it tried inside a fence. */
+  fenced?: FenceHit;
+  onPlace(nodeId: string): void;
   lit: boolean;
   unreadFor: ((f: AgentFile) => boolean) | null;
   onMarkRead(): void;
@@ -206,7 +231,7 @@ interface CardProps {
   onClear?(): void;
 }
 
-function AgentCard({ a, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, onClear }: CardProps) {
+function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, onClear }: CardProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showLooked, setShowLooked] = useState(false);
@@ -252,6 +277,11 @@ function AgentCard({ a, lit, unreadFor, onMarkRead, onShow, onReview, onSelect, 
         </div>
       )}
       {a.note && <div className="queue-note">{a.note}</div>}
+      {fenced && (
+        <button className={`queue-fenced ${fenced.decision}`} onClick={() => onPlace(fenced.node)} title={`${fenced.file}\n${ago(fenced.at)}`}>
+          {fenceWords(fenced)}
+        </button>
+      )}
       {!!a.steps.length && (
         <div className="queue-fold">
           <button className="queue-fold-toggle" onClick={() => setShowPlan((s) => !s)} aria-expanded={showPlan}>

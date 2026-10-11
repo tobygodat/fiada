@@ -58,6 +58,8 @@ test('a rate limit counts each caller apart and resets after its window', () => 
 
 test('agent tokens report and ask the map; everything else takes a signed-in person', () => {
   assert.equal(whoMayCall('POST', '/api/agent/events'), 'agent');
+  assert.equal(whoMayCall('POST', '/api/agent/check'), 'agent');
+  assert.equal(whoMayCall('GET', '/api/agent/check'), 'person');
   for (const route of ['/api/agent/find', '/api/agent/dependents', '/api/agent/impact']) assert.equal(whoMayCall('GET', route), 'agent-or-person');
   // The read routes only read.
   assert.equal(whoMayCall('POST', '/api/agent/find'), 'person');

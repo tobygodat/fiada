@@ -1,6 +1,6 @@
 // Right-hand panel: what the selected node is and does (its summary, then why
-// it landed in its layer and domain), what it depends on, or the contract
-// behind an edge.
+// it landed in its layer and domain), whether agents may change it (its
+// fence), what it depends on, or the contract behind an edge.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -11,6 +11,8 @@ import {
   type EdgeEvidence,
   type EdgeEvidenceSource,
   type EdgeKind,
+  type Fence,
+  type FenceRule,
   type Graph,
   type GraphEdge,
   type GraphNode,
@@ -24,6 +26,8 @@ import { AgentChange } from './AgentChange.tsx';
 import { ownerOf, type HunkOwner, type Theirs } from './diff.ts';
 import { ago } from './ago.ts';
 import { Chevron } from './Icon.tsx';
+import { Choice } from './Sidebar.tsx';
+import { fenceAround } from '../graph/fences.ts';
 import { reachSentences } from '../graph/activity.ts';
 import { locate, type TNode, type Tree } from '../graph/tree.ts';
 import { direction, type Contract } from '../graph/view.ts';
@@ -61,9 +65,15 @@ interface Props {
   activity?: ActivityState | null;
   /** The review tour's agent and the change it's on: its diff alone, not every agent's. */
   reviewing?: { agent: string; stop: TourStop; onShown?(shown: ShownDiff | null): void } | null;
+  /** Circles marked "ask first" or "off limits". */
+  fences?: readonly Fence[];
+  /** Puts up or takes down a fence; absent when this browser can't change the project. */
+  onFence?(node: string, rule: FenceRule | null): Promise<void>;
   /** The changes the map is showing: every agent's, or the lit agent's alone. */
   shownChanges?: ActivityState['nodes'];
   onSelect(id: string): void;
+  /** Takes the map to a repository or folder, switching to the code view when the map is by function. */
+  onPlace?(id: string): void;
 }
 
 export function Detail(p: Props) {
@@ -75,7 +85,7 @@ export function Detail(p: Props) {
 
 const short = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1));
 
-function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, reviewing, onSelect }: Props & { n: TNode }) {
+function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownChanges, reviewing, fences, onFence, onSelect, onPlace }: Props & { n: TNode }) {
   const g = n.data;
   const { uses, usedBy } = useMemo(() => dependencies(tree, graph.edges, n), [tree, graph, n]);
   // Folded to their counts until asked for; an unfolded list stays open while you follow it from node to node.
@@ -100,6 +110,8 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
 
       {g && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} reviewing={reviewing} />}
       {g && <Looked id={g.id} activity={activity} />}
+
+      {g && <FenceBlock key={g.id} g={g} fences={fences ?? []} onFence={onFence} onSelect={onPlace ?? onSelect} />}
 
       {repo && (
         <div className="detail-block">
@@ -138,6 +150,72 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
         <Code g={g} repo={graph.repos.find((r) => r.id === g.repo)} rev={activity?.nodes[g.kind === 'symbol' ? g.parent : g.id]?.at ?? 0} />
       )}
     </aside>
+  );
+}
+
+type FenceChoice = FenceRule | 'none';
+const FENCE_OPTIONS: [FenceChoice, string, string][] = [
+  ['none', 'none', 'Agents change it as usual.'],
+  ['ask', 'ask first', "Before an agent's file edit inside lands, you're asked."],
+  ['off', 'off limits', "Agents' file edits inside are refused."],
+];
+const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
+const KIND_INSIDE: Record<GraphNode['kind'], string> = { repo: 'in this repository', folder: 'in this module', file: 'in this file', symbol: 'to this symbol' };
+
+/**
+ * Whether agents may change what's inside this circle: none, ask first or off
+ * limits, kept for the project. The agent's hook asks the indexer before each
+ * edit (agent/src/hook.ts). A fence round an ancestor is said, with the way to it.
+ */
+function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: readonly Fence[]; onFence?: Props['onFence']; onSelect(id: string): void }) {
+  const own = fences.find((f) => f.node === g.id);
+  const around = fenceAround(fences, g.id);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value: FenceChoice = own?.rule ?? 'none';
+  const choose = async (rule: FenceChoice) => {
+    if (!onFence || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onFence(g.id, rule === 'none' ? null : rule);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const inside = KIND_INSIDE[g.kind];
+  const sentence =
+    value === 'off'
+      ? `Agents can't change anything ${inside} with their edit tools: the edit is refused before it lands. Shell commands aren't checked.`
+      : value === 'ask'
+        ? `Agents ask you before they change anything ${inside} with their edit tools. Shell commands aren't checked.`
+        : 'Agents change it as usual.';
+  return (
+    <div className="detail-block fence-block" aria-busy={busy}>
+      <div className="block-title">fence</div>
+      {onFence ? (
+        <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
+      ) : (
+        <div className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</div>
+      )}
+      <p className={`fence-words${value === 'none' ? '' : ' ' + value}`}>{sentence}</p>
+      {around && (
+        <p className="fence-words">
+          Inside the {FENCE_WORDS[around.rule]} fence round{' '}
+          <button className="link" onClick={() => onSelect(around.node)}>
+            {around.node}
+          </button>
+          {around.rule === 'off' && value !== 'off' ? ", so agents' edits to it are refused too." : '.'}
+        </p>
+      )}
+      {error && (
+        <p className="fence-words error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
