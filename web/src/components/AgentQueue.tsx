@@ -131,6 +131,9 @@ export function AgentQueue({ state, compact, lit, read, onShow, onSelect, onMark
         <span>
           <span className="swatch-ring deleted" /> deleted
         </span>
+        <span>
+          <span className="swatch-ring reached" /> depends on a change
+        </span>
         {working && (
           <span>
             <span className="swatch-ring working" /> working here

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
-import { type BadgeCache, BadgeSpace, curveHits, drawBadges, drawRings, hereGeometry, LOOKED_ALPHA, marksReach, ringGeometry, type Rect, type Taken, unreadGeometry } from './activity.ts';
+import { type BadgeCache, BadgeSpace, curveHits, drawBadges, drawRings, hereGeometry, LOOKED_ALPHA, marksReach, ringGeometry, rippleRing, type Rect, type Taken, unreadGeometry, visibleArc } from './activity.ts';
 
 const node = (id: string) => ({ id }) as TNode;
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
@@ -114,7 +114,7 @@ test('other closed circles are avoided when there is room, and a crowd of badges
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
   // A canvas that draws nothing and measures every character 6px wide.
   const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
-  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, looked: null }]]);
+  const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0, looked: null }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};
@@ -137,7 +137,7 @@ test('a badge says how many changes inside are unread, in words', () => {
       set: () => true,
     },
   ) as unknown as CanvasRenderingContext2D;
-  const mark = (unread: number): Marks => ({ self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread, looked: null });
+  const mark = (unread: number): Marks => ({ self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread, reached: null, direct: false, ripple: 0, looked: null });
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
   const read: BadgeCache = {};
@@ -233,8 +233,60 @@ test('a link running far off screen at high zoom only blocks the spots it really
   assert.equal(curveHits(e, box), false);
 });
 
+const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0, looked: null, ...m });
+
+test('the dotted ripple ring goes only on closed circles that depend on a change and show none of their own', () => {
+  assert.equal(rippleRing(marks({ reached: 'evidenced' }), false), true);
+  assert.equal(rippleRing(marks({ reached: 'inferred', ripple: 3 }), false), true);
+  // Open: the circles inside carry it, unless the circle itself links into a change.
+  assert.equal(rippleRing(marks({ reached: 'evidenced', ripple: 3 }), true), false);
+  assert.equal(rippleRing(marks({ reached: 'evidenced', direct: true }), true), true);
+  // Changed itself: its change ring says more.
+  assert.equal(rippleRing(marks({ reached: 'evidenced', self: 'modified' }), false), false);
+  // Holding changes: its badge counts the ripple beside them.
+  assert.equal(rippleRing(marks({ reached: 'evidenced', ripple: 2, modified: 1 }), false), false);
+  assert.equal(rippleRing(marks({}), false), false);
+});
+
+test('a closed circle holding dependents gets a badge with their count; a small one only its ring', () => {
+  const texts: string[] = [];
+  const ctx = new Proxy(
+    {},
+    { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? (t: string) => texts.push(t) : () => {}), set: () => true },
+  ) as unknown as CanvasRenderingContext2D;
+  const taken = { edges: [], rects: [], free, view };
+  const cache: BadgeCache = {};
+  drawBadges(ctx, [circle('a', 300, 300, 30), circle('b', 600, 600, 6)], new Map([['a', marks({ reached: 'evidenced', ripple: 4 })], ['b', marks({ reached: 'evidenced', ripple: 2 })]]), taken, cache);
+  assert.deepEqual(texts, ['4']);
+  assert.equal(cache.boxes?.length, 1);
+  texts.length = 0;
+  drawBadges(ctx, [circle('a', 300, 300, 30)], new Map([['a', marks({ modified: 1, ripple: 4 })]]), taken, {});
+  assert.deepEqual(texts, ['~1', '4']);
+});
+
+test('a ring far bigger than the screen is drawn only where it crosses it', () => {
+  // Small rings on screen: whole.
+  assert.deepEqual(visibleArc(500, 500, 30, 1000, 800), [0, Math.PI * 2]);
+  // Off screen, or reaching past every corner of it: nothing.
+  assert.equal(visibleArc(-200, 400, 50, 1000, 800), null);
+  assert.equal(visibleArc(500, 400, 5000, 1000, 800), null);
+  // A huge ring whose centre is far to the left: a sliver of a turn, round the direction of the screen.
+  const arc = visibleArc(-5000, 400, 5400, 1000, 800)!;
+  assert.ok(arc[1] - arc[0] < 0.4, `${arc[1] - arc[0]} rad`);
+  for (const a of [arc[0], (arc[0] + arc[1]) / 2, arc[1]]) assert.ok(Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) < 0.3);
+  // Every point of the ring on screen is inside the arc.
+  for (let i = 0; i < 2000; i++) {
+    const t = (i / 2000) * Math.PI * 2;
+    const x = -5000 + 5400 * Math.cos(t);
+    const y = 400 + 5400 * Math.sin(t);
+    if (x < 0 || x > 1000 || y < 0 || y > 800) continue;
+    const rel = Math.atan2(Math.sin(t - arc[0]), Math.cos(t - arc[0]));
+    assert.ok(rel >= -1e-9 && rel <= arc[1] - arc[0] + 1e-9, `point at ${t} is drawn`);
+  }
+});
+
 test('marks reach out to the outermost ring and the unread dot', () => {
-  const m = (over: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, looked: null, ...over });
+  const m = marks;
   const r = 40;
   assert.equal(marksReach(r, undefined, false), null);
   // Changes only underneath draw no ring, just a badge (which keeps clear of words itself).
@@ -250,6 +302,11 @@ test('marks reach out to the outermost ring and the unread dot', () => {
   assert.equal(marksReach(r, m({ looked: 'self' }), false), ringGeometry(r).outer);
   assert.equal(marksReach(r, m({ looked: 'inside' }), true), null);
   assert.equal(marksReach(r, m({ looked: 'inside', modified: 2 }), false), null);
+  // So does the ripple ring, and it pushes an agent's working ring out as a change ring does.
+  assert.equal(marksReach(r, m({ reached: 'evidenced' }), false), ringGeometry(r).outer);
+  assert.equal(marksReach(r, m({ reached: 'evidenced', here: 'self' }), false), hereGeometry(r, true).outer);
+  assert.equal(marksReach(r, m({ reached: 'evidenced', modified: 1 }), false), null, 'a badge counts it instead');
+  assert.equal(marksReach(3, m({ reached: 'evidenced' }), false), null, 'too small to hold the dots');
 });
 
 /** A canvas that keeps the rings it is asked to stroke: radius, dash and opacity. */
@@ -263,11 +320,10 @@ function ringsCanvas() {
     setLineDash: (d: number[]) => (dash = d),
     stroke: () => rings.push({ r, dash, alpha: ctx.globalAlpha as number }),
     beginPath: () => {},
+    fillRect: () => {},
   };
   return { ctx: ctx as unknown as CanvasRenderingContext2D, rings };
 }
-
-const marks = (m: Partial<Marks>): Marks => ({ self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, looked: null, ...m });
 
 test('looked at: one faint dotted ring where the change ring would be, never with a change or the working ring', () => {
   const at = (m: Partial<Marks>, open = false) => {
@@ -287,4 +343,6 @@ test('looked at: one faint dotted ring where the change ring would be, never wit
   assert.ok(at({ looked: 'self', self: 'modified' }).every((r) => r.dash.length === 0));
   assert.ok(at({ looked: 'self', here: 'self' }).every((r) => r.dash.length === 0));
   assert.deepEqual(at({ looked: 'inside', modified: 2 }), []);
+  // Depending on a change says more too: the ripple's dots, not the looked ring.
+  assert.deepEqual(at({ looked: 'self', reached: 'evidenced' }), []);
 });

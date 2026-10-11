@@ -24,6 +24,7 @@ import type {
   ChangeKind,
   FileChange,
   Graph,
+  GraphEdge,
   GraphNode,
   LineRange,
   LookedAt,
@@ -158,6 +159,32 @@ export function touches(sym: [number, number], ranges: LineRange[]): boolean {
   return ranges.some(([a, b]) => (b >= a ? a <= e && b >= s : s < a && a <= e));
 }
 
+/**
+ * Whether any run of lines falls outside every symbol span: a run touching no symbol,
+ * or leaving more than a line uncovered in a row. An empty run (an insertion or a
+ * removal between lines) counts only with `points`, and then only strictly inside a symbol.
+ */
+export function outsideSymbols(ranges: LineRange[] | undefined, spans: [number, number][], points = false): boolean {
+  return (ranges ?? []).some(([a, b]) => {
+    if (b < a) return points && !spans.some((s) => touches(s, [[a, b]]));
+    let covered = false;
+    let gap = 0;
+    for (let n = a; n <= b; n++) {
+      if (spans.some(([s, e]) => s <= n && n <= e)) {
+        covered = true;
+        gap = 0;
+      } else if (++gap > 1) return true;
+    }
+    return !covered;
+  });
+}
+
+/** The file a node id belongs to: a symbol's file, or the node itself. */
+const fileOf = (id: string) => {
+  const hash = id.indexOf('#');
+  return hash < 0 ? id : id.slice(0, hash);
+};
+
 export class AgentHub {
   private agents = new Map<string, AgentRec>();
   private version = 0;
@@ -165,6 +192,8 @@ export class AgentHub {
   private cached: { version: number; graph: number; state: ActivityState } | null = null;
   private pushTimer: NodeJS.Timeout | null = null;
   private pendingIndex = new Map<string, Set<string>>();
+  /** File id → links into it from other files, kept from before each re-index, so a deleted node's callers stay known. */
+  private lost = new Map<string, Map<string, GraphEdge>>();
   private indexTimer: NodeJS.Timeout | null = null;
   private realSources = new Map<string, string>();
   private remotes = new Map<string, Promise<string | null>>();
@@ -478,11 +507,23 @@ export class AgentHub {
     const batches = [...this.pendingIndex];
     this.pendingIndex.clear();
     for (const [repo, rels] of batches) {
+      this.keepIncoming(new Set([...rels].map((rel) => fileId(repo, rel))));
       await this.ws.updateFiles(repo, [...rels]);
       for (const rec of this.agents.values()) for (const f of rec.files.values()) if (f.repo === repo && rels.has(f.rel!)) f.fresh = true;
     }
     this.version++;
     this.push();
+  }
+
+  /** Keeps the links into these files from outside them, as the graph has them now, before a re-index drops any. */
+  private keepIncoming(files: Set<string>) {
+    for (const e of this.ws.getGraph().edges) {
+      const to = fileOf(e.to);
+      if (!files.has(to) || fileOf(e.from) === to) continue;
+      let kept = this.lost.get(to);
+      if (!kept) this.lost.set(to, (kept = new Map()));
+      kept.set(`${e.from}|${e.to}|${e.kind}|${e.detail ?? ''}`, e);
+    }
   }
 
   // ── reading ──
@@ -595,6 +636,26 @@ export class AgentHub {
     return out;
   }
 
+  /**
+   * Whether a modified file's edit reached outside every symbol in it: an import, a
+   * top-level statement. Lines it added or changed are held against the symbols they
+   * now sit in, and lines it removed against the symbols they sat in before, so
+   * deleting a whole function is that function's change. A run of changed lines that
+   * touches a symbol may spill a line past it, the blank line that comes with a new
+   * function. Until the file is re-indexed only the old side can be placed: there an
+   * insertion counts only strictly inside a symbol. Without line ranges there's no
+   * telling, and the symbols the agent named stand for the edit.
+   */
+  private topLevel(f: FileRec, ix: ReturnType<AgentHub['index']>): boolean {
+    if (f.kind !== 'modified' || !f.repo) return false;
+    const now = (ix.symbols.get(fileId(f.repo, f.rel!)) ?? []).flatMap((s) => (s.lines ? [s.lines] : []));
+    if (f.live && f.fresh) {
+      const before = f.base ? [...f.base.values()].map((s) => s.lines) : null;
+      return outsideSymbols(f.lines, now) || (!!before && outsideSymbols(f.oldLines, before));
+    }
+    return outsideSymbols(f.oldLines, now, true);
+  }
+
   state(): ActivityState {
     const graph = this.ws.getGraph();
     if (this.cached && this.cached.version === this.version && this.cached.graph === this.ws.version) return this.cached.state;
@@ -621,6 +682,10 @@ export class AgentHub {
           const folder = ix.folders.get(fid);
           node = ix.nodes.has(fid) ? fid : folder;
           mark(node ?? fid, { kind: f.kind, at: f.at, unit: 'file', anchor: node ? undefined : this.anchor(ix, f.repo, f.rel!) }, rec.id);
+          if (this.topLevel(f, ix)) {
+            const c = nodes[node ?? fid];
+            if (!c.whole?.includes(rec.id)) (c.whole ??= []).push(rec.id);
+          }
           for (const s of symbols) mark(s.id, { kind: s.kind, at: f.at, unit: 'symbol', anchor: ix.nodes.has(s.id) ? undefined : (node ?? this.anchor(ix, f.repo, f.rel!)) }, rec.id);
         }
         files.push({
@@ -666,7 +731,16 @@ export class AgentHub {
       });
     }
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked };
+    // Kept links whose target is gone but still marked changed, from code that's still there.
+    const lost: GraphEdge[] = [];
+    for (const [file, kept] of this.lost) {
+      if (!nodes[file]) {
+        this.lost.delete(file);
+        continue;
+      }
+      for (const e of kept.values()) if (!ix.nodes.has(e.to) && ix.nodes.has(e.from) && nodes[e.to]) lost.push(e);
+    }
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, ...(lost.length ? { lost } : {}) };
     this.cached = { version: this.version, graph: this.ws.version, state };
     return state;
   }

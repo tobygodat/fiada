@@ -587,7 +587,7 @@ export class MapRenderer {
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen, unlit: unlit && !sel && !hovered });
     }
     ctx.globalAlpha = 1;
-    if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now());
+    if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now(), { w, h });
 
     // ── labels ──
     ctx.globalAlpha = 1;
