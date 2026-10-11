@@ -593,7 +593,7 @@ export class MapRenderer {
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen, unlit: unlit && !sel && !hovered });
     }
     ctx.globalAlpha = 1;
-    if (scene.fenced?.size) drawFences(ctx, this.drawnNodes, scene.fenced, UNLIT);
+    if (scene.fenced?.size) drawFences(ctx, this.drawnNodes, scene.fenced, UNLIT, { w, h });
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now(), { w, h });
 
     // ── labels ──

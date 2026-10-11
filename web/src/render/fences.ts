@@ -28,7 +28,31 @@ export function fenceGeometry(r: number) {
   return { lineR, inner: lineR - band, dash: r < 10 ? [2, 2] : [6, 4] };
 }
 
-export function drawFences(ctx: CanvasRenderingContext2D, drawn: readonly Drawn[], fenced: ReadonlyMap<string, FenceRule>, faint: number) {
+/** Nearest and farthest a point in the w×h view lies from (x, y). */
+function reach(x: number, y: number, view: { w: number; h: number }) {
+  const nx = Math.max(0, Math.min(x, view.w)) - x;
+  const ny = Math.max(0, Math.min(y, view.h)) - y;
+  const fx = Math.max(Math.abs(x), Math.abs(view.w - x));
+  const fy = Math.max(Math.abs(y), Math.abs(view.h - y));
+  return { near: Math.hypot(nx, ny), far: Math.hypot(fx, fy) };
+}
+
+/**
+ * The hatch lines of a fenced circle that cross the view, as offsets along x + y from its centre,
+ * every HATCH_GAP from the centre so they stay put as the map pans. None when the band is off
+ * screen or the view sits wholly inside it, so a circle zoomed far past the screen costs nothing.
+ */
+export function hatchOffsets(x: number, y: number, outer: number, inner: number, view: { w: number; h: number }): number[] {
+  const { near, far } = reach(x, y, view);
+  if (near > outer || far < inner) return [];
+  const lo = Math.max(-2 * outer, -(x + y)) - HATCH_GAP;
+  const hi = Math.min(2 * outer, view.w + view.h - (x + y)) + HATCH_GAP;
+  const out: number[] = [];
+  for (let o = Math.ceil(lo / HATCH_GAP) * HATCH_GAP; o <= hi; o += HATCH_GAP) out.push(o);
+  return out;
+}
+
+export function drawFences(ctx: CanvasRenderingContext2D, drawn: readonly Drawn[], fenced: ReadonlyMap<string, FenceRule>, faint: number, view: { w: number; h: number }) {
   if (!fenced.size) return;
   const ink = token('--text');
   const muted = token('--muted');
@@ -36,8 +60,12 @@ export function drawFences(ctx: CanvasRenderingContext2D, drawn: readonly Drawn[
     const rule = fenced.get(d.n.id);
     if (!rule || d.r < 3) continue;
     const g = fenceGeometry(d.r);
+    // A fence line wholly outside the view, or round it, draws nothing.
+    const { near, far } = reach(d.x, d.y, view);
+    if (near > g.lineR + 2 || far < g.inner - 2) continue;
     const alpha = d.unlit ? faint : 1;
-    if (rule === 'off') {
+    const hatch = rule === 'off' ? hatchOffsets(d.x, d.y, g.lineR, g.inner, view) : [];
+    if (hatch.length) {
       // The hatched band: diagonal lines clipped to the ring between the fence line and `inner`.
       ctx.save();
       ctx.beginPath();
@@ -48,14 +76,16 @@ export function drawFences(ctx: CanvasRenderingContext2D, drawn: readonly Drawn[
       ctx.strokeStyle = muted;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      const R = g.lineR;
-      for (let o = -2 * R; o <= 2 * R; o += HATCH_GAP) {
-        ctx.moveTo(d.x + o - R, d.y + R);
-        ctx.lineTo(d.x + o + R, d.y - R);
+      // Each line runs x + y = c right across the view; the clip keeps it to the band.
+      for (const o of hatch) {
+        const c = d.x + d.y + o;
+        ctx.moveTo(c + 2, -2);
+        ctx.lineTo(c - view.h - 2, view.h + 2);
       }
       ctx.stroke();
       ctx.restore();
     }
+    if (far < g.lineR - 2) continue;
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = ink;
     ctx.lineWidth = 1.5;
