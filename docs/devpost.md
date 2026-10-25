@@ -66,4 +66,4 @@ TypeScript, Node.js, Fastify, tree-sitter, React, Vite, d3-hierarchy, Canvas, Mo
 ## Try it
 
 - Hosted map (read-only): https://fiada.tech
-- Code: https://github.com/tobygodat/hackgt13
+- Code: https://github.com/tobygodat/fiada

@@ -1,6 +1,6 @@
 # Fiada
 
-[![ci](https://github.com/tobygodat/hackgt13/actions/workflows/ci.yml/badge.svg)](https://github.com/tobygodat/hackgt13/actions/workflows/ci.yml)
+[![ci](https://github.com/tobygodat/fiada/actions/workflows/ci.yml/badge.svg)](https://github.com/tobygodat/fiada/actions/workflows/ci.yml)
 
 A map of your codebase that sorts itself, explains itself, and lights up where your coding agent is working.
 
@@ -32,7 +32,7 @@ Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 Needs Node 20.19 or later, [bun](https://bun.sh) 1.4 or later and git.
 
 ```sh
-git clone https://github.com/tobygodat/hackgt13 && cd hackgt13
+git clone https://github.com/tobygodat/fiada && cd fiada
 bun install
 bun run dev          # indexer on :4178, map on http://localhost:5178
 ```
@@ -209,7 +209,7 @@ bun run agent:setup --write /path/to/your/project  # or writes them for you
 `--write` merges the hooks into `/path/to/your/project/.claude/settings.local.json` (your own, git-ignored settings; other hooks there are kept) and registers the MCP server for that project with `claude mcp add`. To do it by hand, add the server:
 
 ```sh
-claude mcp add fiada -- node /path/to/hackgt13/agent/bin/fiada-mcp.mjs
+claude mcp add fiada -- node /path/to/fiada/agent/bin/fiada-mcp.mjs
 ```
 
 and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared with your team) or `~/.claude/settings.json` (every project):
@@ -217,22 +217,22 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate|Read",
-        "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }]
       }
     ],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs", "timeout": 10 }] }]
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }] }]
   }
 }
 ```
@@ -253,8 +253,8 @@ When two agents have changes in one file or folder, the agents window says so at
 
 ### Other agents
 
-- **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "fiada": { "command": "node", "args": ["/path/to/hackgt13/agent/bin/fiada-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/hackgt13/agent/bin/fiada-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
-- **Codex CLI**: add the MCP server under `[mcp_servers.fiada]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/hackgt13/agent/bin/fiada-mcp.mjs"]`), and set `notify = ["node", "/path/to/hackgt13/agent/bin/fiada-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes (the first one counts what changed since Codex started).
+- **Cursor**: add the MCP server in `.cursor/mcp.json` (`{ "mcpServers": { "fiada": { "command": "node", "args": ["/path/to/fiada/agent/bin/fiada-mcp.mjs"] } } }`) and the hook in `.cursor/hooks.json` under `afterFileEdit`, `beforeSubmitPrompt` and `stop` (`{ "version": 1, "hooks": { "afterFileEdit": [{ "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs" }], … } }`). The hook recognises Cursor's payloads by their `conversation_id` and `workspace_roots`.
+- **Codex CLI**: add the MCP server under `[mcp_servers.fiada]` in `~/.codex/config.toml` (`command = "node"`, `args = ["/path/to/fiada/agent/bin/fiada-mcp.mjs"]`), and set `notify = ["node", "/path/to/fiada/agent/bin/fiada-hook.mjs", "codex"]` so each finished turn sweeps the working tree for changes (the first one counts what changed since Codex started).
 - **Anything else**, scripts included: `fiada-hook changed <file>… [--kind added|modified|deleted]`, `fiada-hook task "Add tags" --step "Add the model"`, `fiada-hook sweep` (whatever changed in the working tree since the last call) and `fiada-hook done`, with `--client <name>` to name the agent.
 
 The Cursor and Codex payloads are handled as their docs describe them; only Claude Code has been run end to end. Set `FIADA_HOOK_LOG` to a file to record every payload the hook receives.
@@ -398,3 +398,7 @@ bun run build
 bun run index vercel/next.js --out "$PWD/next.graph.json"
 bun run --cwd web bench "$PWD/next.graph.json"   # needs bunx playwright install chromium, or CHROMIUM_PATH
 ```
+
+## License
+
+MIT; see [LICENSE](LICENSE).
