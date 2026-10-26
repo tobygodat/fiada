@@ -10,6 +10,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { ActivityState, DependentsAnswer, FindAnswer, ImpactAnswer } from '@fiada/shared';
+import type { UsageStats } from './stats.ts';
 
 const KEY = 'test-key';
 let base = '';
@@ -90,4 +91,14 @@ test('what the agent looked at goes through the events route, which still needs 
   const state = await get<ActivityState>('/api/agent/state');
   assert.deepEqual(Object.keys(state.body.looked ?? {}), ['shop/src/cart.ts#addToCart']);
   assert.equal(state.body.agents[0].looked?.count, 1);
+});
+
+test('the usage numbers answer only with the access key, and say counts, not who', async () => {
+  assert.equal((await get('/api/admin/stats')).status, 401);
+  assert.equal((await get('/api/admin/stats', 'wrong')).status, 401);
+  const res = await fetch(`${base}/api/admin/stats`, { headers: { authorization: `Bearer ${KEY}` } });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  const stats = (await res.json()) as UsageStats;
+  assert.deepEqual({ ...stats, at: '' }, { at: '', people: 0, signUpsByMonth: {}, signedInWithin: { days7: 0, days30: 0 }, projectsWithRepos: 1, repos: 1 });
 });

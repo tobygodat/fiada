@@ -263,7 +263,7 @@ The Cursor and Codex payloads are handled as their docs describe them; only Clau
 
 Set `FIADA_GITHUB_CLIENT_ID` and `FIADA_GITHUB_CLIENT_SECRET` on the indexer and it becomes a place many people can use at once:
 
-- **Everyone signs in.** The map opens on a sign-in screen, and every API route answers only a signed-in browser. The shared project and `FIADA_API_KEY` aren't used.
+- **Everyone signs in.** The map opens on a sign-in screen, and every API route answers only a signed-in browser. The shared project isn't used, and `FIADA_API_KEY` opens only the owner's usage numbers (see [Using it](#3-using-it)).
 - **Each person has their own project.** Their repositories, clones (`$FIADA_HOME/clones/gh-<GitHub user id>/`), grouping, summaries and agent activity are theirs alone: what one person imports or has an agent do never shows on anyone else's map. A project opens on its owner's first request and is let go after 30 idle minutes; opening it again re-indexes from its clones.
 - **Private repositories work.** The sign-in asks GitHub for the `repo` scope, and the person's own token clones and pulls what they import (passed per git command, never written to disk). Their recently pushed repositories are offered under the import box. The token is kept on their account encrypted with AES-GCM; `FIADA_GITHUB_TOKEN` is never used for anyone's project.
 - **Nobody can use it up for everyone else.** Each person may make 60 changes a minute (agents 600 reports), hold 20 repositories of at most 500 MB each, and spend 200 model requests a day on sorting and summaries; past that, the map says so and summaries fall back to lines from the graph. Clones come over https from GitHub, GitLab and Bitbucket only, and nothing in a clone is read through a link that leads out of it. The variables are in [Configuration](#configuration).
@@ -340,8 +340,8 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `MONGODB_URI` | the Atlas connection string, as in `.env` |
 | `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
 | `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://fiada-web.<account>.workers.dev,https://*-fiada-web.<account>.workers.dev` (production, the Worker's own address, and its preview versions), plus `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` while the Vercel site still runs |
-| `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | a GitHub OAuth app with the callback `https://<indexer>/api/auth/github/callback`: everyone signs in and gets a project of their own (see [Signing in with GitHub](#signing-in-with-github)); `FIADA_PROJECT` and `FIADA_API_KEY` are then unused |
-| `FIADA_API_KEY` | without sign-in: a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
+| `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | a GitHub OAuth app with the callback `https://<indexer>/api/auth/github/callback`: everyone signs in and gets a project of their own (see [Signing in with GitHub](#signing-in-with-github)); `FIADA_PROJECT` is then unused, and `FIADA_API_KEY` opens only `/api/admin/stats` |
+| `FIADA_API_KEY` | a long random string (`openssl rand -hex 24`). Without sign-in, without it anyone with the URL can import repos into your project or remove them; with sign-in, it opens only the usage numbers (`/api/admin/stats`) |
 | `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
 | `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) | to sort each import with a model and write node summaries; without one the map keeps the classifier's result and one-line summaries |
 
@@ -375,7 +375,15 @@ The Worker answers at `https://fiada-web.<account>.workers.dev`; add that origin
 
 With GitHub sign-in, open `https://fiada.tech`, sign in, and import your repositories, private ones included; **connect an agent** in the sidebar gives the command that points Claude Code at your map. Its changes land on the clone of the same repository (matched by `origin` remote), ringed on files and symbols that exist at HEAD.
 
-Without it, one shared project:
+With `FIADA_API_KEY` set, either way, the indexer counts its use for the owner: how many people have accounts, sign-ups by month, how many signed in within 7 and 30 days, and how many repositories their projects keep. Counts only; no logins or names.
+
+```sh
+curl -H "Authorization: Bearer $FIADA_API_KEY" https://strataindexer-production.up.railway.app/api/admin/stats
+```
+
+Without the key set the route answers 404, and without the key sent, 401. Deleted accounts are gone, so they count nowhere.
+
+Without sign-in, one shared project:
 
 - Open `https://fiada.tech/?key=<FIADA_API_KEY>` once. The map keeps the key in that browser and drops it from the address bar; then add repositories as usual (`org/repo` or a git URL). `?key=` with nothing forgets it.
 - Everyone else gets the plain URL: the same map, read-only, without the import box, the layer presets or the dismiss buttons.
