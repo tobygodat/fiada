@@ -3,8 +3,8 @@ import { apiBase } from './apiBase.ts';
 
 /**
  * Where the indexer is. Empty means this origin, which the dev server
- * proxies to the indexer; a build for a static host (Vercel) sets
- * VITE_API_URL to the hosted indexer.
+ * proxies to the indexer; a production build sets VITE_API_URL to the
+ * hosted indexer (web/.env.production) for the static host, Cloudflare.
  */
 export const API_BASE = apiBase(import.meta.env.VITE_API_URL);
 
@@ -131,8 +131,9 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       signOut();
       throw new Error(body.error);
     }
-    // The indexer's own errors carry a message. A bare 404 is some other server answering for /api:
-    // the static host itself when no VITE_API_URL was built in.
+    // The indexer's own errors carry a message. A bare 404 is some other server answering for /api,
+    // such as a static host without VITE_API_URL built in. Cloudflare's single-page fallback answers
+    // 200 with index.html instead, which this can't tell apart; web/.env.production keeps it from happening.
     if (body.error) throw new Error(body.error);
     if (res.status === 404) throw new Error(API_BASE ? UNREACHABLE : NOT_SET_UP);
     throw new Error(`The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);

@@ -1,10 +1,10 @@
 # The indexer as a container, for a host that runs long-lived servers with a
 # disk (Railway, Fly.io, Render). It clones repositories, parses them with
 # tree-sitter (WASM) and serves the graph; the map itself is a static build
-# that lives elsewhere (Vercel) and calls this through VITE_API_URL.
+# that lives elsewhere (Cloudflare Workers) and calls this through VITE_API_URL.
 #
 #   docker build -t fiada-indexer .
-#   docker run -p 4178:4178 -e MONGODB_URI=… -e FIADA_ALLOWED_ORIGINS=https://hackgt13.vercel.app fiada-indexer
+#   docker run -p 4178:4178 -v fiada-data:/data -e FIADA_ALLOWED_ORIGINS=https://fiada.tech fiada-indexer
 
 FROM node:22-bookworm-slim
 
