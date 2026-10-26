@@ -19,12 +19,12 @@ It was built at HackGT 13 and submitted to the Oracle of the Deep track (ML/AI +
 
 | What | Where | Notes |
 | --- | --- | --- |
-| Map (static web app) | https://fiada.tech and `https://fiada-web.<account>.workers.dev` | Cloudflare Workers static assets, Worker `fiada-web` (`wrangler.jsonc`), built by Workers Builds from `tobygodat/fiada`. Every push to `main` deploys. Until fiada.tech's DNS moves, Vercel (project `hackgt13`, https://hackgt13.vercel.app) still serves it from `vercel.json`. |
+| Map (static web app) | https://fiada.tech and `https://fiada-web.<account>.workers.dev` | Cloudflare Workers static assets, Worker `fiada-web` (`wrangler.jsonc`), built by Workers Builds from `tobygodat/fiada`. Every push to `main` deploys. fiada.tech's nameservers are Cloudflare's (registrar Namify). |
 | Indexer (API server) | https://strataindexer-production.up.railway.app | Railway, one service built from the root `Dockerfile` (Node 22, bun for install). Only the indexer belongs there. |
 | Repository | https://github.com/tobygodat/fiada | MIT licensed (`LICENSE`). PRs target `main` and merge with a merge commit. |
 | Agent package | [`@fiadatech/agent`](../agent/README.md) on npm | The `fiada` command: hook CLI, stdio MCP server and `setup`. |
 
-The map's `VITE_API_URL` (`web/.env.production`) points at the Railway domain, and the Content-Security-Policy in `web/public/_headers` allows only that indexer in `connect-src`. If the indexer moves, change both, and `vercel.json`'s copy while it lasts.
+The map's `VITE_API_URL` (`web/.env.production`) points at the Railway domain, and the Content-Security-Policy in `web/public/_headers` allows only that indexer in `connect-src`. If the indexer moves, change both.
 
 The Railway service (project `aware-ambition`, service `@strata/indexer`, rebuilt 2026-10-25) has the variables `PORT`, `FIADA_PROJECT=demo`, `FIADA_ALLOWED_ORIGINS`, `FIADA_API_KEY`, `FIADA_SESSION_SECRET`, `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET`, `ANTHROPIC_API_KEY` and `RAILWAY_RUN_UID=0`, and a volume on `/data`. There is no `MONGODB_URI`. Values live only in Railway; never copy them anywhere else. GitHub sign-in is on: `curl https://strataindexer-production.up.railway.app/api/auth` answers `{"mode":"github"}`.
 
@@ -113,7 +113,6 @@ How it works:
 
 ## Where to start next
 
-1. Move fiada.tech to Cloudflare (README Deploy, step 2), then delete `vercel.json` and its test.
-2. Re-import a repository on fiada.tech to confirm the sort places code with real Haiku, and fix the sidebar line above.
-3. Run a real Claude Code session against the merged batch (fences, the read tools, the review tour), since the batch was tested by replaying hook payloads rather than with a live session.
-4. Decide on #30.
+1. Re-import a repository on fiada.tech to confirm the sort places code with real Haiku, and fix the sidebar line above.
+2. Run a real Claude Code session against the merged batch (fences, the read tools, the review tour), since the batch was tested by replaying hook payloads rather than with a live session.
+3. Decide on #30.
