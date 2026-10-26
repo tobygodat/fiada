@@ -19,12 +19,12 @@ It was built at HackGT 13 and submitted to the Oracle of the Deep track (ML/AI +
 
 | What | Where | Notes |
 | --- | --- | --- |
-| Map (static web app) | https://fiada.tech and https://hackgt13.vercel.app | Vercel Pro, project `hackgt13`. Every push to `main` deploys. Each PR gets a Vercel preview, which asks for a Vercel login. |
+| Map (static web app) | https://fiada.tech and `https://fiada-web.<account>.workers.dev` | Cloudflare Workers static assets, Worker `fiada-web` (`wrangler.jsonc`), built by Workers Builds from `tobygodat/fiada`. Every push to `main` deploys. Until fiada.tech's DNS moves, Vercel (project `hackgt13`, https://hackgt13.vercel.app) still serves it from `vercel.json`. |
 | Indexer (API server) | https://strataindexer-production.up.railway.app | Railway, one service built from the root `Dockerfile` (Node 22, bun for install). Only the indexer belongs there. |
 | Repository | https://github.com/tobygodat/hackgt13 | Private. PRs target `main` and merge with a merge commit. |
 | Agent package | [`@fiadatech/agent`](../agent/README.md) on npm | The `fiada` command: hook CLI, stdio MCP server and `setup`. |
 
-The map's `VITE_API_URL` points at the Railway domain, and `vercel.json`'s Content-Security-Policy allows only that indexer in `connect-src`. If the indexer moves, change both.
+The map's `VITE_API_URL` (`web/.env.production`) points at the Railway domain, and the Content-Security-Policy in `web/public/_headers` allows only that indexer in `connect-src`. If the indexer moves, change both, and `vercel.json`'s copy while it lasts.
 
 The Railway service's variables are `PORT`, `MONGODB_URI`, `STRATA_PROJECT=demo`, `STRATA_ALLOWED_ORIGINS`, `STRATA_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `FIADA_LLM_MODEL=claude-haiku-5-5`. Values live only in Railway and in Toby's local `.env`; never copy them anywhere else. GitHub sign-in (`FIADA_GITHUB_CLIENT_ID`/`_SECRET`, from PR #41) is in the code, but I could not confirm whether it is turned on in the hosted indexer. `curl https://strataindexer-production.up.railway.app/api/auth` answers `{"mode":"github"}` when it is.
 

@@ -3,8 +3,8 @@ import { apiBase } from './apiBase.ts';
 
 /**
  * Where the indexer is. Empty means this origin, which the dev server
- * proxies to the indexer; a build for a static host (Vercel) sets
- * VITE_API_URL to the hosted indexer.
+ * proxies to the indexer; a production build sets VITE_API_URL to the
+ * hosted indexer (web/.env.production) for the static host, Cloudflare.
  */
 export const API_BASE = apiBase(import.meta.env.VITE_API_URL);
 

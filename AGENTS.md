@@ -81,7 +81,7 @@ bun run agent:build  # bundle the agent for npm; npm publish -w @fiadatech/agent
 - **People can leave.** `DELETE /api/auth/account` deletes the account, the project and its clones. Anything new a project keeps must be deleted by `deleteProject` in both stores, and `web/src/components/Privacy.tsx` must still say truthfully what is kept and who handles it.
 - **Nobody can use it up for everyone else.** A hosted indexer limits changes per minute (`RateLimit` in `access.ts`), repositories and clone size per project, and model requests per person per day (`LLMBudget` in `llm.ts`). A new route that does real work goes through them.
 - **Without sign-in, writes need the key.** When `FIADA_API_KEY` is set, anything that changes the project needs `Authorization: Bearer <key>`; reads stay open. The check lets GET, HEAD and OPTIONS through, so a route that changes anything must use another method.
-- **Deploys:** `vercel.json` sends the site's Content-Security-Policy: a new script, font, image or API origin must be added there, and a change to `index.html`'s inline script needs its new hash (`web/src/csp.test.ts` says which). `main` deploys the map to Vercel (`vercel.json` installs only the `@fiada/web` workspace, so the web app can't depend on indexer packages). The indexer runs from the root `Dockerfile`, which copies every workspace's `package.json`; add a new workspace there too.
+- **Deploys:** `web/public/_headers` sends the site's Content-Security-Policy: a new script, font, image or API origin must be added there, and a change to `index.html`'s inline script needs its new hash (`web/src/csp.test.ts` says which). `vercel.json` must send the same headers until the domain leaves Vercel; the test checks that too. `main` deploys the map to Cloudflare Workers as static assets (`wrangler.jsonc`; the build installs only the `@fiada/web` workspace, so the web app can't depend on indexer packages), and `web/.env.production` points it at the Railway indexer. The indexer runs from the root `Dockerfile`, which copies every workspace's `package.json`; add a new workspace there too.
 
 ## Design system
 
@@ -101,7 +101,7 @@ Variables live in a gitignored `.env` at the repo root (`.env.example` lists the
 - `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET`: GitHub sign-in, with a project per person. `FIADA_SESSION_SECRET` and `FIADA_PUBLIC_URL` are optional.
 - `MONGODB_URI`: save projects to MongoDB Atlas instead of `.fiada/`. The database is still called `strata` (`FIADA_MONGODB_DB`).
 - `FIADA_PROJECT`, `FIADA_HOME`, `FIADA_ALLOWED_ORIGINS`, `FIADA_API_KEY`, `FIADA_GITHUB_TOKEN`, `FIADA_UPLOAD_MB`, `HOST`, `PORT`: the indexer.
-- `VITE_API_URL`: build time, the indexer's URL when the map is served apart from it.
+- `VITE_API_URL`: build time, the indexer's URL when the map is served apart from it. `web/.env.production` sets the Railway indexer for production builds; the shell wins.
 - `FIADA_URL`, `FIADA_TOKEN` (or `FIADA_API_KEY` for a shared indexer): where the agent hook and MCP server report. `bun run agent:setup --url … --token …` saves them to `~/.config/fiada/agent.json` (`agent/src/env.ts`); the environment wins.
 
 Every `FIADA_*` variable is also read as `STRATA_*` (the old name wins when both are set; `indexer/src/env.ts` and `agent/src/env.ts`). Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
