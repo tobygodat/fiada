@@ -39,7 +39,7 @@ const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.FIADA_API_KEY || undefined;
 // The map's own domains are always allowed, so the hosted map works without editing the host's variables.
-const MAP_ORIGINS = 'https://fiada.tech,https://www.fiada.tech,https://hackgt13.vercel.app';
+const MAP_ORIGINS = 'https://fiada.tech,https://www.fiada.tech';
 const allowedOrigin = originMatcher([MAP_ORIGINS, process.env.FIADA_ALLOWED_ORIGINS].filter(Boolean).join(','));
 /** The indexer's own URL as others reach it, when the request can't be trusted to say (FIADA_PUBLIC_URL). */
 const PUBLIC_URL = process.env.FIADA_PUBLIC_URL?.trim().replace(/\/+$/, '') || undefined;

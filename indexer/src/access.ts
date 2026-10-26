@@ -1,6 +1,6 @@
 // Who may use the API when the indexer runs somewhere other than your own
 // machine: which browser origins may call it (the map hosted apart from the
-// indexer, e.g. on Vercel), whether local folders can be imported, and the
+// indexer, e.g. on Cloudflare), whether local folders can be imported, and the
 // access key that changes need.
 
 import { timingSafeEqual } from 'node:crypto';
@@ -8,8 +8,8 @@ import { timingSafeEqual } from 'node:crypto';
 /**
  * Origins allowed to call the API from a browser, from a comma-separated
  * list. `*` inside an entry stands for one run of letters, digits and
- * hyphens, which covers Vercel preview URLs
- * (`https://hackgt13-*-toby-godats-projects.vercel.app`); `*` alone allows
+ * hyphens, which covers the Worker's preview URLs
+ * (`https://*-fiada-web.<account>.workers.dev`); `*` alone allows
  * any origin. An empty list allows none, which is right when the map and
  * the API share an origin (the dev server's proxy).
  */
