@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Codebase cartography: one map from repositories down to symbols.",
+  "license": "MIT",
   "type": "module",
   "workspaces": [
     "shared",
