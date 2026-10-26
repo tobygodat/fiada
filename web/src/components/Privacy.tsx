@@ -51,12 +51,13 @@ export function Privacy() {
           Your browser keeps your sign-in, a few preferences (the theme, which panels are open), which agent changes you have opened and
           which you have marked read in a review in local storage. The sign-in goes with each request to the indexer; the preferences and
           those marks stay in the browser, and deleting your account clears the marks. Signing in sets one cookie
-          for the few minutes it takes. There are no analytics, no advertising, and nothing is sold.
+          for the few minutes it takes. There is no advertising and nothing is sold.
         </p>
 
         <h2>who else handles it</h2>
         <p>
-          GitHub signs you in and hosts the repositories you import. Cloudflare serves this site. Railway runs the indexer, which keeps the clones,
+          GitHub signs you in and hosts the repositories you import. Cloudflare serves this site and counts visits to it with Web Analytics, which sets no cookies and keeps no record of who you are, only
+          which pages were loaded, how fast, and from what kind of browser and country. Railway runs the indexer, which keeps the clones,
           accounts and projects on its disk. Anthropic (or OpenAI, for an indexer set up with it) writes summaries and sorts.
           Google Fonts serves the typeface, so Google sees your address when the page loads.
         </p>

@@ -40,3 +40,10 @@ test("the CSP allows index.html's inline scripts and nothing else inline", () =>
   for (const hash of inline) assert.ok(scriptSrc.includes(hash), `script-src lacks ${hash}: update the CSP in web/public/_headers`);
   assert.doesNotMatch(scriptSrc, /unsafe-inline|unsafe-eval/);
 });
+
+test("the CSP lets the build's Web Analytics beacon load and report", () => {
+  const csp = new Map(siteHeaders().get('Content-Security-Policy')!.split(';').map((d) => d.trim().split(/\s+/)).map(([name, ...sources]) => [name, sources]));
+  assert.match(read('../vite.config.ts'), /https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js/);
+  assert.ok(csp.get('script-src')!.includes('https://static.cloudflareinsights.com'), 'script-src lets the beacon load');
+  assert.ok(csp.get('connect-src')!.includes('https://cloudflareinsights.com'), 'connect-src lets the beacon report');
+});
