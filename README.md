@@ -67,7 +67,7 @@ It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no
 
 ## Hosted demo
 
-The map is at https://fiada.tech, a static build on Cloudflare Workers. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
+The map is at https://fiada.tech, a static build on Cloudflare Workers. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which keeps accounts, projects and clones on a volume mounted at `/data`. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
 
 ## Using the map
 
@@ -360,6 +360,7 @@ The map is an assets-only Worker: `wrangler.jsonc` at the root serves `web/dist`
 | Root directory | the repository root (leave it empty) |
 | Build command | `bun install --frozen-lockfile --filter @fiada/web && bun run build` |
 | Deploy command | `npx wrangler deploy` |
+| Build variable `BUN_VERSION` | `1.4.2`, the version CI uses, so `--frozen-lockfile` reads `bun.lock` |
 
 Every push to `main` then builds and deploys. No build variable is needed: `web/.env.production` sets `VITE_API_URL` to `https://strataindexer-production.up.railway.app`, and Vite writes it into the bundle at build time. If your indexer lives elsewhere, change that file, or set `VITE_API_URL` as a build variable, which wins. Without either, the deployed map calls `/api` on its own origin and gets `index.html` back instead of the indexer's answers.
 

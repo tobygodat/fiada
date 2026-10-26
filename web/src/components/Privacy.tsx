@@ -56,8 +56,8 @@ export function Privacy() {
 
         <h2>who else handles it</h2>
         <p>
-          GitHub signs you in and hosts the repositories you import. Cloudflare serves this site. Railway runs the indexer, which holds the clones.
-          MongoDB Atlas stores accounts and projects. Anthropic (or OpenAI, for an indexer set up with it) writes summaries and sorts.
+          GitHub signs you in and hosts the repositories you import. Cloudflare serves this site. Railway runs the indexer, which keeps the clones,
+          accounts and projects on its disk. Anthropic (or OpenAI, for an indexer set up with it) writes summaries and sorts.
           Google Fonts serves the typeface, so Google sees your address when the page loads.
         </p>
 

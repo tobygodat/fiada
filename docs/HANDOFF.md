@@ -72,7 +72,7 @@ Toby asked for each change to be built end to end, with unit tests, a browser en
 
 ## Known issues
 
-- **Hosted projects aren't saved to Atlas** (last seen 2026-10-08; not known to be fixed). The Railway log shows the indexer rejecting `MONGODB_URI` with "Invalid scheme, expected mongodb:// or mongodb+srv://", so it saves projects to its own disk instead. There is no volume on `/data`, so every push to `main` redeploys and wipes the hosted project. To fix it, re-paste the Atlas connection string in Railway's variables (no quotes or stray characters, starting `mongodb+srv://`), or mount a volume on `/data` and set `RAILWAY_RUN_UID=0`. Atlas Network Access must allow `0.0.0.0/0`.
+- **Hosted projects live on a Railway volume** (since 2026-10-25). The indexer service now has a volume `fiada-data` on `/data` and `RAILWAY_RUN_UID=0`, and no `MONGODB_URI`, so accounts, projects and clones are files under `/data` and survive redeploys. The volume is 500 MB; grow it in Railway before it fills. The earlier Atlas failure ("Invalid scheme, expected mongodb:// or mongodb+srv://") came from a malformed `MONGODB_URI`.
 - **The sort fix hasn't been run against real Haiku.** [#50](https://github.com/tobygodat/hackgt13/pull/50) was tested against a stand-in Claude that answers with paths, because the cloud threads have no key. Re-importing a repository on fiada.tech is the real check.
 - **One untrue sidebar line:** when a sort places nothing, the sidebar says it "found nothing the classifier left unplaced" even if code is still unsorted (`web/src/components/Sidebar.tsx`).
 - **Cursor and Codex agent paths are untested.** Only Claude Code has been run end to end with the hooks and MCP server.
@@ -113,7 +113,7 @@ How it works:
 
 ## Where to start next
 
-1. Fix `MONGODB_URI` on Railway, so the hosted map keeps what people import.
+1. Move fiada.tech to Cloudflare (README Deploy, step 2), then delete `vercel.json` and its test.
 2. Re-import a repository on fiada.tech to confirm the sort places code with real Haiku, and fix the sidebar line above.
 3. Run a real Claude Code session against the merged batch (fences, the read tools, the review tour), since the batch was tested by replaying hook payloads rather than with a live session.
 4. Decide on #30.
