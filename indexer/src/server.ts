@@ -143,8 +143,9 @@ app.addHook('onRequest', async (req, reply) => {
   const route = req.url.split('?')[0];
   // Signing in answers for itself.
   if (route === '/api/auth' || route.startsWith('/api/auth/')) return;
-  // The owner's usage numbers take the indexer's key, signed in or not, and no project.
-  if (route === '/api/admin/stats') {
+  // The owner's usage numbers take the indexer's key, signed in or not, and no project. Checked by
+  // the matched route: Fastify decodes the path, so /api/admin/%73tats reaches the same handler.
+  if (req.routeOptions.url === '/api/admin/stats') {
     reply.header('cache-control', 'no-store');
     if (!KEY) return reply.callNotFound();
     if (hasKey(req.headers.authorization, KEY)) return;

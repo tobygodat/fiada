@@ -96,6 +96,7 @@ test('what the agent looked at goes through the events route, which still needs 
 test('the usage numbers answer only with the access key, and say counts, not who', async () => {
   assert.equal((await get('/api/admin/stats')).status, 401);
   assert.equal((await get('/api/admin/stats', 'wrong')).status, 401);
+  for (const path of ['/api/admin/%73tats', '/api/%61dmin/stats']) assert.equal((await get(path)).status, 401, `${path} needs the key too`);
   const res = await fetch(`${base}/api/admin/stats`, { headers: { authorization: `Bearer ${KEY}` } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('cache-control'), 'no-store');
