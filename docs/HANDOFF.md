@@ -26,7 +26,7 @@ It was built at HackGT 13 and submitted to the Oracle of the Deep track (ML/AI +
 
 The map's `VITE_API_URL` (`web/.env.production`) points at the Railway domain, and the Content-Security-Policy in `web/public/_headers` allows only that indexer in `connect-src`. If the indexer moves, change both, and `vercel.json`'s copy while it lasts.
 
-The Railway service's variables are `PORT`, `MONGODB_URI`, `STRATA_PROJECT=demo`, `STRATA_ALLOWED_ORIGINS`, `STRATA_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `FIADA_LLM_MODEL=claude-haiku-5-5`. Values live only in Railway and in Toby's local `.env`; never copy them anywhere else. GitHub sign-in (`FIADA_GITHUB_CLIENT_ID`/`_SECRET`, from PR #41) is in the code, but I could not confirm whether it is turned on in the hosted indexer. `curl https://strataindexer-production.up.railway.app/api/auth` answers `{"mode":"github"}` when it is.
+The Railway service (project `aware-ambition`, service `@strata/indexer`, rebuilt 2026-10-25) has the variables `PORT`, `FIADA_PROJECT=demo`, `FIADA_ALLOWED_ORIGINS`, `FIADA_API_KEY`, `FIADA_SESSION_SECRET`, `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET`, `ANTHROPIC_API_KEY` and `RAILWAY_RUN_UID=0`, and a volume on `/data`. There is no `MONGODB_URI`. Values live only in Railway; never copy them anywhere else. GitHub sign-in is on: `curl https://strataindexer-production.up.railway.app/api/auth` answers `{"mode":"github"}`.
 
 Without sign-in, the hosted map is read-only for everyone. To add repositories, open `https://fiada.tech/?key=<the API key>` once in a browser; the key is kept in that browser's localStorage.
 

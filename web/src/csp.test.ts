@@ -10,17 +10,24 @@ import { test } from 'node:test';
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
-/** Each header under `/*` in Cloudflare's `_headers` format. */
+/**
+ * The headers `_headers` sends on every path. It must be one `/*` rule with
+ * each header once: a second rule or a repeated name would change what some
+ * response carries without this test seeing it.
+ */
 const siteHeaders = (): Map<string, string> => {
   const headers = new Map<string, string>();
-  let all = false;
+  const rules: string[] = [];
   for (const line of read('../public/_headers').split('\n')) {
-    if (!line.trim() || line.startsWith('#')) continue;
-    if (!/^\s/.test(line)) { all = line.trim() === '/*'; continue; }
-    if (!all) continue;
+    if (!line.trim() || line.trim().startsWith('#')) continue;
+    if (!/^\s/.test(line)) { rules.push(line.trim()); continue; }
     const at = line.indexOf(':');
-    headers.set(line.slice(0, at).trim(), line.slice(at + 1).trim());
+    assert.ok(at > 0 && !line.trim().startsWith('!'), `_headers: can't read "${line.trim()}"`);
+    const name = line.slice(0, at).trim();
+    assert.ok(!headers.has(name), `_headers sets ${name} twice`);
+    headers.set(name, line.slice(at + 1).trim());
   }
+  assert.deepEqual(rules, ['/*'], '_headers has one rule, for /*');
   return headers;
 };
 
@@ -37,6 +44,7 @@ test("the CSP allows index.html's inline scripts and nothing else inline", () =>
 
 test('vercel.json sends the same headers as _headers', () => {
   const vercel = JSON.parse(read('../../vercel.json'));
+  assert.deepEqual(vercel.headers.map((h: { source: string }) => h.source), ['/(.*)'], 'vercel.json sends its headers on every path');
   const sent = new Map<string, string>(vercel.headers.flatMap((h: { headers: { key: string; value: string }[] }) => h.headers).map((h: { key: string; value: string }) => [h.key, h.value]));
   assert.deepEqual(sent, siteHeaders());
 });

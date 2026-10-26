@@ -67,7 +67,7 @@ It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no
 
 ## Hosted demo
 
-The map is at https://fiada.tech, a static build on Cloudflare Workers. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which keeps accounts, projects and clones on a volume mounted at `/data`. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
+The map is at https://fiada.tech, a static build on Cloudflare Workers (on Vercel until the domain moves). It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which keeps accounts, projects and clones on a volume mounted at `/data`. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
 
 ## Using the map
 
@@ -326,8 +326,8 @@ The map is a static build; the indexer is a long-running server that clones repo
 
 ```
 browser ── https://fiada.tech ─────────────── static map (web/dist)
-   └────── VITE_API_URL ── https://<indexer> ── indexer container ── MongoDB Atlas (repos, layers)
-                                                     └── /data: clones
+   └────── VITE_API_URL ── https://<indexer> ── indexer container ── /data: accounts, projects, clones
+                                                     └── MongoDB Atlas, if MONGODB_URI is set
 ```
 
 ### 1. The indexer (Railway, for example)
@@ -339,7 +339,7 @@ New project, **Deploy from GitHub repo**, pick this repository; Railway builds t
 | `PORT` | `4178` |
 | `MONGODB_URI` | the Atlas connection string, as in `.env` |
 | `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
-| `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://fiada-web.<account>.workers.dev` (production and the Worker's own address), plus `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` while the Vercel site still runs |
+| `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://fiada-web.<account>.workers.dev,https://*-fiada-web.<account>.workers.dev` (production, the Worker's own address, and its preview versions), plus `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` while the Vercel site still runs |
 | `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | a GitHub OAuth app with the callback `https://<indexer>/api/auth/github/callback`: everyone signs in and gets a project of their own (see [Signing in with GitHub](#signing-in-with-github)); `FIADA_PROJECT` and `FIADA_API_KEY` are then unused |
 | `FIADA_API_KEY` | without sign-in: a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
@@ -361,6 +361,9 @@ The map is an assets-only Worker: `wrangler.jsonc` at the root serves `web/dist`
 | Build command | `bun install --frozen-lockfile --filter @fiada/web && bun run build` |
 | Deploy command | `npx wrangler deploy` |
 | Build variable `BUN_VERSION` | `1.4.2`, the version CI uses, so `--frozen-lockfile` reads `bun.lock` |
+| Build variable `SKIP_DEPENDENCY_INSTALL` | `1`, so the build command's filtered install is the only one and the map can't lean on indexer packages |
+
+The Worker's name in the dashboard must be `fiada-web`, the `name` in `wrangler.jsonc`, or the deploy step fails.
 
 Every push to `main` then builds and deploys. No build variable is needed: `web/.env.production` sets `VITE_API_URL` to `https://strataindexer-production.up.railway.app`, and Vite writes it into the bundle at build time. If your indexer lives elsewhere, change that file, or set `VITE_API_URL` as a build variable, which wins. Without either, the deployed map calls `/api` on its own origin and gets `index.html` back instead of the indexer's answers.
 
