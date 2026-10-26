@@ -67,7 +67,7 @@ It saves where to report, and your token, in `~/.config/fiada/agent.json`, so no
 
 ## Hosted demo
 
-The map is at https://fiada.tech, a static build on Vercel. It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which stores each project's repositories and grouping in MongoDB Atlas. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
+The map is at https://fiada.tech, a static build on Cloudflare Workers (on Vercel until the domain moves). It talks to the indexer at https://strataindexer-production.up.railway.app, a Docker container on Railway, which keeps accounts, projects and clones on a volume mounted at `/data`. Without GitHub sign-in configured, anyone can browse it and adding repositories needs the project's key; with it, everyone signs in and works in a project of their own ([Signing in with GitHub](#signing-in-with-github)). [Deploy](#deploy) explains the split.
 
 ## Using the map
 
@@ -308,7 +308,7 @@ Fiada used to be called Strata. Every `FIADA_*` variable is also read under its 
 | `FIADA_ALLOWED_ORIGINS` | unset | comma-separated origins whose pages may call the API (the map hosted elsewhere); `*` in an entry matches one run of letters, digits and hyphens |
 | `FIADA_API_KEY` | unset | without sign-in: anything that changes the project (imports, layers, agent events) needs `Authorization: Bearer <key>`; reads stay open |
 | `FIADA_ALLOW_LOCAL` | on for `127.0.0.1` | `1` or `0`: whether local folders can be imported. Off by default when `HOST` isn't loopback |
-| `VITE_API_URL` | unset | build time, web: the indexer's URL when the map is served apart from it; unset, the map calls its own origin |
+| `VITE_API_URL` | unset; `web/.env.production` sets the Railway indexer for production builds | build time, web: the indexer's URL when the map is served apart from it; unset, the map calls its own origin |
 | `FIADA_URL` | the saved config, else `http://127.0.0.1:4178` | where the agent hook and MCP server send events |
 | `FIADA_TOKEN` (agent) | the saved config's, for its URL only | the person's agent token, for an indexer people sign in to |
 | `FIADA_API_KEY` (agent) | unset | the hook and MCP server send it to a shared indexer that has one |
@@ -322,24 +322,24 @@ The indexer binds to 127.0.0.1 by default: importing a local path reads that dir
 
 ## Deploy
 
-The map is a static build; the indexer is a long-running server that clones repositories to disk, parses them with tree-sitter, keeps the graph in memory and streams agent activity. So they live apart: **the map on Vercel, the indexer in a container** on a host that runs one (Railway, Fly.io or Render; the `Dockerfile` at the root works on each). Vercel's functions are short-lived and stateless, with no git and nowhere to keep clones, so the indexer can't run there.
+The map is a static build; the indexer is a long-running server that clones repositories to disk, parses them with tree-sitter, keeps the graph in memory and streams agent activity. So they live apart: **the map on Cloudflare Workers, the indexer in a container** on a host that runs one (Railway, Fly.io or Render; the `Dockerfile` at the root works on each). Workers are short-lived and stateless, with no git and nowhere to keep clones, so the indexer can't run there.
 
 ```
 browser ── https://fiada.tech ─────────────── static map (web/dist)
-   └────── VITE_API_URL ── https://<indexer> ── indexer container ── MongoDB Atlas (repos, layers)
-                                                     └── /data: clones
+   └────── VITE_API_URL ── https://<indexer> ── indexer container ── /data: accounts, projects, clones
+                                                     └── MongoDB Atlas, if MONGODB_URI is set
 ```
 
 ### 1. The indexer (Railway, for example)
 
-New project, **Deploy from GitHub repo**, pick this repository; Railway builds the root `Dockerfile`. Railway may offer a service for every package in the workspace: keep only `@strata/indexer` (the map is on Vercel and the agent runs beside your editor), and clear its custom start command so the `Dockerfile`'s runs. Then set the service's variables and, under **Networking**, generate a public domain on port 4178.
+New project, **Deploy from GitHub repo**, pick this repository; Railway builds the root `Dockerfile`. Railway may offer a service for every package in the workspace: keep only `@strata/indexer` (the map is on Cloudflare and the agent runs beside your editor), and clear its custom start command so the `Dockerfile`'s runs. Then set the service's variables and, under **Networking**, generate a public domain on port 4178.
 
 | Variable | Value |
 | --- | --- |
 | `PORT` | `4178` |
 | `MONGODB_URI` | the Atlas connection string, as in `.env` |
 | `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
-| `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` (production and previews) |
+| `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://fiada-web.<account>.workers.dev,https://*-fiada-web.<account>.workers.dev` (production, the Worker's own address, and its preview versions), plus `https://hackgt13.vercel.app,https://hackgt13-*-toby-godats-projects.vercel.app` while the Vercel site still runs |
 | `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | a GitHub OAuth app with the callback `https://<indexer>/api/auth/github/callback`: everyone signs in and gets a project of their own (see [Signing in with GitHub](#signing-in-with-github)); `FIADA_PROJECT` and `FIADA_API_KEY` are then unused |
 | `FIADA_API_KEY` | without sign-in: a long random string (`openssl rand -hex 24`); without it anyone with the URL can import repos into your project or remove them |
 | `FIADA_GITHUB_TOKEN` | only to import private repos by URL; uploading the folder from the map needs no token. Either way reads need no key, so anyone with the map's URL can read their code |
@@ -351,19 +351,25 @@ Check it: `curl https://<indexer>/api/auth` answers `{"mode":"github"}` with sig
 
 On Fly.io: `fly launch` (it finds the Dockerfile; internal port 4178), then `fly secrets set MONGODB_URI=… FIADA_API_KEY=…` and the rest. Render's free instances sleep when idle and take a while to wake, which a demo will notice.
 
-### 2. The map (Vercel)
+### 2. The map (Cloudflare Workers)
 
-`vercel.json` already has the build: install the web workspace, `bun run build`, serve `web/dist`. The one setting to add is in **Settings > Environment Variables**:
+The map is an assets-only Worker: `wrangler.jsonc` at the root serves `web/dist`, with no Worker script. In the Cloudflare dashboard, **Workers & Pages > Create > Import a repository**, pick `tobygodat/fiada`, and set:
 
-| Variable | Value | Environments |
-| --- | --- | --- |
-| `VITE_API_URL` | `https://<indexer>` (the domain from step 1, no trailing path) | Production and Preview |
+| Setting | Value |
+| --- | --- |
+| Root directory | the repository root (leave it empty) |
+| Build command | `bun install --frozen-lockfile --filter @fiada/web && bun run build` |
+| Deploy command | `npx wrangler deploy` |
+| Build variable `BUN_VERSION` | `1.4.2`, the version CI uses, so `--frozen-lockfile` reads `bun.lock` |
+| Build variable `SKIP_DEPENDENCY_INSTALL` | `1`, so the build command's filtered install is the only one and the map can't lean on indexer packages |
 
-Vite writes it into the bundle at build time, so **redeploy** after setting it (Deployments > … > Redeploy, or push). Without it, the deployed map calls `/api` on Vercel, gets 404s and says it can't reach the indexer.
+The Worker's name in the dashboard must be `fiada-web`, the `name` in `wrangler.jsonc`, or the deploy step fails.
 
-`vercel.json` also sends the site's security headers. Its Content-Security-Policy lets the page call only its own origin and the indexer at `https://strataindexer-production.up.railway.app`, so **if the indexer moves, change `connect-src` there too**, or the map can't reach it. It allows `index.html`'s inline theme script by its hash; `web/src/csp.test.ts` fails when that script changes without a new hash.
+Every push to `main` then builds and deploys. No build variable is needed: `web/.env.production` sets `VITE_API_URL` to `https://strataindexer-production.up.railway.app`, and Vite writes it into the bundle at build time. If your indexer lives elsewhere, change that file, or set `VITE_API_URL` as a build variable, which wins. Without either, the deployed map calls `/api` on its own origin and gets `index.html` back instead of the indexer's answers.
 
-`https://fiada.tech` is the production domain, which Vercel's default Standard Protection leaves public; preview and per-deployment URLs ask for a Vercel login. Open the production URL in a private window before sharing it.
+Paths that aren't files, such as `/privacy`, get `index.html` (`not_found_handling` in `wrangler.jsonc`). `web/public/_headers`, which Vite copies into `web/dist`, sends the site's security headers. Its Content-Security-Policy lets the page call only its own origin and the indexer at `https://strataindexer-production.up.railway.app`, so **if the indexer moves, change `connect-src` there too**, or the map can't reach it. It allows `index.html`'s inline theme script by its hash; `web/src/csp.test.ts` fails when that script changes without a new hash. `vercel.json` still serves the Vercel site with the same headers until the domain moves, and the test checks the two agree.
+
+The Worker answers at `https://fiada-web.<account>.workers.dev`; add that origin to the indexer's `FIADA_ALLOWED_ORIGINS` so the map can call the indexer from there too. The custom domain `fiada.tech` needs its zone on Cloudflare: add the site under **Websites**, point the registrar at Cloudflare's nameservers, then add `fiada.tech` under the Worker's **Settings > Domains & Routes**.
 
 ### 3. Using it
 

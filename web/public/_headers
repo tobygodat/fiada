@@ -1,0 +1,8 @@
+# The site's response headers, for every path. Cloudflare reads this file from
+# web/dist; web/src/csp.test.ts checks the CSP against index.html's inline script.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-2seGCE6YK9D7vQ1de3tQexE4QybJFIoaTWWKMdMdrn4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://strataindexer-production.up.railway.app; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
