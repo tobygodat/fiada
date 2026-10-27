@@ -61,6 +61,13 @@ export interface StoredAccount {
 /** What signing in writes: everything but the agent epoch and when the account was made, which it never touches. */
 export type SignedIn = Omit<StoredAccount, 'agentEpoch' | 'createdAt'>;
 
+/** What the owner's usage numbers are counted from (stats.ts): dates and counts, never who. */
+export interface StoredUsage {
+  accounts: Pick<StoredAccount, 'createdAt' | 'updatedAt'>[];
+  /** How many repositories each saved project keeps. */
+  reposPerProject: number[];
+}
+
 export interface ProjectStore {
   /** Where this project's data lives, for display ("…/fiada.grouping.json", "mongodb: fiada.projects"). */
   describe(projectId: string): string;
@@ -97,6 +104,8 @@ export interface ProjectStore {
   deleteProject?(projectId: string): Promise<void>;
   /** Forgets the account, sealed GitHub token and all. */
   deleteAccount?(id: string): Promise<void>;
+  /** Optional: every account's sign-up and last sign-in, and every project's repository count. */
+  usage?(): Promise<StoredUsage>;
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -213,6 +222,17 @@ export class FileProjectStore implements ProjectStore {
     const run = (this.accountWrites.get(id) ?? Promise.resolve()).then(() => fsp.rm(file, { force: true }));
     this.accountWrites.set(id, run.catch(() => {}));
     await run;
+  }
+
+  async usage(): Promise<StoredUsage> {
+    const names = (dir: string) => fsp.readdir(path.join(this.root, dir)).catch(() => [] as string[]);
+    const read = (file: string) => fsp.readFile(path.join(this.root, file), 'utf8').then(JSON.parse).catch(() => null);
+    const accounts = await Promise.all((await names('accounts')).filter((n) => n.endsWith('.json')).map((n) => read(`accounts/${n}`)));
+    const repos = await Promise.all((await names('projects')).map((n) => read(`projects/${n}/repos.json`)));
+    return {
+      accounts: accounts.filter(Boolean).map(({ createdAt, updatedAt }: StoredAccount) => ({ createdAt, updatedAt })),
+      reposPerProject: repos.filter(Boolean).map((r) => (Array.isArray(r.repos) ? r.repos.length : 0)),
+    };
   }
 
   private changeAccount<T extends StoredAccount | null>(id: string, change: (before: StoredAccount | null) => T): Promise<T> {
