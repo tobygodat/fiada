@@ -24,7 +24,7 @@
 
 import { MongoClient, type Collection } from 'mongodb';
 import type { Fence, Grouping } from '@fiada/shared';
-import type { ProjectStore, SavedRepo, SignedIn, StoredAccount, StoredSummary } from './store.ts';
+import type { ProjectStore, SavedRepo, SignedIn, StoredAccount, StoredSummary, StoredUsage } from './store.ts';
 
 interface ProjectDoc {
   _id: string;
@@ -167,6 +167,18 @@ export class MongoProjectStore implements ProjectStore {
 
   async deleteAccount(id: string) {
     await this.accounts.deleteOne({ _id: id });
+  }
+
+  async usage(): Promise<StoredUsage> {
+    const [accounts, projects] = await Promise.all([
+      this.accounts.find({}, { projection: { _id: 0, createdAt: 1, updatedAt: 1 } }).toArray(),
+      // Counted in the database, so no project's repository list is loaded.
+      this.projects.aggregate<{ n: number }>([{ $project: { _id: 0, n: { $cond: [{ $isArray: '$repos' }, { $size: '$repos' }, 0] } } }]).toArray(),
+    ]);
+    return {
+      accounts: accounts.map(({ createdAt, updatedAt }) => ({ createdAt, updatedAt })),
+      reposPerProject: projects.map((p) => p.n),
+    };
   }
 
   async close() {

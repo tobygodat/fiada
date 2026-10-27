@@ -59,6 +59,19 @@ test('createStore uses files when MONGODB_URI is unset or MongoDB is unusable', 
   }
 });
 
+test('file store counts accounts and repositories for the usage numbers, missing folders and all', async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
+  const store = new FileProjectStore(home);
+  assert.deepEqual(await store.usage(), { accounts: [], reposPerProject: [] });
+
+  await store.saveSignIn({ id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's', scopes: 'repo', updatedAt: 't1' });
+  await store.saveSignIn({ id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's', scopes: 'repo', updatedAt: 't2' });
+  await store.saveRepos('gh-1', repos);
+  await store.saveRepos('gh-2', []);
+  await store.saveGrouping('gh-3', grouping);
+  assert.deepEqual(await store.usage(), { accounts: [{ createdAt: 't1', updatedAt: 't2' }], reposPerProject: [1, 0] });
+});
+
 // These need a MongoDB to talk to, e.g. FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017
 const mongoUri = process.env.FIADA_TEST_MONGODB_URI;
 const needsMongo = { skip: !mongoUri && 'set FIADA_TEST_MONGODB_URI to run' };
@@ -183,5 +196,20 @@ test('mongo store deletes a project and an account, and a project made again sta
     assert.equal(await store.loadAccount('gh-1'), null);
     await store.saveRepos('gh-1', []);
     assert.deepEqual(await store.loadRepos('gh-1'), []);
+  }),
+);
+
+test('mongo store counts accounts and repositories for the usage numbers', needsMongo, () =>
+  withDb('usage', async (open) => {
+    const store = await open();
+    assert.deepEqual(await store.usage(), { accounts: [], reposPerProject: [] });
+    await store.saveSignIn({ id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's', scopes: 'repo', updatedAt: 't1' });
+    await store.saveSignIn({ id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's', scopes: 'repo', updatedAt: 't2' });
+    await store.saveRepos('gh-1', repos);
+    await store.saveRepos('gh-2', []);
+    await store.saveGrouping('gh-3', grouping);
+    const usage = await store.usage();
+    assert.deepEqual(usage.accounts, [{ createdAt: 't1', updatedAt: 't2' }]);
+    assert.deepEqual(usage.reposPerProject.sort(), [0, 0, 1]);
   }),
 );

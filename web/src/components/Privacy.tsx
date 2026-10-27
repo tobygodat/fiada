@@ -21,7 +21,8 @@ export function Privacy() {
         <p>
           You sign in with GitHub. Fiada keeps your GitHub user id, login, name, the address of your avatar, the permissions you granted and when
           you signed in. It also keeps the access token GitHub gives it, encrypted, so it can clone the private repositories you import. GitHub's
-          permission for private repositories covers reading and writing them; Fiada only reads, and only the repositories you import.
+          permission for private repositories covers reading and writing them; Fiada only reads, and only the repositories you import. Whoever runs the indexer can see totals drawn from these records (how many
+          accounts, when they were made and last signed in, how many repositories) but not who they belong to.
         </p>
 
         <h2>when you import a repository</h2>

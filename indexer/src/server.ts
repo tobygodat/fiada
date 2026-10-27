@@ -10,6 +10,7 @@
 //     own (tenants.ts). Agents report with that person's agent token.
 //   No sign-in: one shared project; with FIADA_API_KEY set, only requests
 //     carrying the key can change anything.
+// In both, FIADA_API_KEY also opens the owner's usage numbers (/api/admin/stats).
 
 import './env.ts';
 import fs from 'node:fs/promises';
@@ -23,6 +24,7 @@ import { GroupingError, PRESETS } from './classify/index.ts';
 import { FenceError } from './fences.ts';
 import { KEY_HINT, LLMBudget, llmFromEnv } from './llm.ts';
 import { indexGraph, type GraphIndex } from './summaries/describe.ts';
+import { usageStats, type UsageStats } from './stats.ts';
 import { checkProjectId, createStore } from './store.ts';
 import { clonesOf, openTenant, Tenants, type Tenant } from './tenants.ts';
 import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
@@ -141,6 +143,15 @@ app.addHook('onRequest', async (req, reply) => {
   const route = req.url.split('?')[0];
   // Signing in answers for itself.
   if (route === '/api/auth' || route.startsWith('/api/auth/')) return;
+  // The owner's usage numbers take the indexer's key, signed in or not, and no project. Checked by
+  // the matched route: Fastify decodes the path, so /api/admin/%73tats reaches the same handler.
+  if (req.routeOptions.url === '/api/admin/stats') {
+    reply.header('cache-control', 'no-store');
+    if (!KEY) return reply.callNotFound();
+    if (hasKey(req.headers.authorization, KEY)) return;
+    if (limited(changes, req.ip, reply)) return;
+    return reply.code(401).send({ error: "This needs the indexer's access key." });
+  }
   const asking = READS.has(req.method) && AGENT_READS.has(route);
   if (!auth) {
     if (!READS.has(req.method) && !isLoopback(HOST) && limited(changes, req.ip, reply)) return;
@@ -417,6 +428,12 @@ app.get<{ Querystring: { node?: string } }>('/api/agent/diff', async (req, reply
   return { diffs: req.tenant.agents.diffs(req.query.node) };
 });
 
+// Aggregate counts for the owner: how many people, when they signed up and last signed in, how many repositories.
+app.get('/api/admin/stats', async (_req, reply): Promise<UsageStats | void> => {
+  if (!store.usage) return reply.code(501).send({ error: "This indexer's store can't count its usage." });
+  return usageStats(await store.usage(), new Date());
+});
+
 // One agent (?id=) or all of them. The id goes in the query: it holds the checkout's
 // absolute path, often longer than a path parameter may be.
 app.delete<{ Querystring: { id?: string } }>('/api/agent', async (req) => {
@@ -428,7 +445,7 @@ await app.listen({ port: PORT, host: HOST });
 console.log(`[fiada] indexer listening on http://${HOST}:${PORT}`);
 if (auth) {
   console.log(`[fiada] GitHub sign-in is on: each person gets a project of their own (callback ${PUBLIC_URL ?? '<this indexer>'}${CALLBACK_PATH})`);
-  if (KEY) console.log('[fiada] FIADA_API_KEY is not used while GitHub sign-in is on');
+  if (KEY) console.log('[fiada] FIADA_API_KEY opens only the usage numbers (/api/admin/stats) while GitHub sign-in is on');
 } else if (!shared!.ws.allowLocal) console.log('[fiada] local folders are off: this indexer imports git repositories only');
 if (process.env.FIADA_ALLOWED_ORIGINS) console.log(`[fiada] browsers may call the API from ${process.env.FIADA_ALLOWED_ORIGINS}`);
 console.log(sortLlm ? `[fiada] sorting imports with ${sortLlm.label} (${sortLlm.model})` : `[fiada] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
