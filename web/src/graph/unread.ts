@@ -15,12 +15,15 @@ const MAX_MARKS = 4000;
 
 const storageKey = (project: string) => `fiada.read.${project}`;
 
-export function loadRead(project: string): ReadMarks {
+export function loadRead(project: string) {
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey(project)) ?? '{}') as unknown;
+
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     const out: ReadMarks = {};
+
     for (const [id, at] of Object.entries(raw)) if (typeof at === 'number' && Number.isFinite(at)) out[id] = at;
+
     return out;
   } catch {
     return {};
@@ -32,6 +35,7 @@ export function forgetRead(): void {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i);
+
       if (key?.startsWith('fiada.read.')) localStorage.removeItem(key);
     }
   } catch {
@@ -41,7 +45,9 @@ export function forgetRead(): void {
 
 export function saveRead(project: string, marks: ReadMarks): void {
   let entries = Object.entries(marks);
+
   if (entries.length > MAX_MARKS) entries = entries.sort((a, b) => b[1] - a[1]).slice(0, MAX_MARKS);
+
   try {
     localStorage.setItem(storageKey(project), JSON.stringify(Object.fromEntries(entries)));
   } catch {
@@ -52,6 +58,7 @@ export function saveRead(project: string, marks: ReadMarks): void {
 /** The file a symbol id is in (`repo/path#name` → `repo/path`); null for anything that isn't a symbol. */
 const fileOf = (id: string) => {
   const hash = id.indexOf('#');
+
   return hash > 0 ? id.slice(0, hash) : null;
 };
 
@@ -63,6 +70,7 @@ const fileOf = (id: string) => {
 function seen(id: string, c: NodeChange, marks: ReadMarks): boolean {
   const file = fileOf(id);
   const at = Math.max(marks[id] ?? 0, c.anchor ? (marks[c.anchor] ?? 0) : 0, file ? (marks[file] ?? 0) : 0);
+
   return at >= c.at;
 }
 
@@ -73,11 +81,15 @@ function seen(id: string, c: NodeChange, marks: ReadMarks): boolean {
  */
 export function unreadIds(nodes: Record<string, NodeChange>, marks: ReadMarks): Set<string> {
   const out = new Set<string>();
+
   for (const [id, c] of Object.entries(nodes)) if (!seen(id, c, marks)) out.add(id);
+
   for (const id of out) {
     const file = fileOf(id);
+
     if (file && nodes[file]) out.add(file);
   }
+
   return out;
 }
 
@@ -88,21 +100,26 @@ export function unreadIds(nodes: Record<string, NodeChange>, marks: ReadMarks): 
 export function markRead(marks: ReadMarks, id: string, nodes: Record<string, NodeChange>): ReadMarks | null {
   let latest = 0;
   const prefix = `${id}#`;
+
   for (const [nid, c] of Object.entries(nodes)) {
     if (nid === id || c.anchor === id || nid.startsWith(prefix)) latest = Math.max(latest, c.at);
   }
+
   if (!latest || (marks[id] ?? 0) >= latest) return null;
+
   return { ...marks, [id]: latest };
 }
 
 /** Every change marked read. Returns the new marks, or null when everything was read already. */
 export function markAllRead(marks: ReadMarks, nodes: Record<string, NodeChange>): ReadMarks | null {
   let out: ReadMarks | null = null;
+
   for (const [id, c] of Object.entries(nodes)) {
     if ((marks[id] ?? 0) >= c.at) continue;
     out ??= { ...marks };
     out[id] = c.at;
   }
+
   return out;
 }
 
@@ -113,22 +130,27 @@ export function markAllRead(marks: ReadMarks, nodes: Record<string, NodeChange>)
  */
 export function markAgentRead(marks: ReadMarks, a: AgentActivity): ReadMarks | null {
   let out: ReadMarks | null = null;
+
   for (const f of a.files) {
     const at = Date.parse(f.at);
     const file = fileTarget(f);
+
     if (!Number.isFinite(at) || !file) continue;
+
     for (const [id, t] of [[file, at] as const, ...f.symbols.map((s) => [s.id, symbolAt(s, at)] as const)]) {
       if ((marks[id] ?? 0) >= t) continue;
       out ??= { ...marks };
       out[id] = t;
     }
   }
+
   return out;
 }
 
 /** A function's own change time, or (from an indexer without them) its file's. */
 const symbolAt = (s: AgentFile['symbols'][number], fileAt: number) => {
   const t = s.at ? Date.parse(s.at) : NaN;
+
   return Number.isFinite(t) ? t : fileAt;
 };
 
@@ -143,30 +165,39 @@ export const fileTarget = (f: AgentFile) => f.node ?? (f.repo ? `${f.repo}/${f.p
  */
 export function agentFileUnread(f: AgentFile, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): boolean {
   const id = fileTarget(f);
+
   if (!id || !unread.has(id)) return false;
   const at = Date.parse(f.at);
+
   if (!Number.isFinite(at)) return true;
   const anchor = nodes[id]?.anchor;
+
   return Math.max(marks[id] ?? 0, anchor ? (marks[anchor] ?? 0) : 0) < at;
 }
 
 /** The changed nodes unread for one agent: its files unread for it, and the functions in them unread by its own times. For the map while that agent is lit. */
 export function agentUnreadIds(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): Set<string> {
   const out = new Set<string>();
+
   for (const f of a.files) {
     const id = fileTarget(f);
+
     if (!id || !agentFileUnread(f, unread, marks, nodes)) continue;
     out.add(id);
     // Its functions you haven't opened since its own change to each, whatever another agent did after.
     const at = Date.parse(f.at);
+
     for (const s of f.symbols) if (unread.has(s.id) && !((marks[s.id] ?? 0) >= symbolAt(s, at))) out.add(s.id);
   }
+
   return out;
 }
 
 /** How many of an agent's changed files you've read: "12 of 19 changes read". */
-export function agentRead(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): { read: number; total: number } {
+export function agentRead(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>) {
   let read = 0;
+
   for (const f of a.files) if (!agentFileUnread(f, unread, marks, nodes)) read++;
+
   return { read, total: a.files.length };
 }

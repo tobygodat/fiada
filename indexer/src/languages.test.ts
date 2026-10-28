@@ -15,10 +15,12 @@ import { loadRepo, TEST_PATH } from './sources.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-lang-'));
+
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
   }
+
   return dir;
 }
 
@@ -26,19 +28,25 @@ const info = (id: string): RepoInfo => ({ id, name: id, source: id, kind: 'local
 
 async function graphOf(repos: Record<string, Record<string, string>>): Promise<Graph> {
   const parsed = [];
+
   for (const [id, files] of Object.entries(repos)) parsed.push(await loadRepo(info(id), await fixture(files)));
+
   return buildGraph(parsed, defaultGrouping());
 }
 
 const edge = (g: Graph, from: string, to: string, kind?: string): GraphEdge => {
   const e = g.edges.find((x) => x.from === from && x.to === to && (!kind || x.kind === kind));
   assert.ok(e, `expected an edge ${from} → ${to}${kind ? ` (${kind})` : ''}; have:\n${g.edges.map((x) => `  ${x.from} → ${x.to} ${x.kind}`).join('\n')}`);
+
   return e;
 };
+
 const noEdge = (g: Graph, from: string, to: string) => assert.ok(!g.edges.some((x) => x.from === from && x.to === to), `unexpected edge ${from} → ${to}`);
+
 const node = (g: Graph, id: string) => {
   const n = g.nodes.find((x) => x.id === id);
   assert.ok(n, `no node ${id}; have:\n${g.nodes.map((x) => `  ${x.id}`).join('\n')}`);
+
   return n;
 };
 
@@ -59,6 +67,7 @@ test('Java: packages, imports, wildcards, Spring routes, and a client request th
     },
     web: { 'src/api.ts': 'export const getItem = (id: string) => fetch(`/api/items/${id}`);\n' },
   });
+
   const dir = 'api/src/main/java/com/acme';
   assert.equal(g.repos.find((r) => r.id === 'api')?.languages?.java, 4);
   assert.equal(node(g, `${dir}/shop/ItemController.java#ItemController.get`).symbolKind, 'function');
@@ -91,6 +100,7 @@ test('Java: static wildcard imports bring in members; a package in two repositor
       'src/com/acme/Other.java': 'package com.acme;\n\npublic class Other {\n  Item make() { return new Item(); }\n}\n',
     },
   });
+
   assert.match(edge(g, 'one/src/com/acme/Use.java#Use.run', 'one/src/com/acme/util/Strings.java#Strings.trim', 'calls').reason!, /imported from "com\.acme\.util\.Strings"/);
   assert.equal(edge(g, 'two/src/com/acme/Other.java#Other.make', 'two/src/com/acme/Item.java#Item', 'calls').basis, 'evidenced');
   noEdge(g, 'two/src/com/acme/Other.java#Other.make', 'one/src/com/acme/Item.java#Item');
@@ -104,6 +114,7 @@ test('Java: a nested type named with its outer one, from the same package', asyn
       'src/com/acme/Use.java': 'package com.acme;\n\npublic class Use {\n  Outer.Inner make() { return new Outer.Inner(); }\n}\n',
     },
   });
+
   edge(g, 'app/src/com/acme/Use.java#Use.make', 'app/src/com/acme/Outer.java#Outer.Inner', 'calls');
 });
 
@@ -121,6 +132,7 @@ test('Java and C#: a qualified type is looked for where its qualifier says, not 
       'Acme/Use.cs': 'namespace Acme;\n\npublic class Use\n{\n    public object Make() { var t = new Models.Thing.Part(); return new External.Models.Item(); }\n}\n',
     },
   });
+
   assert.match(edge(g, 'jv/src/com/acme/Use.java#Use.make', 'jv/src/external/api/Widget.java#Widget', 'calls').reason!, /by its full path/);
   noEdge(g, 'jv/src/com/acme/Use.java#Use.make', 'jv/src/com/acme/Widget.java#Widget');
   edge(g, 'cs/Acme/Use.cs#Use.Make', 'cs/External/Item.cs#Item', 'calls');
@@ -143,6 +155,7 @@ test('Java and C#: qualified static calls; every mapped path, with the class pre
     },
     web: { 'src/api.ts': 'export const legacy = () => fetch(`/v1/legacy`);\n' },
   });
+
   const get = 'jv/src/com/acme/Api.java#Api.get';
   edge(g, get, 'jv/src/partner/api/Util.java#Util.run', 'calls');
   edge(g, get, 'jv/src/partner/api/Util.java#Util.Inner.make', 'calls');
@@ -164,6 +177,7 @@ test('Kotlin: sees Java in its package, aliases imports, and reads Spring routes
         '    @GetMapping("/items")\n    fun list(): String {\n        now()\n        T()\n        return repo.load()\n    }\n}\n',
     },
   });
+
   const dir = 'app/src/main/kotlin/com/acme';
   assert.match(edge(g, `${dir}/Service.kt#Service`, `${dir}/Repo.java#Repo`, 'type').reason!, /package com\.acme/);
   assert.match(edge(g, `${dir}/Service.kt#Service.list`, `${dir}/util/Clock.kt#now`, 'calls').reason!, /imported from "com\.acme\.util\.now"/);
@@ -183,6 +197,7 @@ test('Kotlin fully qualified calls, and C# namespace aliases', async () => {
       'Use.cs': 'using Models = External.Models;\n\nnamespace Acme;\n\npublic class Use\n{\n    public object Make() => new Models.Item();\n}\n',
     },
   });
+
   edge(g, 'kt/src/com/acme/Use.kt#make', 'kt/src/partner/api/Widget.kt#Widget', 'calls');
   edge(g, 'kt/src/com/acme/Use.kt#make', 'kt/src/partner/api/Widget.kt#Util.run', 'calls');
   noEdge(g, 'cs/Use.cs', 'cs/External');
@@ -205,6 +220,7 @@ test('C#: namespaces and their parents, usings, controller and minimal-API route
         'app.MapMethods("/items", new[] { "GET", HttpMethods.Put }, () => "ok");\napp.Run();\n',
     },
   });
+
   assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Models/Item.cs#Item', 'calls').reason!, /imported from "Acme\.Models"/);
   // Acme.Controllers sees Acme without a using.
   assert.match(edge(g, 'api/Controllers/ItemsController.cs#ItemsController.Get', 'api/Core/Clock.cs#Clock.Now', 'calls').reason!, /namespace Acme\b/);
@@ -224,6 +240,7 @@ test('C#: each type belongs to the namespace around it, nested ones included', a
       'Scoped.cs': 'namespace A\n{\n    using B;\n    public class In { Foo f; }\n}\nnamespace C\n{\n    public class Out { Foo f; }\n}\n',
     },
   });
+
   // Code in namespace A of a file that also declares namespace B doesn't see B's names.
   noEdge(g, 'api/Mixed.cs#Mixed', 'api/Foo.cs#Foo');
   edge(g, 'api/Mixed.cs#Late', 'api/Foo.cs#Foo', 'type');
@@ -244,6 +261,7 @@ test('Rust 2015: a use path from a nested module starts at the crate root', asyn
       'src/api/mod.rs': 'use model::Item;\n\npub fn get() -> Item { Item }\n',
     },
   });
+
   assert.match(edge(g, 'old/src/api/mod.rs#get', 'old/src/model.rs#Item').reason!, /imported from "model::Item"/);
 });
 
@@ -260,6 +278,7 @@ test('C#: global usings reach every file; minimal-API groups are local, and thei
     },
     web: { 'src/api.ts': 'export const getItem = (id: string) => fetch(`/items/${id}`);\n' },
   });
+
   const made = edge(g, 'api/Services/Maker.cs#Maker.Make', 'api/Models/Item.cs#Item', 'calls');
   assert.match(made.reason!, /imported from "Acme\.Models"/);
   assert.ok(made.evidence!.some((x) => x.file === 'api/GlobalUsings.cs' && x.line === 1), 'cites the global using where it is declared');
@@ -280,6 +299,7 @@ test('Rust: full paths in calls, and a use inside an inline module binds only th
       'src/other.rs': 'pub struct Item;\nimpl Item { pub fn new() -> Self { Item } }\n',
     },
   });
+
   assert.match(edge(g, 'app/src/lib.rs#run', 'app/src/models.rs#Item.new', 'calls').reason!, /by its full path/);
   edge(g, 'app/src/lib.rs#run', 'app/src/models.rs#helper', 'calls');
   edge(g, 'app/src/lib.rs#a.f', 'app/src/models.rs#Item.new', 'calls');
@@ -306,6 +326,7 @@ test('Rust: use paths through crate, self, super and other crates; mod files; im
         '#[get("/items/{id}")]\npub async fn show(it: crate::Item) { ok(); }\n',
     },
   });
+
   // A mod declaration pulls in the module's file, and `routes::serve()` calls through it.
   assert.match(edge(g, 'ws/core/src/lib.rs', 'ws/core/src/model.rs', 'imports').reason!, /imports "self::model"/);
   edge(g, 'ws/app/src/main.rs#main', 'ws/app/src/routes/mod.rs#serve', 'calls');
@@ -328,6 +349,7 @@ test('Rust: a use inside a function binds only there', async () => {
       'src/b.rs': 'pub struct Item;\nimpl Item { pub fn make() {} }\n',
     },
   });
+
   const one = edge(g, 'app/src/lib.rs#one', 'app/src/a.rs#Item.make', 'calls');
   assert.ok(one.evidence!.some((x) => x.source === 'import' && x.code === 'use crate::a::Item;'), 'the scoped use line is shown as code');
   edge(g, 'app/src/lib.rs#two', 'app/src/b.rs#Item.make', 'calls');
@@ -343,6 +365,7 @@ test('C++: a namespace keeps same-named declarations apart', async () => {
         'namespace a {\nint useA() { Foo f; return 0; }\n}\nint vec() { std::vector<int> v; return 0; }\n',
     },
   });
+
   const [aFoo, bFoo] = ['app/src/shapes.h#Foo', 'app/src/shapes.h#Foo~2'];
   assert.equal(node(g, bFoo).symbolKind, 'class');
   edge(g, 'app/src/main.cpp#useB', bFoo, 'calls');
@@ -361,6 +384,7 @@ test('Rust: an inline module keeps its declarations apart from another\'s', asyn
         'pub fn both() {\n    a::make();\n    b::Item;\n}\n',
     },
   });
+
   edge(g, 'app/src/lib.rs#b.make', 'app/src/lib.rs#b.Item');
   noEdge(g, 'app/src/lib.rs#b.make', 'app/src/lib.rs#a.Item');
   edge(g, 'app/src/lib.rs#both', 'app/src/lib.rs#a.make', 'calls');
@@ -376,6 +400,7 @@ test('Rust: src/main.rs beside src/lib.rs is its own crate; crate:: and super:: 
       'src/cli.rs': 'pub fn parse() { crate::run(); }\n',
     },
   });
+
   // The binary's crate:: is main.rs; the library is reached by its name.
   assert.match(edge(g, 'app/src/main.rs#main', 'app/src/main.rs#run', 'calls').reason!, /by its full path/);
   edge(g, 'app/src/main.rs#main', 'app/src/lib.rs#run', 'calls');
@@ -397,6 +422,7 @@ test('Rust: a module both the library and the binary declare, and a renamed depe
       'app/src/common.rs': 'pub fn run() {}\n',
     },
   });
+
   edge(g, 'ws/app/src/main.rs#main', 'ws/app/src/common.rs#run', 'calls');
   assert.match(edge(g, 'ws/app/src/main.rs#main', 'ws/acme-util/src/lib.rs#go', 'calls').reason!, /imported from "util::go"/);
 });
@@ -410,6 +436,7 @@ test('Rust: a binary in src/bin/<name>/main.rs is its own crate', async () => {
       'src/bin/tool/args.rs': 'pub fn parse() { crate::run(); }\n',
     },
   });
+
   edge(g, 'app/src/bin/tool/main.rs#main', 'app/src/bin/tool/main.rs#run', 'calls');
   edge(g, 'app/src/bin/tool/main.rs#main', 'app/src/bin/tool/args.rs#parse', 'calls');
   edge(g, 'app/src/bin/tool/args.rs#parse', 'app/src/bin/tool/main.rs#run', 'calls');
@@ -438,6 +465,7 @@ test('C: includes make a header\'s declarations visible, directly or through ano
       'src/config.h': 'typedef int VERSION;\n',
     },
   });
+
   // Found under include/, a usual include folder but not one the build was read for: a guess. Then item.h through acme.h.
   const version = edge(g, 'lib/src/main.c#main', 'lib/include/acme/acme.h#acme_version', 'calls');
   assert.equal(version.basis, 'inferred');
@@ -460,6 +488,7 @@ test('C++: classes, out-of-line methods, this-> calls, and a header that is C++ 
       'src/main.cpp': '#include "service.h"\n\nint main() {\n  auto s = new acme::Service();\n  return s->get(1);\n}\n',
     },
   });
+
   assert.equal(g.repos[0].languages?.cpp, 3);
   edge(g, 'app/src/service.cpp#Service.get', 'app/src/service.cpp#Service.log', 'calls');
   edge(g, 'app/src/main.cpp#main', 'app/src/service.h#Service', 'calls');
@@ -481,6 +510,7 @@ test('Ruby: requires, and constants found across the repository as Rails autoloa
       'lib/format.rb': 'module Format\n  def self.table; end\nend\n',
     },
   });
+
   assert.equal(g.repos[0].languages?.ruby, 9);
   const users = 'shop/app/controllers/admin/users_controller.rb#Admin::UsersController';
   assert.match(edge(g, `${users}.index`, 'shop/app/models/user.rb#User.active', 'calls').reason!, /Ruby constants are global/);
@@ -509,6 +539,7 @@ test('Swift: files of one module see each other; another target comes in through
       'Sources/App/Store+Log.swift': 'extension Store {\n  func log() { self.load() }\n}\n',
     },
   });
+
   assert.match(edge(g, 'pkg/Sources/App/main.swift#store', 'pkg/Sources/App/Store.swift#Store', 'calls').reason!, /Swift module App/);
   assert.match(edge(g, 'pkg/Sources/App/Store.swift#Store.load', 'pkg/Sources/Models/Item.swift#Item', 'calls').reason!, /imported from "Models"/);
   // self.load() in an extension in another file reaches the extended type's method.
@@ -524,6 +555,7 @@ test('Swift: a member declared in an extension in another file', async () => {
       'Sources/App/main.swift': 'let made = Thing.make()\n',
     },
   });
+
   edge(g, 'pkg/Sources/App/main.swift#made', 'pkg/Sources/App/Thing+Make.swift#Thing.make', 'calls');
 });
 
@@ -532,6 +564,7 @@ test('Swift: a module found only in another repository is a guess', async () => 
     lib: { 'Sources/Models/Item.swift': 'public struct Item {}\n' },
     app: { 'Sources/App/Use.swift': 'import Models\n\nfunc use() -> Item { Item() }\n' },
   });
+
   const e = edge(g, 'app/Sources/App/Use.swift#use', 'lib/Sources/Models/Item.swift#Item', 'calls');
   assert.equal(e.basis, 'inferred');
   assert.match(e.reason!, /module Models isn't in this repository/);
@@ -548,15 +581,19 @@ test('every new grammar loads and parses, Ruby included (its scanner needs iswup
     ['a.rb', 'class A\n  def f; end\nend\n', 'A.f'],
     ['a.swift', 'class A { func f() {} }', 'A.f'],
   ];
+
   for (const [file, text, symbol] of samples) {
     const parsed = await parseFile(file, text);
     assert.ok(parsed?.symbols.some((s) => s.name === symbol), `${file}: expected ${symbol}, got ${parsed?.symbols.map((s) => s.name)}`);
     assert.ok(!parsed!.partial, `${file} parsed with errors`);
   }
+
   assert.equal((await parseFile('x.h', 'int f(void);'))?.lang, 'c');
   assert.equal((await parseFile('x.h', 'namespace a { class B {}; }'))?.lang, 'cpp');
   assert.equal((await parseFile('x.inl', 'inline int f() { return 1; }'))?.lang, 'cpp');
+
   // Test files by name, acronyms included; words that merely end in "test" aren't.
   for (const p of ['src/URLTest.java', 'HTTPTests.cs', 'ATest.kt', 'ItemTests.swift', 'spec/user_spec.rb']) assert.ok(TEST_PATH.test(p), p);
+
   for (const p of ['src/Contest.java', 'src/Latest.kt', 'src/Test.java']) assert.ok(!TEST_PATH.test(p), p);
 });

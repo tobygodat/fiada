@@ -14,8 +14,10 @@ export class RefSet {
     if (!name || name === this.self) return;
     const key = `${scope != null ? `${scope}::` : ''}${member ? `${name}.${member}` : name}`;
     const prev = this.map.get(key);
+
     if (!prev || RANK[kind] > RANK[prev.kind] || (RANK[kind] === RANK[prev.kind] && line < prev.line)) {
       const ref: Ref = member ? { name, member, kind, line } : { name, kind, line };
+
       if (scope != null) ref.scope = scope;
       this.map.set(key, ref);
     }

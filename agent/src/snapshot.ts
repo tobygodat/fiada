@@ -25,16 +25,19 @@ const stateFile = (key: string, root: string) =>
 
 export async function take(co: Checkout): Promise<Snapshot | null> {
   const entries = await status(co.root);
+
   if (!entries) return null;
   const files: Snapshot['files'] = {};
   await Promise.all(
     entries.map(async (e) => {
       const mtime = await fs.stat(path.join(co.root, e.path)).then((s) => s.mtimeMs, () => 0);
       files[e.path] = { xy: e.xy, mtime };
+
       // A rename's old path is gone; record it so it isn't reported as reverted later.
       if (e.from) files[e.from] = { xy: ' D', mtime: 0 };
     }),
   );
+
   return { head: co.head, files };
 }
 
@@ -67,15 +70,21 @@ export async function forget(key: string, root: string) {
 export async function changedSince(co: Checkout, cur: Snapshot, since: number): Promise<{ path: string; kind: ChangeKind }[]> {
   const out: { path: string; kind: ChangeKind }[] = [];
   const dirs = new Map<string, Promise<number>>();
+
   const dirTime = (d: string) => {
     let t = dirs.get(d);
+
     if (!t) dirs.set(d, (t = fs.stat(path.join(co.root, d)).then((s) => s.mtimeMs, () => 0)));
+
     return t;
   };
+
   for (const [p, e] of Object.entries(cur.files)) {
     const at = e.mtime || (await dirTime(path.dirname(p)));
+
     if (at >= since) out.push({ path: p, kind: kindOf(e.xy) });
   }
+
   return out;
 }
 
@@ -87,12 +96,16 @@ export async function changedSince(co: Checkout, cur: Snapshot, since: number): 
  */
 export function compare(prev: Snapshot, cur: Snapshot): { path: string; kind: ChangeKind | 'reverted' }[] {
   const out: { path: string; kind: ChangeKind | 'reverted' }[] = [];
+
   for (const [p, e] of Object.entries(cur.files)) {
     const before = prev.files[p];
+
     if (!before || before.xy !== e.xy || before.mtime !== e.mtime) out.push({ path: p, kind: kindOf(e.xy) });
   }
+
   if (prev.head === cur.head) {
     for (const p of Object.keys(prev.files)) if (!(p in cur.files)) out.push({ path: p, kind: 'reverted' });
   }
+
   return out;
 }

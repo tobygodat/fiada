@@ -36,30 +36,30 @@
     "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/no-array-filter-map": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/require-readable-spacing": "error",
 
-    // The rules below found code written before the linter. Each is off until a
-    // cleanup PR adopts it (TOB-222); they don't change behaviour, so none blocks.
-    // 5,041 findings: the code packs short statements without blank lines; adopting it is a whitespace-only rewrite of every file.
-    "anti-slop/require-readable-spacing": "off",
-    // 233 findings: casts over parsed JSON and tree-sitter nodes carry no comment yet.
-    "anti-slop/require-safety-comment-for-type-assertion": "off",
-    // 80 findings: typeof guards are how the indexer and agent check untrusted JSON at their boundaries.
+    // The rules below stay off. The first four ask for a decoder that parses
+    // input at each I/O boundary into a domain type. The indexer and agent
+    // instead check request bodies, hook payloads, MCP messages, model replies
+    // and stored JSON field by field in normalizers that take `unknown`, and
+    // the published agent may import only Node's built-ins. Moving to decoders
+    // changes what malformed input does, so it is its own piece of work.
+    // 77 findings: those field checks, plus browser feature probes such as `typeof matchMedia === 'function'`.
     "anti-slop/no-runtime-typeof": "off",
-    // 76 findings: annotations widen literal defaults in existing modules.
-    "anti-slop/no-known-value-widening": "off",
-    // 51 findings: `...(x ? { k } : {})` is the code's idiom for optional fields.
-    "anti-slop/no-conditional-empty-object-spread": "off",
-    // 32 findings: hook payloads, MCP messages and JSON bodies arrive as unknown and are narrowed inside.
+    // 26 findings: the normalizers and parsers that take raw input (normalizeGrouping, cleanFences, answersIn, hook fields).
     "anti-slop/no-unknown-parameters": "off",
-    // 27 findings: double casts over tree-sitter and Mongo documents.
-    "anti-slop/no-chained-type-assertions": "off",
-    // 23 findings: Record<string, ...> maps keyed by ids.
-    "anti-slop/no-unsafe-dictionary-type": "off",
-    // 13 findings: store and model loaders return parsed JSON for callers to check.
+    // 9 findings: stores return a grouping for normalizeGrouping to check, and the Mongo key escaper maps any stored value.
     "anti-slop/no-unknown-returns": "off",
-    // 12 findings: the suggested iterator helpers need Node 22, and engines allows 20.19.
-    "anti-slop/no-array-filter-map": "off",
-    // 3 findings, all in agent tests that post arbitrary payloads.
-    "anti-slop/no-object-parameters": "off"
+    // 10 findings: the agent reads Claude Code, Cursor and MCP messages as Record<string, any>, and the normalizers' isObj guards.
+    "anti-slop/no-unsafe-dictionary-type": "off",
+    // 185 findings: most cast parsed JSON or a caught error (`err as Error`); they go when decoders arrive, and a SAFETY line on each would only restate the cast.
+    "anti-slop/require-safety-comment-for-type-assertion": "off",
+    // 50 findings: `...(x ? { k } : {})` adds optional fields in expressions. Separate statements reorder keys in written JSON
+    // (fiada.grouping.json, API and MCP replies), and `k: x ? v : undefined` sends undefined to headers and MongoDB.
+    "anti-slop/no-conditional-empty-object-spread": "off"
   }
 }

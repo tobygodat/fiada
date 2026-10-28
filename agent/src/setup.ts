@@ -29,13 +29,15 @@ const q = (p: string) => (/[\s"'$]/.test(p) ? JSON.stringify(p) : p);
 export const PACKAGE: { name: string; version: string } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 /** The commands Claude Code runs for the hook and the MCP server, for this copy of the package in `bin`. */
-export function commandsFor(bin: string, pkg = PACKAGE): { hook: string; mcp: string[] } {
+export function commandsFor(bin: string, pkg = PACKAGE) {
   // npx keeps packages in <cache>/_npx/<hash>/, which npm may clear: run through npx, pinned, offline when it can be.
   // The package has several bins and none is named after it, so npx has to be told to run `fiada`.
   if (bin.split(/[\\/]/).includes('_npx')) {
     const npx = ['npx', '-y', '--prefer-offline', `--package=${pkg.name}@${pkg.version}`, 'fiada'];
+
     return { hook: [...npx, 'hook'].join(' '), mcp: [...npx, 'mcp'] };
   }
+
   return { hook: `node ${q(path.join(bin, 'fiada-hook.mjs'))}`, mcp: ['node', path.join(bin, 'fiada-mcp.mjs')] };
 }
 
@@ -43,13 +45,18 @@ const { hook: HOOK, mcp: MCP } = commandsFor(fileURLToPath(new URL('../bin/', im
 
 /** Tools whose results can change files or the plan, and Read, so the map can mark what the agent read. Searches are left out so they cost nothing. */
 export const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|TodoWrite|TaskCreate|TaskUpdate|Read';
+
 /** Tools that name the file they're about to change, so the fences on the map can be checked first. */
 export const EDIT_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 
 type HookEntry = { matcher?: string; hooks: { type: 'command'; command: string; timeout?: number }[] };
 
-export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
+/** The part of Claude Code's settings this reads; mergeHooks keeps every other field as it was. */
+type Settings = { hooks?: Record<string, HookEntry[]> };
+
+export function hooksBlock(command = HOOK) {
   const run = [{ type: 'command' as const, command, timeout: 10 }];
+
   return {
     SessionStart: [{ hooks: run }],
     UserPromptSubmit: [{ hooks: run }],
@@ -57,18 +64,21 @@ export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
     PostToolUse: [{ matcher: MATCHER, hooks: run }],
     Stop: [{ hooks: run }],
     SessionEnd: [{ hooks: run }],
-  };
+  } satisfies Record<string, HookEntry[]>;
 }
 
 /** Adds Fiada's hooks to a settings object, replacing any earlier Fiada (or Strata) entries and keeping everything else. */
-export function mergeHooks(settings: Record<string, any>, block = hooksBlock()): Record<string, any> {
-  const hooks: Record<string, HookEntry[]> = { ...settings.hooks };
+export function mergeHooks<S extends Settings>(settings: S, block = hooksBlock()) {
+  const hooks = { ...settings.hooks };
+
   for (const [event, entries] of Object.entries(block)) {
     const kept = (hooks[event] ?? [])
       .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !String(h.command ?? '').match(/(fiada|strata)-hook|@fiada(tech)?\/agent/)) }))
       .filter((e) => e.hooks.length);
+
     hooks[event] = [...kept, ...entries];
   }
+
   return { ...settings, hooks };
 }
 
@@ -80,9 +90,11 @@ export function mergeHooks(settings: Record<string, any>, block = hooksBlock()):
  */
 export function flag(args: string[], name: string, optional = false): string | undefined {
   const joined = args.find((a) => a.startsWith(`${name}=`));
+
   if (joined !== undefined) return joined.slice(name.length + 1);
   const at = args.indexOf(name);
   const value = at < 0 ? undefined : args[at + 1];
+
   return optional && value?.startsWith('--') ? undefined : value;
 }
 
@@ -91,6 +103,7 @@ export function nextConfig(before: AgentConfig, url: string, token?: string): Ag
   const trimmed = url.trim().replace(/\/+$/, '');
   const same = before.url?.replace(/\/+$/, '') === trimmed;
   const keep = token ?? (same ? before.token : undefined);
+
   return { url: trimmed, ...(keep ? { token: keep } : {}) };
 }
 
@@ -103,6 +116,7 @@ async function connect(url: string, token?: string) {
   await fs.writeFile(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   await fs.chmod(file, 0o600).catch(() => undefined);
   console.log(`Agents will report to ${config.url} (saved in ${file})`);
+
   // An empty batch is a no-op the indexer answers only for a good token.
   try {
     const res = await fetch(`${config.url}/api/agent/events`, {
@@ -111,6 +125,7 @@ async function connect(url: string, token?: string) {
       body: '[]',
       signal: AbortSignal.timeout(8000),
     });
+
     if (res.ok) console.log('Fiada answered: the token works.');
     else if (res.status === 401) console.log('Fiada turned the token down. Copy the command from the map again (a new token stops the old one).');
     else console.log(`Fiada answered ${res.status}; agents will keep trying.`);
@@ -122,8 +137,10 @@ async function connect(url: string, token?: string) {
 /** Runs setup (`fiada setup`) with its arguments. */
 export async function runSetup(args: string[]) {
   const url = flag(args, '--url');
+
   if (url) await connect(url, flag(args, '--token'));
   const at = args.indexOf('--write');
+
   if (at < 0) {
     if (url) return;
     console.log(`Connect Claude Code to Fiada
@@ -143,22 +160,27 @@ Or let this do both, in your project:  npx -y --package=@fiadatech/agent fiada s
 
 To report to a hosted map, add --url <indexer> --token <token>; the map's "connect an agent" gives the whole command.
 `);
+
     return;
   }
+
   // Package scripts and npx start in another folder. Where the command was typed
   // is INIT_CWD under npm and npx, npm_config_local_prefix under bun run.
   const typedIn = process.env.INIT_CWD ?? process.env.npm_config_local_prefix ?? process.cwd();
   const dir = path.resolve(typedIn, flag(args, '--write', true) ?? '.');
   const file = path.join(dir, '.claude', 'settings.local.json');
-  let settings: Record<string, any> = {};
+  let settings: Settings = {};
+
   try {
     settings = JSON.parse(await fs.readFile(file, 'utf8'));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Couldn't read ${file}: ${(err as Error).message}`);
   }
+
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, `${JSON.stringify(mergeHooks(settings), null, 2)}\n`);
   console.log(`Hooks written to ${file}`);
+
   try {
     // Before the rename the server was registered as "strata"; replace it.
     await exec('claude', ['mcp', 'remove', 'strata'], { cwd: dir }).catch(() => undefined);

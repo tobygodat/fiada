@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@fiada/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type Json, type JsonObject, type SortedGrouping } from '@fiada/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
 import { matchRef, sortProject, symbolFor, type Ask } from './classify/model-sort.ts';
 import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';
@@ -44,10 +44,12 @@ const base: BaseGraph = {
 const leftoversOf = (g: Graph) => g.nodes.filter((n) => (n.kind === 'symbol' || n.kind === 'file') && (n.domain?.id === UNSORTED_DOMAIN || n.layer?.id === UNLAYERED));
 
 /** Answers like Claude would, and records what it was asked. */
-function scripted(): { ask: Ask; asked: JsonRequest[] } {
+function scripted() {
   const asked: JsonRequest[] = [];
-  const ask: Ask = async (req) => {
+
+  const ask = async (req: JsonRequest): Promise<Json> => {
     asked.push(req);
+
     if (req.label === 'domains') {
       return {
         domains: [
@@ -58,7 +60,9 @@ function scripted(): { ask: Ask; asked: JsonRequest[] } {
         new_domains: [{ id: 'Platform', name: 'Platform', reason: 'settings, environment and small helpers' }],
       };
     }
+
     const refs = [...req.prompt.matchAll(/^(F\d+) (\S+)/gm)].map((m) => ({ ref: m[1], id: m[2] }));
+
     return {
       files: refs.map(({ ref, id }) => ({
         ref,
@@ -70,6 +74,7 @@ function scripted(): { ask: Ask; asked: JsonRequest[] } {
       })),
     };
   };
+
   return { ask, asked };
 }
 
@@ -122,12 +127,14 @@ test('Claude fills the classifier gaps, merges and names domains, and says why',
 test("the user's pins, rules and names win over Claude's sort", async () => {
   const { ask } = scripted();
   const sorted = await sortProject(classifyGraph(base, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
+
   const grouping: Grouping = {
     ...defaultGrouping(),
     sorted,
     domains: [{ id: 'sharing', name: 'Public links' }],
     pins: { 'app/util/strings.py': { domain: 'item', layer: 'data' } },
   };
+
   const g = classifyGraph(base, grouping);
   const slugify = g.nodes.find((n) => n.id === 'app/util/strings.py#slugify')!;
   assert.equal(slugify.domain?.id, 'item');
@@ -149,6 +156,7 @@ test('a stored sort survives validation, and junk in it is dropped', () => {
     domains: [{ id: 'a', name: 'A', mergeInto: 'b', reason: 'same' }],
     placements: { 'app/x.py': { domain: 'a', reason: 'why' } },
   };
+
   const g = normalizeGrouping({ ...defaultGrouping(), sorted: { ...sorted, placements: { ...sorted.placements, bad: { domain: 'a' }, worse: 3 } } });
   assert.deepEqual(g.sorted, sorted);
   assert.equal(normalizeGrouping({ ...defaultGrouping(), sorted: { at: 'x' } }).sorted, undefined);
@@ -158,12 +166,17 @@ test('the sorter runs once per set of repositories, off the request path', async
   let calls = 0;
   let fail = false;
   const { ask } = scripted();
+
   const counting: Ask = async (req) => {
     calls++;
+
     if (fail) throw new Error('boom');
+
     return ask(req);
   };
+
   let grouping = defaultGrouping();
+
   const host: SortHost = {
     busy: () => false,
     graph: () => classifyGraph(base, { ...grouping, sorted: undefined }),
@@ -172,6 +185,7 @@ test('the sorter runs once per set of repositories, off the request path', async
       grouping = { ...grouping, sorted: s };
     },
   };
+
   const llm: LLM = { label: 'Claude', model: 'claude-test', json: counting };
   const sorter = new Sorter(llm);
   assert.equal(sorter.state(grouping, 0).status, 'idle');
@@ -203,7 +217,8 @@ test('the sorter runs once per set of repositories, off the request path', async
 });
 
 test("a grouping sent without Claude's sort keeps it", async () => {
-  let saved: unknown = null;
+  let saved: Grouping | null = null;
+
   const store: ProjectStore = {
     describe: () => 'memory',
     loadRepos: async () => [],
@@ -213,6 +228,7 @@ test("a grouping sent without Claude's sort keeps it", async () => {
       saved = g;
     },
   };
+
   const sorted: SortedGrouping = { model: 'claude-test', at: '2026-09-27T00:00:00.000Z', repos: {}, domains: [], placements: { 'a/b.py': { domain: 'x', reason: 'y' } } };
   const ws = new Workspace(store, 'default');
   await ws.init();
@@ -245,10 +261,12 @@ const plain: BaseGraph = {
 };
 
 /** Answers the way Haiku did: step 1 adds domains, step 2 names each file by `refOf` its prompt line. */
-function haikuLike(refOf: (ref: string, id: string) => unknown, extra: Record<string, unknown> = {}): { ask: Ask; asked: JsonRequest[] } {
+function haikuLike(refOf: (ref: string, id: string) => Json, extra: JsonObject = {}) {
   const asked: JsonRequest[] = [];
-  const ask: Ask = async (req) => {
+
+  const ask = async (req: JsonRequest): Promise<Json> => {
     asked.push(req);
+
     if (req.label === 'domains') {
       return {
         domains: [],
@@ -258,7 +276,9 @@ function haikuLike(refOf: (ref: string, id: string) => unknown, extra: Record<st
         ],
       };
     }
+
     const lines = [...req.prompt.matchAll(/^(F\d+) (\S+)/gm)].map((m) => ({ ref: m[1], id: m[2] }));
+
     return {
       files: lines.map(({ ref, id }) => ({
         ref: refOf(ref, id),
@@ -271,6 +291,7 @@ function haikuLike(refOf: (ref: string, id: string) => unknown, extra: Record<st
       })),
     };
   };
+
   return { ask, asked };
 }
 
@@ -294,7 +315,7 @@ test("Claude answering with each file's path instead of its ref still places eve
 });
 
 test('every way a model writes a ref lands on its file', async () => {
-  const forms: Record<string, (ref: string, id: string) => unknown> = {
+  const forms = {
     'the ref': (ref) => ref,
     'lower case': (ref) => ref.toLowerCase(),
     'in brackets': (ref) => `[${ref}]`,
@@ -302,8 +323,9 @@ test('every way a model writes a ref lands on its file', async () => {
     'the whole prompt line': (_ref, id) => `${id} (unknown, 0 lines)`,
     'the path in the repository': (_ref, id) => id.replace(/^typing\//, ''),
     'with ./': (_ref, id) => `./${id.replace(/^typing\//, '')}`,
-    'its file name': (_ref, id) => id.split('/').pop(),
-  };
+    'its file name': (_ref, id) => id.slice(id.lastIndexOf('/') + 1),
+  } satisfies Record<string, (ref: string, id: string) => Json>;
+
   for (const [form, refOf] of Object.entries(forms)) {
     const { ask } = haikuLike(refOf);
     const sorted = await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
@@ -334,6 +356,7 @@ test('a domain or layer given by name instead of id still counts', async () => {
 test('a name two domains share, in any case, picks neither; the exact id still does', async () => {
   const run = async (domain: string) => {
     const { ask: answer } = haikuLike((ref) => ref, { domain });
+
     const ask: Ask = async (req) =>
       req.label === 'domains'
         ? {
@@ -345,25 +368,35 @@ test('a name two domains share, in any case, picks neither; the exact id still d
             ],
           }
         : answer(req);
+
     return sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
   };
+
   for (const name of ['Typing', 'TYPING', 'GAME']) {
     const sorted = await run(name);
     assert.deepEqual(Object.values(sorted.placements).map((p) => p.domain), [undefined, undefined, undefined], name);
   }
+
   assert.equal((await run('game')).placements['typing/src/theme.ts'].domain, 'game', 'the id as written');
   assert.equal((await run('Drills')).placements['typing/src/theme.ts'].domain, 'drills', 'an id in another case no name shares');
 });
 
 test('answers bare or keyed by ref are read too', async () => {
   const keyed: Ask = async (req) => {
-    const a = (await haikuLike((ref) => ref).ask(req)) as { files?: { ref: string }[] };
-    return a.files ? Object.fromEntries([['files', Object.fromEntries(a.files.map(({ ref, ...f }) => [ref, f]))]]) : a;
+    const a = await haikuLike((ref) => ref).ask(req);
+    // SAFETY: haikuLike answers the files step as { files: [{ ref, … }] } with string refs, and the domains step without files.
+    const files = (a as { files?: ({ ref: string } & JsonObject)[] }).files;
+
+    return files ? { files: Object.fromEntries(files.map(({ ref, ...f }) => [ref, f])) } : a;
   };
+
   const bare: Ask = async (req) => {
-    const a = (await haikuLike((ref) => ref).ask(req)) as { files?: unknown[] };
-    return a.files ?? a;
+    const a = await haikuLike((ref) => ref).ask(req);
+
+    // SAFETY: haikuLike answers the files step as { files: [...] }, and the domains step without files.
+    return (a as { files?: Json[] }).files ?? a;
   };
+
   for (const ask of [keyed, bare]) {
     const sorted = await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test' });
     assert.deepEqual(placedIn(sorted), allFiles);
@@ -418,18 +451,22 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   // A file at a repository's root named F1, but labelled F2.
   const f1 = lf('tools', 'F1');
   const labels = matchRef(new Map([['F1', web], ['F2', f1]]));
+
   for (const ref of ['F1', 'f1', '[F1]', 'F01', 'F1 web/src/index.ts']) assert.equal(labels(ref), undefined, ref);
   assert.equal(labels('F2'), f1);
   // The same with the root file's path in lower case, answered in lower case.
   const lowerF1 = lf('tools', 'f1');
   const lowerLabels = matchRef(new Map([['F1', web], ['F2', lowerF1]]));
+
   for (const ref of ['F1', 'f1', '[f1]', 'f01']) assert.equal(lowerLabels(ref), undefined, ref);
   assert.equal(lowerLabels('F2'), lowerF1);
   assert.equal(lowerLabels('tools/f1'), lowerF1);
+
   // And with a root file named F01, which "F01" could mean as well as label F1.
   for (const path of ['F01', 'f01']) {
     const padded = lf('tools', path);
     const paddedLabels = matchRef(new Map([['F1', web], ['F2', padded]]));
+
     for (const ref of ['F01', 'f01', '[F01]', 'F01 web/src/index.ts', `F01 tools/${path}`]) assert.equal(paddedLabels(ref), undefined, `${path}: ${ref}`);
     assert.equal(paddedLabels('F1'), web, path);
     assert.equal(paddedLabels('F2'), padded, path);
@@ -439,6 +476,7 @@ test('matchRef: a path two repositories share, or two files differing only in ca
   // A file at a repository's root named index.ts, and src/index.ts, whose name is the same.
   const top = lf('web', 'index.ts');
   const names = matchRef(new Map([['F1', top], ['F2', web]]));
+
   for (const ref of ['index.ts', 'INDEX.TS', './index.ts', 'index.ts (typescript, 3 lines)']) assert.equal(names(ref), undefined, ref);
   assert.equal(names('web/index.ts'), top);
   assert.equal(names('web/src/index.ts'), web);

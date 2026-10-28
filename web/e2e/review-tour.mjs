@@ -24,8 +24,10 @@ const LAYERS = ['UI', 'Client', 'API', 'Service', 'Data', 'Job', 'Contract', 'Te
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const context = await browser.newContext({ viewport: { width: 1600, height: 960 } });
 const page = await context.newPage();
+
 // The run as frames from the screencast, each held until the next arrives.
 const frames = [];
+
 if (video) {
   const cdp = await context.newCDPSession(page);
   cdp.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
@@ -34,29 +36,40 @@ if (video) {
   });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 85, everyNthFrame: 1 });
 }
+
 const encode = () => {
   if (!video || frames.length < 2) return;
   const dir = `${video}.frames`;
   mkdirSync(dir, { recursive: true });
+
   const list = frames.map((f, i) => {
     writeFileSync(`${dir}/${String(i).padStart(5, '0')}.jpg`, Buffer.from(f.data, 'base64'));
     const next = frames[i + 1]?.t ?? f.t + 1;
+
     return `file '${String(i).padStart(5, '0')}.jpg'\nduration ${Math.max(0.02, next - f.t).toFixed(3)}`;
   });
+
   writeFileSync(`${dir}/list.txt`, `${list.join('\n')}\n`);
   execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', `${dir}/list.txt`, '-vf', 'fps=25,scale=1600:-2,format=yuv420p', '-c:v', 'libx264', '-crf', '23', '-movflags', '+faststart', video]);
 };
+
 // Headless Chromium may not trust a proxy's CA: fetch the fonts from Node instead.
 await page.route(/fonts\.(googleapis|gstatic)\.com/, async (r) => r.fulfill({ response: await r.fetch() }).catch(() => r.abort()));
+
 const errors = [];
+
 page.on('pageerror', (e) => errors.push(e.message));
+
 const shot = async (name) => shots && (await page.screenshot({ path: `${shots}/${name}.png` }));
 const pause = (ms) => page.waitForTimeout(video ? ms : 150);
+
 const count = async () => {
   const m = /change (\d+) of (\d+) · (?:all )?(\d+) read/.exec(await page.locator('.tour-count').innerText());
   assert.ok(m, 'the tour says where you are');
+
   return { at: +m[1], of: +m[2], read: +m[3] };
 };
+
 const stopName = () => page.locator('.tour-name').innerText();
 
 try {
@@ -81,6 +94,7 @@ try {
 
   // Walk every stop with the arrow key: the detail panel follows, with the diff, and the layers go page → … → contract.
   const seen = [];
+
   for (let i = 1; i <= first.of; i++) {
     const name = await stopName();
     const layer = await page.locator('.tour-layer').innerText().catch(() => null);
@@ -93,12 +107,15 @@ try {
     assert.equal((await count()).at, i);
     assert.equal(await page.locator('.tour-tick.here').count(), 1);
     seen.push({ name, layer });
+
     if (i === 3) await shot('3-third-stop');
+
     if (i < first.of) {
       await page.keyboard.press('ArrowRight');
       await pause(900);
     }
   }
+
   console.log('stops:', seen.map((s) => `${s.name} (${s.layer ?? 'no layer'})`).join(' → '));
   const ranks = seen.map((s) => (s.layer ? LAYERS.indexOf(s.layer) : LAYERS.length));
   assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), 'stops go in layer order');
@@ -188,13 +205,16 @@ try {
   // Back after a review returns to where you were before it, not through its steps.
   await page.locator('.outline-name', { hasText: /^backend\/app$/ }).first().click();
   await page.locator('.detail-title', { hasText: /^backend\/app$/ }).waitFor({ timeout: 4000 });
+
   if (await page.locator('.queue-folded').count()) await page.locator('.queue-folded').click();
   await page.getByRole('button', { name: 'review', exact: true }).click();
   await page.locator('.tour').waitFor();
+
   for (let i = 0; i < 4; i++) {
     await page.keyboard.press('ArrowRight');
     await pause(500);
   }
+
   await page.getByRole('button', { name: 'end', exact: true }).click();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.locator('.detail-title', { hasText: /^backend\/app$/ }).waitFor({ timeout: 4000 });

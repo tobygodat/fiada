@@ -35,11 +35,13 @@ export function useWorkspace(): WorkspaceHandle {
 
   const sync = useCallback(async (ws?: Workspace) => {
     window.clearTimeout(timer.current);
+
     try {
       const next = ws ?? (await api.workspace());
       setOffline(null);
       setWorkspace(next);
       const got = await graphs.current.sync(next.graphVersion, api.graph);
+
       if (got) setLoaded(got);
       // Quick while repositories index or Claude sorts, so the result shows as soon as it lands.
       timer.current = window.setTimeout(() => sync(), next.busy || next.sorting?.status === 'running' ? 800 : 5000);
@@ -51,6 +53,7 @@ export function useWorkspace(): WorkspaceHandle {
 
   useEffect(() => {
     sync();
+
     return () => window.clearTimeout(timer.current);
   }, [sync]);
 

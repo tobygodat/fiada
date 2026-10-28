@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 
 const indexer = `http://127.0.0.1:${process.env.STRATA_INDEXER_PORT ?? process.env.FIADA_INDEXER_PORT ?? 4178}`;
+
 // xfwd tells the indexer the address the browser used, so GitHub sign-in comes back here.
 const api = { target: indexer, changeOrigin: true, xfwd: true };
 

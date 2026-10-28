@@ -14,10 +14,12 @@ import { loadRepo } from './sources.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-link-'));
+
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
   }
+
   return dir;
 }
 
@@ -25,18 +27,23 @@ const info = (id: string): RepoInfo => ({ id, name: id, source: id, kind: 'local
 
 async function graphOf(repos: Record<string, Record<string, string>>): Promise<Graph> {
   const parsed = [];
+
   for (const [id, files] of Object.entries(repos)) parsed.push(await loadRepo(info(id), await fixture(files)));
+
   return buildGraph(parsed, defaultGrouping());
 }
 
 const edge = (g: Graph, from: string, to: string, kind?: string): GraphEdge => {
   const e = g.edges.find((x) => x.from === from && x.to === to && (!kind || x.kind === kind));
   assert.ok(e, `expected an edge ${from} → ${to}${kind ? ` (${kind})` : ''}; have:\n${g.edges.map((x) => `  ${x.from} → ${x.to} ${x.kind}`).join('\n')}`);
+
   return e;
 };
+
 const node = (g: Graph, id: string) => {
   const n = g.nodes.find((x) => x.id === id);
   assert.ok(n, `no node ${id}`);
+
   return n;
 };
 
@@ -63,6 +70,7 @@ test('code edges carry the use site and the import they went through', async () 
       'src/Item.tsx': 'import { getItem } from "./api";\n\nexport function Item() {\n  getItem("1");\n  return <div />;\n}\n',
     },
   });
+
   const e = edge(g, 'web/src/Item.tsx#Item', 'web/src/api.ts#getItem', 'calls');
   assert.equal(e.basis, 'evidenced');
   assert.equal(e.confidence, 0.95);
@@ -87,6 +95,7 @@ test('FastAPI mounts give routes their full path, and an exact request is eviden
         'export const listItems = () => fetch(`${process.env.API_URL}/items/`);\n',
     },
   });
+
   assert.deepEqual(node(g, 'api/app/api/routes/items.py#read_item').routes, ['GET /api/v1/items/{id}']);
 
   const exact = edge(g, 'web/src/client.ts#getItem', 'api/app/api/routes/items.py#read_item', 'http');
@@ -132,6 +141,7 @@ test('Express: app.use prefixes, and routes belong to their named handlers', asy
     },
     web: { 'src/c.ts': 'export const f = (id: string) => fetch(`/api/items/${id}`);\n' },
   });
+
   assert.deepEqual(node(g, 'srv/controllers/items.js#getItem').routes, ['GET /api/items/:id']);
   const e = edge(g, 'web/src/c.ts#f', 'srv/controllers/items.js#getItem', 'http');
   assert.equal(e.basis, 'evidenced');
@@ -157,6 +167,7 @@ test('Go: packages, gin groups passed into register functions, GORM entities', a
     },
     web: { 'src/agent.js': 'const requests = { get: (u) => u };\nexport const Articles = { get: (slug) => requests.get(`/articles/${slug}`) };\n' },
   });
+
   const repo = g.repos[0];
   assert.deepEqual(repo.frameworks, ['gin', 'gorm']);
   assert.equal(repo.languages?.go, 3);
@@ -192,6 +203,7 @@ test('Go: method-first registrations, one route per listed method', async () => 
         'func h(w http.ResponseWriter, r *http.Request)  {}\nfunc h2(w http.ResponseWriter, r *http.Request) {}\nfunc h3(w http.ResponseWriter, r *http.Request) {}\n',
     },
   });
+
   assert.deepEqual(node(g, 'api/main.go#h').routes, ['GET /chi', 'PUT /echo']);
   assert.deepEqual(node(g, 'api/main.go#h2').routes, ['POST /chi', 'GET /match', 'POST /match']);
   assert.deepEqual(node(g, 'api/main.go#h3').routes, ['* /any']);
@@ -202,10 +214,12 @@ test('a router mounted under two prefixes serves both paths', async () => {
   const main =
     'from fastapi import FastAPI\nfrom app.api.routes import items\n\napp = FastAPI()\n' +
     'app.include_router(items.router, prefix="/api/v1")\napp.include_router(items.router, prefix="/api/v2")\n';
+
   const g = await graphOf({
     api: { ...FASTAPI, 'app/main.py': main },
     web: { 'src/c.ts': 'export const f = () => fetch("/api/v2/items/42");\n' },
   });
+
   assert.deepEqual(node(g, 'api/app/api/routes/items.py#read_item').routes, ['GET /api/v1/items/{id}', 'GET /api/v2/items/{id}']);
   const e = edge(g, 'web/src/c.ts#f', 'api/app/api/routes/items.py#read_item', 'http');
   assert.equal(e.basis, 'evidenced');
@@ -222,6 +236,7 @@ test('Go: TableName() names the table wherever the method sits in the package', 
       'other/user.go': 'package other\n\ntype User struct {\n\tName string\n}\n',
     },
   });
+
   const table = (id: string) => node(g, id).facts?.find((f) => f.type === 'table')?.value;
   assert.equal(table('api/models/user.go#User'), 'User', 'declared in another file');
   assert.equal(table('api/models/tables.go#Team'), 'Team', 'declared after the method');
@@ -254,6 +269,7 @@ test('Koa: koa-mount, koa-router routes() and slashless paths; the client wrappe
       'app/api.ts': 'import axios from "axios";\n\nconst api = axios.create({ baseURL: "/api" });\nexport const listDocuments = () => api.post("/documents.list");\n',
     },
   });
+
   const docs = 'outline/server/routes/api/documents/documents.ts';
   assert.deepEqual(node(g, docs).routes, ['POST /api/documents.list']);
 
@@ -285,6 +301,7 @@ test('SQLAlchemy: tables, relationships and foreign keys between entities', asyn
         'class Address(Base):\n    __tablename__ = "addresses"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    user_id = Column(ForeignKey("users.id"))\n',
     },
   });
+
   const table = (id: string) => node(g, id).facts?.some((f) => f.type === 'table');
   assert.ok(table('db/app/models.py#User') && table('db/app/models.py#Address'));
   assert.ok(!table('db/app/base.py#Base'), 'the declarative base itself is not a table');
@@ -309,6 +326,7 @@ test('client-side pages: TanStack file routes and React Router elements', async 
       'src/Settings.tsx': 'export default function Settings() {\n  return <form />;\n}\n',
     },
   });
+
   const pages = (id: string) => node(g, id).facts?.filter((f) => f.type === 'pageRoute').map((f) => f.value);
   assert.deepEqual(pages('web/src/routes/_layout/items.$id.tsx'), ['/items/{id}']);
   assert.deepEqual(pages('web/src/routes/_layout/items.$id.tsx#Item'), ['/items/{id}']);
@@ -319,11 +337,13 @@ test('client-side pages: TanStack file routes and React Router elements', async 
 
 test('request matching aligns from the end and prefers exact full paths', () => {
   const route = (method: string, p: string, node: string, full = false) => ({ method, segs: segments(p), node, fullPath: full ? p : undefined });
+
   const routes = [
     route('GET', '/api/v1/users/me', 'me', true),
     route('GET', '/api/v1/users/{id}', 'byId', true),
     route('GET', '/items', 'items'),
   ];
+
   // A dynamic request segment prefers the parameter route over a literal one.
   const m = matchRequest(routes, 'GET', segments('/api/v1/users/{}'))!;
   assert.equal(m.route.node, 'byId');

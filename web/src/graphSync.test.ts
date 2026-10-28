@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Graph } from '@fiada/shared';
 import { GraphSync } from './graphSync.ts';
 
-const g = (n: number) => ({ nodes: [], edges: [], layers: [], domains: [], generatedAt: String(n) }) as unknown as Graph;
+const g = (n: number): Graph => ({ version: 1, repos: [], nodes: [], edges: [], layers: [], domains: [], generatedAt: String(n) });
 
 test('the graph comes with the version it was fetched for, once', async () => {
   const s = new GraphSync();

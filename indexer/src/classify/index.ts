@@ -9,11 +9,17 @@ import { applySorted, sortedDomainList } from './sorted.ts';
 import type { Assignments, DomainStrategy, LayerStrategy } from './types.ts';
 
 export type { Assignments, ClassifyInput, DomainStrategy, LayerStrategy } from './types.ts';
+
 export { defaultGrouping, presetLayers, PRESETS, rolesPreset } from './presets.ts';
+
 export { GroupingError, normalizeGrouping } from './grouping.ts';
+
 export { featureTokens } from './domains.ts';
+
 export { seedAndPropagate } from './propagate.ts';
+
 export { describeStats, leaves, leftoverFiles, sortStats, type LeftoverFile, type SortStats } from './leftovers.ts';
+
 export { applySorted, mergeMap, normalizeSorted, sortedDomainList } from './sorted.ts';
 
 export interface Strategies {
@@ -42,6 +48,7 @@ export function classify(nodes: GraphNode[], edges: GraphEdge[], grouping: Group
 
   // Dissolved domains hand their code back to Unsorted.
   const hidden = new Set(grouping.domains.filter((d) => d.hidden).map((d) => d.id));
+
   if (hidden.size) {
     for (const [id, p] of domains) {
       if (!hidden.has(p.id)) continue;
@@ -49,6 +56,8 @@ export function classify(nodes: GraphNode[], edges: GraphEdge[], grouping: Group
       domains.set(id, moved);
     }
   }
+
   const used = new Set([...domains.values()].map((p) => p.id));
+
   return { layers, domains, domainList: domainList(grouping, proposed, used), sortedPlaced: placed };
 }

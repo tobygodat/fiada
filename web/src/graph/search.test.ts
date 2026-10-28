@@ -52,6 +52,7 @@ test('each hit says where it lives', () => {
 
 test('every hit can be found on the map in both views', () => {
   const index = new Map(graph.nodes.map((n) => [n.id, n]));
+
   for (const tree of [buildCodeTree(graph), buildFunctionTree(graph)]) {
     for (const h of searchNodes(graph.nodes, 'i', 100)) assert.ok(locate(tree, index, h.id), h.id);
   }
@@ -80,7 +81,9 @@ test('two repos of one name say their ids', () => {
 test('keeping only the best while scanning gives the same order as sorting everything', () => {
   // A big made-up project: the top 12 must match a full sort of every hit.
   const nodes: GraphNode[] = [];
+
   for (let i = 0; i < 3000; i++) nodes.push({ id: `r/f${i % 97}.ts#s${i}`, kind: 'symbol', name: `${['item', 'items', 'getItem', 'x'][i % 4]}${i % 7 ? i : ''}`, parent: `r/f${i % 97}.ts`, repo: 'r' });
+
   for (const q of ['i', 'item', 'it', 'x1', 'gi']) {
     const all = searchNodes(nodes, q, nodes.length).map((h) => h.id);
     assert.deepEqual(searchNodes(nodes, q, 12).map((h) => h.id), all.slice(0, 12), q);

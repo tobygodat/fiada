@@ -33,10 +33,12 @@ export function getItem(id: string) {
 async function localRepo(extra: Record<string, string> = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-agents-')));
   const files = { 'src/api.ts': API, 'src/old.ts': 'export function legacy() {\n  return 1;\n}\n', ...extra };
+
   for (const [p, text] of Object.entries(files)) {
     await fs.mkdir(path.dirname(path.join(dir, p)), { recursive: true });
     await fs.writeFile(path.join(dir, p), text);
   }
+
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 'test@example.com');
   git(dir, 'config', 'user.name', 'test');
@@ -44,7 +46,9 @@ async function localRepo(extra: Record<string, string> = {}) {
   git(dir, 'commit', '-qm', 'init');
   const ws = new Workspace(memoryStore([{ id: 'web', name: 'web', source: dir, kind: 'local' }]), 'default');
   await ws.init();
+
   for (let i = 0; i < 200 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 20));
+
   return { dir, ws };
 }
 
@@ -80,6 +84,7 @@ test('the status line is the newest of the agent\'s words, its active step and t
     { text: 'Read the routes', status: 'done' as const },
     { text: 'Add the field', activeText: 'Adding the field', status: 'active' as const },
   ];
+
   const said = { text: 'Adding created_at to Item.\nThen the migration.', at: 2000 };
   const prompt = { text: 'Add created_at', at: 500 };
   assert.deepEqual(statusLine(said, steps, 1000, prompt), { text: said.text, from: 'agent', at: new Date(2000).toISOString() });
@@ -127,13 +132,16 @@ test("an agent's files revision stays through its status lines and moves with it
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const change = async (text: string, lines: [number, number][]) => {
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const rev = () => hub.state().agents[0].filesRev;
   await change(API.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2]]);
   const r1 = rev();
@@ -150,14 +158,17 @@ test("a file's changes that are another agent's are named with it, so its diff c
   const ref = (session: string): AgentRef => ({ client: 'claude-code', session, cwd: dir, root: dir });
   const [a, b] = [ref('a'), ref('b')];
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
   const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
@@ -217,6 +228,7 @@ test('each function keeps its own change time: editing another one in its file d
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
   const SEARCH = `\nexport function searchItems(q: string) {\n  return fetch('/api/items?q=' + q);\n}\n`;
+
   // The changed lines on each side, as the hook reports them.
   const edit = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
@@ -229,7 +241,8 @@ test('each function keeps its own change time: editing another one in its file d
     hub.state();
     await pushed;
     const f = hub.state().agents[0].files[0];
-    return { file: f.at, ...Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) } as Record<string, string>;
+
+    return Object.fromEntries([['file', f.at], ...f.symbols.map((s) => [s.name, s.at])]);
   };
 
   const one = await edit(API + SEARCH, [[8, 11]], [[8, 7]]);
@@ -255,6 +268,7 @@ test("an added file's other code is a change only while there is some", async ()
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/extra.ts');
   const FN = 'export function extra() {\n  return 1;\n}\n';
+
   const report = async (text: string) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
@@ -262,8 +276,10 @@ test("an added file's other code is a change only while there is some", async ()
     const pushed = nextPush(hub, (s) => s.graphVersion > v);
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'added' }] }]);
     await pushed;
+
     return hub.state().agents[0].files[0];
   };
+
   // A new file with only a function: nothing outside it to read.
   assert.equal((await report(FN)).topAt, undefined);
   // An import on top is.
@@ -281,14 +297,17 @@ test("a new file this agent took its function out of, with another agent's funct
   const file = path.join(dir, 'src/extra.ts');
   const fa = 'export function fa() {\n  return 1;\n}\n';
   const fb = 'export function fb() {\n  return 2;\n}\n';
+
   const report = async (agent: AgentRef, text: string) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'added' }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
   await report(a, fa);
   await report(b, `${fa}\n${fb}`);
@@ -309,22 +328,28 @@ test("the file's code outside its functions has its own change time, and a re-in
   ws.updateFiles = async (...a: Parameters<Workspace['updateFiles']>) => {
     const h = hold;
     await update(...a);
+
     if (h) await h;
   };
+
   const times = () => {
     const f = hub.state().agents[0].files[0];
-    return { file: f.at, top: f.topAt, ...Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) } as Record<string, string>;
+
+    return Object.fromEntries([['file', f.at], ['top', f.topAt], ...f.symbols.map((s) => [s.name, s.at])]);
   };
+
   const report = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
   };
+
   const settle = async (report: () => Promise<void>) => {
     const v = hub.state().graphVersion;
     const pushed = nextPush(hub, (s) => s.graphVersion > v);
     await report();
     await pushed;
+
     return times();
   };
 
@@ -340,10 +365,12 @@ test("the file's code outside its functions has its own change time, and a re-in
   await report(both, [[2, 2], [6, 6]], [[2, 2], [6, 6]]);
   await new Promise((r) => setTimeout(r, 600));
   hold = null;
+
   const c = await settle(async () => {
     await report(`import { z } from './z';\n${both}`, [[1, 1], [3, 3], [7, 7]], [[1, 0], [2, 2], [6, 6]]);
     release();
   });
+
   await new Promise((r) => setTimeout(r, 600));
   const after = times();
   assert.equal(after.getItem, a.getItem, 'getItem’s own text never changed after the first edit');
@@ -370,14 +397,17 @@ test('a function changed twice before its file is first re-indexed takes the lat
   ws.updateFiles = async (...a: Parameters<Workspace['updateFiles']>) => {
     const h = hold;
     await update(...a);
+
     if (h) await h;
   };
+
   const report = async (text: string) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines: [[6, 6]], oldLines: [[6, 6]] }] }]);
     hub.state();
   };
+
   // The first edit's re-index is held; a second edit to the same function comes in meanwhile.
   let release!: () => void;
   hold = new Promise((r) => (release = r));
@@ -399,19 +429,24 @@ test("another agent's edit to a function never counts as this agent's next chang
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   // Re-indexed with nobody watching, so nothing reads the state in between.
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const timesOf = (session: string) => {
     const f = hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+
     return Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) as Record<string, string>;
   };
+
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(a, one, [[6, 6]]);
   const before = timesOf('a');
@@ -437,15 +472,18 @@ test("a function only another agent changed stays that agent's when this one cha
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   // Each report's lines are every change since HEAD, as the hook sends them.
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const timesOf = (session: string) => Object.fromEntries(of(session).symbols.map((s) => [s.name, s.at])) as Record<string, string>;
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -468,16 +506,20 @@ test("another agent's deletion of a function this agent changed, and its added f
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const timesOf = (session: string) =>
     Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, s])) as Record<string, { kind: string; at?: string }>;
+
   const getItem = 'export function getItem(id: string) {\n  return fetch(`/api/items/${id}`);\n}\n';
   const listItems = (q: string) => `export function listItems() {\n  return fetch('/api/items${q}');\n}\n`;
   const extra = 'export function countItems() {\n  return 0;\n}\n';
@@ -504,14 +546,17 @@ test("a function this agent took back and another agent then changed is the othe
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const names = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => s.name);
   const list = (q: string) => (text: string) => text.replace("'/api/items')", `'/api/items${q}')`);
   const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -532,14 +577,17 @@ test("a function another agent changed that this one restored, then changed the 
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const names = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => s.name);
   const list = (q: string) => (text: string) => text.replace("'/api/items')", `'/api/items${q}')`);
   const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -558,14 +606,17 @@ test("an import another agent added and this one took away again is no change of
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(a, one, [[6, 6]]);
@@ -585,14 +636,17 @@ test("a function another agent put back as HEAD has it is no longer this agent's
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const symbolsOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files.flatMap((f) => f.symbols);
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(a, one, [[6, 6]]);
@@ -612,16 +666,20 @@ test("a function this agent added and another agent took away is new again when 
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const timeOf = (session: string, name: string) =>
     hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files.flatMap((f) => f.symbols).find((s) => s.name === name)?.at;
+
   const added = `${API}\nexport function extra() {\n  return 3;\n}\n`;
   await report(a, added, [[9, 12]]);
   const first = timeOf('a', 'extra')!;
@@ -642,14 +700,17 @@ test('on a checkout with CRLF line endings, an import taken back is no change', 
   const hub = new AgentHub(ws);
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const file = path.join(dir, 'src/svc.ts');
+
   const report = async (text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, crlf(text));
     const v = ws.version;
     await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/svc.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const of = () => hub.state().agents[0].files[0];
   const one = SVC.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(one, [[8, 8]]);
@@ -667,14 +728,17 @@ test("a file this agent took its change back from, still changed by another agen
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
   const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
   const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
@@ -699,14 +763,17 @@ test("an ended session whose changes are all now another agent's goes, before or
   const ref = (session: string): AgentRef => ({ client: 'claude-code', session, cwd: dir, root: dir });
   const [a, b, c] = [ref('a'), ref('b'), ref('c')];
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const end = (agent: AgentRef) => hub.ingest([{ agent, type: 'session', phase: 'end' }]);
   const ids = () => hub.state().agents.map((x) => x.id.split('#').pop()).sort();
   const get = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -734,14 +801,17 @@ test("a function this agent deleted and another agent put back changed keeps thi
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][], oldLines = lines) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const symsOf = (session: string) => Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, s]));
   // A deletes getItem.
   const without = API.slice(0, API.indexOf('\nexport function getItem')) + '\n';
@@ -763,12 +833,15 @@ test("another agent deleting the whole file makes none of its untouched function
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const settle = async (go: () => Promise<void>) => {
     const v = ws.version;
     await go();
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   await settle(async () => {
     await fs.writeFile(file, API.replace("'/api/items/' + id", '`/api/items/${id}`'));
     await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines: [[6, 6]], oldLines: [[6, 6]] }] }]);
@@ -794,12 +867,15 @@ test("a file this agent deleted and another agent put back as HEAD has it is no 
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const settle = async (go: () => Promise<void>) => {
     const v = ws.version;
     await go();
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
   await settle(async () => {
     await fs.rm(file);
@@ -826,18 +902,23 @@ test("a file this agent added and another agent deleted is no longer this agent'
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/fresh.ts');
+
   const settle = async (go: () => Promise<void>) => {
     const v = ws.version;
     await go();
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
+
   const add = () =>
     settle(async () => {
       await fs.writeFile(file, "import { z } from './z';\n\nexport function fresh() {\n  return z;\n}\n");
       await hub.ingest([{ agent: a, type: 'changes', files: [{ path: file, kind: 'added', lines: [[1, 5]] }] }]);
     });
+
   await add();
   const first = filesOf('a')[0];
   assert.deepEqual([first.path, first.kind, first.symbols.map((s) => s.name)], ['src/fresh.ts', 'added', ['fresh']]);
@@ -860,13 +941,16 @@ test('each re-index stamps its functions, with nobody watching the map in betwee
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (text: string, lines: [number, number][]) => {
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(one, [[6, 6]]);
   const between = Date.now();
@@ -885,14 +969,17 @@ test("a class's own time moves with its own lines, not with each method in it", 
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/Store.java');
+
   const report = async (text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/Store.java'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const at = () => Object.fromEntries(hub.state().agents[0].files[0].symbols.map((s) => [s.id.slice(s.id.indexOf('#') + 1), s.at])) as Record<string, string>;
   const one = STORE.replace('return 1;', 'return 10;');
   await report(one, [[5, 5]]);
@@ -919,14 +1006,17 @@ test('a class whose own lines are back as HEAD has them, around a method still c
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/Store.java');
+
   const report = async (text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/Store.java'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const at = () => Object.fromEntries(hub.state().agents[0].files[0].symbols.map((s) => [s.id.slice(s.id.indexOf('#') + 1), s.at])) as Record<string, string>;
   const both = STORE.replace('size = 1', 'size = 2').replace('return 1;', 'return 10;');
   await report(both, [[2, 2], [5, 5]]);
@@ -947,14 +1037,17 @@ test("a class only round this agent's method change is no one's: another agent's
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/Store.java');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/Store.java'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const namesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files.flatMap((f) => f.symbols.map((s) => s.id.slice(s.id.indexOf('#') + 1)));
   // A changes the method only.
   const one = STORE.replace('return 1;', 'return 10;');
@@ -973,16 +1066,20 @@ test('a function the agent takes back and then changes again is new to read', as
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
     const f = hub.state().agents[0].files[0];
-    return { file: f.at, ...Object.fromEntries(f.symbols.map((x) => [x.name, x.at])) } as Record<string, string>;
+
+    return Object.fromEntries([['file', f.at], ...f.symbols.map((x) => [x.name, x.at])]);
   };
+
   const getItem = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
   const listItems = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
   const one = await report(getItem(API), [[6, 6]]);
@@ -1002,20 +1099,25 @@ test("another agent moving a function's lines doesn't make this agent's change t
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][], oldLines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
     // A map is watching: the state is read after every change.
     hub.state();
   };
+
   const timesOf = (session: string) => {
     const f = hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
+
     return Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) as Record<string, string>;
   };
+
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(a, one, [[6, 6]], [[6, 6]]);
   const first = timesOf('a').getItem;
@@ -1033,14 +1135,17 @@ test("another agent's lines above this agent's changed function leave it this ag
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][], oldLines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const filesOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files;
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(a, one, [[6, 6]], [[6, 6]]);
@@ -1061,16 +1166,20 @@ test("a function this agent changed that another agent then changed too says som
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const shared = (session: string) =>
     Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, !!s.shared]));
+
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   const both = one.replace('return fetch(`', 'return globalThis.fetch(`');
   await report(a, one, [[6, 6]]);
@@ -1096,14 +1205,17 @@ test("the file's other code this agent changed that another agent then changed t
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const mine = `import { z } from './z';\n${API}`;
   const both = `import { z, y } from './z';\n${API}`;
@@ -1132,14 +1244,17 @@ test("a function another agent changed, that this one changed and then put back 
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
   const aGet = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -1165,14 +1280,17 @@ test("the file's other code another agent changed, that this one changed and the
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
   const aTop = (text: string) => `import { z } from './z';\n${text}`;
@@ -1197,14 +1315,17 @@ test("a function this agent took over from another agent, that the other agent p
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
   const aGet = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -1229,14 +1350,17 @@ test("the file's other code this agent took over from another agent, that the ot
   const a: AgentRef = { client: 'claude-code', session: 'a', cwd: dir, root: dir };
   const b: AgentRef = { client: 'claude-code', session: 'b', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const report = async (agent: AgentRef, text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
     const v = ws.version;
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: lines }] }]);
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   const fileOf = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
   const list = (text: string) => text.replace("'/api/items')", "'/api/items?all=1')");
   const aTop = (text: string) => `import { z } from './z';\n${text}`;
@@ -1260,6 +1384,7 @@ test('a file that drops out of the map, grown too large to read, is a new change
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const edit = async (text: string, lines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
@@ -1267,14 +1392,17 @@ test('a file that drops out of the map, grown too large to read, is a new change
     const pushed = nextPush(hub, (s) => s.graphVersion > v);
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines: [[6, 6]] }] }]);
     await pushed;
+
     return hub.state().agents[0].files[0];
   };
+
   const one = await edit(API.replace("'/api/items/' + id", '`/api/items/${id}`'), [[6, 6]]);
   assert.ok(one.symbols.some((s) => s.name === 'getItem' && s.at === one.at));
   // Past the size the indexer reads: the graph drops the file, and with it every function.
   const two = await edit(API.replace("'/api/items/' + id", '`/api/items/${id}`') + '// generated\n'.repeat(40_000), [[6, 6], [9, 40_008]]);
   assert.equal(hub.state().nodes['web/src/api.ts#getItem']?.kind ?? 'deleted', 'deleted');
   assert.ok(two.symbols.length > 0 && two.symbols.every((s) => s.kind === 'deleted'), 'its functions are gone from the map');
+
   for (const s of two.symbols) assert.equal(s.at, two.at, `${s.name} takes the change that dropped it`);
   assert.equal(two.topAt, two.at, 'and so does the file\'s other code');
 });
@@ -1284,6 +1412,7 @@ test('a file emptied out settles, and every function it had takes that change', 
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const edit = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
     await new Promise((r) => setTimeout(r, 5));
     await fs.writeFile(file, text);
@@ -1291,13 +1420,16 @@ test('a file emptied out settles, and every function it had takes that change', 
     const pushed = nextPush(hub, (s) => s.graphVersion > v);
     await hub.ingest([{ agent, type: 'changes', files: [{ path: file, kind: 'modified', diff: git(dir, 'diff', '--', 'src/api.ts'), lines, oldLines }] }]);
     await pushed;
+
     return hub.state().agents[0].files[0];
   };
+
   const one = await edit(API.replace("'/api/items/' + id", '`/api/items/${id}`'), [[6, 6]], [[6, 6]]);
   assert.ok(one.symbols.some((s) => s.name === 'getItem' && s.at === one.at));
   // Nothing left in it, not even a newline: the graph still has the file, with no functions.
   const two = await edit('', [], [[1, API.split('\n').length - 1]]);
   assert.ok(two.symbols.length > 0 && two.symbols.every((s) => s.kind === 'deleted'), 'its functions are gone');
+
   for (const s of two.symbols) assert.equal(s.at, two.at, `${s.name} takes the change that emptied the file`);
 });
 
@@ -1322,7 +1454,7 @@ test('only source files the indexer reads are kept as text, never a large artifa
   await pushed;
   fs.readFile = readFile;
   assert.deepEqual([...new Set(reads.filter((r) => files.includes(r)))], ['src/api.ts'], 'only the source the indexer takes in is read at all');
-  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; sigs: unknown }> }> }).agents;
+  const recs = hub['agents'];
   const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.sigs != null]));
   assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false, 'dist/api.js': false, 'src/api.test.ts': false });
 });
@@ -1340,7 +1472,7 @@ test('a re-index keeps a digest of each function, not its text', async () => {
   const huge = hub.state().agents[0].files[0].symbols.find((x) => x.name === 'huge');
   assert.equal(huge?.kind, 'added', 'the new function is on the map');
   // Everything the hub keeps of the file, as one string: digests and times, with nothing of the text.
-  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, Record<string, unknown>> }> }).agents;
+  const recs = hub['agents'];
   const kept = JSON.stringify([...[...recs.values()][0].files.values()], (_, v) => (v instanceof Map ? [...v] : v));
   assert.ok(kept.length < 4_000, `a few hundred bytes, not the file (${kept.length})`);
   assert.doesNotMatch(kept, /padding the function out/);
@@ -1376,6 +1508,7 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
   );
   await fs.rm(path.join(dir, 'src/old.ts'));
   const pushed = nextPush(hub, (s) => s.graphVersion > 1 && !!s.nodes['web/src/api.ts#searchItems']);
+
   const reply = await hub.ingest([
     {
       agent,
@@ -1387,6 +1520,7 @@ test('an agent edit is mapped to its file and symbols, and the file re-indexed',
       ],
     },
   ]);
+
   assert.deepEqual(
     reply.files.map((f) => [f.path, f.repo, f.node]),
     [
@@ -1468,12 +1602,15 @@ test('a function deleted after the map moved it to another layer keeps the layer
   const hub = new AgentHub(ws);
   const agent: AgentRef = { client: 'claude-code', session: 's', cwd: dir, root: dir };
   const file = path.join(dir, 'src/api.ts');
+
   const settle = async (go: () => Promise<void>) => {
     const v = ws.version;
     await go();
+
     for (let i = 0; i < 100 && ws.version === v; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 100));
   };
+
   // listItems changes first, so the file's symbols in HEAD are read with the layers they had then.
   const one = API.replace("'/api/items')", "'/api/items?all=1')");
   await settle(async () => {
@@ -1584,6 +1721,7 @@ test('two sessions in one checkout are two agents, and a sweep does not claim th
   await fs.appendFile(path.join(dir, 'src/api.ts'), '// more\n');
   await fs.writeFile(path.join(dir, 'src/gen.ts'), 'export const g = 1;\n');
   await hub.ingest([{ agent: s1, type: 'changes', files: [{ path: 'src/api.ts', kind: 'modified' }] }]);
+
   const reply = await hub.ingest([
     {
       agent: s2,
@@ -1594,6 +1732,7 @@ test('two sessions in one checkout are two agents, and a sweep does not claim th
       ],
     },
   ]);
+
   assert.deepEqual(reply.files.map((f) => f.kind), ['elsewhere', 'added']);
   a = byId();
   assert.deepEqual(a['Claude Code · aaaa'].files.map((f) => f.path), ['src/api.ts']);

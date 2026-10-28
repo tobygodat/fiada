@@ -29,16 +29,22 @@ export function usageStats({ accounts, reposPerProject }: StoredUsage, now: Date
   const months = new Map<string, number>();
   let days7 = 0;
   let days30 = 0;
+
   for (const { createdAt, updatedAt } of accounts) {
     const created = Date.parse(createdAt);
+
     if (!Number.isNaN(created)) {
       const month = new Date(created).toISOString().slice(0, 7);
       months.set(month, (months.get(month) ?? 0) + 1);
     }
+
     const since = now.getTime() - Date.parse(updatedAt);
+
     if (since <= 7 * DAY) days7++;
+
     if (since <= 30 * DAY) days30++;
   }
+
   return {
     at: now.toISOString(),
     people: accounts.length,

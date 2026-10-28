@@ -23,6 +23,7 @@ const contract = (a: string, b: string, n: number, kind: EdgeKind = 'calls'): Co
 test('at rest only the few strongest contracts are drawn', () => {
   const ids = 'abcdefghij'.split('');
   const visible = new Set(ids);
+
   const all = [
     contract('a', 'b', 800),
     contract('a', 'c', 54),
@@ -33,6 +34,7 @@ test('at rest only the few strongest contracts are drawn', () => {
     contract('e', 'f', 1),
     contract('f', 'g', 1),
   ];
+
   const everything = { ...EDGE_POLICIES.key, perContainer: Infinity };
   const rest = restEdges(all, visible, everything);
   assert.ok(rest.size <= REST_EDGES);
@@ -76,6 +78,7 @@ test('edges bend around circles in their way', () => {
   const blocker: Circle = { x: 100, y: 0, r: 30 };
   const bend = bestBend(A, B, [A, B, blocker]);
   const c = curve(A, B, bend);
+
   for (let i = 1; i < 20; i++) {
     const t = i / 20;
     const s = 1 - t;
@@ -83,6 +86,7 @@ test('edges bend around circles in their way', () => {
     const py = s * s * c.y1 + 2 * s * t * c.my + t * t * c.y2;
     assert.ok(Math.hypot(px - blocker.x, py - blocker.y) > blocker.r, `point ${i} is inside the blocker`);
   }
+
   // Neighbours that almost touch get a short, nearly straight link.
   const near = curve({ x: 0, y: 0, r: 50 }, { x: 104, y: 0, r: 50 }, DEFAULT_BEND);
   assert.ok(Math.abs(near.my) < 1);

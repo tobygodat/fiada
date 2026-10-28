@@ -13,6 +13,7 @@ const PY_STRING = /^[rRuUbBfF]{0,2}("""|'''|"|')/;
 export function firstSentence(text: string, max = 220): string {
   // The first paragraph: a docstring's summary line, not the "Revision ID: …" block under it.
   const para = text.replace(/^\s*\n/, '').split(/\n\s*\n/)[0] ?? '';
+
   const flat = para
     .split('\n')
     // JSDoc tags start the reference part of a comment; the prose is above them.
@@ -21,10 +22,13 @@ export function firstSentence(text: string, max = 220): string {
     .replace(/\{@link\s+([^}]+)\}/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+
   if (!flat || /^@\w/.test(flat)) return '';
   const end = /[.!?](\s|$)/.exec(flat);
   let s = end ? flat.slice(0, end.index + 1) : flat;
+
   if (s.length > max) s = s.slice(0, max - 1).replace(/\s+\S*$/, '') + '…';
+
   return s;
 }
 
@@ -32,33 +36,44 @@ export function firstSentence(text: string, max = 220): string {
 function pythonString(lines: string[], i: number): string | null {
   const first = lines[i]?.trim() ?? '';
   const m = PY_STRING.exec(first);
+
   if (!m) return null;
   const q = m[1];
   const rest = first.slice(m[0].length);
   const close = rest.indexOf(q);
+
   if (close >= 0) return rest.slice(0, close);
   const out = [rest];
+
   for (let j = i + 1; j < lines.length && j < i + 80; j++) {
     const at = lines[j].indexOf(q);
+
     if (at >= 0) return [...out, lines[j].slice(0, at)].join('\n');
     out.push(lines[j]);
   }
+
   return null;
 }
 
 /** The comment block that ends on the line just above `line` (0-based): `/** … *\/` or consecutive `//` lines. */
 function commentAbove(lines: string[], line: number): string | null {
   let j = line - 1;
+
   // Decorators and annotations sit between a doc comment and its declaration.
   while (j >= 0 && /^\s*@\w/.test(lines[j])) j--;
+
   if (j < 0) return null;
   const end = lines[j].trim();
+
   if (end.endsWith('*/')) {
     const body: string[] = [];
+
     for (let k = j; k >= 0 && k > j - 80; k--) {
       body.unshift(lines[k]);
+
       if (lines[k].includes('/*')) {
         if (!lines[k].includes('/**') && !/^\s*\/\*[^*]/.test(lines[k])) return null;
+
         return body
           .join('\n')
           .replace(/^\s*\/\*\*?/, '')
@@ -68,13 +83,18 @@ function commentAbove(lines: string[], line: number): string | null {
           .join('\n');
       }
     }
+
     return null;
   }
+
   if (end.startsWith('//')) {
     const body: string[] = [];
+
     for (let k = j; k >= 0 && lines[k].trim().startsWith('//'); k--) body.unshift(lines[k].trim().replace(/^\/\/+\s?/, ''));
+
     return body.join('\n');
   }
+
   return null;
 }
 
@@ -83,16 +103,23 @@ export function symbolDoc(text: string, n: Pick<GraphNode, 'lang' | 'lines'>): s
   if (!n.lines) return '';
   const lines = text.split('\n');
   const [a, b] = [n.lines[0] - 1, Math.min(n.lines[1], lines.length) - 1];
+
   if (n.lang === 'python') {
     let i = a;
+
     while (i <= b && !/^\s*(async\s+)?(def|class)\s/.test(lines[i])) i++;
+
     // The header can span lines; it ends at the first line ending in ":".
     while (i <= b && !/:\s*(#.*)?$/.test(lines[i])) i++;
+
     for (i++; i <= b && /^\s*$/.test(lines[i]); i++);
     const doc = i <= b ? pythonString(lines, i) : null;
+
     return doc ? clean(firstSentence(doc)) : '';
   }
+
   const doc = commentAbove(lines, a);
+
   return doc && !BOILERPLATE.test(doc) ? clean(firstSentence(doc)) : '';
 }
 
@@ -100,32 +127,43 @@ export function symbolDoc(text: string, n: Pick<GraphNode, 'lang' | 'lines'>): s
 export function fileDoc(text: string, lang?: string): string {
   const lines = text.split('\n');
   let i = 0;
+
   // Shebangs, encodings and blank lines come before a module's doc.
   while (i < lines.length && (/^\s*$/.test(lines[i]) || lines[i].startsWith('#!') || /^#.*coding[:=]/.test(lines[i]))) i++;
+
   if (lang === 'python') {
     while (i < lines.length && /^\s*#/.test(lines[i])) i++;
+
     while (i < lines.length && /^\s*$/.test(lines[i])) i++;
     const doc = pythonString(lines, i);
+
     return doc ? clean(firstSentence(doc)) : '';
   }
+
   if (lang === 'go') {
     const pkg = lines.findIndex((l) => /^package\s/.test(l));
     const doc = pkg > 0 ? commentAbove(lines, pkg) : null;
+
     return doc && !BOILERPLATE.test(doc) ? clean(firstSentence(doc)) : '';
   }
+
   // TS/JS: the first comment block, when it is prose and not a licence or a lint directive.
   const start = lines[i]?.trim() ?? '';
+
   if (!start.startsWith('/*') && !start.startsWith('//')) return '';
   let j = i;
+
   if (start.startsWith('/*')) while (j < lines.length && !lines[j].includes('*/')) j++;
   else while (j + 1 < lines.length && lines[j + 1].trim().startsWith('//')) j++;
   const doc = commentAbove(lines, j + 1);
+
   return doc && !BOILERPLATE.test(doc) ? clean(firstSentence(doc)) : '';
 }
 
 /** Docs that are really placeholders ("TODO", "noqa") don't count. */
 function clean(s: string): string {
   if (s.length < 12 || /^(todo|fixme|xxx|noqa|type:|pylint|deprecated\.?$)/i.test(s)) return '';
+
   return s[0].toUpperCase() + s.slice(1) + (/[.!?…:]$/.test(s) ? '' : '.');
 }
 
@@ -134,7 +172,9 @@ export function declaration(lines: string[], n: Pick<GraphNode, 'lang' | 'lines'
   if (!n.lines) return '';
   const [a, b] = [n.lines[0] - 1, Math.min(n.lines[1], lines.length) - 1];
   let i = a;
+
   while (i < b && /^\s*(@|#|\/\/|\/\*|\*)/.test(lines[i])) i++;
   const s = (lines[i] ?? '').trim();
+
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }

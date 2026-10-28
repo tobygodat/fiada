@@ -14,23 +14,32 @@ const code = buildCodeTree(graph);
 /** The straightforward version of edge lifting, to check the indexed one against. */
 function naiveContracts(tree: Tree, vis: Visible) {
   const visible = new Set(vis.list.map((n) => n.id));
+
   const lift = (id: string) => {
     let cur = locate(tree, graphIndex, id);
+
     while (cur && !visible.has(cur)) cur = tree.nodes.get(cur)?.parent ?? null;
+
     return cur;
   };
+
   const isAncestor = (anc: string, id: string) => {
     for (let n = tree.nodes.get(id); n?.parent; n = tree.nodes.get(n.parent)) if (n.parent === anc) return true;
+
     return false;
   };
+
   const out = new Map<string, number>();
+
   for (const e of graph.edges) {
     const a = lift(e.from);
     const b = lift(e.to);
+
     if (!a || !b || a === b || isAncestor(a, b) || isAncestor(b, a)) continue;
     const key = a < b ? `${a}|${b}` : `${b}|${a}`;
     out.set(key, (out.get(key) ?? 0) + 1);
   }
+
   return out;
 }
 
@@ -76,6 +85,7 @@ test('click mode: the first click selects, a second click on the selection opens
 test('indexed edge lifting matches the straightforward version', () => {
   const ix = indexEdges(code, graphIndex, graph.edges);
   const ids = [...code.nodes.keys()].filter((id) => code.nodes.get(id)!.children.length && id !== 'root');
+
   // Every combination of open containers (there are few enough).
   for (let mask = 0; mask < 1 << ids.length; mask++) {
     const open = new Set(ids.filter((_, i) => mask & (1 << i)));
@@ -111,25 +121,31 @@ test('a link is cross-repo only when the interactions behind it are', () => {
   // with the UI layer open and Client closed, useItems → Client stays inside web.
   const layered = fixtureGraph();
   layered.layers.push({ id: 'client', name: 'Client' }, { id: 'api', name: 'API' });
+
   for (const n of layered.nodes) {
     const layer = n.id.startsWith('web/src/client') ? 'client' : n.repo === 'api' ? 'api' : null;
+
     if (layer && n.layer) n.layer = { ...n.layer, id: layer };
   }
+
   const fn = buildFunctionTree(layered);
   const index = new Map<string, GraphNode>(layered.nodes.map((n) => [n.id, n]));
   const ix = indexEdges(fn, index, layered.edges);
   const repoOf = (id: string) => index.get(id)?.repo;
   let mixedEnds = 0;
+
   for (const id of fn.nodes.keys()) {
     for (const vis of [expandedNodes(fn, withPathOpen(fn, new Set(), id, true)), expandedNodes(fn, withPathOpen(fn, new Set(), id, false))]) {
       for (const c of aggregateEdges(ix, vis)) {
         const cross = c.items.filter((e) => repoOf(e.from) !== repoOf(e.to)).length;
         assert.equal(c.cross, cross, `${c.key} with ${id} open`);
         assert.equal(crossRepo(c), cross * 2 >= c.items.length && cross > 0);
+
         if (!cross && fn.nodes.get(c.a)!.repo !== fn.nodes.get(c.b)!.repo) mixedEnds++;
       }
     }
   }
+
   assert.ok(mixedEnds > 0, 'some same-repo links run between a symbol and a layer');
 });
 
@@ -180,17 +196,21 @@ test('click-mode layout: children inside parents, siblings apart, closed sizes s
   const open = withPathOpen(code, new Set(), 'web/src/pages/items.tsx', true);
   const L = layoutExpanded(code, open);
   const vis = expandedNodes(code, open);
+
   for (const n of vis.list) {
     const c = L.get(n.id)!;
     assert.ok(c, `${n.id} has a circle`);
     assert.ok(inside(c, L.get(n.parent!)!), `${n.id} sits inside its parent`);
+
     if (!vis.open.has(n.id)) assert.ok(Math.abs(c.r - closedRadius(n)) < 1e-9, `${n.id} keeps its closed radius`);
+
     for (const m of vis.list)
       if (m !== n && m.parent === n.parent) {
         const d = L.get(m.id)!;
         assert.ok(Math.hypot(c.x - d.x, c.y - d.y) >= c.r + d.r - 1e-6, `${n.id} and ${m.id} don't overlap`);
       }
   }
+
   // Nothing inside a closed circle is laid out, and a closed neighbour is the same size either way.
   assert.equal(L.has('web/src/client/api.ts'), false);
   assert.equal(L.get('api')!.r, closed.get('api')!.r);

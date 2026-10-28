@@ -3,7 +3,7 @@
 // model would read about it changes.
 
 import { createHash } from 'node:crypto';
-import type { GraphNode } from '@fiada/shared';
+import type { GraphNode, JsonObject } from '@fiada/shared';
 import { declaration, fileDoc } from './docs.ts';
 import { descendants, fileNeighbours, groupMembers, list, shortName, symbolNeighbours, type GraphIndex } from './describe.ts';
 
@@ -31,6 +31,7 @@ const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` 
 /** Repo-relative, as people say it: "backend/app/crud.py". */
 const where = (gi: GraphIndex, id: string) => {
   const n = gi.byId.get(id);
+
   return n?.path ?? id.slice(id.indexOf('/') + 1);
 };
 
@@ -42,23 +43,35 @@ export function fileItem(gi: GraphIndex, n: GraphNode, text: string | null): Ite
   const lines = text?.split('\n') ?? [];
   const out = [`${n.repo}/${n.path} (${n.lang ?? 'file'}, ${n.loc ?? lines.length} lines, ${gi.layerName(n.layer?.id)} layer)`];
   const doc = text ? fileDoc(text, n.lang) : '';
+
   if (doc) out.push(`doc: ${doc}`);
+
   if (n.routes?.length) out.push(`serves: ${list(n.routes, 8)}`);
   const pages = (n.facts ?? []).filter((f) => f.type === 'pageRoute').map((f) => f.value);
+
   if (pages.length) out.push(`page: ${list(pages, 3)}`);
+
   if (symbols.length) {
     out.push('declares:');
+
     for (const s of symbols.slice(0, 30)) out.push(`  ${declaration(lines, s) || `${s.symbolKind ?? 'symbol'} ${s.name}`}`);
+
     if (symbols.length > 30) out.push(`  … and ${symbols.length - 30} more`);
   } else if (lines.length) {
     out.push('code:');
+
     for (const l of lines.slice(0, FILE_LINES)) out.push(`  ${cap(l, 160)}`);
+
     if (lines.length > FILE_LINES) out.push(`  … ${lines.length - FILE_LINES} more lines`);
   }
+
   const inside = (id: string) => id === n.id || id.startsWith(`${n.id}#`);
   const { uses, usedBy } = fileNeighbours(gi, [n, ...symbols], inside);
+
   if (uses.length) out.push(`uses: ${list(uses.map((u) => where(gi, u)), 6)}`);
+
   if (usedBy.length) out.push(`used by: ${list(usedBy.map((u) => where(gi, u)), 6)}`);
+
   return item(n.id, 'file', out.join('\n'));
 }
 
@@ -68,11 +81,16 @@ export function symbolItem(gi: GraphIndex, n: GraphNode, lines: string[]): Item 
   const body = lines.slice(a - 1, Math.min(b, a - 1 + SYMBOL_LINES)).map((l) => cap(l, 200));
   const nb = symbolNeighbours(gi, n.id);
   const out = [`${n.name} (${n.symbolKind ?? 'symbol'}, ${n.path}:${a}-${b})`];
+
   if (n.routes?.length) out.push(`serves: ${list(n.routes, 6)}`);
+
   if (nb.calls.length) out.push(`calls: ${list(nb.calls, 8)}`);
+
   if (nb.httpCallers.length) out.push(`called over HTTP by: ${list(nb.httpCallers, 6)}`);
+
   if (nb.users.length) out.push(`used by: ${list(nb.users, 8)}`);
   out.push('```', ...body, ...(b - a + 1 > SYMBOL_LINES ? [`… ${b - a + 1 - SYMBOL_LINES} more lines`] : []), '```');
+
   return item(n.id, 'symbol', out.join('\n'), n.parent);
 }
 
@@ -80,6 +98,7 @@ export function symbolItem(gi: GraphIndex, n: GraphNode, lines: string[]): Item 
 export function fileHeader(gi: GraphIndex, file: GraphNode, lines: string[], max = 30): string {
   const first = Math.min(...(gi.children.get(file.id) ?? []).filter((c) => c.lines).map((c) => c.lines![0]), lines.length + 1);
   const head = lines.slice(0, Math.min(first - 1, max)).map((l) => cap(l, 200));
+
   return head.join('\n').trim();
 }
 
@@ -91,19 +110,25 @@ export function folderItem(gi: GraphIndex, n: GraphNode, summaryOf: SummaryOf): 
   const weight = (c: GraphNode) => (c.kind === 'file' ? (c.loc ?? 0) : descendants(gi, c.id).reduce((k, d) => k + (d.kind === 'file' ? (d.loc ?? 0) : 0), 0));
   const ranked = [...kids].sort((x, y) => weight(y) - weight(x));
   const out = [`${n.repo}/${n.path} (folder, ${descendants(gi, n.id).filter((d) => d.kind === 'file').length} files)`, 'contains:'];
+
   for (const c of ranked.slice(0, 40)) out.push(`  ${c.name}${c.kind === 'folder' ? '/' : ''}: ${summaryOf(c.id)}`);
+
   if (ranked.length > 40) out.push(`  … and ${ranked.length - 40} more`);
+
   return item(n.id, 'folder', out.join('\n'));
 }
 
 export function repoItem(gi: GraphIndex, n: GraphNode, summaryOf: SummaryOf): Item {
   const info = gi.graph.repos.find((r) => r.id === n.id);
   const kids = gi.children.get(n.id) ?? [];
+
   const out = [
     `${n.name} (repository${info?.frameworks?.length ? `; frameworks: ${info.frameworks.join(', ')}` : ''}${info?.languages ? `; languages: ${Object.keys(info.languages).join(', ')}` : ''})`,
     'top level:',
   ];
+
   for (const c of kids.slice(0, 40)) out.push(`  ${c.name}${c.kind === 'folder' ? '/' : ''}: ${summaryOf(c.id)}`);
+
   return item(n.id, 'repo', out.join('\n'));
 }
 
@@ -111,22 +136,29 @@ export function repoItem(gi: GraphIndex, n: GraphNode, summaryOf: SummaryOf): It
 export function groupItem(gi: GraphIndex, id: string, g: { domain: string; layer?: string }, summaryOf: SummaryOf): Item {
   const members = groupMembers(gi, g);
   const byFile = new Map<string, string[]>();
+
   for (const m of members) {
     const f = m.kind === 'symbol' ? m.parent : m.id;
     const names = byFile.get(f) ?? [];
+
     if (m.kind === 'symbol') names.push(m.name);
     byFile.set(f, names);
   }
+
   const files = [...byFile].sort((a, b) => b[1].length - a[1].length);
   const domain = gi.domainName(g.domain);
+
   const out = [
     g.layer == null
       ? `${domain} (a domain: the code that serves one purpose, across layers and repositories)`
       : `${gi.layerName(g.layer)} code in the ${domain} domain`,
     'members, by file:',
   ];
+
   for (const [f, names] of files.slice(0, 25)) out.push(`  ${where(gi, f)}${names.length ? ` (${list(names, 8)})` : ''}: ${summaryOf(f)}`);
+
   if (files.length > 25) out.push(`  … and ${files.length - 25} more files`);
+
   return item(id, g.layer == null ? 'domain' : 'layer', out.join('\n'));
 }
 
@@ -140,7 +172,7 @@ export const SYSTEM = [
 ].join('\n\n');
 
 /** The reply format for a batch of `n` items. Ids are limited to the item numbers, so a model can't answer by name. */
-export function replySchema(n: number): Record<string, unknown> {
+export function replySchema(n: number): JsonObject {
   return {
     type: 'object',
     properties: {
@@ -168,28 +200,36 @@ export function replySchema(n: number): Record<string, unknown> {
 export function matchReply(items: Item[], entries: readonly { id?: unknown; summary?: unknown }[] = []): (string | undefined)[] {
   const out: (string | undefined)[] = items.map(() => undefined);
   const used = new Set<number>();
+
   const take = (i: number, j: number, text: string) => {
     out[i] = text;
     used.add(j);
   };
+
   const names = items.map((it) => [it.node.toLowerCase(), shortName(it.node).toLowerCase()]);
   entries.forEach((e, j) => {
     const text = typeof e?.summary === 'string' ? e.summary.trim() : '';
+
     if (!text) return;
     const id = String(e.id ?? '').trim();
     const num = /^(?:item\s*)?#?\s*(\d+)$/i.exec(id);
     const n = num ? Number(num[1]) - 1 : -1;
+
     if (n >= 0 && n < items.length && out[n] === undefined) return take(n, j, text);
     const key = id.toLowerCase().replace(/\s*\(\w+\)$/, '');
     const byName = names.findIndex(([full, short], i) => out[i] === undefined && (key === full || key === short));
+
     if (byName >= 0) take(byName, j, text);
   });
+
   if (entries.length === items.length) {
     out.forEach((s, i) => {
       const text = typeof entries[i]?.summary === 'string' ? (entries[i].summary as string).trim() : '';
+
       if (s === undefined && !used.has(i) && text) take(i, i, text);
     });
   }
+
   return out;
 }
 
@@ -202,6 +242,7 @@ export interface Batch {
 /** The request text for a batch; items are numbered so ids stay short and exact. */
 export function prompt(batch: Batch): string {
   const head = batch.context ? `Context shared by the items below:\n${batch.context}\n\n` : '';
+
   return `${head}${batch.items.map((it, i) => `### item ${i + 1} (${it.kind})\n${it.text}`).join('\n\n')}`;
 }
 
@@ -216,17 +257,21 @@ export function takeBatch(queue: Item[], budget = BUDGET): Item[] {
   const out: Item[] = [];
   let chars = 0;
   const group = queue[0]?.group;
+
   for (let i = 0; i < queue.length && out.length < budget.items; ) {
     const it = queue[i];
+
     if (it.group !== group) {
       i++;
       continue;
     }
+
     if (out.length && chars + it.text.length > budget.chars) break;
     out.push(it);
     chars += it.text.length;
     queue.splice(i, 1);
   }
+
   return out;
 }
 

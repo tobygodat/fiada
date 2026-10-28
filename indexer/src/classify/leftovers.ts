@@ -25,7 +25,8 @@ export interface SortStats {
 
 /** The nodes the By-function view draws as leaves. */
 export function leaves(nodes: GraphNode[]): GraphNode[] {
-  const hasSymbols = new Set(nodes.filter((n) => n.kind === 'symbol').map((n) => n.parent));
+  const hasSymbols = new Set(nodes.flatMap((n) => (n.kind === 'symbol' ? [n.parent] : [])));
+
   return nodes.filter((n) => n.kind === 'symbol' || (n.kind === 'file' && !hasSymbols.has(n.id)));
 }
 
@@ -38,17 +39,25 @@ export function sortStats(graph: Graph): SortStats {
   let leftover = 0;
   let shared = 0;
   let sortedByModel = 0;
+
   for (const n of ls) {
     const d = n.domain?.id ?? UNSORTED_DOMAIN;
     const u = d === UNSORTED_DOMAIN;
     const l = (n.layer?.id ?? UNLAYERED) === UNLAYERED;
+
     if (u) unsorted++;
+
     if (l) unlayered++;
+
     if (u || l) leftover++;
+
     if (d === SHARED_DOMAIN) shared++;
+
     if (n.domain?.source === 'model' || n.layer?.source === 'model') sortedByModel++;
+
     if (!u && d !== SHARED_DOMAIN) (filesOf.get(d) ?? filesOf.set(d, new Set()).get(d)!).add(n.kind === 'file' ? n.id : n.parent);
   }
+
   return {
     leaves: ls.length,
     unsorted,
@@ -80,16 +89,20 @@ export interface LeftoverFile {
 
 export function leftoverFiles(graph: Graph): LeftoverFile[] {
   const symbolsOf = new Map<string, GraphNode[]>();
+
   for (const n of graph.nodes) if (n.kind === 'symbol') (symbolsOf.get(n.parent) ?? symbolsOf.set(n.parent, []).get(n.parent)!).push(n);
   const out: LeftoverFile[] = [];
+
   for (const f of graph.nodes) {
     if (f.kind !== 'file') continue;
     const syms = symbolsOf.get(f.id) ?? [];
     const noDomain = (n: GraphNode) => (n.domain?.id ?? UNSORTED_DOMAIN) === UNSORTED_DOMAIN;
     const needsLayer = (f.layer?.id ?? UNLAYERED) === UNLAYERED || syms.some((s) => (s.layer?.id ?? UNLAYERED) === UNLAYERED);
     const needsDomain = syms.length ? syms.filter(noDomain) : noDomain(f) ? [f] : [];
+
     if (!needsLayer && !needsDomain.length) continue;
     out.push({ file: f, needsLayer, needsDomain, placed: syms.filter((s) => !noDomain(s)) });
   }
+
   return out;
 }

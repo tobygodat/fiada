@@ -14,6 +14,7 @@ import { globMatch } from './glob.ts';
 import type { Assignments, LayerStrategy } from './types.ts';
 
 const regexes = new Map<string, RegExp | null>();
+
 function regex(src: string): RegExp | null {
   if (!regexes.has(src)) {
     try {
@@ -23,6 +24,7 @@ function regex(src: string): RegExp | null {
       regexes.set(src, null);
     }
   }
+
   return regexes.get(src)!;
 }
 
@@ -46,30 +48,38 @@ export interface Hit {
 export function matchOne(m: LayerMatcher, node: { repo: string; id: string }, facts: Fact[]): { source: PlacementSource; detail: string } | null {
   const parts: string[] = [];
   const kinds: PlacementSource[] = [];
+
   if (m.path !== undefined) {
     if (!globMatch(m.path, node.id.split('#')[0])) return null;
     parts.push(`path matches ${m.path}`);
     kinds.push('path');
   }
+
   if (m.import !== undefined) {
     const f = facts.find((f) => f.type === 'import' && importMatches(f.value, m.import!));
+
     if (!f) return null;
     parts.push(`imports ${f.value}`);
     kinds.push('import');
   }
+
   if (m.fact) {
     const re = m.fact.value ? regex(m.fact.value) : null;
+
     if (m.fact.value && !re) return null;
     const f = facts.find((f) => f.type === m.fact!.type && (!re || re.test(f.value)));
+
     if (!f) return null;
     parts.push(describeFact(f));
     kinds.push('fact');
   }
+
   if (m.repo !== undefined) {
     if (node.repo !== m.repo) return null;
     parts.push(`in repo ${m.repo}`);
     kinds.push('repo');
   }
+
   return { source: kinds[0] ?? 'fallback', detail: parts.join(', ') || 'matches everything' };
 }
 
@@ -79,13 +89,16 @@ const confidence = (priority: number) => (priority >= 300 ? 0.9 : priority >= 20
 /** All matches for a node, best first. Ties go to the layer listed first, then the matcher listed first. */
 export function matchLayers(layers: LayerDef[], node: { repo: string; id: string }, facts: Fact[], factMatchersOnly = false): Hit[] {
   const hits: Hit[] = [];
+
   for (const layer of layers) {
     for (const m of layer.match) {
       if (factMatchersOnly && !m.fact) continue;
       const r = matchOne(m, node, facts);
+
       if (r) hits.push({ layer, matcher: m, ...r });
     }
   }
+
   return hits.sort((a, b) => b.matcher.priority - a.matcher.priority);
 }
 
@@ -94,11 +107,13 @@ function placement(hits: Hit[]): Placement {
   // Runners-up from other layers explain close calls ("also imports sqlmodel").
   const seen = new Set([win.layer.id]);
   const evidence = [{ source: win.source, detail: win.detail, weight: win.matcher.priority }];
+
   for (const h of hits.slice(1)) {
     if (seen.has(h.layer.id) || evidence.length >= 2) continue;
     seen.add(h.layer.id);
     evidence.push({ source: h.source, detail: `${h.detail} (would be ${h.layer.name})`, weight: h.matcher.priority });
   }
+
   return { id: win.layer.id, confidence: confidence(win.matcher.priority), source: win.source, evidence };
 }
 
@@ -120,6 +135,7 @@ export const projectMatchers: LayerStrategy = {
     // 1. Matchers.
     for (const f of files) {
       const hits = matchLayers(layers, f, f.facts ?? []);
+
       if (hits.length) out.set(f.id, placement(hits));
     }
 
@@ -127,57 +143,74 @@ export const projectMatchers: LayerStrategy = {
     const fileOf = (id: string) => id.split('#')[0];
     const callers = new Map<string, Set<string>>();
     const callees = new Map<string, Set<string>>();
+
     for (const e of edges) {
       const a = fileOf(e.from);
       const b = fileOf(e.to);
+
       if (a === b) continue;
       (callers.get(b) ?? callers.set(b, new Set()).get(b)!).add(a);
       (callees.get(a) ?? callees.set(a, new Set()).get(a)!).add(b);
     }
+
     const majority = (ids: Set<string> | undefined): [string, number, number] | null => {
       if (!ids?.size) return null;
       const tally = new Map<string, number>();
       let placed = 0;
+
       for (const id of ids) {
         const l = out.get(id)?.id;
+
         if (!l || l === UNLAYERED) continue;
         placed++;
         tally.set(l, (tally.get(l) ?? 0) + 1);
       }
+
       const [top, n] = [...tally].sort((a, b) => b[1] - a[1])[0] ?? [];
+
       return top && n / placed > 0.5 ? [top, n, placed] : null;
     };
+
     for (let round = 0; round < 3; round++) {
       const next: [string, Placement][] = [];
+
       for (const f of files) {
         if (out.has(f.id)) continue;
         const up = majority(callers.get(f.id));
         const down = up ? null : majority(callees.get(f.id));
         const m = up ?? down;
+
         if (!m) continue;
         const [layer, n, of] = m;
         const detail = `${n} of ${of} ${up ? 'callers' : 'files it uses'} ${n === 1 ? 'is' : 'are'} ${names.get(layer) ?? layer}`;
         next.push([f.id, { id: layer, confidence: 0.4, source: 'graph', evidence: [{ source: 'graph', detail, weight: n / of }] }]);
       }
+
       if (!next.length) break;
+
       for (const [id, p] of next) out.set(id, p);
     }
+
     for (const f of files) if (!out.has(f.id)) out.set(f.id, UNPLACED);
 
     // 3. Symbols: their own facts, or their file's layer.
     const inheritedCache = new Map<Placement, Placement>();
+
     for (const s of nodes) {
       if (s.kind !== 'symbol') continue;
       const hits = s.facts?.length ? matchLayers(layers, s, s.facts, true) : [];
+
       if (hits.length) {
         out.set(s.id, placement(hits));
         continue;
       }
+
       const file = out.get(s.parent) ?? UNPLACED;
       const inherited = inheritedCache.get(file) ?? { ...file, evidence: file.evidence.map((e, i) => (i ? e : { ...e, detail: `its file: ${e.detail}` })) };
       inheritedCache.set(file, inherited);
       out.set(s.id, inherited);
     }
+
     return out;
   },
 };

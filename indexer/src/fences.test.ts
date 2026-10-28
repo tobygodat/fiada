@@ -16,7 +16,13 @@ import { Workspace } from './workspace.ts';
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 const node = (id: string, kind: GraphNode['kind'], parent: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, kind, name: id.split(/[/#]/).pop()!, parent, repo: 'api', ...extra });
+
 const GRAPH = {
+  version: 1,
+  generatedAt: '',
+  repos: [],
+  layers: [],
+  domains: [],
   nodes: [
     node('api', 'repo', 'root'),
     node('api/app', 'folder', 'api', { path: 'app' }),
@@ -29,10 +35,11 @@ const GRAPH = {
     node('api/app/main.py', 'file', 'api/app', { path: 'app/main.py' }),
   ],
   edges: [],
-} as unknown as Graph;
+} satisfies Graph;
 
 const fence = (n: string, rule: Fence['rule']): Fence => ({ node: n, rule, at: '2026-10-08T00:00:00.000Z' });
 const file = (rel: string, lines?: [number, number][], symbols?: Record<string, [number, number]>) => ({ repo: 'api', rel, lines, symbols: symbols && new Map(Object.entries(symbols)) });
+
 /** create_item where the edited file has it now. */
 const at = (lines: [number, number]) => ({ 'api/app/routes/items.py#create_item': lines });
 
@@ -123,6 +130,7 @@ test('fences are kept per project in the file store, changed one node at a time,
 
 test('a failed save leaves the fences as they were', async () => {
   let fail = false;
+
   const store: ProjectStore = {
     describe: () => 'memory',
     loadRepos: async () => [],
@@ -134,6 +142,7 @@ test('a failed save leaves the fences as they were', async () => {
       if (fail) throw new Error('saved by another indexer');
     },
   };
+
   const fences = new Fences(store, 'p');
   await fences.init();
   fail = true;
@@ -146,6 +155,7 @@ test('two changes saving at once each save their own list, so a failed second sa
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
   let calls = 0;
+
   const store: ProjectStore = {
     describe: () => 'memory',
     loadRepos: async () => [],
@@ -155,11 +165,14 @@ test('two changes saving at once each save their own list, so a failed second sa
     loadFences: async () => [],
     saveFences: async (_id, list) => {
       const n = ++calls;
+
       if (n === 1) await gate;
+
       if (n === 2) throw new Error('disk full');
       writes.push(list.map((f) => f.node));
     },
   };
+
   const fences = new Fences(store, 'p');
   await fences.init();
   const first = fences.set('api/app', 'ask', GRAPH);
@@ -177,6 +190,7 @@ test('a change whose save failed is never saved by the change queued behind it',
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
   let calls = 0;
+
   const store: ProjectStore = {
     describe: () => 'memory',
     loadRepos: async () => [],
@@ -189,9 +203,11 @@ test('a change whose save failed is never saved by the change queued behind it',
         await gate;
         throw new Error('disk full');
       }
+
       writes.push(list.map((f) => f.node));
     },
   };
+
   const fences = new Fences(store, 'p');
   await fences.init();
   const first = fences.set('api/app', 'ask', GRAPH);
@@ -222,6 +238,7 @@ test('fences are read from the store again once stale, so a fence put up by anot
   // A read never undoes a change of its own still saving.
   let release!: () => void;
   const slow = new Promise<void>((r) => (release = r));
+
   const held: ProjectStore = {
     describe: () => 'slow',
     loadRepos: async () => [],
@@ -231,6 +248,7 @@ test('fences are read from the store again once stale, so a fence put up by anot
     loadFences: async () => [],
     saveFences: async () => slow,
   };
+
   const mine = new Fences(held, 'p', clock);
   await mine.init();
   const putting = mine.set('api/app', 'ask', GRAPH);
@@ -245,6 +263,7 @@ test('closing waits for saves under way and takes no more, so a deleted project 
   const saved: string[][] = [];
   let release!: () => void;
   const slow = new Promise<void>((r) => (release = r));
+
   const store: ProjectStore = {
     describe: () => 'memory',
     loadRepos: async () => [],
@@ -256,6 +275,7 @@ test('closing waits for saves under way and takes no more, so a deleted project 
       saved.push(list.map((f) => f.node));
     },
   };
+
   const fences = new Fences(store, 'p');
   await fences.init();
   const putting = fences.set('api/app/core', 'off', GRAPH);
@@ -294,26 +314,31 @@ test('collisions: the deepest file or folder two agents share, never a whole rep
 
 test('an agent may say where a file is inside its checkout, but only as a plain repo-relative path', () => {
   assert.equal(cleanRel('app/core/config.py'), 'app/core/config.py');
+
   for (const bad of [undefined, 3, '', '/etc/passwd', 'C:/x', 'app\\core', '../x', 'app/../../x', 'app//x', './app']) assert.equal(cleanRel(bad), undefined, String(bad));
 });
 
 async function localRepo() {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-fenced-')));
+
   const files = {
     'app/core/config.py': 'SECRET = "x"\n',
     'app/routes/items.py': 'def list_items():\n    return []\n\n\ndef create_item(item):\n    return item\n',
     'app/routes/users.py': 'def list_users():\n    return []\n',
   };
+
   for (const [p, text] of Object.entries(files)) {
     await fs.mkdir(path.dirname(path.join(dir, p)), { recursive: true });
     await fs.writeFile(path.join(dir, p), text);
   }
+
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 'test@example.com');
   git(dir, 'config', 'user.name', 'test');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-qm', 'init');
   git(dir, 'remote', 'add', 'origin', 'https://github.com/acme/api.git');
+
   return dir;
 }
 
@@ -323,6 +348,7 @@ test('an agent asking before an edit gets the verdict, and an edit stopped at a 
   const store: ProjectStore = { describe: () => 'memory', loadRepos: async () => saved, saveRepos: async () => {}, loadGrouping: async () => null, saveGrouping: async () => {} };
   const ws = new Workspace(store, 'default');
   await ws.init();
+
   for (let i = 0; i < 200 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 20));
   const fences = new Fences(store, 'default');
   await fences.set('api/app/core', 'off', ws.getGraph());
@@ -403,13 +429,16 @@ test('a repository imported from inside another is its own: an edit there meets 
   await fs.mkdir(sdk, { recursive: true });
   await fs.writeFile(path.join(sdk, 'client.py'), 'def call():\n    return 1\n');
   git(sdk, 'init', '-q');
+
   const saved: SavedRepo[] = [
     { id: 'api', name: 'api', source: dir, kind: 'local' },
     { id: 'sdk', name: 'sdk', source: sdk, kind: 'local' },
   ];
+
   const store: ProjectStore = { describe: () => 'memory', loadRepos: async () => saved, saveRepos: async () => {}, loadGrouping: async () => null, saveGrouping: async () => {} };
   const ws = new Workspace(store, 'default');
   await ws.init();
+
   for (let i = 0; i < 200 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 20));
   const fences = new Fences(store, 'default');
   await fences.set('sdk', 'off', ws.getGraph());
@@ -441,16 +470,20 @@ test('the fence routes: set and list fences, and an agent checks an edit over HT
   server.stdout.on('data', (c) => (log += c));
   server.stderr.on('data', (c) => (log += c));
   const url = `http://127.0.0.1:${port}`;
+
   const call = async (method: string, p: string, body?: unknown) => {
     const res = await fetch(`${url}${p}`, { method, headers: body === undefined ? {} : { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+
     return { status: res.status, body: (await res.json()) as any };
   };
+
   try {
     for (let i = 0; i < 200 && !log.includes('listening'); i++) await new Promise((r) => setTimeout(r, 100));
     assert.match(log, /listening/);
     const added = await call('POST', '/api/repos', { source: dir });
     assert.equal(added.status, 202);
     const id: string = added.body.repos[0].id;
+
     for (let i = 0; i < 200 && (await call('GET', '/api/workspace')).body.busy; i++) await new Promise((r) => setTimeout(r, 50));
 
     assert.deepEqual((await call('GET', '/api/fences')).body, { fences: [] });

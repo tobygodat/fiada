@@ -8,13 +8,13 @@ import { agentRead, agentUnreadIds, forgetRead, loadRead, markAgentRead, markAll
 
 const change = (kind: NodeChange['kind'], unit: NodeChange['unit'], at: number, agents = ['a'], anchor?: string): NodeChange => ({ kind, unit, at, agents, anchor });
 
-const nodes: Record<string, NodeChange> = {
+const nodes = {
   'web/src/pages/items.tsx': change('modified', 'file', 10),
   'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 10),
   'web/src/pages/items.tsx#useTags': change('added', 'symbol', 20, ['a'], 'web/src/pages/items.tsx'),
   'web/src/pages/tags.tsx': change('added', 'file', 30, ['b'], 'web/src/pages'),
   'api/app/routes/old.py': change('deleted', 'file', 5, ['a'], 'api/app/routes'),
-};
+} satisfies Record<string, NodeChange>;
 
 test('every change is unread until something is opened', () => {
   assert.deepEqual([...unreadIds(nodes, {})].sort(), Object.keys(nodes).sort());
@@ -60,19 +60,22 @@ test('mark all read', () => {
 
 test("marking one agent read leaves another agent's later change to the same file unread", () => {
   // Agent a changed items.tsx at 10; agent b changed it again at 20. The node keeps the newest time.
-  const shared: Record<string, NodeChange> = {
+  const shared = {
     'web/src/pages/items.tsx': change('modified', 'file', 20, ['a', 'b']),
     'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/tags.tsx': change('added', 'file', 15, ['a']),
-  };
+  } satisfies Record<string, NodeChange>;
+
   const iso = (ms: number) => new Date(ms).toISOString();
+
   const a = {
     id: 'a',
     files: [
       { repo: 'web', path: 'src/pages/items.tsx', node: 'web/src/pages/items.tsx', kind: 'modified', symbols: [{ id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' }], at: iso(10) },
       { repo: 'web', path: 'src/pages/tags.tsx', node: 'web/src/pages/tags.tsx', kind: 'added', symbols: [], at: iso(15) },
     ],
-  } as unknown as AgentActivity;
+  } as AgentActivity;
+
   const marks = markAgentRead({}, a)!;
   const u = unreadIds(shared, marks);
   assert.ok(!u.has('web/src/pages/tags.tsx'), "a's own change is read");
@@ -80,7 +83,7 @@ test("marking one agent read leaves another agent's later change to the same fil
   assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'));
   assert.equal(markAgentRead(marks, a), null, 'nothing new to mark');
   assert.deepEqual(agentRead(a, u, marks, shared), { read: 2, total: 2 }, "a counts its own changes read; b's is b's to read");
-  const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as unknown as AgentActivity;
+  const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as AgentActivity;
   assert.deepEqual(agentRead(b, u, marks, shared), { read: 0, total: 1 });
   // Lit on the map, each agent shows only what is unread for it.
   assert.deepEqual([...agentUnreadIds(a, u, marks, shared)], []);
@@ -89,11 +92,12 @@ test("marking one agent read leaves another agent's later change to the same fil
 
 test("a lit agent's function you opened stays read when another agent changes it later", () => {
   // a changed ItemsPage and useTags at 10; you opened ItemsPage; b changed ItemsPage at 20.
-  const two: Record<string, NodeChange> = {
+  const two = {
     'web/src/pages/items.tsx': change('modified', 'file', 20, ['a', 'b']),
     'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/items.tsx#useTags': change('added', 'symbol', 10, ['a']),
-  };
+  } satisfies Record<string, NodeChange>;
+
   const a = {
     id: 'a',
     files: [
@@ -109,7 +113,8 @@ test("a lit agent's function you opened stays read when another agent changes it
         at: new Date(10).toISOString(),
       },
     ],
-  } as unknown as AgentActivity;
+  } as AgentActivity;
+
   const marks = { 'web/src/pages/items.tsx#ItemsPage': 10 };
   const u = unreadIds(two, marks);
   assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'), "b's change is unread overall");
@@ -117,8 +122,8 @@ test("a lit agent's function you opened stays read when another agent changes it
 });
 
 test('an agent says how many of its files you have read', () => {
-  const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z' }) as unknown as AgentFile;
-  const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as unknown as AgentActivity;
+  const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z', diff: false });
+  const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as AgentActivity;
   a.files[2].repo = undefined;
   const marks = markRead({}, 'web/src/pages/items.tsx', nodes)!;
   const u = unreadIds(nodes, marks);
@@ -154,6 +159,7 @@ test('read marks are kept per project and survive bad storage', () => {
       return store.size;
     },
   };
+
   try {
     saveRead('p1', { 'web/src/a.ts': 10 });
     assert.deepEqual(loadRead('p1'), { 'web/src/a.ts': 10 });
@@ -172,12 +178,14 @@ test('read marks are kept per project and survive bad storage', () => {
 
 test("a lit agent's functions go by its own change time to each, not its latest to the file", () => {
   // a changed foo at 10; b changed foo at 20; a changed bar at 30. You opened foo at 20.
-  const three: Record<string, NodeChange> = {
+  const three = {
     'web/src/pages/items.tsx': change('modified', 'file', 30, ['a', 'b']),
     'web/src/pages/items.tsx#foo': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/items.tsx#bar': change('modified', 'symbol', 30, ['a']),
-  };
+  } satisfies Record<string, NodeChange>;
+
   const iso = (ms: number) => new Date(ms).toISOString();
+
   const a = {
     id: 'a',
     files: [
@@ -193,7 +201,8 @@ test("a lit agent's functions go by its own change time to each, not its latest 
         at: iso(30),
       },
     ],
-  } as unknown as AgentActivity;
+  } as AgentActivity;
+
   const opened = { 'web/src/pages/items.tsx#foo': 20 };
   const u = unreadIds(three, opened);
   // Lit, a shows bar unread, not foo: its change to foo came before you opened it.

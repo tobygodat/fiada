@@ -5,12 +5,14 @@ import type { Graph, GraphEdge, GraphNode } from '@fiada/shared';
 
 export function fixtureGraph(): Graph {
   const nodes: GraphNode[] = [];
+
   const add = (id: string, kind: GraphNode['kind'], parent: string, loc = 20) => {
     const repo = id.split('/')[0];
     const name = id.includes('#') ? id.slice(id.indexOf('#') + 1) : id.slice(id.lastIndexOf('/') + 1);
     const path = id.includes('/') ? id.slice(repo.length + 1).split('#')[0] : undefined;
     nodes.push({ id, kind, name, parent, repo, path, loc, layer: { id: 'ui', confidence: 1, source: 'fact', evidence: [] }, domain: { id: 'items', confidence: 1, source: 'seed', evidence: [] } });
   };
+
   add('web', 'repo', 'root');
   add('web/src', 'folder', 'web');
   add('web/src/pages', 'folder', 'web/src');
@@ -31,6 +33,7 @@ export function fixtureGraph(): Graph {
   add('api/app/models.py', 'file', 'api/app');
   add('api/app/models.py#Item', 'symbol', 'api/app/models.py', 15);
   add('api/app/models.py#User', 'symbol', 'api/app/models.py', 15);
+
   const edges: GraphEdge[] = [
     { from: 'web/src/pages/items.tsx#ItemsPage', to: 'web/src/pages/items.tsx#useItems', kind: 'calls' },
     { from: 'web/src/pages/items.tsx#useItems', to: 'web/src/client/api.ts#ItemsService', kind: 'calls' },
@@ -52,6 +55,7 @@ export function fixtureGraph(): Graph {
     // A file-level edge into a symbol of the same file: lifts onto its own ancestor when the file is open.
     { from: 'api/app/models.py', to: 'api/app/models.py#User', kind: 'references' },
   ];
+
   return {
     version: 1,
     generatedAt: '2026-09-27T00:00:00Z',

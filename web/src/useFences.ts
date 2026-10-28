@@ -24,14 +24,18 @@ export function useFences(rev: unknown): FencesHandle {
       (r) => mine === turn.current && setFences(r.fences),
       () => undefined,
     );
+
     return () => {
       if (mine === turn.current) turn.current++;
     };
   }, [rev]);
+
   const set = useCallback(async (node: string, rule: FenceRule | null) => {
     const mine = ++turn.current;
     const r = await api.setFence(node, rule);
+
     if (mine === turn.current) setFences(r.fences);
   }, []);
+
   return { fences, set };
 }

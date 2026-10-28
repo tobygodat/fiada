@@ -41,8 +41,11 @@ export function words(s: string): string[] {
 
 function singular(w: string): string {
   if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y';
+
   if (w.endsWith('sses')) return w.slice(0, -2);
+
   if (w.endsWith('s') && !/(ss|us|is|ics)$/.test(w) && w.length > 3) return w.slice(0, -1);
+
   return w;
 }
 
@@ -62,6 +65,7 @@ export function featureTokens(): DomainStrategy {
     name: 'feature-tokens',
     assign({ nodes }) {
       const repoNames = new Map<string, string>();
+
       for (const n of nodes) if (n.kind === 'repo') repoNames.set(n.id, n.name.toLowerCase());
       const files = nodes.filter((n) => n.kind === 'file');
 
@@ -70,34 +74,43 @@ export function featureTokens(): DomainStrategy {
         const stem = segs.pop()!;
         // Most specific first: the file name, then directories from deepest up.
         const out = [...words(stem).reverse()];
+
         for (let i = segs.length - 1; i >= 0; i--) out.push(...words(segs[i]).reverse());
         const repo = repoNames.get(f.repo) ?? f.repo.toLowerCase();
+
         return out.filter((w) => !GENERIC.has(w) && !repo.includes(w));
       };
 
       // Only paths vote: symbol names are full of UI-kit words (Trigger, Separator…) that aren't features.
       const df = new Map<string, number>();
       const tokens = new Map<string, string[]>();
+
       for (const f of files) {
         const t = pathTokens(f);
         tokens.set(f.id, t);
+
         for (const w of new Set(t)) df.set(w, (df.get(w) ?? 0) + 1);
       }
+
       // Recurs in several files but isn't everywhere (then it's structure, not a feature).
       // Keep the most common few: a map with a hundred domains isn't a map.
       const max = Math.max(4, files.length * 0.3);
+
       const ranked = [...df]
         .filter(([, n]) => n >= 2 && n <= max)
         .sort((a, b) => b[1] - a[1])
         .slice(0, MAX_DOMAINS)
         .map(([w]) => w);
+
       const features = new Set(ranked);
 
       const out: Assignments = new Map();
+
       for (const f of files) {
         const hit = tokens.get(f.id)!.find((w) => features.has(w));
         out.set(f.id, hit ? { id: hit, confidence: 0.6, source: 'seed', evidence: [{ source: 'seed', detail: `"${hit}" recurs across file paths`, weight: df.get(hit)! }] } : UNSORTED);
       }
+
       for (const s of nodes) {
         if (s.kind !== 'symbol') continue;
         const file = out.get(s.parent) ?? UNSORTED;
@@ -107,6 +120,7 @@ export function featureTokens(): DomainStrategy {
           hit && hit !== file.id ? { id: hit, confidence: 0.55, source: 'seed', evidence: [{ source: 'seed', detail: `name mentions "${hit}"`, weight: df.get(hit)! }] } : file,
         );
       }
+
       return { domains: ranked.map((w) => ({ id: w, name: title(w) })), assignments: out };
     },
   };

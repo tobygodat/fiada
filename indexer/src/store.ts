@@ -109,8 +109,10 @@ export interface ProjectStore {
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
 export function checkProjectId(id: string): string {
   if (!PROJECT_ID.test(id)) throw new Error(`Invalid project id "${id}": use letters, digits, ".", "_" or "-".`);
+
   return id;
 }
 
@@ -139,6 +141,7 @@ export class FileProjectStore implements ProjectStore {
     // Projects saved before the rename keep their strata.grouping.json.
     const old = path.join(this.dir(id), 'strata.grouping.json');
     const file = path.join(this.dir(id), 'fiada.grouping.json');
+
     return !fs.existsSync(file) && fs.existsSync(old) ? old : file;
   }
 
@@ -151,8 +154,10 @@ export class FileProjectStore implements ProjectStore {
     // Before projects existed, the default project lived in <root>/workspace.json.
     const legacy = text == null && id === 'default' ? await fsp.readFile(path.join(this.root, 'workspace.json'), 'utf8').catch(() => null) : null;
     const raw = text ?? legacy;
+
     if (raw == null) return null;
     const parsed = JSON.parse(raw);
+
     return Array.isArray(parsed?.repos) ? parsed.repos : [];
   }
 
@@ -162,6 +167,7 @@ export class FileProjectStore implements ProjectStore {
 
   async loadGrouping(id: string): Promise<unknown | null> {
     const text = await fsp.readFile(this.groupingFile(id), 'utf8').catch(() => null);
+
     return text == null ? null : JSON.parse(text);
   }
 
@@ -171,8 +177,10 @@ export class FileProjectStore implements ProjectStore {
 
   async loadFences(id: string): Promise<Fence[] | null> {
     const text = await fsp.readFile(path.join(this.dir(id), 'fences.json'), 'utf8').catch(() => null);
+
     if (text == null) return null;
     const parsed = JSON.parse(text);
+
     return Array.isArray(parsed?.fences) ? parsed.fences : [];
   }
 
@@ -182,24 +190,30 @@ export class FileProjectStore implements ProjectStore {
 
   async loadSummaries(id: string): Promise<Record<string, StoredSummary> | null> {
     const text = await fsp.readFile(path.join(this.dir(id), 'summaries.json'), 'utf8').catch(() => null);
+
     if (text == null) return null;
     const parsed = JSON.parse(text);
+
     return parsed && typeof parsed.summaries === 'object' ? parsed.summaries : null;
   }
 
   async saveSummaries(id: string, entries: Record<string, StoredSummary>) {
     const file = path.join(this.dir(id), 'summaries.json');
+
     // Saves come from one process, one at a time; merge so each only adds what's new.
     const run = (this.summaryWrites.get(id) ?? Promise.resolve()).then(async () => {
       const saved = (await this.loadSummaries(id).catch(() => null)) ?? {};
       await this.write(file, JSON.stringify({ summaries: { ...saved, ...entries } }) + '\n');
     });
+
     this.summaryWrites.set(id, run.catch(() => {}));
+
     return run;
   }
 
   async loadAccount(id: string): Promise<StoredAccount | null> {
     const text = await fsp.readFile(path.join(this.root, 'accounts', `${checkProjectId(id)}.json`), 'utf8').catch(() => null);
+
     return text == null ? null : (JSON.parse(text) as StoredAccount);
   }
 
@@ -229,6 +243,7 @@ export class FileProjectStore implements ProjectStore {
     const read = (file: string) => fsp.readFile(path.join(this.root, file), 'utf8').then(JSON.parse).catch(() => null);
     const accounts = await Promise.all((await names('accounts')).filter((n) => n.endsWith('.json')).map((n) => read(`accounts/${n}`)));
     const repos = await Promise.all((await names('projects')).map((n) => read(`projects/${n}/repos.json`)));
+
     return {
       accounts: accounts.filter(Boolean).map(({ createdAt, updatedAt }: StoredAccount) => ({ createdAt, updatedAt })),
       reposPerProject: repos.filter(Boolean).map((r) => (Array.isArray(r.repos) ? r.repos.length : 0)),
@@ -238,11 +253,15 @@ export class FileProjectStore implements ProjectStore {
   private changeAccount<T extends StoredAccount | null>(id: string, change: (before: StoredAccount | null) => T): Promise<T> {
     const run = (this.accountWrites.get(id) ?? Promise.resolve()).then(async () => {
       const next = change(await this.loadAccount(id));
+
       // Only the indexer reads it: the token in it is sealed, but still.
       if (next) await this.write(path.join(this.root, 'accounts', `${checkProjectId(id)}.json`), JSON.stringify(next, null, 2) + '\n', 0o600);
+
       return next;
     });
+
     this.accountWrites.set(id, run.catch(() => {}));
+
     return run;
   }
 
@@ -250,15 +269,18 @@ export class FileProjectStore implements ProjectStore {
     const file = this.groupingFile(id);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     let timer: NodeJS.Timeout | undefined;
+
     // Watch the directory: editors often save by writing a new file and renaming it over the old one.
     const watcher = fs.watch(path.dirname(file), (_event, name) => {
       if (name !== path.basename(file)) return;
       clearTimeout(timer);
       timer = setTimeout(async () => {
         const text = await fsp.readFile(file, 'utf8').catch(() => null);
+
         if (text != null && text !== this.written.get(file)) onChange();
       }, 150);
     });
+
     return () => {
       clearTimeout(timer);
       watcher.close();
@@ -281,16 +303,19 @@ export class FileProjectStore implements ProjectStore {
  */
 export async function createStore(home: string): Promise<ProjectStore> {
   const uri = unquote(process.env.MONGODB_URI);
+
   if (uri) {
     try {
       const db = process.env.FIADA_MONGODB_DB?.trim() || 'strata';
       const store = await MongoProjectStore.connect(uri, db);
       console.log(`[fiada] saving projects to MongoDB at ${redact(uri)} (${db}.projects)`);
+
       return store;
     } catch (err) {
       console.error(`[fiada] can't use MongoDB at ${redact(uri)}: ${(err as Error).message}`);
       console.error(`[fiada] saving to ${path.join(home, 'projects')} for this run instead`);
     }
   }
+
   return new FileProjectStore(home);
 }

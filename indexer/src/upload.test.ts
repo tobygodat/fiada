@@ -11,7 +11,9 @@ import { gitMeta, readTar, safePath, unpackUpload, UPLOAD, UploadError, withoutC
 
 // Uploads unpack under FIADA_HOME; keep this file's out of the checkout.
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-upload-'));
+
 process.env.FIADA_HOME = home;
+
 const { Workspace } = await import('./workspace.ts');
 const { AgentHub } = await import('./agents.ts');
 
@@ -29,8 +31,10 @@ function entry(name: string, body: string | Buffer, type = '0'): Buffer {
   h.write('ustar\0' + '00', 257, 'latin1');
   h.fill(0x20, 148, 156);
   let sum = 0;
+
   for (const b of h) sum += b;
   h.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 'latin1');
+
   return Buffer.concat([h, data, Buffer.alloc((512 - (data.length % 512)) % 512)]);
 }
 
@@ -60,6 +64,7 @@ test('reads what GNU tar writes, long names included', async () => {
 
 test('keeps only the source the indexer reads, and never writes outside the folder', async () => {
   const dest = path.join(await scratch(), 'out');
+
   const got = await unpackUpload(
     archive(
       entry('src/app.ts', 'export function app() {}\n'),
@@ -76,6 +81,7 @@ test('keeps only the source the indexer reads, and never writes outside the fold
     ),
     dest,
   );
+
   const listed = execFileSync('find', ['.', '-type', 'f'], { cwd: dest, encoding: 'utf8' }).trim().split('\n').sort();
   assert.deepEqual(listed, ['./.gitignore', './package.json', './src/app.ts', './tsconfig.base.json']);
   assert.equal(got.files, 4);
@@ -86,6 +92,7 @@ test('keeps only the source the indexer reads, and never writes outside the fold
     await assert.rejects(unpackUpload(archive(entry(bad, 'x')), to), (err) => err instanceof UploadError && /outside its folder/.test(err.message));
     assert.equal(await fs.stat(to).catch(() => null), null, `${bad}: nothing unpacked`);
   }
+
   await assert.rejects(unpackUpload(Buffer.from('not gzip'), path.join(await scratch(), 'out')), /not a gzipped tar/);
   await assert.rejects(unpackUpload(zlib.gzipSync(Buffer.alloc(4096)), path.join(await scratch(), 'out')), /no source files/);
   await assert.rejects(unpackUpload(archive(entry('notes.md', '# hi'), entry('.gitignore', 'x')), path.join(await scratch(), 'out')), /no source files/);
@@ -97,6 +104,7 @@ test('an upload over the limit says so', async () => {
     assert.ok(err instanceof UploadError);
     assert.equal(err.status, 413);
     assert.match(err.message, /more than 0 MB of source files, the upload limit/);
+
     return true;
   });
   const four = ['a', 'b', 'c', 'd'].map((n) => entry(`${n}.ts`, 'x'));
@@ -110,11 +118,13 @@ test('git metadata: remote without credentials, packed refs, a detached HEAD', (
   assert.equal(withoutCredentials('https://user:pa55@gitlab.com/org/app.git'), 'https://gitlab.com/org/app.git');
   assert.equal(withoutCredentials('git@github.com:org/app.git'), 'git@github.com:org/app.git');
   assert.equal(withoutCredentials('ssh://git@github.com/org/app'), 'ssh://github.com/org/app');
+
   const packed = new Map([
     ['.git/HEAD', 'ref: refs/heads/feature/x\n'],
     ['.git/packed-refs', `# pack-refs with: peeled fully-peeled sorted\n${SHA} refs/heads/feature/x\n`],
     ['.git/config', '[core]\n\tbare = false\n[remote "upstream"]\n\turl = git@github.com:else/where.git\n[remote "origin"]\n\turl = git@github.com:org/app.git\n'],
   ]);
+
   assert.deepEqual(gitMeta(packed), { remote: 'git@github.com:org/app.git', branch: 'feature/x', head: SHA });
   assert.deepEqual(gitMeta(new Map([['.git/HEAD', `${SHA}\n`]])), { head: SHA });
   assert.deepEqual(gitMeta(new Map()), {});
@@ -132,6 +142,7 @@ function memoryStore(saved: SavedRepo[] = []) {
     loadGrouping: async () => null,
     saveGrouping: async () => {},
   };
+
   return { store, saved: () => saved };
 }
 
@@ -174,9 +185,11 @@ test('an uploaded folder is indexed like a clone, replaced by the next upload, a
   // An agent in the real checkout, wherever it is, finds the upload by its remote.
   const hub = new AgentHub(ws);
   const checkout = '/home/someone/code/private-app';
+
   const reply = await hub.ingest([
     { agent: { client: 'claude-code', session: 's', cwd: checkout, root: checkout, remote: 'git@github.com:org/private-app.git' }, type: 'changes', files: [{ path: `${checkout}/src/greet.ts`, kind: 'modified' }] },
   ]);
+
   assert.deepEqual(reply.files.map((f) => [f.repo, f.node]), [['private-app', 'private-app/src/greet.ts']]);
 
   // The same remote under another folder name replaces it rather than adding a second copy.

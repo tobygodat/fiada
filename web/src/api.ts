@@ -27,6 +27,7 @@ const accessKey: string | null = (() => {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
   const given = params.get('key');
+
   if (given === null) {
     try {
       return window.localStorage.getItem(KEY_ITEM);
@@ -34,15 +35,18 @@ const accessKey: string | null = (() => {
       return null;
     }
   }
+
   params.delete('key');
   const rest = params.toString();
   window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+
   try {
     if (given) window.localStorage.setItem(KEY_ITEM, given);
     else window.localStorage.removeItem(KEY_ITEM);
   } catch {
     // storage blocked: the key lasts until the page is reloaded
   }
+
   return given || null;
 })();
 
@@ -56,13 +60,18 @@ const SESSION_ITEM = 'fiada.session';
  * (or why it failed) in the address's fragment, which never reaches a
  * server. Taken out of the address bar at once.
  */
-const returned = ((): { session?: string; error?: string } => {
+/** What a sign-in left in the address bar. */
+type Returned = { session?: string; error?: string };
+
+const returned = ((): Returned => {
   if (typeof window === 'undefined') return {};
   const hash = new URLSearchParams(window.location.hash.slice(1));
   const session = hash.get('fiada_session') ?? undefined;
   const error = hash.get('fiada_error') ?? undefined;
+
   if (!session && !error) return {};
   window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+
   return { session, error };
 })();
 
@@ -72,8 +81,10 @@ export const signInError = returned.error ?? null;
 /** The signed-in session, on an indexer people sign in to; remembered in this browser. */
 let session: string | null = (() => {
   if (typeof window === 'undefined') return null;
+
   try {
     if (returned.session) window.localStorage.setItem(SESSION_ITEM, returned.session);
+
     return returned.session ?? window.localStorage.getItem(SESSION_ITEM);
   } catch {
     // storage blocked: the session lasts until the page is reloaded
@@ -83,14 +94,17 @@ let session: string | null = (() => {
 
 /** Told when the indexer says this browser has to sign in (again). */
 const signedOutListeners = new Set<() => void>();
+
 export const onSignedOut = (fn: () => void) => {
   signedOutListeners.add(fn);
+
   return () => void signedOutListeners.delete(fn);
 };
 
 /** Forgets the session in this browser, without saying so: an indexer without sign-in has no use for one. */
 export function dropSession() {
   session = null;
+
   try {
     window.localStorage.removeItem(SESSION_ITEM);
   } catch {
@@ -101,6 +115,7 @@ export function dropSession() {
 /** Forgets the session in this browser and brings back the sign-in. */
 export function signOut() {
   dropSession();
+
   for (const fn of signedOutListeners) fn();
 }
 
@@ -108,11 +123,14 @@ export function signOut() {
 export const signInUrl = () => apiUrl(`/api/auth/github/login?return=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`);
 
 /** Headers that say who is asking: the session for everything, else the access key for changes. */
-export function authHeaders(method = 'GET'): Record<string, string> {
-  if (session) return { authorization: `Bearer ${session}` };
+export function authHeaders(method = 'GET') {
+  const headers: Record<string, string> = {};
+
+  if (session) headers.authorization = `Bearer ${session}`;
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
-  if (accessKey && method !== 'GET') return { authorization: `Bearer ${accessKey}` };
-  return {};
+  else if (accessKey && method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
+
+  return headers;
 }
 
 /** The access key this browser has for a shared indexer, for the agent setup command. */
@@ -120,24 +138,31 @@ export const sharedKey = () => accessKey;
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = authHeaders(init?.method);
+
   if (typeof init?.body === 'string') headers['content-type'] = 'application/json';
   else if (init?.body instanceof Blob) headers['content-type'] = init.body.type;
+
   const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
     throw new Error(UNREACHABLE);
   });
+
   const body = await res.json().catch(() => ({}));
+
   if (!res.ok) {
     if (res.status === 401 && body.signIn) {
       signOut();
       throw new Error(body.error);
     }
+
     // The indexer's own errors carry a message. A bare 404 is some other server answering for /api,
     // such as a static host without VITE_API_URL built in. Cloudflare's single-page fallback answers
     // 200 with index.html instead, which this can't tell apart; web/.env.production keeps it from happening.
     if (body.error) throw new Error(body.error);
+
     if (res.status === 404) throw new Error(API_BASE ? UNREACHABLE : NOT_SET_UP);
     throw new Error(`The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
   }
+
   return body as T;
 }
 

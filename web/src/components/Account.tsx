@@ -20,17 +20,22 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
 
   const show = async () => {
     setOpen((o) => !o);
+
     if (conn) return;
+
     try {
       setConn(await api.agentConnection());
     } catch (err) {
       setError((err as Error).message);
     }
   };
+
   // A shared indexer with a key: the agent needs the key this browser was given.
   const command = conn && setupCommand(conn, conn.token ?? sharedKey() ?? undefined);
+
   const copy = async () => {
     if (!command) return;
+
     try {
       await navigator.clipboard.writeText(command);
       setSaid('copied');
@@ -38,8 +43,10 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
       setSaid('select the command and copy it');
     }
   };
+
   const remove = async () => {
     if (!window.confirm('Delete your Fiada account? Your map, its imports, clones and summaries go too, and GitHub stops listing Fiada as an app you use. This cannot be undone.')) return;
+
     try {
       await api.deleteAccount();
       forgetRead();
@@ -49,6 +56,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
       setDeleteError((err as Error).message);
     }
   };
+
   const reset = async () => {
     try {
       setConn(await api.resetAgentToken());

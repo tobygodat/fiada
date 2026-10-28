@@ -14,7 +14,7 @@ import { Summaries } from './index.ts';
 import { hashOf, matchReply, replySchema, takeBatch, type Item } from './items.ts';
 import type { JsonRequest, LLM } from '../llm.ts';
 
-const FILES: Record<string, string> = {
+const FILES = {
   'backend/app/api/items.py': [
     'from fastapi import APIRouter',
     'from app import crud',
@@ -39,44 +39,54 @@ const FILES: Record<string, string> = {
   'backend/app/__init__.py': '',
   'backend/app/api/__init__.py': '',
   'backend/pyproject.toml': '[project]\nname = "app"\ndependencies = ["fastapi"]\n',
-};
+} satisfies Record<string, string>;
 
 async function fixtureGraph(files = FILES): Promise<{ graph: Graph; dir: string }> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-summaries-'));
+
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
   }
+
   const info: RepoInfo = { id: 'shop', name: 'shop', source: dir, kind: 'local', status: 'indexing' };
   const repo = await loadRepo(info, dir);
+
   return { graph: buildGraph([repo], defaultGrouping()), dir };
 }
 
 /** A model stand-in: answers every item, records each request, and can be told to fail. */
 function fakeLlm(opts: { fail?: (req: JsonRequest) => Error | null; byName?: boolean } = {}) {
   const requests: JsonRequest[] = [];
+
   const llm: LLM = {
     label: 'Fake',
     model: 'fake-model',
     async json(req: JsonRequest) {
       requests.push(req);
       const err = opts.fail?.(req);
+
       if (err) throw err;
       // "about <first word of the item> (<hash of the item>)", so a changed item gets a changed summary.
       const items = req.prompt.split(/^### item /m).slice(1);
+
       const summaries = items.map((it) => {
         const first = it.split('\n')[1].split(' ')[0];
+
         return { id: opts.byName ? first : it.split(' ')[0], summary: `about ${first} (${hashOf(it).slice(0, 6)})` };
       });
+
       // byName answers the way gpt-5.5 did: each entry labelled with the item's name, not its number, and out of order.
       return { summaries: opts.byName ? summaries.reverse() : summaries };
     },
   };
+
   return { llm, requests };
 }
 
 function memoryStore(): ProjectStore & { saved: Record<string, StoredSummary> } {
   const saved: Record<string, StoredSummary> = {};
+
   return {
     saved,
     describe: () => 'memory',
@@ -98,7 +108,9 @@ function summaries(graph: Graph, dir: string, llm: LLM | null, store: ProjectSto
     debounceMs: 0,
     log: () => {},
   });
+
   s.setGraph(graph);
+
   return s;
 }
 
@@ -221,6 +233,7 @@ test('a selected symbol has its whole file written in one request, the selected 
   assert.match(req.prompt, /^Context shared by the items below:\nbackend\/app\/crud\.py/);
   assert.match(req.prompt, /### item 1 \(symbol\)\nunused /);
   assert.equal((req.prompt.match(/\(symbol\)/g) ?? []).length, 3);
+
   for (const id of ['unused', 'list_items', 'create_item']) assert.equal((await s.get(`shop/backend/app/crud.py#${id}`))?.status, 'ready', id);
   await s.idle();
   assert.equal(requests.length, before + 1, 'selecting the others costs nothing');
@@ -254,6 +267,7 @@ test('a model that labels its answers by name still gets a file\'s symbols writt
   await s.idle();
   const req = requests.at(-1)!;
   assert.deepEqual((req.schema as any).properties.summaries.items.properties.id.enum, ['1', '2', '3']);
+
   for (const name of ['unused', 'list_items', 'create_item']) {
     const got = await s.get(`shop/backend/app/crud.py#${name}`);
     assert.equal(got?.status, 'ready', name);
@@ -264,14 +278,19 @@ test('a model that labels its answers by name still gets a file\'s symbols writt
 test('a cut-off reply is retried in halves; a failed request marks its items with the reason', async () => {
   const { graph, dir } = await fixtureGraph();
   let cut = true;
+
   const { llm, requests } = fakeLlm({
     fail: (req) => {
       const n = (req.prompt.match(/^### item/gm) ?? []).length;
+
       if (cut && n > 1) return new Error("Claude's answer to the summaries request was cut off.");
+
       if (req.prompt.includes('(repo)')) return new Error('OpenAI answered 429: slow down');
+
       return null;
     },
   });
+
   const s = summaries(graph, dir, llm);
   await s.idle();
   assert.ok(requests.every((r) => (r.prompt.match(/^### item/gm) ?? []).length >= 1));

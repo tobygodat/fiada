@@ -20,6 +20,7 @@ export interface SortHost {
 
 /** Repository id → commit, for the repositories in a graph. */
 const basisOf = (g: Graph) => Object.fromEntries(g.repos.map((r) => [r.id, r.commit ?? '']));
+
 const keyOf = (b: Record<string, string>) =>
   Object.entries(b)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -58,6 +59,7 @@ export class Sorter {
     const status = this.status === 'running' || this.status === 'error' ? this.status : sorted ? 'done' : this.status === 'off' ? 'off' : 'idle';
     const ds = sorted?.domains ?? [];
     const by = this.llm?.label ?? sorted?.by;
+
     return {
       available: this.available,
       status,
@@ -75,23 +77,30 @@ export class Sorter {
    */
   request(host: SortHost, force = false): void {
     if (!this.llm) return;
+
     if (this.running) {
       this.pending = { host, force: force || !!this.pending?.force };
+
       return;
     }
+
     if (host.busy()) return;
     const graph = host.graph();
+
     if (!graph.repos.length) return;
     const basis = basisOf(graph);
     const key = keyOf(basis);
     // Sorted already when every repository is in the last sort at the same commit (removing one needs no new sort).
     const sorted = host.grouping().sorted;
+
     if (!force && sorted && Object.entries(basis).every(([id, c]) => sorted.repos[id] === c)) return;
+
     if (!force && this.failed === key) return;
     this.running = this.run(host, graph, key).finally(() => {
       this.running = null;
       const next = this.pending;
       this.pending = null;
+
       if (next) this.request(next.host, next.force);
     });
   }
@@ -107,6 +116,7 @@ export class Sorter {
     const started = Date.now();
     const llm = this.llm!;
     console.log(`[fiada] sorting ${graph.repos.map((r) => r.id).join(', ')} with ${this.describe}`);
+
     try {
       const sorted = await sortProject(graph, host.grouping(), (req) => llm.json(req), { get model() { return llm.model; }, by: llm.label, log: (l) => console.log(l) });
       await host.save(sorted);

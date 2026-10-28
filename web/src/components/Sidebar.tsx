@@ -41,6 +41,7 @@ interface Props {
 
 export function Sidebar(p: Props) {
   const [collapsed, setCollapsed] = useState(false);
+
   if (collapsed) {
     return (
       <button className="panel sidebar-pill" onClick={() => setCollapsed(false)} title="Show sidebar" aria-label="Show sidebar">
@@ -48,6 +49,7 @@ export function Sidebar(p: Props) {
       </button>
     );
   }
+
   return (
     <aside className="panel sidebar">
       <header className="sidebar-head">
@@ -130,6 +132,7 @@ export function Choice<T extends string>({ label, value, options, onChange }: { 
 /** A sentence about something that went wrong: its first words in brick, the rest muted. */
 function Problem({ text }: { text: string }) {
   const m = /^(.+?[.!?:])\s+(.+)$/s.exec(text);
+
   return (
     <div className="notice" role="alert">
       <span className="lead">{m ? m[1] : text}</span>
@@ -148,6 +151,7 @@ const LAYERS_OPEN = 'strata.layersOpen';
  */
 function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { graph: Graph; workspace: Workspace }) {
   const [error, setError] = useState<string | null>(null);
+
   const [open, setOpen] = useState(() => {
     try {
       return localStorage.getItem(LAYERS_OPEN) === '1';
@@ -155,39 +159,50 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
       return false;
     }
   });
+
   const fold = () => {
     setOpen(!open);
+
     try {
       localStorage.setItem(LAYERS_OPEN, open ? '0' : '1');
     } catch {
       // private mode: remembered for this tab only
     }
   };
+
   const counts = useMemo(() => {
     const m = new Map<string, number>();
+
     for (const n of graph.nodes) if (n.kind === 'symbol' && n.layer) m.set(n.layer.id, (m.get(n.layer.id) ?? 0) + 1);
+
     return m;
   }, [graph]);
+
   const choose = async (preset: LayerPreset) => {
     if (preset === graph.preset) return;
+
     if (!window.confirm(`Replace this project's layers with the ${PRESET_LABEL[preset]} preset? Your rules and pins are kept.`)) return;
     setError(null);
     await onPreset(preset).catch((err: Error) => setError(err.message));
   };
+
   const file = workspace.project.groupingLocation;
   const rows = [...graph.layers, ...(counts.get(UNLAYERED) ? [{ id: UNLAYERED, name: 'Unlayered' }] : [])];
+
   const problems = (
     <>
       {workspace.project.groupingError && <Problem text={`Grouping not applied: ${workspace.project.groupingError}`} />}
       {error && <Problem text={error} />}
     </>
   );
+
   const heading = (
     <button className="section-title fold" onClick={fold} aria-expanded={open}>
       layers <span className="muted num">· {graph.layers.length}</span>
       <Chevron dir={open ? 'down' : 'right'} size={16} />
     </button>
   );
+
   if (!open) {
     return (
       <section className="section">
@@ -197,6 +212,7 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
       </section>
     );
   }
+
   return (
     <section className="section">
       {heading}
@@ -233,8 +249,10 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain(): Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
   const s = workspace.sorting;
+
   if (!s || s.status === 'idle') return null;
   const by = s.by ?? 'The model';
+
   const again = canEdit(workspace) && s.available && s.status !== 'running' && (
     <>
       {' '}
@@ -243,6 +261,7 @@ function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain
       </button>
     </>
   );
+
   if (s.status === 'error') {
     return (
       <>
@@ -251,7 +270,9 @@ function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain
       </>
     );
   }
+
   let text: ReactNode;
+
   if (s.status === 'off') {
     text = `Sorting is unavailable: the indexer has no model API key${s.keyHint ? ` (${s.keyHint})` : ''}, so code the classifier can't place stays Unlayered and Unsorted.`;
   } else if (s.status === 'running') {
@@ -261,6 +282,7 @@ function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain
     const placed = s.placed ? `placed ${plural(s.placed, 'file or symbol', 'files and symbols')} the classifier couldn't` : 'found nothing the classifier left unplaced';
     text = `${by} ${placed}${domains.length ? `, ${domains.join(', ')}` : ''}.${s.placed ? ' Each says why in its details.' : ''}`;
   }
+
   return (
     <div className="layer-file sorting">
       {text}
@@ -284,6 +306,7 @@ const size = (bytes: number) => (bytes < 1 << 20 ? `${Math.max(1, Math.round(byt
 function uploadedFrom(r: RepoInfo): string {
   const at = r.uploadedAt ? new Date(r.uploadedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
   const rev = [r.branch, r.commit].filter(Boolean).join(' @ ');
+
   return [`Uploaded folder ${r.source}`, rev, r.remote, at && `uploaded ${at}`].filter(Boolean).join(' · ');
 }
 
@@ -302,6 +325,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
     if (!policy) return;
     onError(null);
     setProgress(`reading ${folder.name}…`);
+
     try {
       const picked = await collect(folder, policy, (files, bytes) => setProgress(`reading ${folder.name}… ${files.toLocaleString()} files, ${size(bytes)}`));
       const archive = await pack(picked);
@@ -316,9 +340,12 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
 
   const start = async (replacing?: string) => {
     replace.current = replacing;
+
     if (!canPickDirectory()) return input.current?.click();
+
     try {
       const folder = await pickDirectory();
+
       if (folder) await send(folder);
     } catch (err) {
       onError((err as Error).message);
@@ -328,6 +355,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
   const picked = (e: ChangeEvent<HTMLInputElement>) => {
     const folder = fromFileList(e.target.files ?? []);
     e.target.value = '';
+
     if (folder) send(folder);
   };
 
@@ -337,6 +365,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
       hidden
       ref={(el) => {
         input.current = el;
+
         if (el) el.webkitdirectory = true;
       }}
       onChange={picked}
@@ -344,6 +373,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
       data-testid="folder-input"
     />
   );
+
   return { available: !!policy, progress, start, field };
 }
 
@@ -352,10 +382,12 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const folder = useFolderUpload(workspace, onUpload, setError);
+
   const add = async (source: string) => {
     if (!source.trim()) return;
     setPending(true);
     setError(null);
+
     try {
       await onAdd(source.trim());
       setInput('');
@@ -365,14 +397,17 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
       setPending(false);
     }
   };
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     add(input);
   };
+
   const repos = workspace?.repos ?? [];
   const editable = canEdit(workspace);
   // A signed-in person's own repositories stay on offer; the defaults only while nothing is imported.
   const suggestions = editable && (!repos.length || workspace?.ownSuggestions) ? (workspace?.suggestions ?? []) : [];
+
   return (
     <section className="section">
       <div className="section-title">repositories</div>
@@ -382,6 +417,7 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
           {repos.map((r) => {
             const working = r.status === 'queued' || r.status === 'cloning' || r.status === 'indexing';
             const uploaded = r.kind === 'upload';
+
             return (
               <div key={r.id} className="repo-row" title={uploaded ? uploadedFrom(r) : r.source}>
                 <span className="dot" style={{ background: pal.repo(r.id) }} />
@@ -481,7 +517,9 @@ function Outline({ tree, selected, pal, colorBy, onSelect }: Props & { tree: Tre
     if (!selected || !tree.nodes.has(selected)) return;
     setExpanded((prev) => {
       const next = new Set(prev);
+
       for (const a of ancestors(tree, selected).slice(0, -1)) next.add(a.id);
+
       return next;
     });
     document.getElementById(`row-${selected}`)?.scrollIntoView({ block: 'nearest' });
@@ -489,25 +527,32 @@ function Outline({ tree, selected, pal, colorBy, onSelect }: Props & { tree: Tre
 
   const rows = useMemo(() => {
     const out: { n: TNode; level: number }[] = [];
+
     const walk = (n: TNode, level: number) => {
       for (const c of n.children) {
         out.push({ n: c, level });
+
         if (expanded.has(c.id)) walk(c, level + 1);
       }
     };
+
     walk(tree.root, 0);
+
     return out;
   }, [tree, expanded]);
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
+
       if (next.has(id)) next.delete(id);
       else next.add(id);
+
       return next;
     });
 
   const title = tree.view === 'code' ? 'structure' : 'domains';
+
   return (
     <section className="section outline-section">
       <div className="section-title">{title}</div>
@@ -515,6 +560,7 @@ function Outline({ tree, selected, pal, colorBy, onSelect }: Props & { tree: Tre
         {rows.map(({ n, level }) => {
           const color = colorBy === 'layer' ? (n.layer ? pal.layer(n.layer) : null) : n.repo ? pal.repo(n.repo) : null;
           const group = n.kind === 'domain' || n.kind === 'repo';
+
           return (
             <div
               key={n.id}

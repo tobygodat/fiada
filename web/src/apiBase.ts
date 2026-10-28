@@ -6,6 +6,8 @@
  */
 export function apiBase(raw: string | undefined): string {
   const value = (raw ?? '').trim().replace(/^["']+|["']+$/g, '').trim().replace(/\/+$/, '');
+
   if (!value || value.startsWith('/') || /^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+
   return `${/^(localhost|127\.|\[::1\])/i.test(value) ? 'http' : 'https'}://${value}`;
 }

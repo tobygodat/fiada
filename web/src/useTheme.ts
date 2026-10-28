@@ -12,6 +12,7 @@ const prefersLight = () => typeof matchMedia === 'function' && matchMedia('(pref
 function saved(): Theme | null {
   try {
     const v = localStorage.getItem(KEY);
+
     return v === 'light' || v === 'dark' ? v : null;
   } catch {
     return null;
@@ -27,17 +28,22 @@ export function useTheme(): [ThemeChoice, (c: ThemeChoice) => void, Theme] {
 
   useEffect(() => {
     if (choice !== 'system') return setTheme(choice);
+
     try {
       localStorage.removeItem(KEY);
     } catch {
       // private mode: nothing was saved
     }
+
     const media = matchMedia('(prefers-color-scheme: light)');
+
     const follow = () => {
       document.documentElement.dataset.theme = prefersLight() ? 'light' : 'dark';
     };
+
     follow();
     media.addEventListener('change', follow);
+
     return () => media.removeEventListener('change', follow);
   }, [choice]);
 

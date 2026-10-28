@@ -21,6 +21,7 @@ test('sign-ups are counted by UTC month, oldest first', () => {
     createdAt,
     updatedAt: createdAt,
   }));
+
   const stats = usageStats({ accounts, reposPerProject: [] }, now);
   assert.equal(stats.people, 4);
   assert.deepEqual(Object.entries(stats.signUpsByMonth), [

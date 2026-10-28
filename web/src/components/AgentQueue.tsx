@@ -45,12 +45,15 @@ interface Props {
 
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
 const STATE_LABEL = { working: 'working', waiting: 'waiting for you', ended: 'session ended' } as const;
+
 /** Said for a status line the agent didn't write itself. */
 const DERIVED = { plan: 'from the plan', prompt: 'from your prompt' } as const;
 const MAX_STEPS = 6;
+
 /** Changed functions listed under a file before "and N more". */
 const MAX_SYMBOLS = 5;
 const COLLAPSED_KEY = 'strata.queueCollapsed';
+
 const readCollapsed = () => {
   try {
     return localStorage.getItem(COLLAPSED_KEY) === '1';
@@ -67,17 +70,22 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
     if (!compact) setPeek(false);
   }, [compact]);
   const collapsed = pref || (compact && !peek);
+
   const setCollapsed = (c: boolean) => {
     if (compact && !pref) return setPeek(!c);
+
     try {
       localStorage.setItem(COLLAPSED_KEY, c ? '1' : '0');
     } catch {
       // private mode: remembered for this tab only
     }
+
     setPref(c);
   };
+
   // An ended session with nothing left to review, and nothing it looked at, has nothing to show.
   const agents = (state?.agents ?? []).filter((a) => a.state !== 'ended' || a.files.length || a.looked?.count);
+
   if (!agents.length) return null;
   const names = new Map(agents.map((a) => [a.id, a.name]));
   const collisions = (state?.collisions ?? []).filter((c) => c.agents.filter((id) => names.has(id)).length > 1);
@@ -85,6 +93,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
   if (collapsed) {
     const lead = agents.find((a) => a.id === lit) ?? agents[0];
     const { state: word, text } = currentLine(lead);
+
     return (
       <button className="queue queue-folded" onClick={() => setCollapsed(false)} aria-expanded={false} title={`${agents.length > 1 ? `${agents.length} agents. ` : ''}Show what the agents are doing`}>
         <StateDot a={lead} />
@@ -109,6 +118,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
   // One agent's file is unread for it when you haven't looked since its own change to it.
   const unreadFor = read ? (f: AgentFile) => agentFileUnread(f, read.unread, read.marks, nodes) : null;
   const anyUnread = !!unreadFor && agents.some((a) => a.files.some(unreadFor));
+
   return (
     <aside className={`queue${compact ? ' over' : ''}`} aria-label="Agents">
       <div className="queue-head">
@@ -188,18 +198,26 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
  * One line for the folded window: while it works, the status line, which already says what the
  * agent is doing; else its state in words and the task.
  */
-function currentLine(a: AgentActivity): { state: string | null; text: string } {
+/** A queue row's state word, or null while the agent says what it's doing, and its line of text. */
+type CurrentLine = { state: string | null; text: string };
+
+function currentLine(a: AgentActivity): CurrentLine {
   const now = a.now?.text.split('\n')[0];
+
   if (a.state === 'working' && now) return { state: null, text: now };
+
   return { state: STATE_LABEL[a.state], text: now ?? a.task ?? a.prompt ?? '' };
 }
 
 /** Where the plan is, in words: "step 2 of 4", "4 steps done". */
 function planWords(steps: AgentStep[]): string {
   const active = steps.findIndex((s) => s.status === 'active');
+
   if (active >= 0) return `step ${active + 1} of ${steps.length}`;
   const done = steps.filter((s) => s.status === 'done').length;
+
   if (done === steps.length) return `${steps.length} step${steps.length === 1 ? '' : 's'} done`;
+
   return `${done} of ${steps.length} done`;
 }
 
@@ -240,6 +258,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
     if (lit) setShowFiles(true);
   }, [lit]);
   const counts = { added: 0, modified: 0, deleted: 0 };
+
   for (const f of a.files) counts[f.kind]++;
   const read = unreadFor ? { read: a.files.filter((f) => !unreadFor(f)).length, total: a.files.length } : null;
   // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
@@ -247,6 +266,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
   const now: AgentNow | null = a.now ?? (asked ? { text: asked, from: a.task ? 'agent' : 'prompt', at: a.updatedAt } : null);
   const context = now?.from === 'prompt' ? null : (a.task ?? (a.prompt ? `asked: ${a.prompt}` : null));
   const from = now && now.from !== 'agent' ? DERIVED[now.from] : null;
+
   return (
     // Anywhere on the entry but its own buttons lights it on the map; the "show on map" word below is the same for keyboards.
     <div
@@ -387,6 +407,7 @@ function Steps({ steps }: { steps: AgentStep[] }) {
   const fold = steps.length > MAX_STEPS && done > 1;
   const shown = fold ? steps.filter((s) => s.status !== 'done').slice(0, MAX_STEPS - 1) : steps;
   const hidden = steps.length - (fold ? done : 0) - shown.length;
+
   return (
     <ol className="queue-steps">
       {fold && (
@@ -411,6 +432,7 @@ function LookedRow({ id, onSelect }: { id: string; onSelect(id: string): void })
   const hash = id.indexOf('#');
   const where = hash >= 0 ? id.slice(0, hash) : id.slice(0, Math.max(0, id.lastIndexOf('/')));
   const name = hash >= 0 ? id.slice(hash + 1).replace(/~\d+$/, '') : id.slice(id.lastIndexOf('/') + 1);
+
   return (
     <div className="queue-file-item">
       <button className="queue-file" onClick={() => onSelect(id)} title={`${id}\nlooked at, not changed`}>
@@ -431,6 +453,7 @@ function FileRow({ f, unread, onSelect }: { f: AgentFile; unread: boolean; onSel
   // A deleted file isn't on the map; selecting its id lands on the folder that stands in for it.
   const target = fileTarget(f);
   const symbols = f.symbols.slice(0, MAX_SYMBOLS);
+
   return (
     <div className={`queue-file-item${unread ? ' unread' : ''}`}>
       <button
@@ -463,6 +486,7 @@ function FileRow({ f, unread, onSelect }: { f: AgentFile; unread: boolean; onSel
           {symbols.map((s) => {
             // A deleted function isn't on the map any more: its file is, with the diff.
             const to = s.kind === 'deleted' ? target : s.id;
+
             return (
               <button key={s.id} className="queue-sym" disabled={!to} onClick={() => to && onSelect(to)} title={`${s.name}: ${s.kind}`}>
                 <span className={`chg ${s.kind}`}>{SIGN[s.kind]}</span>

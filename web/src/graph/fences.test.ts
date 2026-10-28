@@ -31,6 +31,7 @@ test('a fence line sits inside the rim, and a meeting place rolls up onto the cl
     assert.ok(g.lineR < r && g.lineR > 0, `r=${r}`);
     assert.ok(g.inner >= 0 && g.inner < g.lineR);
   }
+
   const at = new Map([['api/app/routes', 2]]);
   assert.equal(collisionAt('api/app/routes', true, at), 2);
   assert.equal(collisionAt('api/app', false, at), 2);

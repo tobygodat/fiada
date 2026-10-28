@@ -98,6 +98,7 @@ export interface LayerDef {
 
 /** Where code no matcher or neighbour places goes, so it's visible rather than guessed. */
 export const UNLAYERED = 'unlayered';
+
 /** Domains for code split evenly between several domains, and for code with no signal at all. */
 export const SHARED_DOMAIN = 'shared';
 export const UNSORTED_DOMAIN = 'unsorted';
@@ -839,3 +840,9 @@ export interface NodeSummary {
   /** With status `off`: what turns generated summaries on, e.g. "Set ANTHROPIC_API_KEY on the indexer…". */
   off?: string;
 }
+
+/** A value as JSON carries it: what `JSON.parse` returns and `JSON.stringify` keeps. */
+export type Json = string | number | boolean | null | Json[] | JsonObject;
+
+/** A JSON object, such as a request body, a model's reply or a settings file. */
+export type JsonObject = { [key: string]: Json };

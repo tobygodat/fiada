@@ -45,6 +45,7 @@ test('a deleted symbol sees the hunks that take away a line naming it', () => {
     '-    return items  # was export_items_old',
     '+    return list(items)',
   ].join('\n');
+
   assert.deepEqual(pickHunks(gone, { name: 'export_items' }), ['@@ -20,4 +19,0 @@', '-def export_items(items):', '-    return csv.writer(items)', '-', '-']);
   assert.equal(pickHunks(gone, { name: 'nowhere' }).length, 12, 'none names it: every hunk');
   // A member's stored name is qualified; its declaration names only the last part.
@@ -65,6 +66,7 @@ test('two deleted members with one last name each see only the hunk that took th
     '-    return items[id];',
     '-  }',
   ].join('\n');
+
   // By name alone both claim both hunks; by their lines in HEAD, each has its own.
   assert.equal(pickHunks(gone, { name: 'Users.get' }).length, 8);
   assert.deepEqual(pickHunks(gone, { name: 'Users.get', oldLines: [10, 12] }), gone.split('\n').slice(0, 4));
@@ -107,6 +109,7 @@ test("an added file's one hunk is cut down to each function's own lines", () => 
     '\\ No newline at end of file',
     '',
   ].join('\n');
+
   const a = { lines: [4, 6] } as const;
   const b = { lines: [8, 10] } as const;
   // The later function: its own three lines, with the note that ends the file.
@@ -127,6 +130,7 @@ test("an added file's one hunk is cut down to each function's own lines", () => 
 test('a long hunk across many functions is cut to the one asked for, with three lines of context', () => {
   // 600 lines with a change at line 10 and one at 410: git keeps them in one hunk when the lines between changed too.
   const rows: string[] = [];
+
   for (let i = 1; i <= 600; i++) rows.push(i === 10 || i === 410 ? `-old ${i}` : ` line ${i}`, ...(i === 10 || i === 410 ? [`+new ${i}`] : []));
   const long = ['@@ -1,600 +1,600 @@ module', ...rows].join('\n');
   const later = pickHunks(long, { lines: [405, 415] });
@@ -144,6 +148,7 @@ test('a long hunk across many functions is cut to the one asked for, with three 
 test("a stop's own lines come before the file's other code it carries, so the row limit never hides them", () => {
   // 600 constants added above the function, in one hunk with it, and a hunk of other code before that.
   const consts = Array.from({ length: 600 }, (_, i) => `+const C${i} = ${i};`);
+
   const long = [
     '@@ -1,1 +1,2 @@',
     ' // top',
@@ -156,6 +161,7 @@ test("a stop's own lines come before the file's other code it carries, so the ro
     '+}',
     ' y',
   ].join('\n');
+
   const own = { lines: [607, 609] } as const;
   const rows = pickHunks(long, own, [own]);
   assert.deepEqual(rows.slice(0, 6), ['@@ -6,1 +604,7 @@', '+const C597 = 597;', '+const C598 = 598;', '+const C599 = 599;', '+export function f() {', '+  return z;']);
@@ -172,11 +178,13 @@ test("a stop's own lines come before the file's other code it carries, so the ro
 test("the file's other code in another function's hunk still shows, on the stop that carries it", () => {
   // A constant changed at line 32, in one hunk with b's change at 41: more than three lines from b.
   const rows: string[] = [];
+
   for (let i = 30; i <= 45; i++) {
     if (i === 32) rows.push('-const LIMIT = 10;', '+const LIMIT = 20;');
     else if (i === 41) rows.push('-  return 1;', '+  return 2;');
     else rows.push(` line ${i}`);
   }
+
   const mixed = ['@@ -5,1 +5,1 @@', '-  return a;', '+  return a + 1;', '@@ -30,16 +30,16 @@', ...rows].join('\n');
   const a = { lines: [4, 6] } as const;
   const b = { lines: [40, 42] } as const;
@@ -209,6 +217,7 @@ test('a function moved far away sees both its removal and its addition, and the 
     '+    return 2',
     '+',
   ].join('\n');
+
   const f = { lines: [23, 24] } as const;
   const m = { lines: [38, 40], oldLines: [10, 12] } as const;
   const own = pickHunks(moved, m);
@@ -227,11 +236,13 @@ test("a file with thousands of changed functions and hunks is cut up without che
   // One changed line in each function, each its own hunk.
   const hunks: string[] = [];
   const owners: { lines: [number, number]; oldLines: [number, number] }[] = [];
+
   for (let i = 0; i < N; i++) {
     const at = i * 10 + 2;
     hunks.push(`@@ -${at},1 +${at},1 @@`, `-  return ${i};`, `+  return ${i + 1};`);
     owners.push({ lines: [at - 1, at + 1], oldLines: [at - 1, at + 1] });
   }
+
   hunks.push('@@ -40001,0 +40001,1 @@', '+export const LAST = 1;');
   const diff = hunks.join('\n');
   const t = performance.now();
@@ -252,6 +263,7 @@ test("a function the map still has where HEAD had it is placed by HEAD's lines, 
     '+  return 2',
     '+  // and then',
   ].join('\n');
+
   const own = ownerOf([10, 12], [10, 12]);
   assert.deepEqual(pickHunks(moved, own), ['@@ -11,1 +41,2 @@', '-  return 1', '+  return 2', '+  // and then']);
   // Re-read since: the two differ, and both are kept.
@@ -260,11 +272,13 @@ test("a function the map still has where HEAD had it is placed by HEAD's lines, 
 
 test('a deleted function in a long hunk is cut to the lines that took it away, with three lines of context', () => {
   const rows: string[] = [];
+
   for (let i = 1; i <= 600; i++) {
     if (i === 10) rows.push('-old 10', '+new 10');
     else if (i >= 400 && i <= 405) rows.push(`-gone ${i}`);
     else rows.push(` line ${i}`);
   }
+
   const long = ['@@ -1,600 +1,594 @@', ...rows].join('\n');
   const gone = pickHunks(long, { name: 'gone', oldLines: [400, 405] });
   assert.equal(gone[0], '@@ -397,12 +397,6 @@');
@@ -301,6 +315,7 @@ test("another agent's changes in the file are left out of this agent's diff, who
     // One hunk across both: this agent's lines 21-22, the other's function at 23-25.
     '@@ -20,7 +21,7 @@', '-  old', '+  new', ' }', ' function theirs() {', '-  p', '+  q', ' }',
   ].join('\n');
+
   const mine = { lines: [11, 13] as const };
   const ours = { lines: [21, 22] as const };
   const peer = { owners: [{ lines: [23, 25] as const }], top: true };
@@ -409,6 +424,7 @@ test("the file's other code taken away right above a changed function shows on t
     ' line 40',
     ' line 41',
   ];
+
   const mixed = ['@@ -5,1 +5,1 @@', '-  return a;', '+  return a + 1;', ...hunk].join('\n');
   const a = { lines: [4, 6], oldLines: [4, 6] } as const;
   const b = { lines: [35, 37], oldLines: [36, 38] } as const;

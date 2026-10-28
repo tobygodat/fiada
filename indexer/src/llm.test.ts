@@ -52,12 +52,16 @@ test('llmFromEnv: summaries take a smaller OpenAI model unless FIADA_SUMMARY_MOD
 
 test('OpenAI: a summaries key without gpt-5-mini moves on to the usual models', async () => {
   const seen: string[] = [];
+
   const post: Post = async (_url, _headers, body) => {
     const model = JSON.parse(body).model;
     seen.push(model);
+
     if (model === 'gpt-5-mini') return { status: 404, headers: {}, body: JSON.stringify({ error: { message: 'no such model', code: 'model_not_found' } }) };
+
     return { status: 200, headers: {}, body: JSON.stringify({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }] }) };
   };
+
   const llm = openaiLLM('k', ['gpt-5-mini', 'gpt-5.5'], { post, log: () => {} });
   assert.deepEqual(await llm.json({ label: 'x', system: ['s'], prompt: 'p', schema: {} }), { ok: true });
   assert.deepEqual(seen, ['gpt-5-mini', 'gpt-5.5']);
@@ -67,21 +71,29 @@ test('OpenAI: a summaries key without gpt-5-mini moves on to the usual models', 
 // ── OpenAI, with a mocked transport ──────────────────────────────────
 
 type Answer = { status: number; body: unknown; headers?: Record<string, string> };
+
 function transport(...answers: (Answer | Error)[]) {
   const calls: { url: string; headers: Record<string, string>; body: any }[] = [];
+
   const post: Post = async (url, headers, body) => {
     calls.push({ url, headers, body: JSON.parse(body) });
     const a = answers.shift();
+
     if (!a) throw new Error('no more answers');
+
     if (a instanceof Error) throw a;
+
     return { status: a.status, headers: a.headers ?? {}, body: typeof a.body === 'string' ? a.body : JSON.stringify(a.body) };
   };
+
   return { post, calls };
 }
+
 const completion = (content: string | null, extra: Record<string, unknown> = {}) => ({
   status: 200,
   body: { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content, refusal: null, ...extra } }] },
 });
+
 const apiError = (status: number, code: string | null, message = 'nope') => ({ status, body: { error: { message, type: 'invalid_request_error', code } } });
 const quiet = { retryDelayMs: 0, log: () => {} };
 
@@ -157,6 +169,7 @@ test('openaiLLM: refusals, cut-off answers and unreachable API read plainly', as
 
 const sse = (events: Record<string, unknown>[]) =>
   new Response(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+
 const claudeStream = (text: string, stop = 'end_turn') =>
   sse([
     { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } },
@@ -169,10 +182,13 @@ const claudeStream = (text: string, stop = 'end_turn') =>
 
 function claudeFetch(...answers: (() => Response)[]) {
   const calls: { url: string; headers: Headers; body: any }[] = [];
+
   const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
+
     return answers.shift()!();
   }) as typeof fetch;
+
   return { fetch: f, calls };
 }
 
@@ -206,6 +222,7 @@ test("anthropicLLM: asks again without fallbacks when the key can't use them, an
     () => claudeStream('{"files":[]}'),
     () => claudeStream('', 'refusal'),
   );
+
   const llm = anthropicLLM('k', 'claude-opus-5', { fetch: t.fetch });
   assert.deepEqual(await llm.json(req), { files: [] });
   assert.equal(t.calls[0].body.fallbacks, 'default');

@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { request as httpsRequest } from 'node:https';
 import { unquote } from './mongo-store.ts';
+import type { Json, JsonObject } from '@fiada/shared';
 
 /** One request whose answer must parse as JSON following `schema`. */
 export interface JsonRequest {
@@ -17,7 +18,7 @@ export interface JsonRequest {
   system: string[];
   prompt: string;
   /** JSON Schema. Every object needs additionalProperties: false and all of its properties required. */
-  schema: Record<string, unknown>;
+  schema: JsonObject;
 }
 
 export interface LLM {
@@ -25,13 +26,15 @@ export interface LLM {
   label: string;
   /** The model id, e.g. "claude-haiku-5-5" or "gpt-5.5". */
   model: string;
-  json(req: JsonRequest): Promise<unknown>;
+  json(req: JsonRequest): Promise<Json>;
 }
 
 /** Claude's default model, for sorting and summaries alike. */
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
+
 /** OpenAI's default model, then the ones to try when a key can't use it. */
 export const DEFAULT_OPENAI_MODELS = ['gpt-5.5', 'gpt-5', 'gpt-4.1'];
+
 /**
  * OpenAI's default for summaries: short lines, many of them, written on
  * every import, where a smaller model does as well for far less.
@@ -55,11 +58,15 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env, use: 'sort' | '
   const own = (use === 'summaries' && env.FIADA_SUMMARY_MODEL?.trim()) || undefined;
   const model = own ?? (env.FIADA_LLM_MODEL?.trim() || undefined);
   const wants = model && providerOf(model);
+
   if (anthropic && !(wants === 'openai' && openai)) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL);
+
   if (openai) {
     if (use === 'summaries' && !own) return openaiLLM(openai, SUMMARY_OPENAI_MODELS);
+
     return openaiLLM(openai, wants === 'anthropic' ? undefined : model);
   }
+
   return null;
 }
 
@@ -76,6 +83,7 @@ export const KEY_HINT = 'ANTHROPIC_API_KEY or OPENAI_API_KEY';
 export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: typeof fetch } = {}): LLM {
   const client = new Anthropic({ apiKey, maxRetries: 3, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
   let fallbacks = !/haiku/i.test(model);
+
   return {
     label: 'Claude',
     model,
@@ -88,7 +96,9 @@ export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: type
         messages: [{ role: 'user' as const, content: prompt }],
         output_config: { format: { type: 'json_schema' as const, schema } },
       };
+
       let msg: Anthropic.Beta.BetaMessage | Anthropic.Message;
+
       try {
         msg = fallbacks
           ? await client.beta.messages.stream({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }).finalMessage()
@@ -98,9 +108,12 @@ export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: type
         fallbacks = false;
         msg = await client.messages.stream(params).finalMessage();
       }
+
       if (msg.stop_reason === 'refusal') throw new Error(`Claude declined the ${label} request.`);
+
       if (msg.stop_reason === 'max_tokens') throw new Error(`Claude's answer to the ${label} request was cut off.`);
       const text = msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+
       return JSON.parse(text);
     },
   };
@@ -144,11 +157,14 @@ export const httpsPost =
         });
         res.on('error', fail);
       });
+
       const timer = setTimeout(() => req.destroy(new Error(`no answer in ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+
       function fail(err: Error) {
         clearTimeout(timer);
         reject(err);
       }
+
       req.on('error', fail);
       req.end(body);
     });
@@ -158,11 +174,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Retries the way the Anthropic SDK does: timeouts, conflicts, rate limits and server errors, three more times. */
 const retryable = (status: number, code?: string) => status === 408 || status === 409 || (status === 429 && code !== 'insufficient_quota') || status >= 500;
+
 function retryDelay(attempt: number, headers: Record<string, string | undefined>): number {
   const ms = Number(headers['retry-after-ms']);
+
   if (ms >= 0 && ms < 60_000) return ms;
   const s = Number(headers['retry-after']);
+
   if (s >= 0 && s < 60) return s * 1000;
+
   return Math.min(500 * 2 ** attempt, 8000) * (1 - Math.random() * 0.25);
 }
 
@@ -188,6 +208,7 @@ export function openaiLLM(apiKey: string, model?: string | string[], opts: { pos
   async function once(model: string, body: string): Promise<ChatCompletion> {
     for (let attempt = 0; ; attempt++) {
       let res: Awaited<ReturnType<Post>>;
+
       try {
         res = await post(OPENAI_URL, { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body);
       } catch (err) {
@@ -195,20 +216,26 @@ export function openaiLLM(apiKey: string, model?: string | string[], opts: { pos
           await sleep(opts.retryDelayMs ?? retryDelay(attempt, {}));
           continue;
         }
+
         throw new OpenAIError(`Couldn't reach the OpenAI API: ${(err as Error).message}`, undefined, undefined, model);
       }
+
       let data: ChatCompletion = {};
+
       try {
         data = JSON.parse(res.body);
       } catch {
         // An error page from a proxy; the status says enough.
       }
+
       if (res.status >= 200 && res.status < 300) return data;
       const code = data.error?.code ?? undefined;
+
       if (attempt < retries && retryable(res.status, code)) {
         await sleep(opts.retryDelayMs ?? retryDelay(attempt, res.headers));
         continue;
       }
+
       throw new OpenAIError(data.error?.message || res.body.slice(0, 200) || `HTTP ${res.status}`, res.status, code, model);
     }
   }
@@ -222,6 +249,7 @@ export function openaiLLM(apiKey: string, model?: string | string[], opts: { pos
       for (;;) {
         const tried = current;
         const model = candidates[tried];
+
         const body = JSON.stringify({
           model,
           messages: [
@@ -230,28 +258,39 @@ export function openaiLLM(apiKey: string, model?: string | string[], opts: { pos
           ],
           response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema } },
         });
+
         let data: ChatCompletion;
+
         try {
           data = await once(model, body);
         } catch (err) {
           const missing = err instanceof OpenAIError && (err.code === 'model_not_found' || err.status === 404);
+
           if (!missing || tried + 1 >= candidates.length) throw err;
+
           // Requests in flight together can all miss; the first to come back moves everyone on.
           if (current === tried) {
             current = tried + 1;
             log(`[fiada] OpenAI has no ${model} for this key; using ${candidates[current]}`);
           }
+
           continue;
         }
+
         const choice = data.choices?.[0];
+
         if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') throw new Error(`OpenAI declined the ${label} request.`);
+
         if (choice?.finish_reason === 'length') throw new Error(`OpenAI's answer to the ${label} request was cut off.`);
         const text = choice?.message?.content;
+
         if (!text) throw new Error(`OpenAI sent an empty answer to the ${label} request.`);
+
         return JSON.parse(text);
       }
     },
   };
+
   return llm;
 }
 
@@ -275,9 +314,11 @@ export class LLMBudget {
       const day = new Date(this.now()).toISOString().slice(0, 10);
       const u = this.used.get(key);
       const n = u?.day === day ? u.n : 0;
+
       if (n >= this.perDay) throw new Error(`This map has used its ${this.perDay} model requests for today. Summaries and sorting pick up again tomorrow (UTC).`);
       this.used.set(key, { day, n: n + 1 });
     };
+
     return {
       get label() {
         return llm.label;
@@ -287,6 +328,7 @@ export class LLMBudget {
       },
       async json(req) {
         take();
+
         return llm.json(req);
       },
     };
@@ -297,17 +339,29 @@ export class LLMBudget {
 export function describeLLMError(err: unknown): string {
   if (err instanceof OpenAIError) {
     if (err.status === undefined) return "Couldn't reach the OpenAI API.";
+
     if (err.status === 401) return 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.';
+
     if (err.code === 'model_not_found' || err.status === 404) return `The OpenAI API key can't use ${err.model ?? 'this model'}. Set FIADA_LLM_MODEL (or FIADA_SUMMARY_MODEL, for summaries) to a model it has.`;
+
     if (err.code === 'insufficient_quota') return "The OpenAI API key's account is out of credit. Add some under Billing on platform.openai.com.";
+
     if (err.status === 403) return `The OpenAI API refused this key: ${err.message}`.slice(0, 300);
+
     if (err.status === 429) return 'The OpenAI API is rate limiting this key. Try again in a minute.';
+
     return `The OpenAI API answered ${err.status}: ${err.message}`.slice(0, 300);
   }
+
   if (err instanceof Anthropic.AuthenticationError) return 'The Anthropic API key was rejected. Check ANTHROPIC_API_KEY on the indexer.';
+
   if (err instanceof Anthropic.PermissionDeniedError) return "The Anthropic API key can't use this model.";
+
   if (err instanceof Anthropic.RateLimitError) return 'The Anthropic API is rate limiting this key. Try again in a minute.';
+
   if (err instanceof Anthropic.APIConnectionError) return "Couldn't reach the Anthropic API.";
+
   if (err instanceof Anthropic.APIError) return `The Anthropic API answered ${err.status ?? 'with an error'}: ${err.message}`.slice(0, 300);
+
   return ((err as Error)?.message ?? String(err)).slice(0, 300);
 }

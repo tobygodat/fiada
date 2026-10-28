@@ -38,6 +38,7 @@ import { ask, send, FIADA_URL, whoAndWhere } from './client.ts';
 import { checkout, describe } from './git.ts';
 
 const VERSION = '0.1.0';
+
 /** Newest first. We answer with the client's version when we know it; tools work the same in all of them. */
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
@@ -54,12 +55,14 @@ const NOW_WIDTH = 160;
 /** `now` as at most two trimmed lines, or null when there's nothing in it. */
 export function nowLines(v: unknown): string | null {
   if (typeof v !== 'string') return null;
+
   const lines = v
     .split(/\r?\n/)
     .map((l) => l.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .slice(0, NOW_LINES)
     .map((l) => (l.length > NOW_WIDTH ? `${l.slice(0, NOW_WIDTH - 1).trimEnd()}…` : l));
+
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -77,6 +80,7 @@ const TARGET = {
   description:
     'What to ask about: an id from where_is, a file path (absolute, or relative to the repository: "app/api/routes/items.py"), "path#symbol", or a function, class or component name.',
 } as const;
+
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 const TOOLS = [
@@ -177,6 +181,7 @@ const TOOLS = [
 export function place(r: NodeRef): string {
   if (r.kind === 'repo') return `repository ${r.repo}`;
   const at = r.path ? `${r.repo}/${r.path}` : r.repo;
+
   return r.lines ? `${at}:${r.lines[0]}${r.lines[1] > r.lines[0] ? `-${r.lines[1]}` : ''}` : at;
 }
 
@@ -189,32 +194,42 @@ export function formatFind(a: FindAnswer): string {
   a.hits.forEach((h, i) => {
     lines.push(`${i + 1}. ${h.name} (${kindWord(h)}) in ${place(h)}`);
     const placed = [where(h), h.routes?.length ? `serves ${h.routes.join(', ')}` : ''].filter(Boolean).join('; ');
+
     if (placed) lines.push(`   ${placed}`);
+
     if (h.summary) lines.push(`   ${h.summary}`);
     lines.push(`   id: ${h.id}`);
   });
+
   return lines.join('\n');
 }
 
 export function formatAmbiguous(a: Ambiguous): string {
   const lead = a.candidates.length === 1 ? `Nothing is "${a.query}" exactly; the closest is this one` : `"${a.query}" could be any of these`;
+
   return [`${lead}; ask again with one of their ids:`, ...a.candidates.map((c) => `- ${c.id} (${kindWord(c)} in ${place(c)})`)].join('\n');
 }
 
 export function formatDependents(a: DependentsAnswer): string {
   const t = a.target;
   const n = a.dependents.length + a.more;
+
   if (!n) return `Nothing on the map uses ${t.name} (${kindWord(t)} in ${place(t)}). It may be an entry point, used dynamically, or used from code Fiada hasn't imported.`;
   const lines = [`${n} place${n === 1 ? '' : 's'} use${n === 1 ? 's' : ''} ${t.name} (${kindWord(t)} in ${place(t)})${a.more ? `; the first ${a.dependents.length}` : ''}:`];
+
   for (const d of a.dependents) {
     lines.push(`- ${d.name} (${kindWord(d)}) in ${place(d)}${d.crossRepo ? `, another repository` : ''}`);
+
     for (const l of d.links.slice(0, 3)) {
       const into = l.to === t.id ? '' : ` ${l.to.slice(l.to.lastIndexOf('#') + 1 || l.to.lastIndexOf('/') + 1)}`;
       lines.push(`  ${l.kind}${into}, ${l.basis === 'inferred' ? `inferred${l.reason ? `: ${l.reason}` : ''}` : 'proven'}`);
+
       for (const e of l.evidence.slice(0, 2)) lines.push(`    ${e.file}:${e.line}${e.code ? `  ${e.code}` : ''}`);
     }
+
     lines.push(`  id: ${d.id}`);
   }
+
   return lines.join('\n');
 }
 
@@ -227,23 +242,30 @@ const counts = (m: Record<string, number>) =>
 export function formatImpact(a: ImpactAnswer): string {
   const t = a.target;
   const n = a.reached.length + a.more;
+
   if (!n) return `Nothing on the map uses ${t.name} (${kindWord(t)} in ${place(t)}), so an edit to it reaches nothing else that Fiada can see.`;
   const repos = Object.keys(a.byRepo).length;
+
   const lines = [
     `An edit to ${t.name} (${kindWord(t)} in ${place(t)}) reaches ${n} place${n === 1 ? '' : 's'} within ${a.depth} link${a.depth === 1 ? '' : 's'}${repos > 1 ? `, in ${repos} repositories` : ''}.`,
     `By repository: ${counts(a.byRepo)}.`,
     `By layer: ${counts(a.byLayer)}.`,
     `By domain: ${counts(a.byDomain)}.`,
   ];
+
   let depth = 0;
+
   for (const r of a.reached) {
     if (r.depth !== depth) {
       depth = r.depth;
       lines.push(depth === 1 ? 'Uses it directly:' : `${depth} links away:`);
     }
+
     lines.push(`- ${r.name} (${kindWord(r)}) in ${place(r)}: ${r.link}${r.basis === 'inferred' ? ' (inferred)' : ''}${r.crossRepo ? ', another repository' : ''}`);
   }
+
   if (a.more) lines.push(`…and ${a.more} more; ask with a larger limit, or a smaller depth.`);
+
   return lines.join('\n');
 }
 
@@ -258,9 +280,13 @@ const log = (...args: unknown[]) => process.stderr.write(`[fiada-mcp] ${args.joi
 /** Stable client names, so the hook's events and these land on the same agent. */
 export function clientId(name?: string): string {
   const n = (name ?? '').toLowerCase();
+
   if (n.includes('claude-code') || n === 'claude code') return 'claude-code';
+
   if (n.includes('cursor')) return 'cursor';
+
   if (n.includes('codex')) return 'codex';
+
   return n.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mcp';
 }
 
@@ -286,6 +312,7 @@ export class FiadaMcp {
     // Claude Code tells the servers it starts which session they serve. Elsewhere the client
     // starts this server itself, so its nearest ancestors are the ones its hooks share.
     const session = this.client === 'claude-code' ? process.env.CLAUDE_CODE_SESSION_ID || undefined : undefined;
+
     return (this.agent ??= whoAndWhere(this.client, this.cwd, session, 2).then((w) => w.agent));
   }
 
@@ -295,10 +322,13 @@ export class FiadaMcp {
       const done = this.pending.get(String(msg.id));
       this.pending.delete(String(msg.id));
       done?.(msg.result ?? null);
+
       return;
     }
+
     const reply = (result: Json) => msg.id != null && this.out({ id: msg.id, result });
     const fail = (code: number, message: string) => msg.id != null && this.out({ id: msg.id, error: { code, message } });
+
     try {
       switch (msg.method) {
         case 'initialize': {
@@ -306,11 +336,14 @@ export class FiadaMcp {
           this.client = clientId(p.clientInfo?.name);
           this.rootsSupported = !!p.capabilities?.roots;
           const protocolVersion = PROTOCOLS.includes(p.protocolVersion) ? p.protocolVersion : PROTOCOLS[0];
+
           return void reply({ protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fiada', title: 'Fiada', version: VERSION }, instructions: INSTRUCTIONS });
         }
+
         case 'notifications/initialized':
         case 'notifications/roots/list_changed':
           if (this.rootsSupported) void this.askRoots();
+
           return;
         case 'ping':
           return void reply({});
@@ -320,6 +353,7 @@ export class FiadaMcp {
           return void reply(await this.call(msg.params?.name, msg.params?.arguments ?? {}));
         default:
           if (String(msg.method).startsWith('notifications/')) return;
+
           return void fail(-32601, `Method not found: ${msg.method}`);
       }
     } catch (err) {
@@ -330,12 +364,15 @@ export class FiadaMcp {
   /** The client's workspace folder beats our cwd, which some clients set to somewhere unrelated. */
   private async askRoots() {
     const id = `fiada-${this.nextId++}`;
+
     const result = await new Promise<Json | null>((resolve) => {
       this.pending.set(id, resolve);
       this.out({ id, method: 'roots/list' });
       setTimeout(() => this.pending.has(id) && (this.pending.delete(id), resolve(null)), 5000);
     });
+
     const uri = result?.roots?.find((r: Json) => typeof r?.uri === 'string' && r.uri.startsWith('file://'))?.uri;
+
     if (!uri) return;
     this.cwd = fileURLToPath(uri);
     this.agent = null;
@@ -347,14 +384,18 @@ export class FiadaMcp {
 
   async call(name: string, args: Json) {
     const agent = await this.who();
+
     if (name === 'status' || name === 'report_task') {
       const now = nowLines(args.now);
+
       if (name === 'status' && !now) return this.text('Pass now: one or two short lines on what you are doing.', true);
+
       const steps: AgentStep[] | undefined = Array.isArray(args.steps)
         ? args.steps
             .filter((s: Json) => s && typeof s.text === 'string')
             .map((s: Json) => ({ text: s.text.slice(0, 200), status: (['pending', 'active', 'done'].includes(s.status) ? s.status : 'pending') as StepStatus }))
         : undefined;
+
       const ev: AgentEvent = {
         agent,
         type: 'task',
@@ -364,23 +405,33 @@ export class FiadaMcp {
         note: typeof args.note === 'string' ? args.note.slice(0, 300) : undefined,
         state: args.done ? 'waiting' : 'working',
       };
+
       // The plan first, so the line said with it is the newer of the two.
       const events: AgentEvent[] = [];
+
       if (ev.task !== undefined || steps || ev.step !== undefined || ev.note !== undefined || args.done || !now) events.push(ev);
+
       if (now) events.push({ agent, type: 'status', text: now });
+
       if (args.done && now) events.push({ agent, type: 'state', state: 'waiting' });
       const ok = await this.post(events);
+
       if (!ok) return this.text(`Fiada isn't reachable at ${FIADA_URL}; nothing to do, carry on.`);
+
       if (now) return this.text(args.done ? 'Shown in Fiada as done.' : 'Shown in Fiada.');
       const active = steps?.findIndex((s) => s.status === 'active') ?? -1;
+
       return this.text(
         args.done ? 'Marked done in Fiada.' : `Fiada shows: ${ev.task ?? 'your task'}${steps?.length ? ` (${active >= 0 ? `step ${active + 1} of ${steps.length}` : `${steps.length} steps`})` : ''}.`,
       );
     }
+
     if (name === 'flag_changes') {
       const list = Array.isArray(args.files) ? args.files : [];
+
       if (!list.length) return this.text('Pass files: [{ path, change }].', true);
       const files: FileChange[] = [];
+
       for (const f of list) {
         if (!f || typeof f.path !== 'string') continue;
         const told: ChangeKind = ['added', 'modified', 'deleted'].includes(f.change) ? f.change : 'modified';
@@ -388,23 +439,33 @@ export class FiadaMcp {
         const isDir = await fs.stat(abs).then((s) => s.isDirectory(), () => false);
         const co = await checkout(isDir ? abs : path.dirname(abs)).catch(() => null);
         let change = isDir ? null : await describe(co, abs, told);
+
         // Flagged before the edit landed, or git can't see it: the agent's word stands.
         if (!change || change.kind === 'reverted') change = { path: abs, kind: told };
+
         if (Array.isArray(f.symbols)) change.symbols = f.symbols.filter((s: unknown) => typeof s === 'string').slice(0, 50);
+
         if (co && co.root !== agent.root) change.checkout = { root: co.root, remote: co.remote };
         files.push(change);
       }
+
       const res = await this.post([{ agent, type: 'changes', files }, { agent, type: 'state', state: 'working' }]);
+
       if (!res) return this.text(`Fiada isn't reachable at ${FIADA_URL}; nothing to do, carry on.`);
       const mapped = res.files ?? [];
       const on = mapped.filter((m) => m.repo);
       const off = mapped.filter((m) => !m.repo);
       const parts = [];
+
       if (on.length) parts.push(`On the map: ${on.map((m) => `${m.path} (${m.kind}${m.symbols ? `, ${m.symbols} symbol${m.symbols === 1 ? '' : 's'}` : ''})`).join(', ')}.`);
+
       if (off.length) parts.push(`Not in any repository Fiada has imported: ${off.map((m) => m.path).join(', ')}.`);
+
       return this.text(parts.join(' ') || 'Flagged.');
     }
+
     if (name === 'where_is' || name === 'who_uses' || name === 'impact') return this.askMap(name, args, agent);
+
     return this.text(`Unknown tool ${name}.`, true);
   }
 
@@ -413,10 +474,13 @@ export class FiadaMcp {
     const t = raw.trim();
     const hash = t.indexOf('#');
     const p = hash >= 0 ? t.slice(0, hash) : t;
+
     if (!path.isAbsolute(p)) return t;
     const base = agent.root ?? this.cwd;
     const rel = path.relative(base, p);
+
     if (rel.startsWith('..') || path.isAbsolute(rel)) return t;
+
     return rel.split(path.sep).join('/') + (hash >= 0 ? t.slice(hash) : '');
   }
 
@@ -424,26 +488,34 @@ export class FiadaMcp {
     const limit = typeof args.limit === 'number' ? args.limit : undefined;
     let looked: string[] = [];
     let text: string;
+
     if (name === 'where_is') {
       const query = typeof args.query === 'string' ? args.query.trim() : '';
+
       if (!query) return this.text('Pass query: a name, path, route or a few words for the feature.', true);
       const res = await this.ask<FindAnswer>('find', { q: query, limit });
+
       if (!res.ok) return this.text(res.error, res.status !== 0 && res.status !== 404);
       text = formatFind(res.body);
       looked = res.body.hits.slice(0, LOOKED_HITS).map((h) => h.id);
     } else {
       const target = typeof args.target === 'string' ? this.targetOf(args.target, agent) : '';
+
       if (!target) return this.text('Pass target: an id from where_is, a file path, "path#symbol" or a name.', true);
       const route = name === 'who_uses' ? 'dependents' : 'impact';
       const res = await this.ask<DependentsAnswer | ImpactAnswer | Ambiguous>(route, { node: target, limit, depth: name === 'impact' && typeof args.depth === 'number' ? args.depth : undefined });
+
       if (!res.ok) return this.text(res.error, res.status !== 0 && res.status !== 404);
       const body = res.body;
+
       if (body.target === null) return this.text(formatAmbiguous(body as Ambiguous));
       text = name === 'who_uses' ? formatDependents(body as DependentsAnswer) : formatImpact(body as ImpactAnswer);
       looked = [body.target.id];
     }
+
     // What it asked about shows on the map; never held up by it.
     if (looked.length) void this.post([{ agent, type: 'looked', nodes: looked }]);
+
     return this.text(text);
   }
 }
@@ -459,17 +531,21 @@ export async function runMcp() {
   process.stdin.on('data', (chunk: string) => {
     buf += chunk;
     let nl: number;
+
     while ((nl = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, nl).trim();
       buf = buf.slice(nl + 1);
+
       if (!line) continue;
       let msg: Json;
+
       try {
         msg = JSON.parse(line);
       } catch {
         write({ id: null, error: { code: -32700, message: 'Parse error' } });
         continue;
       }
+
       // Batches are allowed by older protocol versions.
       for (const m of Array.isArray(msg) ? msg : [msg]) {
         const p = server.handle(m).finally(() => inflight.delete(p));

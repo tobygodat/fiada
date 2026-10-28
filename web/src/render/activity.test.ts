@@ -10,12 +10,14 @@ const free = { x0: 0, x1: 1000, y0: 0, y1: 1000 };
 const view = { w: 1000, h: 1000 };
 
 type Circle = ReturnType<typeof circle>;
+
 /** One badge on `d`, with only `d` on the map besides what's taken. */
 const place = (d: Circle, taken: Omit<Taken, 'free' | 'view'>) => new BadgeSpace({ ...taken, free, view }, [d], [{ d, w: W, h: H }]).place(d, W, H);
 
 /** A straight link drawn as the renderer does: a quadratic with its control point at the middle. */
 function link(x1: number, y1: number, x2: number, y2: number, w = 2): Taken['edges'][number] {
   const pts = [x1, y1, (x1 + x2) / 2, (y1 + y2) / 2, x2, y2];
+
   return { pts, w, minX: Math.min(x1, x2), minY: Math.min(y1, y2), maxX: Math.max(x1, x2), maxY: Math.max(y1, y2) };
 }
 
@@ -72,11 +74,14 @@ test('tags, tabs and other badges are kept clear too', () => {
 
 test('when every side is taken it picks the spot that covers least', () => {
   const d = circle('a', 500, 500, 30);
+
   // Links out of every side but the left.
   const edges = [-90, -45, 0, 45, 90, -135, 135].map((deg) => {
     const a = (deg * Math.PI) / 180;
+
     return link(d.x + Math.cos(a) * d.r, d.y + Math.sin(a) * d.r, d.x + Math.cos(a) * 300, d.y + Math.sin(a) * 300);
   });
+
   const box = place(d, { edges, rects: [] });
   assert.ok(box.x + box.w <= d.x, 'on the left, the only clear side');
   assert.equal(
@@ -97,12 +102,15 @@ test('a link that only passes near the circle still counts, however long it is',
 
 test('other closed circles are avoided when there is room, and a crowd of badges never overlaps', () => {
   const circles = Array.from({ length: 60 }, (_, i) => circle(`c${i}`, 60 + (i % 10) * 90, 60 + Math.floor(i / 10) * 90, 22));
+
   const space = new BadgeSpace(
     { edges: [], rects: [], free, view },
     circles,
     circles.map((d) => ({ d, w: W, h: H })),
   );
+
   const boxes = circles.map((c) => space.place(c, W, H));
+
   for (let i = 0; i < boxes.length; i++)
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i];
@@ -111,9 +119,14 @@ test('other closed circles are avoided when there is room, and a crowd of badges
     }
 });
 
+/** A canvas that draws nothing, measures every character 6px wide, and passes each fillText to `onText`. */
+function measuringCanvas(onText: (text: string) => void = () => {}) {
+  // SAFETY: every property read answers with a function (or measureText's result), so each method a draw calls is there.
+  return new Proxy({} as CanvasRenderingContext2D, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? onText : () => {}), set: () => true });
+}
+
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
-  // A canvas that draws nothing and measures every character 6px wide.
-  const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
+  const ctx = measuringCanvas();
   const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0, looked: null }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
@@ -130,13 +143,9 @@ test('badge spots are reused while nothing moves, and worked out again when some
 
 test('a badge says how many changes inside are unread, in words', () => {
   const drawn: string[] = [];
-  const ctx = new Proxy(
-    {},
-    {
-      get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? (t: string) => drawn.push(t) : () => {}),
-      set: () => true,
-    },
-  ) as unknown as CanvasRenderingContext2D;
+
+  const ctx = measuringCanvas((t) => drawn.push(t));
+
   const mark = (unread: number): Marks => ({ self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread, reached: null, direct: false, ripple: 0, looked: null });
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
@@ -160,12 +169,15 @@ test('the unread dot sits on the upper left of the ring', () => {
 test('a wide badge still sees what is near its far end', () => {
   const d = circle('a', 500, 500, 30);
   const wide = 160;
+
   // A tag well past 96px from the ring, where only a badge this wide reaches, at the upper right and upper left.
   const rects: Rect[] = [
     { x: 640, y: 440, w: 30, h: 30 },
     { x: 330, y: 440, w: 30, h: 30 },
   ];
+
   const box = new BadgeSpace({ edges: [], rects, free, view }, [d], [{ d, w: wide, h: H }]).place(d, wide, H);
+
   for (const r of rects) assert.ok(!(r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h), 'clear of the far tag');
 });
 
@@ -178,11 +190,14 @@ test('a short, strongly bent link is followed closely enough that nothing on it 
     maxX: Math.max(pts[0], pts[2], pts[4]),
     maxY: Math.max(pts[1], pts[3], pts[5]),
   });
+
   // Both bow far from the straight line between their ends, over less than 144px of curve.
   const curves = [quad([540, 450, 560, 519, 580, 450], 1), quad([560, 430, 625, 470, 570, 505], 1)];
+
   // The truth, from 400 points along the curve: does its stroke touch the box?
   const touches = (e: Taken['edges'][number], b: Rect) => {
     const [x1, y1, cx, cy, x2, y2] = e.pts;
+
     for (let i = 0; i <= 400; i++) {
       const t = i / 400;
       const u = 1 - t;
@@ -190,19 +205,25 @@ test('a short, strongly bent link is followed closely enough that nothing on it 
       const y = u * u * y1 + 2 * u * t * cy + t * t * y2;
       const dx = Math.max(b.x - x, 0, x - (b.x + b.w));
       const dy = Math.max(b.y - y, 0, y - (b.y + b.h));
+
       if (Math.hypot(dx, dy) <= e.w / 2) return true;
     }
+
     return false;
   };
+
   let checked = 0;
+
   for (const e of curves)
     for (let x = e.minX - 8; x < e.maxX + 8; x += 1)
       for (let y = e.minY - 8; y < e.maxY + 8; y += 1) {
         const box = { x, y, w: 4, h: 4 };
+
         if (!touches(e, box)) continue;
         checked++;
         assert.ok(curveHits(e, box), `missed the link at ${x},${y}`);
       }
+
   assert.ok(checked > 100);
 });
 
@@ -214,6 +235,7 @@ test('a link running far off screen at high zoom only blocks the spots it really
   const y0 = d.y + Math.sin(a) * d.r;
   const pts = [x0, y0, x0 + 5e5, y0 - 5e5, x0 + 1e6, y0];
   const e = { pts, w: 2, minX: x0, minY: y0 - 5e5, maxX: x0 + 1e6, maxY: y0 };
+
   // The truth near the circle, from the first 300px of the curve.
   const touches = (b: Rect) => {
     for (let i = 0; i <= 40000; i++) {
@@ -223,10 +245,13 @@ test('a link running far off screen at high zoom only blocks the spots it really
       const y = u * u * pts[1] + 2 * u * t * pts[3] + t * t * pts[5];
       const dx = Math.max(b.x - x, 0, x - (b.x + b.w));
       const dy = Math.max(b.y - y, 0, y - (b.y + b.h));
+
       if (Math.hypot(dx, dy) <= e.w / 2) return true;
     }
+
     return false;
   };
+
   assert.equal(touches(place(d, { edges: [], rects: [] })), true, 'the usual spot is on the link');
   const box = place(d, { edges: [e], rects: [] });
   assert.equal(touches(box), false, 'the badge went somewhere clear');
@@ -250,10 +275,9 @@ test('the dotted ripple ring goes only on closed circles that depend on a change
 
 test('a closed circle holding dependents gets a badge with their count; a small one only its ring', () => {
   const texts: string[] = [];
-  const ctx = new Proxy(
-    {},
-    { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? (t: string) => texts.push(t) : () => {}), set: () => true },
-  ) as unknown as CanvasRenderingContext2D;
+
+  const ctx = measuringCanvas((t) => texts.push(t));
+
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};
   drawBadges(ctx, [circle('a', 300, 300, 30), circle('b', 600, 600, 6)], new Map([['a', marks({ reached: 'evidenced', ripple: 4 })], ['b', marks({ reached: 'evidenced', ripple: 2 })]]), taken, cache);
@@ -273,12 +297,15 @@ test('a ring far bigger than the screen is drawn only where it crosses it', () =
   // A huge ring whose centre is far to the left: a sliver of a turn, round the direction of the screen.
   const arc = visibleArc(-5000, 400, 5400, 1000, 800)!;
   assert.ok(arc[1] - arc[0] < 0.4, `${arc[1] - arc[0]} rad`);
+
   for (const a of [arc[0], (arc[0] + arc[1]) / 2, arc[1]]) assert.ok(Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) < 0.3);
+
   // Every point of the ring on screen is inside the arc.
   for (let i = 0; i < 2000; i++) {
     const t = (i / 2000) * Math.PI * 2;
     const x = -5000 + 5400 * Math.cos(t);
     const y = 400 + 5400 * Math.sin(t);
+
     if (x < 0 || x > 1000 || y < 0 || y > 800) continue;
     const rel = Math.atan2(Math.sin(t - arc[0]), Math.cos(t - arc[0]));
     assert.ok(rel >= -1e-9 && rel <= arc[1] - arc[0] + 1e-9, `point at ${t} is drawn`);
@@ -314,23 +341,34 @@ function ringsCanvas() {
   const rings: { r: number; dash: number[]; alpha: number }[] = [];
   let r = 0;
   let dash: number[] = [];
-  const ctx: Record<string, unknown> = {
+
+  const ctx: Partial<CanvasRenderingContext2D> = {
     globalAlpha: 1,
-    arc: (_x: number, _y: number, radius: number) => (r = radius),
-    setLineDash: (d: number[]) => (dash = d),
-    stroke: () => rings.push({ r, dash, alpha: ctx.globalAlpha as number }),
+    arc: (_x, _y, radius) => {
+      r = radius;
+    },
+    setLineDash: (d) => {
+      dash = [...d];
+    },
+    stroke: () => {
+      rings.push({ r, dash, alpha: ctx.globalAlpha ?? 1 });
+    },
     beginPath: () => {},
     fillRect: () => {},
   };
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, rings };
+
+  // SAFETY: drawRings calls only the methods and reads only the fields set above.
+  return { ctx: ctx as CanvasRenderingContext2D, rings };
 }
 
 test('looked at: one faint dotted ring where the change ring would be, never with a change or the working ring', () => {
   const at = (m: Partial<Marks>, open = false) => {
     const { ctx, rings } = ringsCanvas();
     drawRings(ctx, [circle('a', 100, 100, 20, open)], new Map([['a', marks(m)]]), 1e12);
+
     return rings;
   };
+
   const [own] = at({ looked: 'self' });
   assert.equal(own.r, ringGeometry(20).lineR);
   assert.ok(own.dash.length === 2 && own.dash[0] < own.dash[1], 'dotted');

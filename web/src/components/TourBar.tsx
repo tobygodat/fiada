@@ -33,6 +33,7 @@ interface Props {
 
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
 const VERB = { added: 'added', modified: 'changed', deleted: 'deleted' } as const;
+
 /**
  * More changes than this and the ticks would take too many rows to be worth it (each is at least
  * 8px wide, or a finger's width on a touch screen); previous and next still go through them all.
@@ -53,20 +54,25 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
+
       // Arrows belong to whatever you're typing in or stepping through (the outline).
       if (el && (el.closest('input, textarea, select, [role="tree"], [role="listbox"]') || el.isContentEditable)) return;
+
       if (e.key === 'ArrowRight' && at < stops.length - 1) onGo(at + 1);
       else if (e.key === 'ArrowLeft' && at > 0) onGo(at - 1);
       else if (e.key === 'r' && stop) readOrBack();
       else return;
       e.preventDefault();
     };
+
     window.addEventListener('keydown', onKey);
+
     return () => window.removeEventListener('keydown', onKey);
   }, [at, stops.length, stop, here, showing, ready, onGo, onRead]);
 
   if (!stop) return null;
   const layer = layerName(layers, stop.layer);
+
   return (
     <section className={`tour${besideDetail ? ' beside-detail' : ''}`} aria-label="Review tour">
       <div className="tour-head">

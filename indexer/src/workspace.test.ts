@@ -11,6 +11,7 @@ import { Workspace } from './workspace.ts';
 // indexer changed the project first.
 function flakyStore(saved: SavedRepo[]) {
   let failSaves = false;
+
   const store: ProjectStore = {
     describe: () => 'memory',
     loadRepos: async () => saved,
@@ -21,6 +22,7 @@ function flakyStore(saved: SavedRepo[]) {
     loadGrouping: async () => null,
     saveGrouping: async () => {},
   };
+
   return { store, failNextSaves: () => (failSaves = true), saved: () => saved };
 }
 

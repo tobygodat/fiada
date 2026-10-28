@@ -36,6 +36,7 @@ const VERB = { added: 'added', modified: 'changed', deleted: 'deleted' } as cons
 
 const ago = (iso: string) => {
   const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
 };
 
@@ -54,6 +55,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
       // Whatever of this node was on screen stays, said to be out of date.
       () => live && setDiffs((d) => ({ node, agent, rev, list: d?.node === node && d.agent === agent ? d.list : [], failed: true })),
     );
+
     return () => {
       live = false;
     };
@@ -75,6 +77,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
     onShown?.({ node, rev: loaded, ...(cut && { cut }), ...(old && { behind: old }) });
   }, [onShown, node, loaded, cut, old]);
   useEffect(() => () => onShown?.(null), [onShown]);
+
   return (
     <div className="detail-block agent-change">
       <div className="block-title">
@@ -100,6 +103,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
       {list.map((d, k) => {
         const shown = diffRows(picked[k]);
         const n = ownCounts(d, peer, [...(own ? [own] : []), ...(rest ?? [])]);
+
         return (
           <div key={d.agent} className="agent-diff">
             <div className="agent-diff-head">

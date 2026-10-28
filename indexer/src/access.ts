@@ -15,8 +15,10 @@ import { timingSafeEqual } from 'node:crypto';
  */
 export function originMatcher(list: string | undefined): (origin: string | undefined) => boolean {
   const entries = (list ?? '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+
   if (entries.includes('*')) return (origin) => !!origin;
   const patterns = entries.map((e) => new RegExp(`^${e.split('*').map(escape).join('[a-z0-9-]*')}$`, 'i'));
+
   return (origin) => !!origin && patterns.some((re) => re.test(origin));
 }
 
@@ -64,7 +66,9 @@ export const AGENT_READS = new Set(['/api/agent/find', '/api/agent/dependents', 
  */
 export function whoMayCall(method: string, route: string): 'agent' | 'agent-or-person' | 'person' {
   if (method === 'POST' && (route === '/api/agent/events' || route === '/api/agent/check')) return 'agent';
+
   if (READS.has(method) && AGENT_READS.has(route)) return 'agent-or-person';
+
   return 'person';
 }
 
@@ -72,6 +76,7 @@ export function whoMayCall(method: string, route: string): 'agent' | 'agent-or-p
 export function hasKey(authorization: string | undefined, key: string): boolean {
   const given = Buffer.from(/^Bearer\s+(.+)$/i.exec(authorization ?? '')?.[1]?.trim() ?? '');
   const want = Buffer.from(key);
+
   return given.length === want.length && timingSafeEqual(given, want);
 }
 
@@ -93,11 +98,13 @@ export class RateLimit {
   take(key: string): number {
     const t = this.now();
     let h = this.hits.get(key);
+
     if (!h || h.until <= t) {
       if (this.hits.size >= 10_000) for (const [k, v] of this.hits) if (v.until <= t) this.hits.delete(k);
       h = { n: 0, until: t + this.windowMs };
       this.hits.set(key, h);
     }
+
     return ++h.n > this.limit ? Math.max(1, Math.ceil((h.until - t) / 1000)) : 0;
   }
 }

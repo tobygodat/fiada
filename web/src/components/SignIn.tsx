@@ -14,6 +14,7 @@ type Door = 'checking' | 'open' | 'sign-in';
 export function Gate() {
   // The privacy page needs no indexer and no sign-in.
   if (window.location.pathname.replace(/\/+$/, '') === '/privacy') return <Privacy />;
+
   return <Doorway />;
 }
 
@@ -30,10 +31,14 @@ function Doorway() {
       // Can't ask (the indexer is down, or predates sign-in): the map says what's wrong.
       () => setDoor('open'),
     );
+
     return off;
   }, []);
+
   if (door === 'checking') return <div className="app" />;
+
   if (door === 'sign-in') return <SignIn error={signInError} />;
+
   return <App />;
 }
 

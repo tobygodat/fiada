@@ -17,16 +17,21 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8'
 const siteHeaders = (): Map<string, string> => {
   const headers = new Map<string, string>();
   const rules: string[] = [];
+
   for (const line of read('../public/_headers').split('\n')) {
     if (!line.trim() || line.trim().startsWith('#')) continue;
+
     if (!/^\s/.test(line)) { rules.push(line.trim()); continue; }
+
     const at = line.indexOf(':');
     assert.ok(at > 0 && !line.trim().startsWith('!'), `_headers: can't read "${line.trim()}"`);
     const name = line.slice(0, at).trim();
     assert.ok(!headers.has(name), `_headers sets ${name} twice`);
     headers.set(name, line.slice(at + 1).trim());
   }
+
   assert.deepEqual(rules, ['/*'], '_headers has one rule, for /*');
+
   return headers;
 };
 
@@ -37,6 +42,7 @@ test("the CSP allows index.html's inline scripts and nothing else inline", () =>
   const scriptSrc = csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('script-src '))!;
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`);
   assert.ok(inline.length, 'index.html has its theme script');
+
   for (const hash of inline) assert.ok(scriptSrc.includes(hash), `script-src lacks ${hash}: update the CSP in web/public/_headers`);
   assert.doesNotMatch(scriptSrc, /unsafe-inline|unsafe-eval/);
 });

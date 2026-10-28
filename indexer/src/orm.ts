@@ -6,14 +6,18 @@ import type { ParsedFile, ParsedSymbol } from './model.ts';
 
 /** SQLAlchemy / Django / Flask-SQLAlchemy / Mongo / TypeORM / GORM base classes, and SQLModel's `table=True`. */
 export const ORM_BASES = /(^|\.)(Base|DeclarativeBase|Model|Document|Entity|BaseEntity)$|^table=True$/;
+
 /** Declarative bases themselves (`class Base(DeclarativeBase): pass`) aren't tables. */
 const DECLARATIVE_ROOT = /(^|\.)(DeclarativeBase|DeclarativeBaseNoMeta|AsyncAttrs)$/;
 
 export function isTable(s: ParsedSymbol): boolean {
   if (s.kind !== 'class') return false;
+
   if (s.tableName || s.columns) return true;
   const bases = s.bases ?? [];
+
   if (bases.some((b) => DECLARATIVE_ROOT.test(b))) return false;
+
   return bases.some((b) => ORM_BASES.test(b));
 }
 
@@ -27,8 +31,10 @@ const plural = (s: string) => (/(s|x|z|ch|sh)$/.test(s) ? `${s}es` : /[^aeiou]y$
  */
 export function tableNames(file: ParsedFile, s: ParsedSymbol): string[] {
   const out: string[] = [];
+
   if (s.tableName) out.push(s.tableName);
   const lower = s.name.toLowerCase();
   out.push(file.lang === 'go' ? plural(snake(s.name)) : lower, snake(s.name), plural(snake(s.name)), plural(lower));
+
   return [...new Set(out)];
 }

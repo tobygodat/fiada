@@ -21,6 +21,7 @@ The map's "connect an agent" gives the setup command with your indexer and token
 /** Runs a subcommand: `command`, or the first argument when none is given. */
 export async function cli(command?: string, args = process.argv.slice(2)) {
   const [cmd, rest] = command ? [command, args] : [args[0], args.slice(1)];
+
   switch (cmd) {
     case 'setup':
       return runSetup(rest).catch((err) => {
@@ -36,6 +37,7 @@ export async function cli(command?: string, args = process.argv.slice(2)) {
       return console.log(PACKAGE.version);
     default:
       console.log(USAGE);
+
       if (cmd && cmd !== 'help' && cmd !== '--help' && cmd !== '-h') process.exitCode = 1;
   }
 }
