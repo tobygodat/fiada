@@ -18,6 +18,11 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, 
 const node = (id: string, kind: GraphNode['kind'], parent: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, kind, name: id.split(/[/#]/).pop()!, parent, repo: 'api', ...extra });
 
 const GRAPH = {
+  version: 1,
+  generatedAt: '',
+  repos: [],
+  layers: [],
+  domains: [],
   nodes: [
     node('api', 'repo', 'root'),
     node('api/app', 'folder', 'api', { path: 'app' }),
@@ -30,7 +35,7 @@ const GRAPH = {
     node('api/app/main.py', 'file', 'api/app', { path: 'app/main.py' }),
   ],
   edges: [],
-} as unknown as Graph;
+} satisfies Graph;
 
 const fence = (n: string, rule: Fence['rule']): Fence => ({ node: n, rule, at: '2026-10-08T00:00:00.000Z' });
 const file = (rel: string, lines?: [number, number][], symbols?: Record<string, [number, number]>) => ({ repo: 'api', rel, lines, symbols: symbols && new Map(Object.entries(symbols)) });

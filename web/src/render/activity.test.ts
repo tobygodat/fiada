@@ -119,9 +119,14 @@ test('other closed circles are avoided when there is room, and a crowd of badges
     }
 });
 
+/** A canvas that draws nothing, measures every character 6px wide, and passes each fillText to `onText`. */
+function measuringCanvas(onText: (text: string) => void = () => {}) {
+  // SAFETY: every property read answers with a function (or measureText's result), so each method a draw calls is there.
+  return new Proxy({} as CanvasRenderingContext2D, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? onText : () => {}), set: () => true });
+}
+
 test('badge spots are reused while nothing moves, and worked out again when something does', () => {
-  // A canvas that draws nothing and measures every character 6px wide.
-  const ctx = new Proxy({}, { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
+  const ctx = measuringCanvas();
   const marks: TreeActivity = new Map<string, Marks>([['a', { self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, reached: null, direct: false, ripple: 0, looked: null }]]);
   const d = circle('a', 500, 500, 30);
   const taken = { edges: [], rects: [], free, view };
@@ -139,13 +144,7 @@ test('badge spots are reused while nothing moves, and worked out again when some
 test('a badge says how many changes inside are unread, in words', () => {
   const drawn: string[] = [];
 
-  const ctx = new Proxy(
-    {},
-    {
-      get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? (t: string) => drawn.push(t) : () => {}),
-      set: () => true,
-    },
-  ) as unknown as CanvasRenderingContext2D;
+  const ctx = measuringCanvas((t) => drawn.push(t));
 
   const mark = (unread: number): Marks => ({ self: null, added: 1, modified: 2, deleted: 0, at: 0, here: null, selfUnread: false, unread, reached: null, direct: false, ripple: 0, looked: null });
   const d = circle('a', 500, 500, 30);
@@ -277,10 +276,7 @@ test('the dotted ripple ring goes only on closed circles that depend on a change
 test('a closed circle holding dependents gets a badge with their count; a small one only its ring', () => {
   const texts: string[] = [];
 
-  const ctx = new Proxy(
-    {},
-    { get: (_, k) => (k === 'measureText' ? (t: string) => ({ width: t.length * 6 }) : k === 'fillText' ? (t: string) => texts.push(t) : () => {}), set: () => true },
-  ) as unknown as CanvasRenderingContext2D;
+  const ctx = measuringCanvas((t) => texts.push(t));
 
   const taken = { edges: [], rects: [], free, view };
   const cache: BadgeCache = {};

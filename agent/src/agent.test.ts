@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { AgentEvent, Ambiguous, DependentsAnswer, FindAnswer, ImpactAnswer, NodeRef } from '@fiada/shared';
+import type { AgentEvent, Ambiguous, DependentsAnswer, FindAnswer, ImpactAnswer, JsonObject, NodeRef } from '@fiada/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
@@ -244,7 +244,7 @@ test('a status keeps two short lines', () => {
 });
 
 /** Runs the hook as Claude Code does, with a payload on stdin; resolves to what it printed. */
-function runHook(payload: object, env: Record<string, string>): Promise<string> {
+function runHook(payload: JsonObject, env: Record<string, string>): Promise<string> {
   const bin = fileURLToPath(new URL('../bin/fiada-hook.mjs', import.meta.url));
 
   return new Promise((resolve, reject) => {
@@ -440,7 +440,7 @@ test('the hook asks Fiada before an edit lands, as Claude Code runs it, and stay
 
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const edit = (file: string, extra: object = {}) => ({ session_id: 'fence-test', cwd: dir, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, file), old_string: 'SECRET', new_string: 'KEY', ...extra } });
+  const edit = (file: string, extra: JsonObject = {}) => ({ session_id: 'fence-test', cwd: dir, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, file), old_string: 'SECRET', new_string: 'KEY', ...extra } });
 
   try {
     const deny = JSON.parse(await runHook(edit('core/config.py'), { FIADA_URL: url }));
@@ -575,7 +575,7 @@ test('the MCP server asks the indexer over HTTP with the agent token', async () 
     const child = spawn(process.execPath, [bin], { env: { ...process.env, FIADA_URL: url, FIADA_TOKEN: 'fa_test', FIADA_CONFIG: '/nonexistent' }, stdio: ['pipe', 'pipe', 'ignore'] });
     let outText = '';
     child.stdout.on('data', (c) => (outText += c));
-    const rpc = (id: number, method: string, params?: object) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+    const rpc = (id: number, method: string, params?: JsonObject) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
     rpc(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
     rpc(2, 'tools/call', { name: 'where_is', arguments: { query: 'cart' } });
 

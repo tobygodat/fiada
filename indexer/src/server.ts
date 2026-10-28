@@ -124,7 +124,8 @@ const publicUrl = (req: FastifyRequest) => PUBLIC_URL ?? `${req.protocol}://${re
 // Behind a host's proxy (and the dev server's), the forwarded headers say the scheme and host the browser used.
 const app = Fastify({ logger: { level: 'warn' }, trustProxy: true });
 
-app.decorateRequest('tenant', null as unknown as Tenant);
+// SAFETY: the onRequest hook sets req.tenant before any handler reads it.
+app.decorateRequest('tenant', null as never);
 
 /** Answers 429 when `key` has made too many requests of this kind lately. */
 function limited(limit: RateLimit, key: string, reply: FastifyReply) {

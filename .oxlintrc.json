@@ -38,6 +38,8 @@
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-object-parameters": "error",
 
     // The rules below found code written before the linter. Each is off until a
     // cleanup PR adopts it (TOB-222); they don't change behaviour, so none blocks.
@@ -51,13 +53,9 @@
     "anti-slop/no-conditional-empty-object-spread": "off",
     // 32 findings: hook payloads, MCP messages and JSON bodies arrive as unknown and are narrowed inside.
     "anti-slop/no-unknown-parameters": "off",
-    // 27 findings: double casts over tree-sitter and Mongo documents.
-    "anti-slop/no-chained-type-assertions": "off",
     // 23 findings: Record<string, ...> maps keyed by ids.
     "anti-slop/no-unsafe-dictionary-type": "off",
     // 13 findings: store and model loaders return parsed JSON for callers to check.
     "anti-slop/no-unknown-returns": "off",
-    // 3 findings, all in agent tests that post arbitrary payloads.
-    "anti-slop/no-object-parameters": "off"
   }
 }

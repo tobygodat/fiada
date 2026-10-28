@@ -394,10 +394,10 @@ test('a class whose method changed is read at the method, not again as the class
   const F = 'svc/src/Items.java';
 
   const node = (name: string, lines: [number, number]) =>
-    ({ id: `svc/${F.slice(4)}#${name}`, kind: 'symbol', name, parent: `svc/${F.slice(4)}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+    ({ id: `svc/${F.slice(4)}#${name}`, kind: 'symbol', name, parent: `svc/${F.slice(4)}`, repo: 'svc', lines, layer: { id: 'api' } }) as GraphNode;
 
   const nodes = [node('Items', [1, 30]), node('Items.add', [3, 10]), node('Items.list', [12, 20]), node('Items.Page', [22, 29]), node('Items.Page.next', [23, 28])];
-  const fileNode = { id: `svc/${F.slice(4)}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const fileNode = { id: `svc/${F.slice(4)}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
   const ix = new Map([fileNode, ...nodes].map((n) => [n.id, n]));
   const id = (name: string) => `svc/${F.slice(4)}#${name}`;
 
@@ -424,8 +424,8 @@ test('a class whose method changed is read at the method, not again as the class
 
 test('a class that lost a method is read at the deleted method, by their lines in HEAD', () => {
   const F = 'src/Items.java';
-  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
-  const cls = { id: `svc/${F}#Items`, kind: 'symbol', name: 'Items', parent: `svc/${F}`, repo: 'svc', lines: [1, 20], layer: { id: 'api' } } as unknown as GraphNode;
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
+  const cls = { id: `svc/${F}#Items`, kind: 'symbol', name: 'Items', parent: `svc/${F}`, repo: 'svc', lines: [1, 20], layer: { id: 'api' } } as GraphNode;
   const ix = new Map([fileNode, cls].map((n) => [n.id, n]));
 
   const a = agent([
@@ -847,10 +847,10 @@ test('forgetMarks: clears every review’s read marks and nothing else', () => {
 
 test("a class left out for its method is read on the file's first stop: a change to its own lines is new there", () => {
   const F = 'src/Items.java';
-  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
 
   const node = (name: string, lines: [number, number]) =>
-    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as GraphNode;
 
   const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
   const t = '2026-09-27T10:00:00Z';
@@ -870,10 +870,10 @@ test("a class left out for its method is read on the file's first stop: a change
 
 test("a class left out for its method that another agent changed too says so on the stop showing its rows", () => {
   const F = 'src/Items.java';
-  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
 
   const node = (name: string, lines: [number, number]) =>
-    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as GraphNode;
 
   const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
 

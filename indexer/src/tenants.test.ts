@@ -71,7 +71,7 @@ test('projects open once however many requests arrive, and close when idle', asy
       opened++;
       const idle = { state: () => ({ busy: false }) };
 
-      return { projectId, ws: idle, agents: { watched: false }, close: async () => void closed.push(projectId) } as unknown as Tenant;
+      return { projectId, ws: idle, agents: { watched: false }, close: async () => void closed.push(projectId) } as Tenant;
     },
     1000,
     () => t,

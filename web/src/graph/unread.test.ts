@@ -74,7 +74,7 @@ test("marking one agent read leaves another agent's later change to the same fil
       { repo: 'web', path: 'src/pages/items.tsx', node: 'web/src/pages/items.tsx', kind: 'modified', symbols: [{ id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' }], at: iso(10) },
       { repo: 'web', path: 'src/pages/tags.tsx', node: 'web/src/pages/tags.tsx', kind: 'added', symbols: [], at: iso(15) },
     ],
-  } as unknown as AgentActivity;
+  } as AgentActivity;
 
   const marks = markAgentRead({}, a)!;
   const u = unreadIds(shared, marks);
@@ -83,7 +83,7 @@ test("marking one agent read leaves another agent's later change to the same fil
   assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'));
   assert.equal(markAgentRead(marks, a), null, 'nothing new to mark');
   assert.deepEqual(agentRead(a, u, marks, shared), { read: 2, total: 2 }, "a counts its own changes read; b's is b's to read");
-  const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as unknown as AgentActivity;
+  const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as AgentActivity;
   assert.deepEqual(agentRead(b, u, marks, shared), { read: 0, total: 1 });
   // Lit on the map, each agent shows only what is unread for it.
   assert.deepEqual([...agentUnreadIds(a, u, marks, shared)], []);
@@ -113,7 +113,7 @@ test("a lit agent's function you opened stays read when another agent changes it
         at: new Date(10).toISOString(),
       },
     ],
-  } as unknown as AgentActivity;
+  } as AgentActivity;
 
   const marks = { 'web/src/pages/items.tsx#ItemsPage': 10 };
   const u = unreadIds(two, marks);
@@ -122,8 +122,8 @@ test("a lit agent's function you opened stays read when another agent changes it
 });
 
 test('an agent says how many of its files you have read', () => {
-  const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z' }) as unknown as AgentFile;
-  const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as unknown as AgentActivity;
+  const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z', diff: false });
+  const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as AgentActivity;
   a.files[2].repo = undefined;
   const marks = markRead({}, 'web/src/pages/items.tsx', nodes)!;
   const u = unreadIds(nodes, marks);
@@ -201,7 +201,7 @@ test("a lit agent's functions go by its own change time to each, not its latest 
         at: iso(30),
       },
     ],
-  } as unknown as AgentActivity;
+  } as AgentActivity;
 
   const opened = { 'web/src/pages/items.tsx#foo': 20 };
   const u = unreadIds(three, opened);

@@ -12,12 +12,15 @@ const repos: SavedRepo[] = [{ id: 'web', name: 'web', source: 'https://github.co
 
 // Only the shape matters to the store; the workspace validates groupings.
 const grouping = {
+  schema: 1,
+  layers: [],
+  domains: [],
   rules: [{ match: { path: 'web/src/**' }, domain: 'items' }],
   pins: { 'web/src/api.ts#Items.fetch': { domain: 'items' }, $odd: { layer: 'ui' } },
-} as unknown as Grouping;
+} satisfies Grouping;
 
 test('field names with dots and dollars survive a round trip', () => {
-  const encoded = encodeKeys(grouping) as { pins: Record<string, unknown> };
+  const encoded = encodeKeys(grouping) as Pick<Grouping, 'pins'>;
   assert.ok(Object.keys(encoded.pins).every((k) => !k.includes('.') && !k.includes('$')));
   assert.deepEqual(decodeKeys(encoded), grouping);
 

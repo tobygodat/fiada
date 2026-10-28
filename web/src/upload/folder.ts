@@ -36,6 +36,13 @@ interface FileHandle {
 
 type DirectoryPicker = (options?: { id?: string; mode?: 'read' }) => Promise<DirHandle>;
 
+declare global {
+  interface Window {
+    /** File System Access API, in Chromium browsers only. */
+    showDirectoryPicker?: DirectoryPicker;
+  }
+}
+
 function fromHandle(h: DirHandle): Folder {
   return {
     name: h.name,
@@ -91,11 +98,11 @@ export function fromFileList(files: ArrayLike<File>): Folder | null {
 }
 
 /** Whether this browser can open a folder without listing all of it first. */
-export const canPickDirectory = () => typeof window !== 'undefined' && typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+export const canPickDirectory = () => typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 
 /** Asks for a folder with the File System Access API; null when the person cancels. */
 export async function pickDirectory(): Promise<Folder | null> {
-  const pick = (window as unknown as { showDirectoryPicker: DirectoryPicker }).showDirectoryPicker;
+  const pick = window.showDirectoryPicker!;
 
   try {
     return fromHandle(await pick({ id: 'fiada-upload', mode: 'read' }));
