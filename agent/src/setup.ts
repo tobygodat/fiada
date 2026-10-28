@@ -62,7 +62,7 @@ export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
 
 /** Adds Fiada's hooks to a settings object, replacing any earlier Fiada (or Strata) entries and keeping everything else. */
 export function mergeHooks(settings: Record<string, any>, block = hooksBlock()): Record<string, any> {
-  const hooks: Record<string, HookEntry[]> = { ...(settings.hooks ?? {}) };
+  const hooks: Record<string, HookEntry[]> = { ...settings.hooks };
   for (const [event, entries] of Object.entries(block)) {
     const kept = (hooks[event] ?? [])
       .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !String(h.command ?? '').match(/(fiada|strata)-hook|@fiada(tech)?\/agent/)) }))

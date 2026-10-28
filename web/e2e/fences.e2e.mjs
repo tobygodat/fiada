@@ -35,6 +35,7 @@ const MAP = process.env.FIADA_MAP ?? 'http://localhost:5178/';
 const HOOK = fileURLToPath(new URL('../../agent/bin/fiada-hook.mjs', import.meta.url));
 
 const api = async (method, p, body) => {
+  // oxlint-disable-next-line unicorn/no-invalid-fetch-options -- GET calls pass no body, so body is undefined there
   const res = await fetch(`${API}${p}`, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body && JSON.stringify(body) });
   const json = await res.json();
   if (!res.ok) throw new Error(`${method} ${p}: ${res.status} ${JSON.stringify(json)}`);

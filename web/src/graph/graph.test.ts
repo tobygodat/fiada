@@ -120,7 +120,7 @@ test('a link is cross-repo only when the interactions behind it are', () => {
   const ix = indexEdges(fn, index, layered.edges);
   const repoOf = (id: string) => index.get(id)?.repo;
   let mixedEnds = 0;
-  for (const id of [...fn.nodes.keys()]) {
+  for (const id of fn.nodes.keys()) {
     for (const vis of [expandedNodes(fn, withPathOpen(fn, new Set(), id, true)), expandedNodes(fn, withPathOpen(fn, new Set(), id, false))]) {
       for (const c of aggregateEdges(ix, vis)) {
         const cross = c.items.filter((e) => repoOf(e.from) !== repoOf(e.to)).length;

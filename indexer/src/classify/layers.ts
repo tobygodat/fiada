@@ -11,7 +11,7 @@
 
 import { describeFact, UNLAYERED, type Fact, type LayerDef, type LayerMatcher, type Placement, type PlacementSource } from '@fiada/shared';
 import { globMatch } from './glob.ts';
-import type { Assignments, ClassifyInput, LayerStrategy } from './types.ts';
+import type { Assignments, LayerStrategy } from './types.ts';
 
 const regexes = new Map<string, RegExp | null>();
 function regex(src: string): RegExp | null {
