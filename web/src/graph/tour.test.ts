@@ -110,10 +110,10 @@ test('inside one layer, a stop waits for the changed code that calls it', () => 
 });
 
 test('a file with no changed functions is one stop; deleted code stands on what is left', () => {
-  const nodes: Record<string, NodeChange> = {
+  const nodes = {
     'api/app/routes/old.py': { kind: 'deleted', unit: 'file', at: 5, agents: ['a'], anchor: 'api/app/routes' },
     'web/src/pages/about.tsx': { kind: 'modified', unit: 'file', at: 9, agents: ['a'] },
-  };
+  } satisfies Record<string, NodeChange>;
 
   const a = agent([
     file('web', 'src/pages/about.tsx'),
@@ -155,7 +155,7 @@ test('read marks last until the agent changes that code again', () => {
   const again = tourStops(graph, graphIndex, a('2026-09-27T10:05:00Z'), NO_NODES);
   assert.equal(isRead(marks, again[0]), false);
   // Another agent's later change to the same code doesn't count against this agent's tour.
-  const other: Record<string, NodeChange> = { 'web/src/pages/items.tsx#ItemsPage': { kind: 'modified', unit: 'symbol', at: t + 600_000, agents: ['b'] } };
+  const other = { 'web/src/pages/items.tsx#ItemsPage': { kind: 'modified', unit: 'symbol', at: t + 600_000, agents: ['b'] } } satisfies Record<string, NodeChange>;
   assert.equal(isRead(marks, tourStops(graph, graphIndex, a('2026-09-27T10:00:00Z'), other)[0]), true);
   // Wraps round to find the first unread before where you are.
   assert.equal(nextUnread(stops, { 'web/src/pages/items.tsx#useItems': t }, 1), 0);
@@ -233,7 +233,7 @@ test('two deleted files in one folder are two stops, each its own', () => {
 });
 
 test('a deleted file stands in the layer of the folder left, and is read with that layer', () => {
-  const nodes: Record<string, NodeChange> = { 'api/app/routes/old.py': { kind: 'deleted', unit: 'file', at: 5, agents: ['a'], anchor: 'api/app/routes' } };
+  const nodes = { 'api/app/routes/old.py': { kind: 'deleted', unit: 'file', at: 5, agents: ['a'], anchor: 'api/app/routes' } } satisfies Record<string, NodeChange>;
   const a = agent([file('api', 'app/models.py', [sym('api/app/models.py#Item')]), file('api', 'app/routes/old.py', [], 'deleted')]);
   // As the indexer has it: only files and functions carry a layer.
   const idx = new Map([...graphIndex].map(([id, n]) => [id, n.kind === 'folder' || n.kind === 'repo' ? { ...n, layer: undefined } : n]));
@@ -716,9 +716,9 @@ test('a new file with a hundred thousand functions is ordered without searching 
 });
 
 test('a change whose repository is gone from the map is not on the tour', () => {
-  const nodes: Record<string, NodeChange> = {
+  const nodes = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },
-  };
+  } satisfies Record<string, NodeChange>;
 
   const a = agent([{ ...file('gone', 'app/x.py'), node: undefined }, file('web', 'src/pages/about.tsx')]);
   assert.deepEqual(tourStops(graph, graphIndex, a, nodes).map((s) => s.id), ['web/src/pages/about.tsx']);
@@ -746,7 +746,7 @@ test('a deleted function waits for the changed code that uses its file', () => {
 });
 
 test('reviewable: only when something the agent changed is on the map', () => {
-  const nodes: Record<string, NodeChange> = { 'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' } };
+  const nodes = { 'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' } } satisfies Record<string, NodeChange>;
   assert.equal(reviewable(graphIndex, agent([{ ...file('gone', 'app/x.py'), node: undefined }]), nodes), false);
   assert.equal(reviewable(graphIndex, agent([file('web', 'src/pages/about.tsx')]), nodes), true);
 });

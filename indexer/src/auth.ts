@@ -264,7 +264,7 @@ export class Auth {
    * Where to send the browser to sign in, and the nonce to set as a cookie so
    * only this browser can finish it. `returnTo` must already be allowed.
    */
-  begin(returnTo: string, callbackUrl: string): { url: string; nonce: string } {
+  begin(returnTo: string, callbackUrl: string) {
     const nonce = b64(randomBytes(16));
     const state = this.sign({ k: 'o', r: returnTo, n: nonce, x: Math.floor(this.now() / 1000) + LOGIN_MINUTES * 60 });
     const q = new URLSearchParams({ client_id: this.config.clientId, redirect_uri: callbackUrl, scope: this.config.scope, state, allow_signup: 'true' });

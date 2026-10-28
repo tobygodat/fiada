@@ -313,6 +313,9 @@ export function impact(gi: GraphIndex, target: GraphNode, depth = 3, limit = 50)
 
 export type Question = 'find' | 'dependents' | 'impact';
 
+/** An HTTP status and the JSON body to send with it. */
+export type Answered = { status: number; body: FindAnswer | DependentsAnswer | ImpactAnswer | Ambiguous | { error: string } };
+
 export const QUESTIONS: readonly Question[] = ['find', 'dependents', 'impact'];
 
 /**
@@ -321,7 +324,7 @@ export const QUESTIONS: readonly Question[] = ['find', 'dependents', 'impact'];
  * A target that names several nodes answers 200 with `target: null` and the
  * candidates; one that names none answers 404.
  */
-export function answer(gi: GraphIndex, q: Question, query: Record<string, unknown>, brief?: (id: string) => string | undefined): { status: number; body: unknown } {
+export function answer(gi: GraphIndex, q: Question, query: Record<string, unknown>, brief?: (id: string) => string | undefined): Answered {
   if (q === 'find') {
     const text = typeof query.q === 'string' ? query.q.trim().slice(0, 200) : '';
 

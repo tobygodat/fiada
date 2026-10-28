@@ -25,12 +25,17 @@ import {
   type SortedDomain,
   type SortedGrouping,
   type SortedPlacement,
+  type Json,
+  type JsonObject,
 } from '@fiada/shared';
 import type { JsonRequest } from '../llm.ts';
 import { leftoverFiles, type LeftoverFile } from './leftovers.ts';
 
 /** Asks the model one structured question (LLM.json). */
-export type Ask = (req: JsonRequest) => Promise<unknown>;
+export type Ask = (req: JsonRequest) => Promise<Json>;
+
+/** The model's reply on naming and merging domains. */
+type DomainAnswer = { domains: { id: string; name: string; merge_into: string; reason: string }[]; new_domains: { id: string; name: string; reason: string }[] };
 
 export interface SortOptions {
   model: string;
@@ -54,8 +59,8 @@ const slug = (s: string) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
 
-const obj = (properties: Record<string, unknown>) => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
-const oneOf = (values: string[]) => (values.length ? { type: 'string', enum: values } : { type: 'string' });
+const obj = (properties: JsonObject) => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
+const oneOf = (values: string[]): JsonObject => (values.length ? { type: 'string', enum: values } : { type: 'string' });
 
 async function pool<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
   // oxlint-disable-next-line unicorn/no-new-array -- sized up front so each worker writes its result at its item's index
@@ -188,7 +193,7 @@ For each domain the classifier found that the user hasn't named:
 
 Then new_domains: the few domains the leftover code needs that none of the above covers (for example "Platform" for configuration, logging and startup, or "Search"). Prefer the existing domains; add a new one only when several leftover files belong together in it, and no more than eight. Give each an id (lowercase, hyphenated), a name and a one-line description of what belongs in it.`;
 
-  let domainAnswer: { domains: { id: string; name: string; merge_into: string; reason: string }[]; new_domains: { id: string; name: string; reason: string }[] } = {
+  let domainAnswer: DomainAnswer = {
     domains: [],
     new_domains: [],
   };
@@ -397,11 +402,11 @@ Answer every file.`;
         placements[lf.file.id] = { ...p, reason };
       }
 
-      for (const s of Array.isArray(a.symbols) ? a.symbols : []) {
-        const target = symbolFor(lf.needsDomain.filter((x) => !placements[x.id]), s?.name);
-        const sd = domainOf(s?.domain);
+      for (const s of Array.isArray(a.symbols) ? a.symbols.filter(isObject) : []) {
+        const target = symbolFor(lf.needsDomain.filter((x) => !placements[x.id]), s.name);
+        const sd = domainOf(s.domain);
 
-        if (target && target.kind === 'symbol' && sd && sd !== p.domain && str(s?.reason)) placements[target.id] = { domain: sd, reason: str(s.reason) };
+        if (target && target.kind === 'symbol' && sd && sd !== p.domain && str(s.reason)) placements[target.id] = { domain: sd, reason: str(s.reason) };
       }
     }
 
@@ -427,24 +432,19 @@ Answer every file.`;
 }
 
 /** One file's answer, as the model sent it: nothing in it is trusted to be there or to be the right type. */
-interface FileAnswer {
-  ref?: unknown;
-  layer?: unknown;
-  layer_reason?: unknown;
-  domain?: unknown;
-  reason?: unknown;
-  symbols?: { name?: unknown; domain?: unknown; reason?: unknown }[];
-}
+type FileAnswer = JsonObject;
 
-const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+const isObject = (v: Json | undefined): v is JsonObject => !!v && typeof v === 'object' && !Array.isArray(v);
+
+const str = (v: Json | undefined) => (typeof v === 'string' ? v.trim() : '');
 
 /** The per-file answers: `{ files: [...] }` as asked, or the same list bare, or keyed by ref. */
-function answersIn(answer: unknown): FileAnswer[] {
-  const files = Array.isArray(answer) ? answer : (answer as { files?: unknown } | null)?.files;
+function answersIn(answer: Json): FileAnswer[] {
+  const files = Array.isArray(answer) ? answer : isObject(answer) ? answer.files : undefined;
 
-  if (Array.isArray(files)) return files.filter((f): f is FileAnswer => !!f && typeof f === 'object');
+  if (Array.isArray(files)) return files.filter(isObject);
 
-  if (files && typeof files === 'object') return Object.entries(files).flatMap(([ref, f]) => (f && typeof f === 'object' ? [{ ref, ...(f as FileAnswer) }] : []));
+  if (isObject(files)) return Object.entries(files).flatMap(([ref, f]) => (isObject(f) ? [{ ref, ...f }] : []));
 
   return [];
 }
@@ -455,7 +455,7 @@ function answersIn(answer: unknown): FileAnswer[] {
  * or its name when no other file in the request shares it. Models given a
  * list of labelled paths often answer with the path.
  */
-export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => LeftoverFile | undefined {
+export function matchRef(byRef: Map<string, LeftoverFile>): (ref: Json | undefined) => LeftoverFile | undefined {
   // A path or name two files share (src/index.ts in two repositories, Foo.ts and foo.ts in any case) picks neither.
   const exact = new Map<string, LeftoverFile | null>();
   const byPath = new Map<string, LeftoverFile | null>();
@@ -506,7 +506,7 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
  * that its id or name in any case, when no other entry's id or name reads
  * the same.
  */
-function pickId(entries: (readonly [string, string])[]): (v: unknown) => string | undefined {
+function pickId(entries: (readonly [string, string])[]): (v: Json | undefined) => string | undefined {
   const ids = new Set(entries.map(([id]) => id));
   const lower = new Map<string, string | null>();
   const put = (key: string, id: string) => lower.set(key, lower.has(key) && lower.get(key) !== id ? null : id);
@@ -528,7 +528,7 @@ function pickId(entries: (readonly [string, string])[]): (v: unknown) => string 
  * lists it ("Settings (class, 40 lines)"). The longest name that fits wins,
  * so "Widget (default) (function, 4 lines)" is Widget (default), not Widget.
  */
-export function symbolFor<T extends { id: string; name: string }>(symbols: T[], v: unknown): T | undefined {
+export function symbolFor<T extends { id: string; name: string }>(symbols: T[], v: Json | undefined): T | undefined {
   const raw = str(v).trim();
   const byId = symbols.find((x) => x.id === raw);
 
@@ -544,9 +544,9 @@ export function symbolFor<T extends { id: string; name: string }>(symbols: T[], 
 }
 
 /** What an answer held, for a log line. */
-function describeAnswer(answer: unknown, answers: FileAnswer[]): string {
+function describeAnswer(answer: Json, answers: FileAnswer[]): string {
   if (!answers.length) {
-    const keys = answer && typeof answer === 'object' && !Array.isArray(answer) ? Object.keys(answer) : [];
+    const keys = isObject(answer) ? Object.keys(answer) : [];
 
     return `no files in it${keys.length ? ` (keys: ${keys.slice(0, 5).join(', ')})` : ''}`;
   }

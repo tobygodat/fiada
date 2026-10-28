@@ -8,13 +8,13 @@ import { agentRead, agentUnreadIds, forgetRead, loadRead, markAgentRead, markAll
 
 const change = (kind: NodeChange['kind'], unit: NodeChange['unit'], at: number, agents = ['a'], anchor?: string): NodeChange => ({ kind, unit, at, agents, anchor });
 
-const nodes: Record<string, NodeChange> = {
+const nodes = {
   'web/src/pages/items.tsx': change('modified', 'file', 10),
   'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 10),
   'web/src/pages/items.tsx#useTags': change('added', 'symbol', 20, ['a'], 'web/src/pages/items.tsx'),
   'web/src/pages/tags.tsx': change('added', 'file', 30, ['b'], 'web/src/pages'),
   'api/app/routes/old.py': change('deleted', 'file', 5, ['a'], 'api/app/routes'),
-};
+} satisfies Record<string, NodeChange>;
 
 test('every change is unread until something is opened', () => {
   assert.deepEqual([...unreadIds(nodes, {})].sort(), Object.keys(nodes).sort());
@@ -60,11 +60,11 @@ test('mark all read', () => {
 
 test("marking one agent read leaves another agent's later change to the same file unread", () => {
   // Agent a changed items.tsx at 10; agent b changed it again at 20. The node keeps the newest time.
-  const shared: Record<string, NodeChange> = {
+  const shared = {
     'web/src/pages/items.tsx': change('modified', 'file', 20, ['a', 'b']),
     'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/tags.tsx': change('added', 'file', 15, ['a']),
-  };
+  } satisfies Record<string, NodeChange>;
 
   const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -92,11 +92,11 @@ test("marking one agent read leaves another agent's later change to the same fil
 
 test("a lit agent's function you opened stays read when another agent changes it later", () => {
   // a changed ItemsPage and useTags at 10; you opened ItemsPage; b changed ItemsPage at 20.
-  const two: Record<string, NodeChange> = {
+  const two = {
     'web/src/pages/items.tsx': change('modified', 'file', 20, ['a', 'b']),
     'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/items.tsx#useTags': change('added', 'symbol', 10, ['a']),
-  };
+  } satisfies Record<string, NodeChange>;
 
   const a = {
     id: 'a',
@@ -178,11 +178,11 @@ test('read marks are kept per project and survive bad storage', () => {
 
 test("a lit agent's functions go by its own change time to each, not its latest to the file", () => {
   // a changed foo at 10; b changed foo at 20; a changed bar at 30. You opened foo at 20.
-  const three: Record<string, NodeChange> = {
+  const three = {
     'web/src/pages/items.tsx': change('modified', 'file', 30, ['a', 'b']),
     'web/src/pages/items.tsx#foo': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/items.tsx#bar': change('modified', 'symbol', 30, ['a']),
-  };
+  } satisfies Record<string, NodeChange>;
 
   const iso = (ms: number) => new Date(ms).toISOString();
 

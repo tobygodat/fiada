@@ -410,7 +410,7 @@ function Changed({
  * A file's lines from the indexer's checkout, fetched once per file and commit.
  * `rev` moves when an agent changes the file, which a commit id wouldn't show.
  */
-function useSource(repo: string, path: string, commit?: string, rev = 0): { lines: string[] | null; error: string | null } {
+function useSource(repo: string, path: string, commit?: string, rev = 0) {
   const key = `${repo}|${path}|${commit ?? ''}|${rev}`;
   const [state, setState] = useState<{ key: string; text?: string; error?: string } | null>(null);
   useEffect(() => {

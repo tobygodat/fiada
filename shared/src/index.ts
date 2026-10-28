@@ -840,3 +840,9 @@ export interface NodeSummary {
   /** With status `off`: what turns generated summaries on, e.g. "Set ANTHROPIC_API_KEY on the indexer…". */
   off?: string;
 }
+
+/** A value as JSON carries it: what `JSON.parse` returns and `JSON.stringify` keeps. */
+export type Json = string | number | boolean | null | Json[] | JsonObject;
+
+/** A JSON object, such as a request body, a model's reply or a settings file. */
+export type JsonObject = { [key: string]: Json };

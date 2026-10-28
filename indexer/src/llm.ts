@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { request as httpsRequest } from 'node:https';
 import { unquote } from './mongo-store.ts';
+import type { Json, JsonObject } from '@fiada/shared';
 
 /** One request whose answer must parse as JSON following `schema`. */
 export interface JsonRequest {
@@ -17,7 +18,7 @@ export interface JsonRequest {
   system: string[];
   prompt: string;
   /** JSON Schema. Every object needs additionalProperties: false and all of its properties required. */
-  schema: Record<string, unknown>;
+  schema: JsonObject;
 }
 
 export interface LLM {
@@ -25,7 +26,7 @@ export interface LLM {
   label: string;
   /** The model id, e.g. "claude-haiku-5-5" or "gpt-5.5". */
   model: string;
-  json(req: JsonRequest): Promise<unknown>;
+  json(req: JsonRequest): Promise<Json>;
 }
 
 /** Claude's default model, for sorting and summaries alike. */

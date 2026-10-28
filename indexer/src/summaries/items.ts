@@ -3,7 +3,7 @@
 // model would read about it changes.
 
 import { createHash } from 'node:crypto';
-import type { GraphNode } from '@fiada/shared';
+import type { GraphNode, JsonObject } from '@fiada/shared';
 import { declaration, fileDoc } from './docs.ts';
 import { descendants, fileNeighbours, groupMembers, list, shortName, symbolNeighbours, type GraphIndex } from './describe.ts';
 
@@ -172,7 +172,7 @@ export const SYSTEM = [
 ].join('\n\n');
 
 /** The reply format for a batch of `n` items. Ids are limited to the item numbers, so a model can't answer by name. */
-export function replySchema(n: number): Record<string, unknown> {
+export function replySchema(n: number): JsonObject {
   return {
     type: 'object',
     properties: {

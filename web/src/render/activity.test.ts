@@ -346,16 +346,23 @@ function ringsCanvas() {
   let r = 0;
   let dash: number[] = [];
 
-  const ctx: Record<string, unknown> = {
+  const ctx: Partial<CanvasRenderingContext2D> = {
     globalAlpha: 1,
-    arc: (_x: number, _y: number, radius: number) => (r = radius),
-    setLineDash: (d: number[]) => (dash = d),
-    stroke: () => rings.push({ r, dash, alpha: ctx.globalAlpha as number }),
+    arc: (_x, _y, radius) => {
+      r = radius;
+    },
+    setLineDash: (d) => {
+      dash = [...d];
+    },
+    stroke: () => {
+      rings.push({ r, dash, alpha: ctx.globalAlpha ?? 1 });
+    },
     beginPath: () => {},
     fillRect: () => {},
   };
 
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, rings };
+  // SAFETY: drawRings calls only the methods and reads only the fields set above.
+  return { ctx: ctx as CanvasRenderingContext2D, rings };
 }
 
 test('looked at: one faint dotted ring where the change ring would be, never with a change or the working ring', () => {

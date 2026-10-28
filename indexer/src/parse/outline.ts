@@ -208,10 +208,10 @@ export interface Ann {
   line: number;
 }
 
-const VERB_ANNOTATION: Record<string, string> = {
+const VERB_ANNOTATION = new Map(Object.entries({
   GetMapping: 'GET', PostMapping: 'POST', PutMapping: 'PUT', DeleteMapping: 'DELETE', PatchMapping: 'PATCH',
   HttpGet: 'GET', HttpPost: 'POST', HttpPut: 'PUT', HttpDelete: 'DELETE', HttpPatch: 'PATCH', HttpHead: 'HEAD', HttpOptions: 'OPTIONS',
-};
+}));
 
 const JAXRS_VERB = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/;
 const PATH_ANNOTATION = /^(RequestMapping|Path|Route)$/;
@@ -247,7 +247,7 @@ export function annotationRoutes(own: Ann[], outer: Ann[], n: SyntaxNode, names:
   };
 
   for (const a of own) {
-    const verb = VERB_ANNOTATION[a.name];
+    const verb = VERB_ANNOTATION.get(a.name);
 
     if (verb) add(verb, a.paths.length ? a.paths : ownPaths, a.name.startsWith('Http'));
     else if (a.name === 'RequestMapping') for (const m of a.methods.length ? a.methods : ['*']) add(m, a.paths);

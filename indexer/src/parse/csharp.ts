@@ -16,7 +16,7 @@ const TYPE_KIND = {
   delegate_declaration: 'type',
 } as const;
 
-const MAP_VERB: Record<string, string> = { MapGet: 'GET', MapPost: 'POST', MapPut: 'PUT', MapDelete: 'DELETE', MapPatch: 'PATCH', Map: '*', MapMethods: '*' };
+const MAP_VERB = new Map(Object.entries({ MapGet: 'GET', MapPost: 'POST', MapPut: 'PUT', MapDelete: 'DELETE', MapPatch: 'PATCH', Map: '*', MapMethods: '*' }));
 
 const lastSegment = (s: string) => s.slice(s.lastIndexOf('.') + 1);
 const isPrivate = (n: SyntaxNode) => n.namedChildren.some((c) => c.type === 'modifier' && c.text === 'private');
@@ -226,7 +226,7 @@ function minimalApiRoutes(root: SyntaxNode): RouteDecl[] {
 
     if (fn?.type !== 'member_access_expression') continue;
     const mapper = fn.childForFieldName('name')?.text ?? '';
-    const verb = MAP_VERB[mapper];
+    const verb = MAP_VERB.get(mapper);
     const args = call.childForFieldName('arguments')?.namedChildren ?? [];
     const first = args[0]?.namedChildren[0];
     const p = first?.type === 'string_literal' ? literal(first) : null;

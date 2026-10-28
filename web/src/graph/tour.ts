@@ -703,7 +703,7 @@ export const isRead = (marks: ReadMarks, s: TourStop) => (marks[s.id] ?? -1) >= 
 export const stopRev = (s: TourStop) => Math.max(s.at, ...(s.carries ?? []).map((c) => c.at));
 
 /** The marks with a stop read (as it is now) or unread again, the file's other code it shows with it. */
-export function markStop(marks: ReadMarks, s: TourStop, read: boolean): ReadMarks {
+export function markStop(marks: ReadMarks, s: TourStop, read: boolean) {
   const next = { ...marks };
 
   for (const { id, at } of [{ id: s.id, at: s.at }, ...(s.carries ?? [])]) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type SortedGrouping } from '@fiada/shared';
+import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type Json, type JsonObject, type SortedGrouping } from '@fiada/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
 import { matchRef, sortProject, symbolFor, type Ask } from './classify/model-sort.ts';
 import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';
@@ -44,10 +44,10 @@ const base: BaseGraph = {
 const leftoversOf = (g: Graph) => g.nodes.filter((n) => (n.kind === 'symbol' || n.kind === 'file') && (n.domain?.id === UNSORTED_DOMAIN || n.layer?.id === UNLAYERED));
 
 /** Answers like Claude would, and records what it was asked. */
-function scripted(): { ask: Ask; asked: JsonRequest[] } {
+function scripted() {
   const asked: JsonRequest[] = [];
 
-  const ask: Ask = async (req) => {
+  const ask = async (req: JsonRequest): Promise<Json> => {
     asked.push(req);
 
     if (req.label === 'domains') {
@@ -217,7 +217,7 @@ test('the sorter runs once per set of repositories, off the request path', async
 });
 
 test("a grouping sent without Claude's sort keeps it", async () => {
-  let saved: unknown = null;
+  let saved: Grouping | null = null;
 
   const store: ProjectStore = {
     describe: () => 'memory',
@@ -261,10 +261,10 @@ const plain: BaseGraph = {
 };
 
 /** Answers the way Haiku did: step 1 adds domains, step 2 names each file by `refOf` its prompt line. */
-function haikuLike(refOf: (ref: string, id: string) => unknown, extra: Record<string, unknown> = {}): { ask: Ask; asked: JsonRequest[] } {
+function haikuLike(refOf: (ref: string, id: string) => Json, extra: JsonObject = {}) {
   const asked: JsonRequest[] = [];
 
-  const ask: Ask = async (req) => {
+  const ask = async (req: JsonRequest): Promise<Json> => {
     asked.push(req);
 
     if (req.label === 'domains') {
@@ -315,7 +315,7 @@ test("Claude answering with each file's path instead of its ref still places eve
 });
 
 test('every way a model writes a ref lands on its file', async () => {
-  const forms: Record<string, (ref: string, id: string) => unknown> = {
+  const forms = {
     'the ref': (ref) => ref,
     'lower case': (ref) => ref.toLowerCase(),
     'in brackets': (ref) => `[${ref}]`,
@@ -323,8 +323,8 @@ test('every way a model writes a ref lands on its file', async () => {
     'the whole prompt line': (_ref, id) => `${id} (unknown, 0 lines)`,
     'the path in the repository': (_ref, id) => id.replace(/^typing\//, ''),
     'with ./': (_ref, id) => `./${id.replace(/^typing\//, '')}`,
-    'its file name': (_ref, id) => id.split('/').pop(),
-  };
+    'its file name': (_ref, id) => id.slice(id.lastIndexOf('/') + 1),
+  } satisfies Record<string, (ref: string, id: string) => Json>;
 
   for (const [form, refOf] of Object.entries(forms)) {
     const { ask } = haikuLike(refOf);
@@ -383,15 +383,18 @@ test('a name two domains share, in any case, picks neither; the exact id still d
 
 test('answers bare or keyed by ref are read too', async () => {
   const keyed: Ask = async (req) => {
-    const a = (await haikuLike((ref) => ref).ask(req)) as { files?: { ref: string }[] };
+    const a = await haikuLike((ref) => ref).ask(req);
+    // SAFETY: haikuLike answers the files step as { files: [{ ref, … }] } with string refs, and the domains step without files.
+    const files = (a as { files?: ({ ref: string } & JsonObject)[] }).files;
 
-    return a.files ? Object.fromEntries([['files', Object.fromEntries(a.files.map(({ ref, ...f }) => [ref, f]))]]) : a;
+    return files ? { files: Object.fromEntries(files.map(({ ref, ...f }) => [ref, f])) } : a;
   };
 
   const bare: Ask = async (req) => {
-    const a = (await haikuLike((ref) => ref).ask(req)) as { files?: unknown[] };
+    const a = await haikuLike((ref) => ref).ask(req);
 
-    return a.files ?? a;
+    // SAFETY: haikuLike answers the files step as { files: [...] }, and the domains step without files.
+    return (a as { files?: Json[] }).files ?? a;
   };
 
   for (const ask of [keyed, bare]) {

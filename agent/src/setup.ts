@@ -29,7 +29,7 @@ const q = (p: string) => (/[\s"'$]/.test(p) ? JSON.stringify(p) : p);
 export const PACKAGE: { name: string; version: string } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 /** The commands Claude Code runs for the hook and the MCP server, for this copy of the package in `bin`. */
-export function commandsFor(bin: string, pkg = PACKAGE): { hook: string; mcp: string[] } {
+export function commandsFor(bin: string, pkg = PACKAGE) {
   // npx keeps packages in <cache>/_npx/<hash>/, which npm may clear: run through npx, pinned, offline when it can be.
   // The package has several bins and none is named after it, so npx has to be told to run `fiada`.
   if (bin.split(/[\\/]/).includes('_npx')) {
@@ -51,7 +51,10 @@ export const EDIT_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 
 type HookEntry = { matcher?: string; hooks: { type: 'command'; command: string; timeout?: number }[] };
 
-export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
+/** The part of Claude Code's settings this reads; mergeHooks keeps every other field as it was. */
+type Settings = { hooks?: Record<string, HookEntry[]> };
+
+export function hooksBlock(command = HOOK) {
   const run = [{ type: 'command' as const, command, timeout: 10 }];
 
   return {
@@ -61,12 +64,12 @@ export function hooksBlock(command = HOOK): Record<string, HookEntry[]> {
     PostToolUse: [{ matcher: MATCHER, hooks: run }],
     Stop: [{ hooks: run }],
     SessionEnd: [{ hooks: run }],
-  };
+  } satisfies Record<string, HookEntry[]>;
 }
 
 /** Adds Fiada's hooks to a settings object, replacing any earlier Fiada (or Strata) entries and keeping everything else. */
-export function mergeHooks(settings: Record<string, any>, block = hooksBlock()): Record<string, any> {
-  const hooks: Record<string, HookEntry[]> = { ...settings.hooks };
+export function mergeHooks<S extends Settings>(settings: S, block = hooksBlock()) {
+  const hooks = { ...settings.hooks };
 
   for (const [event, entries] of Object.entries(block)) {
     const kept = (hooks[event] ?? [])
@@ -166,7 +169,7 @@ To report to a hosted map, add --url <indexer> --token <token>; the map's "conne
   const typedIn = process.env.INIT_CWD ?? process.env.npm_config_local_prefix ?? process.cwd();
   const dir = path.resolve(typedIn, flag(args, '--write', true) ?? '.');
   const file = path.join(dir, '.claude', 'settings.local.json');
-  let settings: Record<string, any> = {};
+  let settings: Settings = {};
 
   try {
     settings = JSON.parse(await fs.readFile(file, 'utf8'));

@@ -19,7 +19,7 @@ const ITEM_KIND = {
   macro_definition: 'function',
 } as const;
 
-const ROUTE_ATTR: Record<string, string> = { get: 'GET', post: 'POST', put: 'PUT', delete: 'DELETE', patch: 'PATCH', head: 'HEAD', options: 'OPTIONS' };
+const ROUTE_ATTR = new Map(Object.entries({ get: 'GET', post: 'POST', put: 'PUT', delete: 'DELETE', patch: 'PATCH', head: 'HEAD', options: 'OPTIONS' }));
 
 const isPub = (n: SyntaxNode) => n.namedChildren.some((c) => c.type === 'visibility_modifier');
 
@@ -43,7 +43,7 @@ function attributeRoutes(n: SyntaxNode): RouteDecl[] {
   for (let p = n.previousNamedSibling; p?.type === 'attribute_item'; p = p.previousNamedSibling) {
     const attr = p.namedChildren[0];
     const name = attr?.namedChildren[0]?.text ?? '';
-    const verb = ROUTE_ATTR[name.slice(name.lastIndexOf(':') + 1)];
+    const verb = ROUTE_ATTR.get(name.slice(name.lastIndexOf(':') + 1));
     const path = literal(attr?.descendantsOfType('string_literal')[0]);
 
     if (verb && path != null) out.push({ method: verb, path, line: line(p) });

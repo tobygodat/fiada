@@ -14,7 +14,7 @@ import { extractSwift } from './swift.ts';
 import { getParser, type SyntaxNode } from './treesitter.ts';
 import { extractTs } from './typescript.ts';
 
-const EXT: Record<string, Lang> = {
+const EXT = new Map(Object.entries({
   '.ts': 'typescript',
   '.mts': 'typescript',
   '.cts': 'typescript',
@@ -43,7 +43,7 @@ const EXT: Record<string, Lang> = {
   '.rb': 'ruby',
   '.rake': 'ruby',
   '.swift': 'swift',
-};
+} satisfies Record<string, Lang>));
 
 const EXTRACT: Record<Lang, (root: SyntaxNode, file: ParsedFile) => void> = {
   typescript: extractTs,
@@ -62,13 +62,13 @@ const EXTRACT: Record<Lang, (root: SyntaxNode, file: ParsedFile) => void> = {
 };
 
 /** Extensions of the files a language here parses. */
-export const SOURCE_EXTENSIONS = Object.keys(EXT);
+export const SOURCE_EXTENSIONS = [...EXT.keys()];
 
 export function langOf(path: string): Lang | null {
   if (path.endsWith('.d.ts')) return null;
   const dot = path.lastIndexOf('.');
 
-  return dot < 0 ? null : (EXT[path.slice(dot)] ?? null);
+  return dot < 0 ? null : (EXT.get(path.slice(dot)) ?? null);
 }
 
 export async function parseFile(path: string, text: string): Promise<ParsedFile | null> {

@@ -1569,7 +1569,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
     if (!owner || !c) return null;
     const evidence = [ev(owner, 'constant', c.line, `the HTTP client ${local} requests go through`)];
     let parts = c.base;
-    let at: { t: FileEntry; line: number } = { t: owner, line: c.line };
+    let at = { t: owner, line: c.line };
 
     if (!parts && c.ctor) {
       const cls = resolveRef(owner, { name: c.ctor })?.to;

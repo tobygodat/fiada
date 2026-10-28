@@ -50,7 +50,7 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 /** Tools that can't change files; no need to look at the working tree after them. */
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoRead', 'TaskList', 'TaskGet', 'TaskOutput', 'ExitPlanMode', 'AskUserQuestion']);
 
-const TODO_STATUS: Record<string, StepStatus | 'removed'> = { pending: 'pending', in_progress: 'active', completed: 'done', deleted: 'removed' };
+const TODO_STATUS = new Map(Object.entries({ pending: 'pending', in_progress: 'active', completed: 'done', deleted: 'removed' } satisfies Record<string, StepStatus | 'removed'>));
 
 const oneLine = (s: unknown, max = 300) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
@@ -215,7 +215,7 @@ async function claudeToolUse(p: Payload, key: string, co: Checkout | null): Prom
       id: t.id == null ? undefined : String(t.id),
       text: oneLine(t.content, 200),
       activeText: t.activeForm ? oneLine(t.activeForm, 200) : undefined,
-      status: TODO_STATUS[t.status] === 'removed' ? 'done' : ((TODO_STATUS[t.status] ?? 'pending') as StepStatus),
+      status: TODO_STATUS.get(t.status) === 'removed' ? 'done' : ((TODO_STATUS.get(t.status) ?? 'pending') as StepStatus),
     }));
 
     return [{ type: 'task', steps }];
@@ -234,7 +234,7 @@ async function claudeToolUse(p: Payload, key: string, co: Checkout | null): Prom
         id: String(input.taskId),
         text: input.subject ? oneLine(input.subject, 200) : undefined,
         activeText: input.activeForm ? oneLine(input.activeForm, 200) : undefined,
-        status: TODO_STATUS[input.status],
+        status: TODO_STATUS.get(input.status),
       },
     ];
   }

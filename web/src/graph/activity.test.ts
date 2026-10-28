@@ -9,13 +9,13 @@ const graph = fixtureGraph();
 const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
 const change = (kind: NodeChange['kind'], unit: NodeChange['unit'], at: number, anchor?: string): NodeChange => ({ kind, unit, at, agents: ['a'], anchor });
 
-const nodes: Record<string, NodeChange> = {
+const nodes = {
   'web/src/pages/items.tsx': change('modified', 'file', 10),
   'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 10),
   'web/src/pages/items.tsx#useTags': change('added', 'symbol', 20, 'web/src/pages/items.tsx'),
   'web/src/pages/tags.tsx': change('added', 'file', 30, 'web/src/pages'),
   'api/app/routes/old.py': change('deleted', 'file', 5, 'api/app/routes'),
-};
+} satisfies Record<string, NodeChange>;
 
 test('Code view: changed nodes mark themselves and closed ancestors count files', () => {
   const a = rollupActivity(buildCodeTree(graph), graphIndex, nodes);
@@ -87,11 +87,11 @@ test('By function: the agent is at the symbols it changed in that file', () => {
 test("one agent's changes: the circles standing for them, and every circle round them", () => {
   const tree = buildCodeTree(graph);
 
-  const mixed: Record<string, NodeChange> = {
+  const mixed = {
     ...nodes,
     'web/src/client/api.ts': { ...change('modified', 'file', 40), agents: ['b'] },
     'web/src/pages/about.tsx': { ...change('modified', 'file', 50), agents: ['a', 'b'] },
-  };
+  } satisfies Record<string, NodeChange>;
 
   assert.deepEqual(Object.keys(agentNodes(mixed, 'b')).sort(), ['web/src/client/api.ts', 'web/src/pages/about.tsx']);
   const s = spotlight(tree, graphIndex, mixed, 'b');

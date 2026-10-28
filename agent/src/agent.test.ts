@@ -5,13 +5,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { AgentEvent, DependentsAnswer, FindAnswer, ImpactAnswer, NodeRef } from '@fiada/shared';
+import type { AgentEvent, Ambiguous, DependentsAnswer, FindAnswer, ImpactAnswer, NodeRef } from '@fiada/shared';
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { aboutToEdit, fenceAnswer, placed, firstLine, linesOf, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
-import { ask } from './client.ts';
+import { ask, type Asked } from './client.ts';
 import { clientId, formatImpact, nowLines, FiadaMcp } from './mcp.ts';
 import { applyConfig, configPath } from './env.ts';
 import { commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
@@ -471,9 +471,9 @@ const client: NodeRef = { id: 'web/src/sdk.ts#ItemsService', kind: 'symbol', nam
 test('the read tools ask the map, answer in plain lines, and report what the agent looked at', async () => {
   const dir = await repo({ 'app/models.py': 'class Item:\n    pass\n' });
   const sent: AgentEvent[][] = [];
-  const asked: [string, Record<string, unknown>][] = [];
+  const asked: [string, Record<string, string | number | undefined>][] = [];
 
-  const answers: Record<string, any> = {
+  const answers = new Map<string, Asked<FindAnswer | DependentsAnswer | ImpactAnswer | Ambiguous>>(Object.entries({
     find: { ok: true, body: { query: 'item', hits: [{ ...item, summary: 'The item table.' }, route], more: 4 } satisfies FindAnswer },
     dependents: {
       ok: true,
@@ -498,12 +498,12 @@ test('the read tools ask the map, answer in plain lines, and report what the age
         byDomain: { Items: 2 },
       } satisfies ImpactAnswer,
     },
-  };
+  }));
 
-  const asker = (async (r: string, params: Record<string, unknown>) => {
+  const asker = (async (r: string, params: Record<string, string | number | undefined>) => {
     asked.push([r, params]);
 
-    return answers[r];
+    return answers.get(r);
   }) as typeof ask;
 
   process.env.FIADA_CWD = dir;
@@ -535,12 +535,12 @@ test('the read tools ask the map, answer in plain lines, and report what the age
   assert.match(reach.content[0].text, /Uses it directly:\n- create_item \(function\) in api\/app\/routes\/items\.py:61-72: calls\n2 links away:\n- ItemsService \(class\) in web\/src\/sdk\.ts:287-365: http, another repository/);
 
   // Several matches: pick one. None: a plain answer, not an error. No indexer: carry on.
-  answers.dependents = { ok: true, body: { target: null, query: 'Item', candidates: [item, { ...item, id: 'web/src/Main.tsx#Item', repo: 'web', path: 'src/Main.tsx', symbolKind: 'type' }] } };
+  answers.set('dependents', { ok: true, body: { target: null, query: 'Item', candidates: [item, { ...item, id: 'web/src/Main.tsx#Item', repo: 'web', path: 'src/Main.tsx', symbolKind: 'type' }] } });
   assert.match((await call('who_uses', { target: 'Item' })).content[0].text, /could be any of these; ask again with one of their ids:\n- api\/app\/models\.py#Item/);
-  answers.impact = { ok: false, status: 404, error: 'Nothing on the map matches "x".' };
+  answers.set('impact', { ok: false, status: 404, error: 'Nothing on the map matches "x".' });
   const none = await call('impact', { target: 'x' });
   assert.equal(none.isError, undefined);
-  answers.find = { ok: false, status: 0, error: "Fiada isn't reachable at http://127.0.0.1:9." };
+  answers.set('find', { ok: false, status: 0, error: "Fiada isn't reachable at http://127.0.0.1:9." });
   assert.equal((await call('where_is', { query: 'x' })).isError, undefined);
   assert.equal((await call('where_is', {})).isError, true);
   assert.equal((await call('impact', {})).isError, true);

@@ -75,7 +75,7 @@ export function changeColor(kind: ChangeKind, a = 1): string {
 }
 
 /** Font stacks for ctx.font, e.g. `600 13px ${fonts().serif}`. */
-export function fonts(): { serif: string; code: string } {
+export function fonts() {
   return { serif: token('--font-serif'), code: token('--font-code') };
 }
 

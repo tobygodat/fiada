@@ -60,7 +60,10 @@ const SESSION_ITEM = 'fiada.session';
  * (or why it failed) in the address's fragment, which never reaches a
  * server. Taken out of the address bar at once.
  */
-const returned = ((): { session?: string; error?: string } => {
+/** What a sign-in left in the address bar. */
+type Returned = { session?: string; error?: string };
+
+const returned = ((): Returned => {
   if (typeof window === 'undefined') return {};
   const hash = new URLSearchParams(window.location.hash.slice(1));
   const session = hash.get('fiada_session') ?? undefined;
@@ -120,13 +123,14 @@ export function signOut() {
 export const signInUrl = () => apiUrl(`/api/auth/github/login?return=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`);
 
 /** Headers that say who is asking: the session for everything, else the access key for changes. */
-export function authHeaders(method = 'GET'): Record<string, string> {
-  if (session) return { authorization: `Bearer ${session}` };
+export function authHeaders(method = 'GET') {
+  const headers: Record<string, string> = {};
 
+  if (session) headers.authorization = `Bearer ${session}`;
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
-  if (accessKey && method !== 'GET') return { authorization: `Bearer ${accessKey}` };
+  else if (accessKey && method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
 
-  return {};
+  return headers;
 }
 
 /** The access key this browser has for a shared indexer, for the agent setup command. */

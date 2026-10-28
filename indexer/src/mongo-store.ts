@@ -284,8 +284,8 @@ export function redact(uri: string): string {
 // symbol ids (grouping pins are keyed by them) contain dots, as in
 // "web/src/api.ts#fetchItems". Percent-escape them, and "%" itself so that
 // decoding is exact: "api.ts" is stored as "api%2Ets" and "a%b" as "a%25b".
-const ESCAPES: Record<string, string> = { '%': '%25', '.': '%2E', $: '%24' };
-const UNESCAPES: Record<string, string> = { '%25': '%', '%2E': '.', '%24': '$' };
+const ESCAPES = new Map(Object.entries({ '%': '%25', '.': '%2E', $: '%24' }));
+const UNESCAPES = new Map(Object.entries({ '%25': '%', '%2E': '.', '%24': '$' }));
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && Object.getPrototypeOf(v) === Object.prototype;
@@ -298,6 +298,6 @@ function mapKeys(value: unknown, key: (k: string) => string): unknown {
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [key(k), mapKeys(v, key)]));
 }
 
-export const encodeKeys = (value: unknown) => mapKeys(value, (k) => k.replace(/[%.$]/g, (c) => ESCAPES[c]));
+export const encodeKeys = (value: unknown) => mapKeys(value, (k) => k.replace(/[%.$]/g, (c) => ESCAPES.get(c) ?? c));
 
-export const decodeKeys = (value: unknown) => mapKeys(value, (k) => k.replace(/%(25|2E|24)/g, (e) => UNESCAPES[e]));
+export const decodeKeys = (value: unknown) => mapKeys(value, (k) => k.replace(/%(25|2E|24)/g, (e) => UNESCAPES.get(e) ?? e));

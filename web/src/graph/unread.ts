@@ -15,7 +15,7 @@ const MAX_MARKS = 4000;
 
 const storageKey = (project: string) => `fiada.read.${project}`;
 
-export function loadRead(project: string): ReadMarks {
+export function loadRead(project: string) {
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey(project)) ?? '{}') as unknown;
 
@@ -194,7 +194,7 @@ export function agentUnreadIds(a: AgentActivity, unread: ReadonlySet<string>, ma
 }
 
 /** How many of an agent's changed files you've read: "12 of 19 changes read". */
-export function agentRead(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>): { read: number; total: number } {
+export function agentRead(a: AgentActivity, unread: ReadonlySet<string>, marks: ReadMarks, nodes: Record<string, NodeChange>) {
   let read = 0;
 
   for (const f of a.files) if (!agentFileUnread(f, unread, marks, nodes)) read++;

@@ -17,7 +17,7 @@ export interface SearchHit {
   span: [number, number] | null;
 }
 
-const KIND_ORDER: Record<string, number> = { repo: 0, folder: 1, file: 2, symbol: 3 };
+const KIND_ORDER = new Map(Object.entries({ repo: 0, folder: 1, file: 2, symbol: 3 }));
 
 /** Where a node lives, without its own name: `repo/src/pages` for `repo/src/pages/items.tsx`, `repo/a.ts:12` for a symbol. */
 export function whereOf(n: GraphNode): string {
@@ -63,7 +63,7 @@ function rank(n: GraphNode, q: string): { score: number; span: [number, number] 
 
 const order = (a: SearchHit, b: SearchHit) =>
   a.score - b.score ||
-  (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) ||
+  (KIND_ORDER.get(a.kind) ?? 9) - (KIND_ORDER.get(b.kind) ?? 9) ||
   a.name.length - b.name.length ||
   (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 

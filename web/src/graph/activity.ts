@@ -178,7 +178,7 @@ function lookedIds(tree: Tree, graphIndex: Map<string, GraphNode>, kids: Childre
 }
 
 /** What one agent looked at, out of every agent's. */
-export function agentLooked(looked: Record<string, LookedAt> | undefined, agentId: string): Record<string, LookedAt> {
+export function agentLooked(looked: Record<string, LookedAt> | undefined, agentId: string) {
   const out: Record<string, LookedAt> = {};
 
   for (const [id, l] of Object.entries(looked ?? {})) if (l.agents.includes(agentId)) out[id] = l;
@@ -298,7 +298,7 @@ function addRipple(
 }
 
 /** The changes one agent made, out of every agent's, each credited to that agent alone (so a file another agent also changed narrows as it would for this one). */
-export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): Record<string, NodeChange> {
+export function agentNodes(nodes: Record<string, NodeChange>, agentId: string) {
   const out: Record<string, NodeChange> = {};
 
   for (const [id, c] of Object.entries(nodes)) {

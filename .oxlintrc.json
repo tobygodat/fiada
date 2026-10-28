@@ -37,6 +37,7 @@
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/no-array-filter-map": "error",
+    "anti-slop/no-known-value-widening": "error",
 
     // The rules below found code written before the linter. Each is off until a
     // cleanup PR adopts it (TOB-222); they don't change behaviour, so none blocks.
@@ -46,8 +47,6 @@
     "anti-slop/require-safety-comment-for-type-assertion": "off",
     // 80 findings: typeof guards are how the indexer and agent check untrusted JSON at their boundaries.
     "anti-slop/no-runtime-typeof": "off",
-    // 76 findings: annotations widen literal defaults in existing modules.
-    "anti-slop/no-known-value-widening": "off",
     // 51 findings: `...(x ? { k } : {})` is the code's idiom for optional fields.
     "anti-slop/no-conditional-empty-object-spread": "off",
     // 32 findings: hook payloads, MCP messages and JSON bodies arrive as unknown and are narrowed inside.

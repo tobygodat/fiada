@@ -51,7 +51,7 @@ export const MAX_LOOKED = 500;
 /** The latest looks each agent's entry lists. */
 const LOOKED_LISTED = 20;
 
-const NAMES: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' };
+const NAMES = new Map(Object.entries({ 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', cli: 'Script', mcp: 'Agent' }));
 
 /** Symbol names/lines in HEAD's version of a file, keyed by symbol id, with the layer the map gave each. */
 type SymbolLines = Map<string, { name: string; lines: [number, number]; layer?: string }>;
@@ -221,6 +221,9 @@ function ownText(text: string[], symbols: Pick<GraphNode, 'id' | 'lines'>[]): Ma
  * `back`: the agent took the change back, so the symbol is no longer its change.
  */
 type Stamp = { sig: string | null; at: number; back?: true };
+
+/** A file's symbols with their change times, and whose they are. */
+type Stamped = { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean; others: NonNullable<AgentFile['others']>; topTheirs: boolean; topShared: boolean };
 
 /**
  * Moves a change time on only when the text it was taken for changes. Before its first text is
@@ -1031,7 +1034,7 @@ export class AgentHub {
     const out = new Map<string, string>();
 
     for (const rec of this.agents.values()) {
-      const name = NAMES[rec.ref.client] ?? rec.ref.client;
+      const name = NAMES.get(rec.ref.client) ?? rec.ref.client;
       out.set(rec.id, count.get(agentKey(rec.ref))! > 1 && rec.ref.session ? `${name} · ${rec.ref.session.slice(0, 4)}` : name);
     }
 
@@ -1110,7 +1113,7 @@ export class AgentHub {
     f: FileRec,
     symbols: AgentFile['symbols'],
     own = false,
-  ): { symbols: AgentFile['symbols']; top: number | null; theirsOnly: boolean; others: NonNullable<AgentFile['others']>; topTheirs: boolean; topShared: boolean } {
+  ): Stamped {
     const settled = !f.live || f.settled;
     const sig = this.signer(f);
 

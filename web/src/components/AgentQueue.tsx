@@ -198,7 +198,10 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
  * One line for the folded window: while it works, the status line, which already says what the
  * agent is doing; else its state in words and the task.
  */
-function currentLine(a: AgentActivity): { state: string | null; text: string } {
+/** A queue row's state word, or null while the agent says what it's doing, and its line of text. */
+type CurrentLine = { state: string | null; text: string };
+
+function currentLine(a: AgentActivity): CurrentLine {
   const now = a.now?.text.split('\n')[0];
 
   if (a.state === 'working' && now) return { state: null, text: now };

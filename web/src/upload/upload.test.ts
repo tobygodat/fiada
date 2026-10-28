@@ -68,7 +68,7 @@ function fromDisk(dir: string): Folder {
 async function repo() {
   const root = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-pick-')), 'private-app');
 
-  const files: Record<string, string> = {
+  const files = {
     '.gitignore': 'generated/\n*.local.ts\n',
     'package.json': '{"name":"private-app"}',
     'src/app.ts': 'export const app = 1;\n',
@@ -84,7 +84,7 @@ async function repo() {
     [`src/${'very-long-folder-name/'.repeat(6)}deep.ts`]: 'export const deep = 1;\n',
     'node_modules/dep/index.js': 'module.exports = 1;\n',
     'dist/app.js': 'x',
-  };
+  } satisfies Record<string, string>;
 
   for (const [p, text] of Object.entries(files)) {
     await fs.mkdir(path.join(root, path.dirname(p)), { recursive: true });

@@ -267,7 +267,10 @@ export const cutShort = (rows: readonly string[]) => rows.length > 0 && rows[row
  * removed) is cut to exactly those lines; any other keeps three lines of context around them, as
  * git would. A hunk that needs no cut stays as it is, header and all. Without `own`, only the rest.
  */
-function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof covers>): { own: string[][]; rest: string[][] } {
+/** A hunk cut into the lines the symbol's agent changed and the rest. */
+type Sliced = { own: string[][]; rest: string[][] };
+
+function slice(h: string[], own: HunkOwner | undefined, rest?: ReturnType<typeof covers>): Sliced {
   const placed = place(h);
 
   if (!placed || (own && !own.lines && !own.oldLines)) return own ? { own: [h], rest: [] } : { own: [], rest: [] };

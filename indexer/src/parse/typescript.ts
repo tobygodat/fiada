@@ -11,7 +11,7 @@ const FUNCTION_LIKE = new Set(['arrow_function', 'function', 'function_expressio
 const JSX_TYPES = ['jsx_element', 'jsx_self_closing_element', 'jsx_fragment'];
 
 /** Client verbs, including superagent's `del`. */
-const CLIENT_VERB: Record<string, string> = { del: 'DELETE' };
+const CLIENT_VERB = new Map(Object.entries({ del: 'DELETE' }));
 
 /** `express()`, `new Hono()`, `Fastify()`: the application, with no prefix above it. */
 const ROOT_CTOR = /^(express|fastify|Fastify|Hono|Koa|Elysia|polka|createServer|createApp|NestFactory\.create)$/;
@@ -247,7 +247,7 @@ function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   const obj = fn.childForFieldName('object');
   const verb = fn.childForFieldName('property')?.text ?? '';
 
-  if (!HTTP_VERBS.has(verb) && verb !== 'all' && verb !== 'request' && !CLIENT_VERB[verb]) return;
+  if (!HTTP_VERBS.has(verb) && verb !== 'all' && verb !== 'request' && !CLIENT_VERB.has(verb)) return;
 
   const last = argv[argv.length - 1];
   const handlerLike = argv.length >= 2 && (FUNCTION_LIKE.has(last.type) || last.type === 'identifier' || last.type === 'member_expression');
@@ -258,7 +258,7 @@ function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
   const bare = obj != null && /[rR]outer$/.test(obj.text) && first != null && /^[\w$:{}*-][\w$:.{}*/-]*$/.test(first) ? `/${first}` : null;
   const path = first?.startsWith('/') ? first : bare;
 
-  if (path && handlerLike && (routerish || FUNCTION_LIKE.has(last.type)) && !CLIENT_VERB[verb]) {
+  if (path && handlerLike && (routerish || FUNCTION_LIKE.has(last.type)) && !CLIENT_VERB.has(verb)) {
     const route: RouteDecl = { method: verb === 'all' ? '*' : verb.toUpperCase(), path, line: line(call) };
 
     if (routerName) route.router = routerName;
@@ -269,7 +269,7 @@ function httpFromCall(call: SyntaxNode, fn: SyntaxNode, out: Scan) {
     return;
   }
 
-  const method = CLIENT_VERB[verb] ?? (HTTP_VERBS.has(verb) ? verb.toUpperCase() : (methodFromOptions(argv[1]) ?? 'GET'));
+  const method = CLIENT_VERB.get(verb) ?? (HTTP_VERBS.has(verb) ? verb.toUpperCase() : (methodFromOptions(argv[1]) ?? 'GET'));
   // client.get("/items") or client.get({ url: "/items" }) as generated SDKs do.
   const urlNode = argv[0].type === 'object' ? urlOption(argv[0]) : argv[0];
   const url = requestUrl(urlNode);

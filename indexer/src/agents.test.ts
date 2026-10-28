@@ -242,7 +242,7 @@ test('each function keeps its own change time: editing another one in its file d
     await pushed;
     const f = hub.state().agents[0].files[0];
 
-    return { file: f.at, ...Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) } as Record<string, string>;
+    return Object.fromEntries([['file', f.at], ...f.symbols.map((s) => [s.name, s.at])]);
   };
 
   const one = await edit(API + SEARCH, [[8, 11]], [[8, 7]]);
@@ -335,7 +335,7 @@ test("the file's code outside its functions has its own change time, and a re-in
   const times = () => {
     const f = hub.state().agents[0].files[0];
 
-    return { file: f.at, top: f.topAt, ...Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) } as Record<string, string>;
+    return Object.fromEntries([['file', f.at], ['top', f.topAt], ...f.symbols.map((s) => [s.name, s.at])]);
   };
 
   const report = async (text: string, lines: [number, number][], oldLines: [number, number][]) => {
@@ -1077,7 +1077,7 @@ test('a function the agent takes back and then changes again is new to read', as
     await new Promise((r) => setTimeout(r, 100));
     const f = hub.state().agents[0].files[0];
 
-    return { file: f.at, ...Object.fromEntries(f.symbols.map((x) => [x.name, x.at])) } as Record<string, string>;
+    return Object.fromEntries([['file', f.at], ...f.symbols.map((x) => [x.name, x.at])]);
   };
 
   const getItem = (text: string) => text.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -1454,7 +1454,7 @@ test('only source files the indexer reads are kept as text, never a large artifa
   await pushed;
   fs.readFile = readFile;
   assert.deepEqual([...new Set(reads.filter((r) => files.includes(r)))], ['src/api.ts'], 'only the source the indexer takes in is read at all');
-  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, { rel?: string; sigs: unknown }> }> }).agents;
+  const recs = hub['agents'];
   const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.sigs != null]));
   assert.deepEqual(text, { 'src/api.ts': true, 'src/big.ts': false, 'notes.txt': false, 'dist/api.js': false, 'src/api.test.ts': false });
 });
@@ -1472,7 +1472,7 @@ test('a re-index keeps a digest of each function, not its text', async () => {
   const huge = hub.state().agents[0].files[0].symbols.find((x) => x.name === 'huge');
   assert.equal(huge?.kind, 'added', 'the new function is on the map');
   // Everything the hub keeps of the file, as one string: digests and times, with nothing of the text.
-  const recs = (hub as unknown as { agents: Map<string, { files: Map<string, Record<string, unknown>> }> }).agents;
+  const recs = hub['agents'];
   const kept = JSON.stringify([...[...recs.values()][0].files.values()], (_, v) => (v instanceof Map ? [...v] : v));
   assert.ok(kept.length < 4_000, `a few hundred bytes, not the file (${kept.length})`);
   assert.doesNotMatch(kept, /padding the function out/);

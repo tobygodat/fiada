@@ -34,6 +34,9 @@ interface Failure {
   at: number;
 }
 
+/** Callers waiting for a free request slot, user-facing ones first. */
+type Waiting = { high: (() => void)[]; low: (() => void)[] };
+
 /** A failed item is retried when asked for again after this long. */
 const RETRY_MS = 60_000;
 
@@ -52,7 +55,7 @@ export class Summaries {
   private failed = new Map<string, Failure>();
   private jobs = new Map<string, Promise<void>>();
   private active = 0;
-  private waiting: { high: (() => void)[]; low: (() => void)[] } = { high: [], low: [] };
+  private waiting: Waiting = { high: [], low: [] };
   /** Requests made and items written, for the log and the bench. */
   readonly stats = { calls: 0, items: 0, promptChars: 0, failures: 0 };
 

@@ -6,18 +6,18 @@ import type { HttpRequest, ImportSpec, MountDecl, OrmRef, ParsedFile, ParsedSymb
 import { RefSet } from './refs.ts';
 import { fieldChildren, line, requestUrl, stringValue, urlParts, type SyntaxNode } from './treesitter.ts';
 
-const ROUTE_METHOD: Record<string, string> = {
+const ROUTE_METHOD = new Map(Object.entries({
   GET: 'GET', POST: 'POST', PUT: 'PUT', PATCH: 'PATCH', DELETE: 'DELETE', HEAD: 'HEAD', OPTIONS: 'OPTIONS', Any: '*',
   Get: 'GET', Post: 'POST', Put: 'PUT', Patch: 'PATCH', Delete: 'DELETE', Head: 'HEAD', Options: 'OPTIONS', All: '*',
   Handle: '*', HandleFunc: '*', Match: '*', Add: '*', Method: '*', MethodFunc: '*',
-};
+}));
 
 /** Constructors of an application router, whose routes have no prefix above them. */
 const ROOT_CTOR = /^(gin\.(Default|New)|echo\.New|chi\.NewRouter|chi\.NewMux|http\.NewServeMux|fiber\.New|mux\.NewRouter|httprouter\.New)$/;
 
 /** Parameter types that carry a router into a registration function. */
 const ROUTER_TYPE = /(gin\.(Engine|RouterGroup|IRouter|IRoutes)|echo\.(Echo|Group)|chi\.(Router|Mux)|http\.ServeMux|fiber\.(App|Router)|mux\.Router|httprouter\.Router)\b/;
-const HTTP_CLIENT: Record<string, string> = { Get: 'GET', Post: 'POST', Head: 'HEAD', PostForm: 'POST' };
+const HTTP_CLIENT = new Map(Object.entries({ Get: 'GET', Post: 'POST', Head: 'HEAD', PostForm: 'POST' }));
 
 /** Registrations that may take the HTTP method before the path. chi's Handle/HandleFunc and net/http's don't; gin's and httprouter's Handle do. */
 const VERB_FIRST = new Set(['Handle', 'Handler', 'HandlerFunc', 'Method', 'MethodFunc', 'Add', 'Match']);
@@ -290,10 +290,12 @@ function httpFromCall(call: SyntaxNode, operand: SyntaxNode, field: string, out:
   const argv = call.childForFieldName('arguments')?.namedChildren ?? [];
 
   // net/http client: http.Get(url), http.NewRequest("GET", url, body), http.NewRequestWithContext(ctx, "GET", url, body)
-  if (operand.text === 'http' && HTTP_CLIENT[field]) {
+  const clientMethod = operand.text === 'http' ? HTTP_CLIENT.get(field) : undefined;
+
+  if (clientMethod) {
     const url = requestUrl(argv[0] ?? null);
 
-    if (url) out.requests.push({ method: HTTP_CLIENT[field], ...url, line: line(call) });
+    if (url) out.requests.push({ method: clientMethod, ...url, line: line(call) });
 
     return;
   }
@@ -308,12 +310,14 @@ function httpFromCall(call: SyntaxNode, operand: SyntaxNode, field: string, out:
     return;
   }
 
-  if (!(field in ROUTE_METHOD) || argv.length < 2) return;
+  const routeMethod = ROUTE_METHOD.get(field);
+
+  if (!routeMethod || argv.length < 2) return;
   const last = argv[argv.length - 1];
 
   // A handler is never a string: `q.Add("next", "/home")` and `c.Get("key", "/x")` aren't routes.
   if (stringValue(last) != null) return;
-  let methods = [ROUTE_METHOD[field]];
+  let methods = [routeMethod];
   let pathArg = argv[0];
   // Method first: gin/httprouter r.Handle("GET", "/x", h), chi r.Method(http.MethodGet, "/x", h),
   // echo/fiber e.Add("GET", "/x", h), echo e.Match([]string{"GET", "POST"}, "/x", h).
@@ -350,7 +354,7 @@ function httpFromCall(call: SyntaxNode, operand: SyntaxNode, field: string, out:
 }
 
 /** Struct fields: embedded types become bases, gorm tags mark mapped columns and relationships. */
-function structInfo(struct: SyntaxNode): { bases: string[]; columns: boolean; orm: OrmRef[] } {
+function structInfo(struct: SyntaxNode) {
   const bases: string[] = [];
   const orm: OrmRef[] = [];
   let columns = false;
@@ -373,7 +377,7 @@ function structInfo(struct: SyntaxNode): { bases: string[]; columns: boolean; or
   return { bases, columns, orm };
 }
 
-const paramList = (fn: SyntaxNode): { names: string[]; routers: Set<string> } => {
+const paramList = (fn: SyntaxNode) => {
   const names: string[] = [];
   const routers = new Set<string>();
 

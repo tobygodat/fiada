@@ -101,15 +101,15 @@ export function list(items: string[], max = 3, noun?: [string, string]): string 
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-const LANG: Record<string, string> = { python: 'Python', typescript: 'TypeScript', tsx: 'TypeScript', javascript: 'JavaScript', go: 'Go' };
+const LANG = new Map(Object.entries({ python: 'Python', typescript: 'TypeScript', tsx: 'TypeScript', javascript: 'JavaScript', go: 'Go' }));
 
-const FRAMEWORK: Record<string, string> = {
+const FRAMEWORK = new Map(Object.entries({
   react: 'React', next: 'Next.js', vue: 'Vue', svelte: 'Svelte', angular: 'Angular', 'react-native': 'React Native', express: 'Express',
   fastify: 'Fastify', hono: 'Hono', nestjs: 'NestJS', koa: 'Koa', prisma: 'Prisma', drizzle: 'Drizzle', typeorm: 'TypeORM', mongoose: 'Mongoose',
   fastapi: 'FastAPI', flask: 'Flask', django: 'Django', sqlalchemy: 'SQLAlchemy', sqlmodel: 'SQLModel', celery: 'Celery', airflow: 'Airflow',
   pandas: 'pandas', torch: 'PyTorch', pydantic: 'Pydantic', gin: 'Gin', echo: 'Echo', chi: 'chi', fiber: 'Fiber', 'gorilla-mux': 'gorilla/mux',
   gorm: 'GORM', ent: 'ent', sqlx: 'sqlx',
-};
+}));
 
 const facts = (n: GraphNode, type: string) => (n.facts ?? []).filter((f) => f.type === type).map((f) => f.value);
 const has = (n: GraphNode, type: string) => (n.facts ?? []).some((f) => f.type === type);
@@ -206,7 +206,7 @@ export function describeFile(gi: GraphIndex, n: GraphNode): string {
   else if (entry) role = `The ${entry === 'main' ? 'main' : entry} entry point${names.length ? `, defining ${list(names, 2)}` : ''}`;
   else if (has(n, 'typeOnly')) role = `Declares the types ${list(names, 3)}`;
   else if (names.length) role = `Defines ${list(names, 3)}`;
-  else role = `${plural(n.loc ?? 0, 'line')} of ${LANG[n.lang ?? ''] ?? 'code'} with no functions or classes`;
+  else role = `${plural(n.loc ?? 0, 'line')} of ${LANG.get(n.lang ?? '') ?? 'code'} with no functions or classes`;
 
   const inside = (id: string) => id === n.id || id.startsWith(`${n.id}#`);
   const { usedBy } = fileNeighbours(gi, [n, ...symbols], inside);
@@ -268,9 +268,9 @@ export function describeRepo(gi: GraphIndex, n: GraphNode): string {
 
   const langs = Object.entries(info?.languages ?? {})
     .sort((a, b) => b[1] - a[1])
-    .map(([l]) => LANG[l] ?? l);
+    .map(([l]) => LANG.get(l) ?? l);
 
-  const fws = (info?.frameworks ?? []).map((f) => FRAMEWORK[f] ?? f);
+  const fws = (info?.frameworks ?? []).map((f) => FRAMEWORK.get(f) ?? f);
   const all = descendants(gi, n.id);
   const routes = new Set(all.flatMap((d) => d.routes ?? []));
   const head = `${langs.length ? `A ${list(langs, 3)}` : 'A'} codebase${fws.length ? ` using ${list(fws, 5)}` : ''}`;

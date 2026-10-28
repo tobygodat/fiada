@@ -14,7 +14,7 @@ import { Summaries } from './index.ts';
 import { hashOf, matchReply, replySchema, takeBatch, type Item } from './items.ts';
 import type { JsonRequest, LLM } from '../llm.ts';
 
-const FILES: Record<string, string> = {
+const FILES = {
   'backend/app/api/items.py': [
     'from fastapi import APIRouter',
     'from app import crud',
@@ -39,7 +39,7 @@ const FILES: Record<string, string> = {
   'backend/app/__init__.py': '',
   'backend/app/api/__init__.py': '',
   'backend/pyproject.toml': '[project]\nname = "app"\ndependencies = ["fastapi"]\n',
-};
+} satisfies Record<string, string>;
 
 async function fixtureGraph(files = FILES): Promise<{ graph: Graph; dir: string }> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-summaries-'));
