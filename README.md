@@ -6,7 +6,7 @@ A map of your codebase that sorts itself, explains itself, and lights up where y
 
 Reading code file by file loses the big picture, and a one-paragraph architecture summary can't tell you what a change touches. Fiada sits in the middle. It turns one or more real repositories into a single zoomable map: circles nest from repository to folder to file to function, and the lines between them are contracts (imports, calls, HTTP requests, shared models), each with the code that proves it. Connect Claude Code and every file and function it touches rings on the map as it works, so you review agent work where it lives in the system instead of in a wall of diff.
 
-**Try it:** https://fiada.tech (hosted, read-only) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
+**Try it:** https://fiada.tech (sign in with GitHub) · [demo script](docs/demo-script.md) · [Devpost write-up](docs/devpost.md)
 
 Built at HackGT 13 for the Oracle of the Deep track (ML/AI + visualization).
 
@@ -77,27 +77,11 @@ Until you point at something the map draws only a few links: each open circle's 
 
 The sidebar's **open** setting switches to the prototype's semantic zoom, where circles open by themselves as you zoom into them.
 
+The search box in the top bar (`/` or Ctrl-K focuses it) finds repositories, folders, files and symbols by name among what the current view draws, and opens the map to the one you pick. Resting links carry a quiet count and verb where there's room ("23 requests"), so the map says what links are without pointing at them.
+
 ## How it's put together
 
-```
-shared/    the graph contract (nodes, edges, layers, agent events) both sides import
-indexer/   clone → parse → link → classify → graph, behind a small HTTP API
-web/       React app: canvas map, floating sidebar, detail panel, task queue
-agent/     what a coding agent runs: a stdio MCP server and a tool-hook CLI
-```
-
-The indexer pipeline:
-
-1. **Sources** (`indexer/src/sources.ts`): lists files with `git ls-files`, skips vendored and generated directories and (by default) tests, and reads `package.json`, `tsconfig*.json`, `pyproject.toml` and `requirements*.txt`.
-2. **Parse** (`indexer/src/parse/`): tree-sitter (WASM, no native build) extracts imports, top-level symbols, the identifiers each symbol uses, server routes and the routers they hang off, client HTTP requests, client page routes (React Router, TanStack Router) and ORM links (SQLAlchemy relationships and foreign keys, GORM fields). TypeScript, TSX, JavaScript, Python and Go in the most depth; Java, Kotlin, C#, Rust, C, C++, Ruby and Swift get their types and methods (as `Type.method`), what each uses, and the routes of Spring, JAX-RS, ASP.NET controllers and minimal APIs, and actix/Rocket attributes. A language is a grammar plus one extractor.
-3. **Link** (`indexer/src/link.ts`): resolves imports (relative paths, tsconfig `paths`, workspace packages, Python packages, Go modules, Java and Kotlin packages, C# namespaces, Rust `use` paths and `mod` files by Cargo crate, C and C++ includes, Ruby requires, across every imported repo), finds the names a language shares without an import (a Java package's classes, a C# namespace and its parents, a Swift module's files, Ruby's global constants, whatever a header declares), binds identifiers to the symbols they name through re-exports and barrels, follows router mounts (`include_router`, `register_blueprint`, `app.use`, gin groups) to give every route its full path, and matches requests like `fetch(\`${API}/items/${id}\`)` to routes like FastAPI's `@router.get("/{id}")` under `APIRouter(prefix="/items")`. Every edge records the code behind it (file, line and that line's text) and whether it's **evidenced** (the code names the target, or a request's full path equals the route's) or **inferred** (a heuristic linked them, such as a URL that only matches a route's tail), with a confidence and a one-line reason.
-4. **Facts** (`indexer/src/facts.ts`): detectors turn what the parser saw into language-neutral facts on every file and symbol: the routes it serves, the requests it makes, JSX, ORM tables, base classes, decorators, imports, and whether it's type-only.
-5. **Build** (`indexer/src/build.ts`): emits the node tree (single-child folder chains collapsed) and edges.
-6. **Classify** (`indexer/src/classify/`): places every file and symbol in one of the project's layers and a domain, each with evidence. This step only reads facts, paths and edges, so a grouping change reclassifies in milliseconds without re-parsing.
-
-The web app rebuilds the tree for the chosen view and decides which circles are open: the ones you opened (click mode), or the ones big enough on screen (zoom mode). It packs only the open part of the tree, giving each closed circle a compact size so an opened one grows and its neighbours stay visible, and lifts every edge to the nearest visible ancestor of each end, so edge thickness follows the number of underlying interactions. Each edge bends whichever way takes it through the fewest closed circles, worked out once per layout. Edges are resolved to tree indices once per graph, so re-lifting them when something opens takes a couple of milliseconds even on next.js.
-
-The map draws to a canvas (`web/src/render/renderer.ts`), which owns the camera, animation, pointer input and hit testing; React hands it a new scene only when what's open or selected changes, so zooming and panning never re-render the app. The SVG map it replaced dropped to 15–20 fps on next.js (13k nodes, 10k edges), with stalls of up to 1.7 s whenever circles opened, most of it the browser painting SVG and label DOM.
+Four workspaces: `shared/` (the graph contract), `indexer/` (clone, parse, link, classify, behind a small HTTP API), `web/` (the canvas map and its panels) and `agent/` (the hook and MCP server a coding agent runs). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the code and the indexer pipeline, and [AGENTS.md](AGENTS.md) and [docs/CONVENTIONS.md](docs/CONVENTIONS.md) are the rules for changing it.
 
 ## Layers are per project
 
@@ -182,6 +166,12 @@ There are two ways in, and they work best together:
 - **MCP** (the agent's own words). `agent/bin/fiada-mcp.mjs` is a stdio MCP server. Two tools report: `status` (one or two lines on what it's doing now, with the task and the plan as steps marked `pending`, `active` or `done`; `report_task` is its older name) and `flag_changes` (files or folders `added`, `modified` or `deleted`, optionally with the functions or classes it touched). Three more [ask the map](#asking-the-map). Its instructions ask the agent to call them as it goes; the hook covers whatever it forgets.
 
 Both post to the indexer's `/api/agent/events`. A file maps to the graph by path when its repository was imported from a local directory, or by `origin` remote (then folder name) when the agent works in another checkout of an imported repository. When the agent edits a repository Fiada reads in place, the indexer re-parses just the changed files and relinks (about 10 ms on the FastAPI template), so new files and symbols appear on the map, and comparing each file's symbols with HEAD says which functions were added, changed or deleted. The map fetches the new graph without moving the camera. Agent activity isn't stored anywhere; dismissing an agent in the window clears its marks.
+
+Everything that depends on an agent's change gets a quiet ring of paired dots, across repositories, rolled up onto closed circles, and the detail panel says what reaches a changed node ("1 request from frontend calls this route."). Deleting code ripples to what called it, using the links from before the re-index.
+
+Changes you haven't opened are unread: a dot on the ring, "N unread" on count badges, and "12 of 19 changes read" with **mark read** and **mark all read** in the agents window. Each changed function keeps its own change time, so editing one function marks only that one unread. Read marks live in your browser, counted per agent.
+
+**review** on an agent's entry steps through its changes one function at a time, in data-flow order (page, client, route, table, shared types). The map opens to each stop and the detail panel shows its diff; ← and → move, and `r` marks a stop read.
 
 ### Asking the map
 
