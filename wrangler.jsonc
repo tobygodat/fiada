@@ -1,11 +1,14 @@
 // The map on Cloudflare Workers: static assets from web/dist with no Worker
 // script. Paths that aren't files, such as /privacy, get index.html, and
-// web/public/_headers sets the response headers.
+// web/public/_headers sets the response headers. Workers Builds runs
+// `wrangler preview` for PR branches, which refuses to run without a
+// `previews` block, even an empty one.
 {
   "name": "fiada-web",
   "compatibility_date": "2026-10-25",
   "assets": {
     "directory": "./web/dist",
     "not_found_handling": "single-page-application"
-  }
+  },
+  "previews": {}
 }
