@@ -25,18 +25,24 @@ export function useAgents(): AgentsHandle {
     let stopped = false;
     let ctl: AbortController | undefined;
     let timer: number | undefined;
+
     const connect = async () => {
       ctl = new AbortController();
+
       try {
         const res = await fetch(apiUrl('/api/agent/stream'), { headers: authHeaders(), signal: ctl.signal });
+
         if (!res.ok || !res.body) throw new Error(`stream answered ${res.status}`);
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         let buf = '';
+
         for (;;) {
           const { value, done } = await reader.read();
+
           if (done) break;
           const { data, rest } = takeEvents(buf + value);
           buf = rest;
+
           for (const d of data) {
             try {
               setState(JSON.parse(d) as ActivityState);
@@ -48,9 +54,12 @@ export function useAgents(): AgentsHandle {
       } catch {
         // the indexer went away, or we stopped
       }
+
       if (!stopped) timer = window.setTimeout(connect, RETRY_MS);
     };
+
     connect();
+
     return () => {
       stopped = true;
       ctl?.abort();

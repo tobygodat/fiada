@@ -6,24 +6,30 @@ import { diffShown, readyToMark, shownKey, shownRev, forgetMarks, isRead, layerN
 
 // The fixture with a layer per kind of code: page, client, route, model.
 const graph = fixtureGraph();
+
 graph.layers = [
   { id: 'ui', name: 'UI' },
   { id: 'client', name: 'Client' },
   { id: 'api', name: 'API' },
   { id: 'data', name: 'Data' },
 ];
+
 const LAYER: [string, string][] = [
   ['web/src/client', 'client'],
   ['api/app/routes', 'api'],
   ['api/app/models.py', 'data'],
 ];
+
 for (const n of graph.nodes) {
   const hit = LAYER.find(([p]) => n.id.startsWith(p));
+
   if (hit && n.layer) n.layer = { ...n.layer, id: hit[1] };
 }
+
 const graphIndex = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
 
 const sym = (id: string, kind: NodeChange['kind'] = 'modified') => ({ id, name: id.slice(id.indexOf('#') + 1), kind });
+
 const file = (repo: string, path: string, symbols: AgentFile['symbols'] = [], kind: AgentFile['kind'] = 'modified'): AgentFile => ({
   repo,
   path,
@@ -33,6 +39,7 @@ const file = (repo: string, path: string, symbols: AgentFile['symbols'] = [], ki
   at: '2026-09-27T10:00:00Z',
   diff: true,
 });
+
 const agent = (files: AgentFile[]): AgentActivity => ({
   id: 'a',
   client: 'claude-code',
@@ -45,6 +52,7 @@ const agent = (files: AgentFile[]): AgentActivity => ({
   startedAt: '2026-09-27T10:00:00Z',
   updatedAt: '2026-09-27T10:00:30Z',
 });
+
 const NO_NODES: Record<string, NodeChange> = {};
 
 test('stops follow the data flow: page, client, route, model, whatever order the agent touched them in', () => {
@@ -55,6 +63,7 @@ test('stops follow the data flow: page, client, route, model, whatever order the
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]),
     file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#useItems'), sym('web/src/pages/items.tsx#ItemsPage')]),
   ]);
+
   const ids = tourStops(graph, graphIndex, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, [
     // The page calls its hook, so the page comes first though the hook was listed first.
@@ -89,10 +98,12 @@ test('inside one layer, a stop waits for the changed code that calls it', () => 
   // All in one layer: Item is used by both routes, so both come before it; create_item before read_items by name.
   const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
   const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+
   const a = agent([
     file('api', 'app/models.py', [sym('api/app/models.py#User'), sym('api/app/models.py#Item')]),
     file('api', 'app/routes/items.py', [sym('api/app/routes/items.py#read_items')]),
   ]);
+
   const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
   // read_items → Item → User (Item refers to User as a type).
   assert.deepEqual(ids, ['api/app/routes/items.py#read_items', 'api/app/models.py#Item', 'api/app/models.py#User']);
@@ -103,6 +114,7 @@ test('a file with no changed functions is one stop; deleted code stands on what 
     'api/app/routes/old.py': { kind: 'deleted', unit: 'file', at: 5, agents: ['a'], anchor: 'api/app/routes' },
     'web/src/pages/about.tsx': { kind: 'modified', unit: 'file', at: 9, agents: ['a'] },
   };
+
   const a = agent([
     file('web', 'src/pages/about.tsx'),
     file('api', 'app/routes/old.py', [], 'deleted'),
@@ -110,6 +122,7 @@ test('a file with no changed functions is one stop; deleted code stands on what 
     // Outside the imported repositories: not on the map, so not on the tour.
     { ...file('x', '/tmp/notes.md'), repo: undefined },
   ]);
+
   const stops = tourStops(graph, graphIndex, a, nodes);
   assert.deepEqual(
     stops.map((s) => [s.id, s.target, s.kind]),
@@ -243,10 +256,12 @@ test('a loop of calls in an earlier layer comes before a later layer that is rea
       { from: 'web/src/pages/items.tsx#useItems', to: 'web/src/pages/items.tsx#ItemsPage', kind: 'calls' as const },
     ],
   };
+
   const a = agent([
     file('api', 'app/models.py', [sym('api/app/models.py#User')]),
     file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#useItems'), sym('web/src/pages/items.tsx#ItemsPage')]),
   ]);
+
   const ids = tourStops(g, graphIndex, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['web/src/pages/items.tsx#ItemsPage', 'web/src/pages/items.tsx#useItems', 'api/app/models.py#User']);
 });
@@ -255,10 +270,12 @@ test("a file's own links hold back every changed function in it, not only the fi
   // One layer for all, so only the links order them: about.tsx imports the client file.
   const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
   const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+
   const a = agent([
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
     file('web', 'src/pages/about.tsx'),
   ]);
+
   const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['web/src/pages/about.tsx', 'web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService']);
 });
@@ -268,10 +285,12 @@ test("an unchanged function's links don't hold back its file's changed functions
   // ItemsService. That call is useItems', not ItemsPage's, so path order stands: client before pages.
   const flat = { ...graph, layers: [{ id: 'ui', name: 'UI' }] };
   const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+
   const a = agent([
     file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')]),
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]),
   ]);
+
   const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'web/src/pages/items.tsx#ItemsPage']);
 });
@@ -297,11 +316,14 @@ test('a loop of calls is read whole before what it calls', () => {
       { from: 'web/src/client/api.ts#ItemsService', to: 'api/app/models.py#Item', kind: 'calls' as const },
     ],
   };
+
   const idx = new Map(graph.nodes.map((n) => [n.id, { ...n, layer: n.layer && { ...n.layer, id: 'ui' } }]));
+
   const a = agent([
     file('api', 'app/models.py', [sym('api/app/models.py#Item')]),
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
   ]);
+
   const ids = tourStops(flat, idx, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService', 'api/app/models.py#Item']);
 });
@@ -310,6 +332,7 @@ test('a loop called from another loop waits for it, whichever of its stops sorts
   // up.ts: one ↔ two, and one → b1. down.ts: b1 ↔ b2, with b2 first by line. b2's only caller is
   // in its own loop, but the loop as a whole waits for up.ts's; then it starts where the order does.
   const layer: GraphNode['layer'] = { id: 'ui', source: 'path', confidence: 1, evidence: [] };
+
   const nodes: GraphNode[] = [
     { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
     ...['down.ts', 'up.ts'].map((f): GraphNode => ({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer })),
@@ -317,15 +340,19 @@ test('a loop called from another loop waits for it, whichever of its stops sorts
       ([f, n, at]): GraphNode => ({ id: `r/${f}#${n}`, kind: 'symbol', name: n, parent: `r/${f}`, repo: 'r', path: f, lines: [at, at + 5], layer }),
     ),
   ];
+
   const calls = (from: string, to: string) => ({ from: `r/${from}`, to: `r/${to}`, kind: 'calls' as const });
+
   const g = {
     layers: [{ id: 'ui', name: 'UI' }],
     edges: [calls('up.ts#one', 'up.ts#two'), calls('up.ts#two', 'up.ts#one'), calls('up.ts#one', 'down.ts#b1'), calls('down.ts#b1', 'down.ts#b2'), calls('down.ts#b2', 'down.ts#b1')],
   };
+
   const a = agent([
     file('r', 'down.ts', [sym('r/down.ts#b1'), sym('r/down.ts#b2')]),
     file('r', 'up.ts', [sym('r/up.ts#one'), sym('r/up.ts#two')]),
   ]);
+
   const ids = tourStops(g, new Map(nodes.map((n) => [n.id, n])), a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, ['r/up.ts#one', 'r/up.ts#two', 'r/down.ts#b2', 'r/down.ts#b1']);
 });
@@ -333,6 +360,7 @@ test('a loop called from another loop waits for it, whichever of its stops sorts
 test('a loop of calls and a single stop, both free to start, go in the order', () => {
   // a.ts: one ↔ two. z.ts: three, linked to neither. The loop sorts first by path, so it goes first.
   const layer: GraphNode['layer'] = { id: 'ui', source: 'path', confidence: 1, evidence: [] };
+
   const nodes: GraphNode[] = [
     { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
     ...['a.ts', 'z.ts'].map((f): GraphNode => ({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer })),
@@ -340,6 +368,7 @@ test('a loop of calls and a single stop, both free to start, go in the order', (
       ([f, n, at]): GraphNode => ({ id: `r/${f}#${n}`, kind: 'symbol', name: n, parent: `r/${f}`, repo: 'r', path: f, lines: [at, at + 5], layer }),
     ),
   ];
+
   const calls = (from: string, to: string) => ({ from: `r/${from}`, to: `r/${to}`, kind: 'calls' as const });
   const g = { layers: [{ id: 'ui', name: 'UI' }], edges: [calls('a.ts#one', 'a.ts#two'), calls('a.ts#two', 'a.ts#one')] };
   const a = agent([file('r', 'z.ts', [sym('r/z.ts#three')]), file('r', 'a.ts', [sym('r/a.ts#two'), sym('r/a.ts#one')])]);
@@ -352,6 +381,7 @@ test("the first of a file's function stops also carries the file's other hunks",
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#UsersService'), sym('web/src/client/api.ts#ItemsService')]),
     file('web', 'src/pages/items.tsx', [sym('web/src/pages/items.tsx#ItemsPage')]),
   ]);
+
   const stops = tourStops(graph, graphIndex, a, NO_NODES);
   const rest = Object.fromEntries(stops.map((s) => [s.id, s.rest]));
   assert.deepEqual(rest['web/src/client/api.ts#ItemsService'], ['web/src/client/api.ts#ItemsService', 'web/src/client/api.ts#UsersService']);
@@ -362,12 +392,15 @@ test("the first of a file's function stops also carries the file's other hunks",
 test('a class whose method changed is read at the method, not again as the class', () => {
   // Java and the like list a class and each method in it, the class's lines holding the method's.
   const F = 'svc/src/Items.java';
+
   const node = (name: string, lines: [number, number]) =>
     ({ id: `svc/${F.slice(4)}#${name}`, kind: 'symbol', name, parent: `svc/${F.slice(4)}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+
   const nodes = [node('Items', [1, 30]), node('Items.add', [3, 10]), node('Items.list', [12, 20]), node('Items.Page', [22, 29]), node('Items.Page.next', [23, 28])];
   const fileNode = { id: `svc/${F.slice(4)}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
   const ix = new Map([fileNode, ...nodes].map((n) => [n.id, n]));
   const id = (name: string) => `svc/${F.slice(4)}#${name}`;
+
   const a = agent([
     file('svc', F.slice(4), [
       sym(id('Items')),
@@ -379,6 +412,7 @@ test('a class whose method changed is read at the method, not again as the class
       { ...sym(id('Old.run'), 'deleted'), oldLines: [42, 50] as [number, number] },
     ]),
   ]);
+
   const stops = tourStops({ edges: [], layers: graph.layers }, ix, a, NO_NODES);
   assert.deepEqual(
     stops.map((s) => s.id),
@@ -393,12 +427,14 @@ test('a class that lost a method is read at the deleted method, by their lines i
   const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
   const cls = { id: `svc/${F}#Items`, kind: 'symbol', name: 'Items', parent: `svc/${F}`, repo: 'svc', lines: [1, 20], layer: { id: 'api' } } as unknown as GraphNode;
   const ix = new Map([fileNode, cls].map((n) => [n.id, n]));
+
   const a = agent([
     file('svc', F, [
       { ...sym(`svc/${F}#Items`), oldLines: [1, 30] as [number, number] },
       { ...sym(`svc/${F}#Items.gone`, 'deleted'), oldLines: [22, 28] as [number, number] },
     ]),
   ]);
+
   const stops = tourStops({ edges: [], layers: graph.layers }, ix, a, NO_NODES);
   assert.deepEqual(
     stops.map((s) => s.id),
@@ -413,6 +449,7 @@ test("a deleted function's stop carries its lines from before, for its own hunks
       { ...sym('web/src/client/api.ts#Items.get', 'deleted'), oldLines: [30, 32] as [number, number] },
     ]),
   ]);
+
   const stops = tourStops(graph, graphIndex, a, NO_NODES);
   // In the order they stood in the file, not by name.
   assert.deepEqual(
@@ -453,6 +490,7 @@ test("a changed function's stop carries its lines in HEAD too, for a removal hun
       { ...sym('web/src/client/api.ts#ItemsService'), oldLines: [40, 50] as [number, number] },
     ]),
   ]);
+
   const stops = tourStops(graph, graphIndex, a, NO_NODES);
   // Neither has lines in the fixture: HEAD's don't order them, the tie does.
   assert.deepEqual(
@@ -471,6 +509,7 @@ test("a deleted function keeps the layer the map had for it, not its file's", ()
     file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService'), { ...sym('web/src/client/api.ts#ItemSchema', 'deleted'), layer: 'data' }]),
     file('api', 'app/models.py', [sym('api/app/models.py#Item')]),
   ]);
+
   const stops = tourStops(graph, graphIndex, a, NO_NODES);
   assert.deepEqual(
     stops.map((s) => [s.id, s.layer]),
@@ -492,10 +531,12 @@ test('a tour of thousands of changes is ordered without rescanning every stop at
   // One file, 30,000 changed functions in one layer: every tenth calls the next, the rest stand alone.
   const N = 30000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+
   const nodes: GraphNode[] = [
     { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
     { id: 'r/a.ts', kind: 'file', name: 'a.ts', parent: 'r', repo: 'r', path: 'a.ts', layer: placed('ui') },
   ];
+
   for (let i = 0; i < N; i++) nodes.push({ id: `r/a.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/a.ts', repo: 'r', path: 'a.ts', lines: [N - i, N - i], layer: placed('ui') });
   const edges = Array.from({ length: N / 10 }, (_, k) => ({ from: `r/a.ts#f${k * 10}`, to: `r/a.ts#f${k * 10 + 1}`, kind: 'calls' as const }));
   const idx = new Map(nodes.map((n) => [n.id, n]));
@@ -507,6 +548,7 @@ test('a tour of thousands of changes is ordered without rescanning every stop at
   assert.equal(stops.length, N);
   // A caller still comes straight before what it calls.
   const at = new Map(stops.map((s, i) => [s.id, i]));
+
   for (const e of edges) assert.equal(at.get(e.to)! - at.get(e.from)!, 1);
 });
 
@@ -514,10 +556,12 @@ test('a tour of one change in each of thousands of files is built without a pass
   const N = 60000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
   const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+
   for (let i = 0; i < N; i++) {
     nodes.push({ id: `r/f${i}.ts`, kind: 'file', name: `f${i}.ts`, parent: 'r', repo: 'r', path: `f${i}.ts`, layer: placed('ui') });
     nodes.push({ id: `r/f${i}.ts#g`, kind: 'symbol', name: 'g', parent: `r/f${i}.ts`, repo: 'r', path: `f${i}.ts`, lines: [1, 3], layer: placed('ui') });
   }
+
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent(Array.from({ length: N }, (_, i) => file('r', `f${i}.ts`, [sym(`r/f${i}.ts#g`)])));
   const t = performance.now();
@@ -532,11 +576,14 @@ test('a link between two files with thousands of changed functions each is not o
   const N = 10000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
   const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+
   // The caller sorts after the callee by path, so only the link puts it first.
   for (const f of ['a.ts', 'z.ts']) {
     nodes.push({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer: placed('ui') });
+
     for (let i = 0; i < N; i++) nodes.push({ id: `r/${f}#f${i}`, kind: 'symbol', name: `f${i}`, parent: `r/${f}`, repo: 'r', path: f, lines: [i + 1, i + 1], layer: placed('ui') });
   }
+
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
   const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
@@ -558,19 +605,24 @@ test('a loop through such a link still waits for the callers outside the loop', 
   const N = 65;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
   const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+
   for (const f of ['a.ts', 'z.ts']) {
     nodes.push({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer: placed('ui') });
+
     for (let i = 0; i < N; i++) nodes.push({ id: `r/${f}#f${i}`, kind: 'symbol', name: `f${i}`, parent: `r/${f}`, repo: 'r', path: f, lines: [i + 1, i + 1], layer: placed('ui') });
   }
+
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
   const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
+
   // z.ts calls a.ts (more pairs than one link each), and one callee calls one caller back: the
   // two of them and the link between the files make a loop, which the other callers enter.
   const edges = [
     { from: 'r/z.ts', to: 'r/a.ts', kind: 'imports' as const },
     { from: 'r/a.ts#f0', to: 'r/z.ts#f0', kind: 'calls' as const },
   ];
+
   const stops = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
   assert.equal(stops.length, 2 * N);
   const at = new Map(stops.map((s, i) => [s.id, i]));
@@ -583,10 +635,12 @@ test('a loop through such a link still waits for the callers outside the loop', 
 test('a function its own file links to, among thousands changed in it, waits for the rest of the file', () => {
   const N = 4100;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+
   const nodes: GraphNode[] = [
     { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
     { id: 'r/a.ts', kind: 'file', name: 'a.ts', parent: 'r', repo: 'r', path: 'a.ts', layer: placed('ui') },
   ];
+
   for (let i = 0; i < N; i++) nodes.push({ id: `r/a.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/a.ts', repo: 'r', path: 'a.ts', lines: [i + 1, i + 1], layer: placed('ui') });
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent([file('r', 'a.ts', Array.from({ length: N }, (_, i) => sym(`r/a.ts#f${i}`)))]);
@@ -604,18 +658,23 @@ test('callers and callees that are the same thousands of functions are read whol
   const N = 70;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
   const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+
   for (const f of ['a.ts', 'z.ts']) {
     nodes.push({ id: `r/${f}`, kind: 'file', name: f, parent: 'r', repo: 'r', path: f, layer: placed('ui') });
+
     for (let i = 0; i < N; i++) nodes.push({ id: `r/${f}#f${i}`, kind: 'symbol', name: `f${i}`, parent: `r/${f}`, repo: 'r', path: f, lines: [i + 1, i + 1], layer: placed('ui') });
   }
+
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
   const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
+
   // a.ts uses itself, and z.ts uses a.ts: a.ts's functions wait on z.ts's, then go in order.
   const edges = [
     { from: 'r/a.ts', to: 'r/a.ts', kind: 'calls' as const },
     { from: 'r/z.ts', to: 'r/a.ts', kind: 'imports' as const },
   ];
+
   const ids = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES).map((s) => s.id);
   assert.deepEqual(ids, [...Array.from({ length: N }, (_, i) => `r/z.ts#f${i}`), ...Array.from({ length: N }, (_, i) => `r/a.ts#f${i}`)]);
 });
@@ -624,6 +683,7 @@ test('thousands of deleted files on one folder take its layer without counting i
   const N = 20000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
   const nodes: GraphNode[] = [{ id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' }];
+
   for (let i = 0; i < N; i++) nodes.push({ id: `r/live${i}.ts`, kind: 'file', name: `live${i}.ts`, parent: 'r', repo: 'r', path: `live${i}.ts`, loc: 10, layer: placed('ui') });
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent(Array.from({ length: N }, (_, i) => ({ ...file('r', `gone${i}.ts`, [], 'deleted'), node: 'r' })));
@@ -638,10 +698,12 @@ test('thousands of deleted files on one folder take its layer without counting i
 test('a new file with a hundred thousand functions is ordered without searching its list for each', () => {
   const N = 100000;
   const placed = (id: string): GraphNode['layer'] => ({ id, confidence: 1, source: 'path', evidence: [] });
+
   const nodes: GraphNode[] = [
     { id: 'r', kind: 'repo', name: 'r', parent: 'root', repo: 'r' },
     { id: 'r/gen.ts', kind: 'file', name: 'gen.ts', parent: 'r', repo: 'r', path: 'gen.ts', layer: placed('ui') },
   ];
+
   for (let i = 0; i < N; i++) nodes.push({ id: `r/gen.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/gen.ts', repo: 'r', path: 'gen.ts', lines: [i + 1, i + 1], layer: placed('ui') });
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent([file('r', 'gen.ts', Array.from({ length: N }, (_, i) => sym(`r/gen.ts#f${i}`, 'added')), 'added')]);
@@ -657,6 +719,7 @@ test('a change whose repository is gone from the map is not on the tour', () => 
   const nodes: Record<string, NodeChange> = {
     'gone/app/x.py': { kind: 'modified', unit: 'file', at: 5, agents: ['a'], anchor: 'gone' },
   };
+
   const a = agent([{ ...file('gone', 'app/x.py'), node: undefined }, file('web', 'src/pages/about.tsx')]);
   assert.deepEqual(tourStops(graph, graphIndex, a, nodes).map((s) => s.id), ['web/src/pages/about.tsx']);
 });
@@ -691,6 +754,7 @@ test('reviewable: only when something the agent changed is on the map', () => {
 test("a function's own change time is its read mark's: editing another function in its file doesn't unread it", () => {
   const t = '2026-09-27T10:00:00Z';
   const later = '2026-09-27T10:05:00Z';
+
   const a = agent([
     {
       ...file('web', 'src/client/api.ts', [
@@ -700,6 +764,7 @@ test("a function's own change time is its read mark's: editing another function 
       at: later,
     },
   ]);
+
   const stops = Object.fromEntries(tourStops(graph, graphIndex, a, NO_NODES).map((s) => [s.id, s]));
   const marks: ReadMarks = { 'web/src/client/api.ts#ItemsService': Date.parse(t), 'web/src/client/api.ts#UsersService': Date.parse(t) };
   assert.equal(isRead(marks, stops['web/src/client/api.ts#ItemsService']), true);
@@ -712,12 +777,15 @@ test("a function's own change time is its read mark's: editing another function 
 test("a change to the file's other code (an import) unreads the stop that shows it, and only that one", () => {
   const t = '2026-09-27T10:00:00Z';
   const later = '2026-09-27T10:05:00Z';
+
   const fns = [
     { ...sym('web/src/client/api.ts#ItemsService'), at: t },
     { ...sym('web/src/client/api.ts#UsersService'), at: t },
   ];
+
   const stops = (topAt: string, symbols = fns) => tourStops(graph, graphIndex, agent([{ ...file('web', 'src/client/api.ts', symbols), at: topAt, topAt }]), NO_NODES);
   let marks: ReadMarks = {};
+
   for (const s of stops(t)) marks = markStop(marks, s, true);
   const read = (topAt: string, symbols = fns) => stops(topAt, symbols).map((s) => [s.id, !!s.rest, isRead(marks, s)]);
   assert.deepEqual(read(t), [
@@ -768,6 +836,7 @@ test('forgetMarks: clears every review’s read marks and nothing else', () => {
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
   };
+
   try {
     forgetMarks();
     assert.deepEqual([...store.keys()].sort(), ['fiada.session', 'strata-theme']);
@@ -779,13 +848,17 @@ test('forgetMarks: clears every review’s read marks and nothing else', () => {
 test("a class left out for its method is read on the file's first stop: a change to its own lines is new there", () => {
   const F = 'src/Items.java';
   const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+
   const node = (name: string, lines: [number, number]) =>
     ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+
   const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
   const t = '2026-09-27T10:00:00Z';
   const later = '2026-09-27T10:05:00Z';
+
   const stops = (clsAt: string) =>
     tourStops({ edges: [], layers: graph.layers }, ix, agent([{ ...file('svc', F, [{ ...sym(`svc/${F}#Items`), at: clsAt }, { ...sym(`svc/${F}#Items.add`), at: t }]), at: clsAt }]), NO_NODES);
+
   const [stop] = stops(t);
   assert.equal(stop.id, `svc/${F}#Items.add`);
   const marks = markStop({}, stop, true);
@@ -798,11 +871,15 @@ test("a class left out for its method is read on the file's first stop: a change
 test("a class left out for its method that another agent changed too says so on the stop showing its rows", () => {
   const F = 'src/Items.java';
   const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as unknown as GraphNode;
+
   const node = (name: string, lines: [number, number]) =>
     ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as unknown as GraphNode;
+
   const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
+
   const stops = (shared: boolean) =>
     tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), ...(shared && { shared: true as const }) }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
+
   const [stop] = stops(true);
   assert.equal(stop.id, `svc/${F}#Items.add`);
   assert.equal(stop.shared, true);
@@ -842,15 +919,18 @@ test('whether an agent can be reviewed is found without tallying a repository fo
     walks = 0;
     override values() {
       this.walks++;
+
       return super.values();
     }
   }
+
   // Folders and repositories without a layer of their own, as the indexer leaves them.
   const ix = new Counted([...graphIndex].map(([id, n]) => [id, n.kind === 'repo' || n.kind === 'folder' ? { ...n, layer: undefined } : n]));
   const on = (anchor: string) => ({ 'web/old.ts': { kind: 'deleted' as const, at: 1, unit: 'file' as const, anchor, agents: ['a'] } });
   const gone = agent([file('web', 'old.ts', [], 'deleted')]);
   assert.equal(reviewable(ix, gone, on('web')), true);
   assert.equal(ix.walks, 0);
+
   // The same answers as the tour itself.
   const cases: [AgentActivity, Record<string, NodeChange>][] = [
     [gone, on('web')],
@@ -861,6 +941,7 @@ test('whether an agent can be reviewed is found without tallying a repository fo
     [agent([file('web', 'src/new.ts', [sym('web/src/client/api.ts#ItemsService')], 'added')]), NO_NODES],
     [agent([{ ...file('web', 'x.ts'), repo: undefined }]), NO_NODES],
   ];
+
   for (const [a, nodes] of cases) assert.equal(reviewable(graphIndex, a, nodes), tourStops(graph, graphIndex, a, nodes).length > 0, JSON.stringify(a.files));
 });
 
@@ -882,6 +963,7 @@ test("another agent's changes in a file go with each of that file's stops, so it
     others: [{ id: 'web/src/client/api.ts#request', kind: 'modified' as const, oldLines: [3, 9] as [number, number] }],
     topTheirs: true,
   };
+
   const [stop] = tourStops(graph, graphIndex, agent([f]), NO_NODES);
   assert.deepEqual(stop.peer, { ids: ['web/src/client/api.ts#request'], old: { 'web/src/client/api.ts#request': [3, 9] }, top: true });
   // Only the file's other code is the other agent's; and a file stop carries it too.

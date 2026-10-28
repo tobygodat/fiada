@@ -20,8 +20,10 @@ async function git(cwd: string, args: string[]): Promise<string> {
     timeout: 10_000,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
   });
+
   return stdout;
 }
+
 const tryGit = (cwd: string, args: string[]) => git(cwd, args).catch(() => null);
 
 export interface Checkout {
@@ -35,9 +37,11 @@ export interface Checkout {
 /** The checkout `dir` is in, or null when it isn't in one (or git isn't installed). */
 export async function checkout(dir: string): Promise<Checkout | null> {
   const top = await tryGit(dir, ['rev-parse', '--show-toplevel']);
+
   if (!top) return null;
   const root = await real(top.trim());
   const [remote, head] = await Promise.all([tryGit(root, ['remote', 'get-url', 'origin']), tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD'])]);
+
   return { root, remote: remote?.trim() || undefined, head: head?.trim() || undefined };
 }
 
@@ -47,12 +51,15 @@ export async function checkout(dir: string): Promise<Checkout | null> {
  */
 export async function real(p: string, hops = 0): Promise<string> {
   const abs = path.resolve(p);
+
   try {
     return await fs.realpath(abs);
   } catch {
     const to = hops < 40 ? await fs.readlink(abs).catch(() => null) : null;
+
     if (to !== null) return real(path.resolve(path.dirname(abs), to), hops + 1);
     const parent = path.dirname(abs);
+
     return parent === abs ? abs : path.join(await real(parent, hops), path.basename(abs));
   }
 }
@@ -69,28 +76,36 @@ export interface StatusEntry {
 /** Dirty and untracked files, from `git status --porcelain -z`. */
 export async function status(root: string, only?: string[]): Promise<StatusEntry[] | null> {
   const out = await tryGit(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', ...(only ? ['--', ...only] : [])]);
+
   return out == null ? null : parseStatus(out);
 }
 
 export function parseStatus(out: string): StatusEntry[] {
   const parts = out.split('\0');
   const entries: StatusEntry[] = [];
+
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
+
     if (p.length < 4) continue;
     const xy = p.slice(0, 2);
     const e: StatusEntry = { xy, path: p.slice(3) };
+
     if (xy[0] === 'R' || xy[0] === 'C') e.from = parts[++i];
     entries.push(e);
   }
+
   return entries;
 }
 
 /** What a porcelain status means for the map. */
 export function kindOf(xy: string): ChangeKind {
   if (xy === '??' || xy === '!!') return 'added';
+
   if (xy[1] === 'D' || (xy[0] === 'D' && xy[1] !== 'A')) return 'deleted';
+
   if (xy[0] === 'A' || xy[0] === 'R' || xy[0] === 'C') return 'added';
+
   return 'modified';
 }
 
@@ -105,33 +120,42 @@ export function parseDiff(diff: string): Pick<FileChange, 'lines' | 'oldLines' |
   let newNo = 0;
   // One run of consecutive +/- lines at a time, so a replacement is one range on each side.
   let run: { oldStart: number; newStart: number; plus: number; minus: number } | null = null;
+
   const flush = () => {
     if (!run) return;
     lines.push(run.plus ? [run.newStart, run.newStart + run.plus - 1] : [run.newStart, run.newStart - 1]);
     oldLines.push(run.minus ? [run.oldStart, run.oldStart + run.minus - 1] : [run.oldStart, run.oldStart - 1]);
     run = null;
   };
+
   for (const line of diff.split('\n')) {
     if (line.startsWith('diff --git ')) {
       flush();
       inHunk = false;
       continue;
     }
+
     const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+
     if (h) {
       flush();
       inHunk = true;
       oldNo = Number(h[1]);
       newNo = Number(h[2]);
+
       // A hunk that starts at 0 on one side (a new or emptied file) counts from 1.
       if (oldNo === 0) oldNo = 1;
+
       if (newNo === 0) newNo = 1;
       continue;
     }
+
     if (!inHunk || line.startsWith('\\')) continue;
     const c = line[0];
+
     if (c === '+' || c === '-') {
       run ??= { oldStart: oldNo, newStart: newNo, plus: 0, minus: 0 };
+
       if (c === '+') {
         run.plus++;
         newNo++;
@@ -147,7 +171,9 @@ export function parseDiff(diff: string): Pick<FileChange, 'lines' | 'oldLines' |
       newNo++;
     }
   }
+
   flush();
+
   return { lines: merge(lines), oldLines: merge(oldLines), additions, deletions };
 }
 
@@ -155,11 +181,14 @@ export function parseDiff(diff: string): Pick<FileChange, 'lines' | 'oldLines' |
 export function merge(ranges: LineRange[]): LineRange[] {
   const sorted = [...ranges].sort((a, b) => a[0] - b[0] || b[1] - a[1]);
   const out: LineRange[] = [];
+
   for (const r of sorted) {
     const last = out[out.length - 1];
+
     if (last && r[0] <= last[1] + 1 && (r[1] >= r[0] || last[1] >= last[0])) last[1] = Math.max(last[1], r[1]);
     else out.push([r[0], r[1]]);
   }
+
   return out;
 }
 
@@ -173,29 +202,37 @@ const cap = (diff: string) => (diff.length > MAX_DIFF ? `${diff.slice(0, diff.la
  */
 export async function describe(co: Checkout | null, abs: string, told?: ChangeKind): Promise<FileChange | null> {
   const exists = await fs.stat(abs).then((s) => s.isFile(), () => false);
+
   if (!co) return exists || told ? { path: abs, kind: told ?? 'modified' } : null;
   const rel = path.relative(co.root, abs).split(path.sep).join('/');
+
   if (rel.startsWith('../') || path.isAbsolute(rel)) return exists || told ? { path: abs, kind: told ?? 'modified' } : null;
 
   const st = await status(co.root, [rel]);
   const entry = st?.find((e) => e.path === rel);
   let kind: FileChange['kind'];
+
   if (entry) kind = kindOf(entry.xy);
   else if (!exists) {
     // In neither the tree nor git's status, so not in HEAD either: a new file removed again, back to what HEAD has.
     if (st) return { path: abs, kind: 'reverted' };
+
     return told === 'deleted' ? { path: abs, kind: 'deleted' } : null;
   } else {
     const tracked = await tryGit(co.root, ['ls-files', '--error-unmatch', '--', rel]);
     // Tracked and not in the status: it's back to what HEAD has. Untracked and not in the status: ignored.
     kind = tracked ? 'reverted' : 'added';
   }
+
   const change: FileChange = { path: abs, kind };
+
   if (kind === 'reverted') return change;
 
   let diff: string | null = null;
+
   if (kind === 'added' || !co.head) {
     const text = await fs.readFile(abs, 'utf8').catch(() => null);
+
     if (text != null && !text.includes('\0')) {
       const body = text.endsWith('\n') ? text.slice(0, -1) : text;
       const added = text ? body.split('\n').map((l) => `+${l}\n`) : [];
@@ -204,6 +241,8 @@ export async function describe(co: Checkout | null, abs: string, told?: ChangeKi
   } else {
     diff = await tryGit(co.root, ['diff', 'HEAD', '--no-color', '--no-ext-diff', '-U3', '--', rel]);
   }
+
   if (diff) Object.assign(change, parseDiff(diff), { diff: cap(diff) });
+
   return change;
 }

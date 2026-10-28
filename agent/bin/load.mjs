@@ -10,13 +10,16 @@ import { existsSync } from 'node:fs';
 export async function run(command) {
   const src = new URL('../src/cli.ts', import.meta.url);
   let entry = new URL('../dist/cli.js', import.meta.url);
+
   if (existsSync(src)) {
     entry = src;
+
     if (!process.features.typescript) {
       const { register } = await import('tsx/esm/api');
       register();
     }
   }
+
   const { cli } = await import(entry.href);
   await cli(command);
 }

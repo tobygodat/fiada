@@ -22,66 +22,89 @@ export function buildBase(repos: ParsedRepo[]): BaseGraph {
 
   // Routes show their full path when every mount above them was found.
   const routesByNode = new Map<string, string[]>();
+
   for (const r of routes) {
     const list = routesByNode.get(r.node) ?? [];
     const label = `${r.method} ${r.fullPath ?? (r.path || '/')}`;
     const bare = (l: string) => l.replace(/(.)\/$/, '$1');
+
     if (!list.some((l) => bare(l) === bare(label))) list.push(label);
     routesByNode.set(r.node, list);
   }
+
   const pagesByNode = new Map<string, string[]>();
+
   for (const p of pages) {
     const list = pagesByNode.get(p.node) ?? [];
+
     if (!list.includes(p.path)) list.push(p.path);
     pagesByNode.set(p.node, list);
   }
 
   const nodes: GraphNode[] = [];
+
   for (const repo of repos) {
     const rid = repo.info.id;
     nodes.push({ id: rid, kind: 'repo', name: repo.info.name, parent: 'root', repo: rid });
 
     // Folders, with single-child chains collapsed ("src/main/java" is one node).
     const dirs = new Map<string, { subdirs: Set<string>; files: number }>();
+
     const dir = (d: string) => {
       let e = dirs.get(d);
+
       if (!e) dirs.set(d, (e = { subdirs: new Set(), files: 0 }));
+
       return e;
     };
+
     dir('');
+
     for (const f of repo.files) {
       let d = path.posix.dirname(f.path);
+
       if (d === '.') d = '';
       dir(d).files++;
+
       while (d) {
         const parent = path.posix.dirname(d) === '.' ? '' : path.posix.dirname(d);
         dir(parent).subdirs.add(d);
         d = parent;
       }
     }
+
     const folderNode = new Map<string, string>(); // dir → emitted node id
     folderNode.set('', rid);
+
     const emit = (d: string, parentId: string, parentDir: string) => {
       let end = d;
+
       for (;;) {
         const e = dirs.get(end)!;
+
         if (e.files || e.subdirs.size !== 1) break;
         end = [...e.subdirs][0];
       }
+
       const id = `${rid}/${end}`;
       nodes.push({ id, kind: 'folder', name: parentDir ? end.slice(parentDir.length + 1) : end, parent: parentId, repo: rid, path: end });
+
       for (let x = end; ; x = path.posix.dirname(x)) {
         folderNode.set(x, id);
+
         if (x === d || x === '.' || !x) break;
       }
+
       for (const sub of [...dirs.get(end)!.subdirs].sort()) emit(sub, id, end);
     };
+
     for (const sub of [...dirs.get('')!.subdirs].sort()) emit(sub, rid, '');
 
     for (const f of repo.files) {
       const id = fileId(rid, f.path);
       const d = path.posix.dirname(f.path);
       const ids = symbolIds(id, f);
+
       const facts = detectFacts({
         repo,
         file: f,
@@ -90,6 +113,7 @@ export function buildBase(repos: ParsedRepo[]): BaseGraph {
         pages: [pagesByNode.get(id), ...ids.map((s) => pagesByNode.get(s))],
         test: TEST_PATH.test(f.path),
       });
+
       nodes.push({
         id,
         kind: 'file',
@@ -129,6 +153,7 @@ export function buildBase(repos: ParsedRepo[]): BaseGraph {
 export function classifyGraph(base: BaseGraph, grouping: Grouping, strategies?: Strategies): Graph {
   const { layers, domains, domainList } = classify(base.nodes, base.edges, grouping, strategies);
   const nodes = base.nodes.map((n) => (n.kind === 'file' || n.kind === 'symbol' ? { ...n, layer: layers.get(n.id), domain: domains.get(n.id) } : n));
+
   return {
     version: 1,
     generatedAt: new Date().toISOString(),

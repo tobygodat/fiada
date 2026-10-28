@@ -26,11 +26,14 @@ export function layout(tree: Tree): Map<string, Circle> {
   const h = hierarchy<TNode>(tree.root, (n) => n.children)
     .sum((n) => (n.children.length ? 0 : Math.max(n.size, 1)))
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
   const packed = pack<TNode>()
     .size([WORLD, WORLD])
     .padding((n) => PADDING[Math.min(n.depth, PADDING.length - 1)])(h);
+
   const out = new Map<string, Circle>();
   packed.each((n) => out.set(n.data.id, { x: n.x - WORLD / 2, y: n.y - WORLD / 2, r: n.r }));
+
   return out;
 }
 
@@ -55,11 +58,14 @@ export function layoutExpanded(tree: Tree, open: ReadonlySet<string>): Map<strin
   const h = hierarchy<TNode>(tree.root, (n) => (n.id === 'root' || open.has(n.id) ? n.children : null)).sort(
     (a, b) => b.data.weight - a.data.weight || (a.data.id < b.data.id ? -1 : 1),
   );
+
   const packed = pack<TNode>()
     .size([0, 0])
     .radius((n) => closedRadius(n.data))
     .padding((n) => OPEN_PADDING(n.data))(h);
+
   const out = new Map<string, Circle>();
   packed.each((n) => out.set(n.data.id, { x: n.x, y: n.y, r: n.r }));
+
   return out;
 }

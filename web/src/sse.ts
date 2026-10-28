@@ -5,9 +5,12 @@ export function takeEvents(buf: string): { data: string[]; rest: string } {
   const data: string[] = [];
   const blocks = buf.replace(/\r\n/g, '\n').split('\n\n');
   const rest = blocks.pop() ?? '';
+
   for (const block of blocks) {
     const lines = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, ''));
+
     if (lines.length) data.push(lines.join('\n'));
   }
+
   return { data, rest };
 }

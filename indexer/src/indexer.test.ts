@@ -16,10 +16,12 @@ import { gitHosts, parseSource } from './workspace.ts';
 
 async function fixture(files: Record<string, string>): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-'));
+
   for (const [rel, text] of Object.entries(files)) {
     await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
   }
+
   return dir;
 }
 
@@ -31,6 +33,7 @@ test('route matching tolerates mount prefixes and param styles', () => {
     { method: 'GET', path: '/items/{id}', node: 'one', segs: segments('/items/{id}') },
     { method: 'POST', path: '/items/', node: 'create', segs: segments('/items/') },
   ];
+
   assert.equal(matchRoute(routes, 'GET', segments('/api/v1/items/'))?.node, 'list');
   assert.equal(matchRoute(routes, 'GET', segments('/api/v1/items/{}'))?.node, 'one');
   assert.equal(matchRoute(routes, 'POST', segments('/api/v1/items'))?.node, 'create');
@@ -67,6 +70,7 @@ test('a hosted indexer clones over https from the allowed hosts only', async () 
   assert.equal((await parseSource('org/repo', false, hosts)).location, 'https://github.com/org/repo');
   assert.equal((await parseSource('https://gitlab.com/group/sub/repo.git', false, hosts)).name, 'repo');
   assert.equal((await parseSource('git@github.com:org/repo.git', false, hosts)).location, 'https://github.com/org/repo.git');
+
   for (const bad of [
     'http://github.com/org/repo',
     'https://169.254.169.254/latest/meta-data',
@@ -79,11 +83,14 @@ test('a hosted indexer clones over https from the allowed hosts only', async () 
   ]) {
     await assert.rejects(parseSource(bad, false, hosts), /over https from github\.com, gitlab\.com only/, bad);
   }
+
   // Any host when the list says so, still over https only; and anything on your own machine.
   assert.equal((await parseSource('https://git.example.org/repo.git', false, null)).name, 'repo');
+
   for (const bad of ['http://10.0.0.5/repo.git', 'ssh://git@git.example.org/repo', 'https://user:pw@git.example.org/repo', 'https://git.example.org:8443/repo']) {
     await assert.rejects(parseSource(bad, false, null), /over https only/, bad);
   }
+
   assert.equal((await parseSource('http://10.0.0.5/repo.git', true, hosts)).name, 'repo');
   assert.deepEqual(gitHosts('GitHub.com, *'), null);
   assert.deepEqual(gitHosts(''), ['github.com', 'gitlab.com', 'bitbucket.org']);
@@ -97,6 +104,7 @@ test('links a web client to an API in another repo, and classifies both', async 
     'src/components/ItemCard.tsx': 'import { getItem } from "@/lib/api";\nexport function ItemCard() { getItem("1"); return <div/>; }',
     'src/types.ts': 'export interface Item { id: string }\nexport type ItemId = string;',
   });
+
   const api = await fixture({
     'app/__init__.py': '',
     'app/models.py': 'from sqlmodel import SQLModel\nclass Item(SQLModel, table=True):\n    id: str\nclass ItemPublic(SQLModel):\n    id: str\n',
@@ -104,6 +112,7 @@ test('links a web client to an API in another repo, and classifies both', async 
       'from fastapi import APIRouter\nfrom app.models import Item, ItemPublic\nrouter = APIRouter(prefix="/items")\n' +
       '@router.get("/{id}")\ndef read_item(id: str) -> ItemPublic:\n    return Item(id=id)\n',
   });
+
   const graph = buildGraph([await loadRepo(info('web'), web), await loadRepo(info('api'), api)], defaultGrouping());
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const has = (from: string, to: string, kind: string) => graph.edges.some((e) => e.from === from && e.to === to && e.kind === kind);
@@ -145,6 +154,7 @@ test('project layers: priorities, neighbours, Unlayered', () => {
     rules: [],
     pins: {},
   };
+
   const nodes = [
     file('svc/handlers/a.ts', [{ type: 'import', value: 'pg' }]), // import (200) beats path (100)
     file('svc/handlers/b.ts'),
@@ -153,10 +163,12 @@ test('project layers: priorities, neighbours, Unlayered', () => {
     sym('svc/handlers/b.ts', 'getThing', [{ type: 'route', value: 'GET /thing' }]),
     sym('svc/handlers/b.ts', 'helper'),
   ];
+
   const edges = [
     { from: 'svc/handlers/b.ts#getThing', to: 'svc/util/helper.ts', kind: 'calls' as const },
     { from: 'svc/handlers/b.ts#helper', to: 'svc/handlers/a.ts', kind: 'calls' as const },
   ];
+
   const { layers } = classify(nodes, edges, grouping);
   assert.equal(layers.get('svc/handlers/a.ts')?.id, 'store');
   assert.match(layers.get('svc/handlers/a.ts')!.evidence[1].detail, /would be Edge/);
@@ -179,6 +191,7 @@ test('user rules and pins win, later rules over earlier ones', () => {
     ],
     pins: { 'r/x.ts': { layer: 'b' } },
   });
+
   const nodes = [file('r/legacy/old.ts'), sym('r/legacy/old.ts', 'keepMe'), sym('r/legacy/old.ts', 'dropMe'), file('r/x.ts'), sym('r/x.ts', 'f')];
   const { layers, domains, domainList } = classify(nodes, [], grouping);
   assert.equal(layers.get('r/legacy/old.ts')?.id, 'b');
@@ -221,6 +234,7 @@ test('file store round-trips a project and ignores its own writes', async () => 
 
 test('domains: seeds from routes, entities and feature folders spread along edges', () => {
   const route = (v: string) => [{ type: 'route' as const, value: v }];
+
   const nodes: GraphNode[] = [
     { id: 'app', kind: 'repo', name: 'app', parent: 'root', repo: 'app' },
     file('app/api/routes/items.py'),
@@ -247,7 +261,9 @@ test('domains: seeds from routes, entities and feature folders spread along edge
     file('web/lib/misc.ts'),
     sym('web/lib/misc.ts', 'noop'),
   ];
+
   const e = (from: string, to: string, kind: 'calls' | 'renders' = 'calls') => ({ from, to, kind });
+
   const edges = [
     e('app/api/routes/items.py#read_item', 'app/crud.py#get_item'),
     e('app/crud.py#get_item', 'app/models.py#Item'),
@@ -258,6 +274,7 @@ test('domains: seeds from routes, entities and feature folders spread along edge
     e('web/components/Items/ItemCard.tsx#ItemCard', 'web/components/ui/button.tsx#Button', 'renders'),
     e('web/components/Billing/Invoice.tsx#Invoice', 'web/components/ui/button.tsx#Button', 'renders'),
   ];
+
   const grouping = { ...defaultGrouping(), pins: { 'web/components/Billing/Invoice.tsx#Invoice': { domain: 'item' } } };
   const { domains, domainList } = classify(nodes, edges, grouping, { layers: projectMatchers, domains: seedAndPropagate() });
   const d = (id: string) => domains.get(id)?.id;

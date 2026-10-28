@@ -80,12 +80,14 @@ export class MongoProjectStore implements ProjectStore {
    */
   static async connect(uri: string, dbName = 'strata'): Promise<MongoProjectStore> {
     const client = new MongoClient(uri, { appName: 'fiada', serverSelectionTimeoutMS: 8000 });
+
     try {
       await client.connect();
       const projects = client.db(dbName).collection<ProjectDoc>('projects');
       await projects.findOne({}, { projection: { _id: 1 } });
       const summaries = client.db(dbName).collection<SummaryDoc>('summaries');
       const accounts = client.db(dbName).collection<AccountDoc>('accounts');
+
       return new MongoProjectStore(client, projects, summaries, accounts, `${redact(uri)} ${dbName}.projects`);
     } catch (err) {
       await client.close().catch(() => {});
@@ -99,6 +101,7 @@ export class MongoProjectStore implements ProjectStore {
 
   async loadRepos(projectId: string): Promise<SavedRepo[] | null> {
     const value = await this.load(projectId, 'repos');
+
     return value == null ? null : Array.isArray(value) ? (value as SavedRepo[]) : [];
   }
 
@@ -116,6 +119,7 @@ export class MongoProjectStore implements ProjectStore {
 
   async loadFences(projectId: string): Promise<Fence[] | null> {
     const value = await this.load(projectId, 'fences');
+
     return value == null ? null : Array.isArray(value) ? (value as Fence[]) : [];
   }
 
@@ -125,7 +129,9 @@ export class MongoProjectStore implements ProjectStore {
 
   async loadSummaries(projectId: string): Promise<Record<string, StoredSummary> | null> {
     const docs = await this.summaries.find({ project: projectId }).toArray();
+
     if (!docs.length) return null;
+
     return Object.fromEntries(docs.map((d) => [d._id.slice(projectId.length + 1), { text: d.text, model: d.model, at: d.at }]));
   }
 
@@ -133,31 +139,37 @@ export class MongoProjectStore implements ProjectStore {
     const ops = Object.entries(entries).map(([hash, s]) => ({
       replaceOne: { filter: { _id: `${projectId}:${hash}` }, replacement: { project: projectId, text: s.text, model: s.model, at: s.at }, upsert: true },
     }));
+
     if (ops.length) await this.summaries.bulkWrite(ops, { ordered: false });
   }
 
   async loadAccount(id: string): Promise<StoredAccount | null> {
     const doc = await this.accounts.findOne({ _id: id });
+
     return doc && fromDoc(doc);
   }
 
   async saveSignIn(fields: SignedIn): Promise<StoredAccount> {
     const { id, ...rest } = fields;
+
     const doc = await this.accounts.findOneAndUpdate(
       { _id: id },
       { $set: rest, $setOnInsert: { agentEpoch: 0, createdAt: fields.updatedAt } },
       { upsert: true, returnDocument: 'after' },
     );
+
     return fromDoc(doc!);
   }
 
   async bumpAgentEpoch(id: string, at: string): Promise<StoredAccount | null> {
     const doc = await this.accounts.findOneAndUpdate({ _id: id }, { $inc: { agentEpoch: 1 }, $set: { updatedAt: at } }, { returnDocument: 'after' });
+
     return doc && fromDoc(doc);
   }
 
   async deleteProject(projectId: string) {
     await Promise.all([this.projects.deleteOne({ _id: projectId }), this.summaries.deleteMany({ project: projectId })]);
+
     // A project made again under this id starts from nothing, as a new one does.
     for (const field of ['repos', 'grouping', 'fences'] as const) {
       this.revs.delete(`${projectId}\0${field}`);
@@ -175,6 +187,7 @@ export class MongoProjectStore implements ProjectStore {
       // Counted in the database, so no project's repository list is loaded.
       this.projects.aggregate<{ n: number }>([{ $project: { _id: 0, n: { $cond: [{ $isArray: '$repos' }, { $size: '$repos' }, 0] } } }]).toArray(),
     ]);
+
     return {
       accounts: accounts.map(({ createdAt, updatedAt }) => ({ createdAt, updatedAt })),
       reposPerProject: projects.map((p) => p.n),
@@ -188,16 +201,19 @@ export class MongoProjectStore implements ProjectStore {
   private inTurn<T>(key: string, run: () => Promise<T>): Promise<T> {
     const result = (this.queues.get(key) ?? Promise.resolve()).then(run);
     this.queues.set(key, result.catch(() => {}));
+
     return result;
   }
 
   private load(projectId: string, field: Field): Promise<unknown | null> {
     const key = `${projectId}\0${field}`;
+
     return this.inTurn(key, () => this.loadNow(key, projectId, field));
   }
 
   private save(projectId: string, field: Field, value: unknown): Promise<void> {
     const key = `${projectId}\0${field}`;
+
     return this.inTurn(key, () => this.saveNow(key, projectId, field, value));
   }
 
@@ -205,11 +221,15 @@ export class MongoProjectStore implements ProjectStore {
     const rev = `${field}Rev` as const;
     const doc = await this.projects.findOne({ _id: projectId }, { projection: { [field]: 1, [rev]: 1 } });
     this.revs.set(key, doc?.[rev] ?? 0);
+
     if (doc?.[field] == null) {
       this.stored.delete(key);
+
       return null;
     }
+
     this.stored.set(key, JSON.stringify(doc[field]));
+
     return decodeKeys(doc[field]);
   }
 
@@ -218,19 +238,23 @@ export class MongoProjectStore implements ProjectStore {
     const seen = this.revs.get(key) ?? 0;
     const encoded = encodeKeys(value);
     const json = JSON.stringify(encoded);
+
     if (seen > 0 && this.stored.get(key) === json) return;
     // First save of this field: it must not exist yet. The upsert creates the
     // document when the project is new; when another indexer got there first,
     // nothing matches and the upsert's insert collides on _id.
     const filter = seen === 0 ? { _id: projectId, [rev]: { $exists: false } } : { _id: projectId, [rev]: seen };
     const update = { $set: { [field]: encoded, [rev]: seen + 1, updatedAt: new Date() } };
+
     try {
       const result = await this.projects.updateOne(filter, update, { upsert: seen === 0 });
+
       if (result.matchedCount === 0 && result.upsertedCount === 0) throw new ProjectConflictError(projectId, field);
     } catch (err) {
       if ((err as { code?: number }).code === 11000) throw new ProjectConflictError(projectId, field);
       throw err;
     }
+
     this.revs.set(key, seen + 1);
     this.stored.set(key, json);
   }
@@ -252,6 +276,7 @@ export function unquote(value: string | undefined): string {
 /** Scheme and hosts of a connection string: no user, password or options. */
 export function redact(uri: string): string {
   const m = /^([a-z+]+:\/\/)(?:[^@/]*@)?([^/?]*)/i.exec(uri);
+
   return m ? m[1] + m[2] : 'the configured server';
 }
 
@@ -267,7 +292,9 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 function mapKeys(value: unknown, key: (k: string) => string): unknown {
   if (Array.isArray(value)) return value.map((v) => mapKeys(v, key));
+
   if (!isPlainObject(value)) return value;
+
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [key(k), mapKeys(v, key)]));
 }
 

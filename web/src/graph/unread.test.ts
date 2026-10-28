@@ -65,7 +65,9 @@ test("marking one agent read leaves another agent's later change to the same fil
     'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/tags.tsx': change('added', 'file', 15, ['a']),
   };
+
   const iso = (ms: number) => new Date(ms).toISOString();
+
   const a = {
     id: 'a',
     files: [
@@ -73,6 +75,7 @@ test("marking one agent read leaves another agent's later change to the same fil
       { repo: 'web', path: 'src/pages/tags.tsx', node: 'web/src/pages/tags.tsx', kind: 'added', symbols: [], at: iso(15) },
     ],
   } as unknown as AgentActivity;
+
   const marks = markAgentRead({}, a)!;
   const u = unreadIds(shared, marks);
   assert.ok(!u.has('web/src/pages/tags.tsx'), "a's own change is read");
@@ -94,6 +97,7 @@ test("a lit agent's function you opened stays read when another agent changes it
     'web/src/pages/items.tsx#ItemsPage': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/items.tsx#useTags': change('added', 'symbol', 10, ['a']),
   };
+
   const a = {
     id: 'a',
     files: [
@@ -110,6 +114,7 @@ test("a lit agent's function you opened stays read when another agent changes it
       },
     ],
   } as unknown as AgentActivity;
+
   const marks = { 'web/src/pages/items.tsx#ItemsPage': 10 };
   const u = unreadIds(two, marks);
   assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'), "b's change is unread overall");
@@ -154,6 +159,7 @@ test('read marks are kept per project and survive bad storage', () => {
       return store.size;
     },
   };
+
   try {
     saveRead('p1', { 'web/src/a.ts': 10 });
     assert.deepEqual(loadRead('p1'), { 'web/src/a.ts': 10 });
@@ -177,7 +183,9 @@ test("a lit agent's functions go by its own change time to each, not its latest 
     'web/src/pages/items.tsx#foo': change('modified', 'symbol', 20, ['a', 'b']),
     'web/src/pages/items.tsx#bar': change('modified', 'symbol', 30, ['a']),
   };
+
   const iso = (ms: number) => new Date(ms).toISOString();
+
   const a = {
     id: 'a',
     files: [
@@ -194,6 +202,7 @@ test("a lit agent's functions go by its own change time to each, not its latest 
       },
     ],
   } as unknown as AgentActivity;
+
   const opened = { 'web/src/pages/items.tsx#foo': 20 };
   const u = unreadIds(three, opened);
   // Lit, a shows bar unread, not foo: its change to foo came before you opened it.

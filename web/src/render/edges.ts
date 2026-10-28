@@ -54,6 +54,7 @@ export const EDGE_POLICIES = {
 } satisfies Record<string, EdgePolicy>;
 
 export type EdgePreset = keyof typeof EDGE_POLICIES;
+
 export const DEFAULT_EDGE_POLICY: EdgePolicy = EDGE_POLICIES.key;
 
 export const edgeScore = (g: Contract, boost: number) => g.items.length * (g.kinds.has('http') || crossRepo(g) ? boost : 1);
@@ -73,31 +74,40 @@ export function restEdges(
   const score = (g: Contract) => edgeScore(g, policy.boost);
   const byScore = (p: Contract, q: Contract) => score(q) - score(p) || (p.key < q.key ? -1 : 1);
   const places = new Map<string, Contract[]>();
+
   for (const g of contracts) {
     if (!visible.has(g.a) || !visible.has(g.b) || g.items.length < policy.restMinItems) continue;
     const h = home(g);
     const list = places.get(h);
+
     if (list) list.push(g);
     else places.set(h, [g]);
   }
+
   const picks: Contract[][] = [];
+
   for (const list of places.values()) {
     list.sort(byScore);
     const floor = score(list[0]) ** policy.restPower;
     picks.push(list.slice(0, policy.perContainer).filter((g) => score(g) >= floor));
   }
+
   // Every place's strongest link first, then every place's second, and so on.
   picks.sort((p, q) => byScore(p[0], q[0]));
   const out = new Set<string>();
+
   for (let round = 0; out.size < policy.restMax; round++) {
     let more = false;
+
     for (const list of picks) {
       if (round >= list.length || out.size >= policy.restMax) continue;
       out.add(list[round].key);
       more = true;
     }
+
     if (!more) break;
   }
+
   return out;
 }
 
@@ -114,6 +124,7 @@ export function ruleCrossesRing(a: { x: number; y: number }, z: { x: number; y: 
   const t = l2 ? Math.max(0, Math.min(1, ((ring.x - a.x) * dx + (ring.y - a.y) * dy) / l2)) : 0;
   const near = Math.hypot(ring.x - (a.x + t * dx), ring.y - (a.y + t * dy));
   const far = Math.max(Math.hypot(a.x - ring.x, a.y - ring.y), Math.hypot(z.x - ring.x, z.y - ring.y));
+
   return near < ring.outer && far > ring.inner;
 }
 
@@ -135,18 +146,24 @@ export function labelSpot(
   ok: (p: { x: number; y: number }, from?: { x: number; y: number }) => boolean,
 ): { x: number; y: number; inline: boolean; from?: { x: number; y: number } } | null {
   const ts = [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7];
+
   const point = (t: number) => {
     const u = 1 - t;
+
     return { x: u * u * x1 + 2 * u * t * cx + t * t * x2, y: u * u * y1 + 2 * u * t * cy + t * t * y2 };
   };
+
   if (gap >= half.w * 2 + 48) {
     for (const t of ts) {
       const p = point(t);
+
       if (ok(p)) return { ...p, inline: true };
     }
   }
+
   // Beside the line: along its normal, far enough that the box clears the stroke whichever way the line runs.
   const clear = lineWidth / 2 + 3;
+
   for (const more of [0, 12, 26, 42, 60]) {
     for (const t of ts) {
       const { x, y } = point(t);
@@ -158,19 +175,23 @@ export function labelSpot(
       const ny = tx / d;
       // The box's reach along the normal: its half height across a level line, its half width beside an upright one.
       const off = Math.abs(nx) * half.w + Math.abs(ny) * half.h + clear + more;
+
       for (const side of [-1, 1]) {
         const p = { x: x + nx * off * side, y: y + ny * off * side };
         // Further off only where circles crowd the line; the words then hang from it by a short rule.
         const from = more ? { x: x + nx * (clear - 1) * side, y: y + ny * (clear - 1) * side } : undefined;
+
         if (ok(p, from)) return { ...p, inline: false, from };
       }
     }
   }
+
   return null;
 }
 
 /** Sideways offset of the curve's control point, as a share of the gap between the two rims. */
 export const DEFAULT_BEND = 0.12;
+
 // Wide enough to swing round a circle that sits right on the line between the two ends.
 const BENDS = [DEFAULT_BEND, -DEFAULT_BEND, 0.26, -0.26, 0.42, -0.42, 0.62, -0.62, 0.85, -0.85, 0];
 
@@ -187,6 +208,7 @@ export function curve(A: Circle, B: Circle, bend: number) {
   const y2 = B.y - uy * B.r;
   // Bend by the gap, not the distance between centres, so neighbours that almost touch get a short straight link.
   const gap = Math.max(0, d - A.r - B.r);
+
   return { x1, y1, mx: (x1 + x2) / 2 - uy * gap * bend, my: (y1 + y2) / 2 + ux * gap * bend, x2, y2, d, gap };
 }
 
@@ -202,25 +224,32 @@ export function bestBend(A: Circle, B: Circle, obstacles: readonly Circle[]): nu
   const minY = Math.min(y1, y2) - pad;
   const maxY = Math.max(y1, y2) + pad;
   const near = obstacles.filter((c) => c !== A && c !== B && c.x + c.r > minX && c.x - c.r < maxX && c.y + c.r > minY && c.y - c.r < maxY);
+
   if (!near.length) return DEFAULT_BEND;
   let best = DEFAULT_BEND;
   let bestCost = Infinity;
+
   for (const bend of BENDS) {
     const c = curve(A, B, bend);
     let hits = 0;
+
     for (let i = 1; i < 12; i++) {
       const t = i / 12;
       const s = 1 - t;
       const px = s * s * c.x1 + 2 * s * t * c.mx + t * t * c.x2;
       const py = s * s * c.y1 + 2 * s * t * c.my + t * t * c.y2;
+
       for (const o of near) if ((px - o.x) ** 2 + (py - o.y) ** 2 < (o.r * 1.08) ** 2) hits++;
     }
+
     // A wide arc costs about as much as grazing one circle, so arcs are only for real crossings.
     const cost = hits + 1.4 * Math.abs(bend);
+
     if (cost < bestCost) {
       bestCost = cost;
       best = bend;
     }
   }
+
   return best;
 }

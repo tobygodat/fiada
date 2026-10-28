@@ -24,9 +24,11 @@ export function palette(repoIds: string[], layerIds: string[] = []): Palette {
   const idx = new Map(repoIds.map((id, i) => [id, i]));
   const layerIdx = new Map(layerIds.map((id, i) => [id, i]));
   const none = (a?: number) => layerColor(undefined, a);
+
   return {
     repo: (id, a) => {
       const i = idx.get(id);
+
       return i == null ? none(a) : repoColor(i, a);
     },
     layer: (l, a) => layerColor(l && l !== UNLAYERED ? layerIdx.get(l) : undefined, a),

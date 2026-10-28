@@ -60,6 +60,7 @@ export function outline(root: SyntaxNode, spec: LangSpec, file: ParsedFile) {
 
   const collect = (node: SyntaxNode, refs: RefSet, owner: string | null, membersApart: boolean) => {
     const seen = new Set<number>();
+
     const sink: RefSink = {
       add: (name, kind, n, member, scope) => {
         seen.add(n.id);
@@ -74,33 +75,43 @@ export function outline(root: SyntaxNode, spec: LangSpec, file: ParsedFile) {
       },
       wasSeen: (n) => seen.has(n.id),
     };
+
     const walk = (n: SyntaxNode) => {
       if (membersApart && n.id !== node.id) {
         const d = spec.decl(n, owner);
+
         if (d && d.as !== 'scope') return;
       }
+
       if (!seen.has(n.id) && spec.ref(n, sink) === true) return;
+
       for (const c of n.namedChildren) walk(c);
     };
+
     walk(node);
   };
 
   const visit = (node: SyntaxNode, owner: string | null) => {
     for (const child of node.namedChildren) {
       const d = spec.decl(child, owner);
+
       if (!d) {
         if (owner == null) collect(child, fileRefs, null, false);
         continue;
       }
+
       if (d.as === 'skip') continue;
+
       if (d.as === 'scope') {
         visit(d.body ?? child, d.owner ?? owner);
         continue;
       }
+
       const base = d.owner ?? owner;
       const name = base ? join(base, d.name, d.as) : d.name;
       const refs = new RefSet(d.name);
       collect(child, refs, name, d.as === 'type');
+
       const sym: ParsedSymbol = {
         name,
         kind: d.kind,
@@ -108,14 +119,19 @@ export function outline(root: SyntaxNode, spec: LangSpec, file: ParsedFile) {
         lines: [line(child), child.endPosition.row + 1],
         refs: refs.list(),
       };
+
       if (d.bases?.length) sym.bases = d.bases;
+
       if (d.decorators?.length) sym.decorators = d.decorators;
+
       if (d.routes?.length) sym.routes = d.routes;
       file.symbols.push(sym);
       owners.push(d.as === 'type' ? null : base);
+
       if (d.as === 'type') visit(d.body ?? child, name);
     }
   };
+
   visit(root, null);
 
   // `this.helper()` and a bare `helper()` inside a method name a sibling member.
@@ -128,13 +144,18 @@ export function outline(root: SyntaxNode, spec: LangSpec, file: ParsedFile) {
       if (r.name === SELF) {
         if (!owner || !r.member) return [];
         const sibling = join(owner, r.member, 'function');
+
         if (names.has(sibling)) return sibling !== s.name ? [{ name: sibling, kind: r.kind, line: r.line }] : [];
+
         return names.has(owner) ? [] : [{ name: owner, member: r.member, kind: r.kind, line: r.line }];
       }
+
       if (!r.member && owner) {
         const sibling = join(owner, r.name, 'function');
+
         if (r.scope == null && names.has(sibling) && sibling !== s.name) return [{ ...r, name: sibling }];
       }
+
       return [r];
     });
   });
@@ -156,14 +177,17 @@ export function literal(n: SyntaxNode | null | undefined): string | null {
   if (!n) return null;
   let out = '';
   let parts = false;
+
   for (const c of n.namedChildren) {
     if (c.type === 'string_fragment' || c.type === 'string_content' || c.type === 'escape_sequence' || c.type === 'line_str_text' || c.type === 'string_literal_content') {
       out += c.text;
       parts = true;
     } else if (/interpolation|substitution|line_str_expr|string_interpolation/.test(c.type)) return null;
   }
+
   if (parts) return out;
   const m = n.text.match(/^@?\$?(["'`])([\s\S]*)\1$/);
+
   return m ? m[2] : null;
 }
 
@@ -188,6 +212,7 @@ const VERB_ANNOTATION: Record<string, string> = {
   GetMapping: 'GET', PostMapping: 'POST', PutMapping: 'PUT', DeleteMapping: 'DELETE', PatchMapping: 'PATCH',
   HttpGet: 'GET', HttpPost: 'POST', HttpPut: 'PUT', HttpDelete: 'DELETE', HttpPatch: 'PATCH', HttpHead: 'HEAD', HttpOptions: 'OPTIONS',
 };
+
 const JAXRS_VERB = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/;
 const PATH_ANNOTATION = /^(RequestMapping|Path|Route)$/;
 
@@ -202,31 +227,38 @@ export const methodsIn = (text: string) => [...text.matchAll(/\b(GET|POST|PUT|DE
 export function annotationRoutes(own: Ann[], outer: Ann[], n: SyntaxNode, names: { type?: string; method?: string } = {}): RouteDecl[] {
   const fill = (p: string) =>
     p.replace(/\[controller\]/gi, (names.type ?? '').replace(/Controller$/, '')).replace(/\[action\]/gi, names.method ?? '');
+
   // Every path the class maps, each with every path the method maps; the class's annotation is the prefix's evidence.
   const outerAnn = outer.find((a) => PATH_ANNOTATION.test(a.name));
   const prefixes = outerAnn?.paths.length ? outerAnn.paths : [''];
   const ownPaths = own.find((a) => PATH_ANNOTATION.test(a.name) && a.name !== 'RequestMapping')?.paths ?? [];
   const out: RouteDecl[] = [];
+
   const add = (method: string, paths: string[], dotnet = false) => {
     for (const p of paths.length ? paths : ['']) {
       for (const prefix of prefixes) {
         const absolute = dotnet && /^~?\//.test(p);
         const full = joinPath(absolute ? '' : fill(prefix), fill(p.replace(/^~/, '')));
+
         if (out.some((r) => r.method === method && r.path === full)) continue;
         out.push(!absolute && prefix && outerAnn ? { method, path: full, line: line(n), prefixLine: outerAnn.line } : { method, path: full, line: line(n) });
       }
     }
   };
+
   for (const a of own) {
     const verb = VERB_ANNOTATION[a.name];
+
     if (verb) add(verb, a.paths.length ? a.paths : ownPaths, a.name.startsWith('Http'));
     else if (a.name === 'RequestMapping') for (const m of a.methods.length ? a.methods : ['*']) add(m, a.paths);
     else if (JAXRS_VERB.test(a.name)) add(a.name, ownPaths);
   }
+
   return out;
 }
 
 export function joinPath(a: string, b: string): string {
   const out = `/${a.replace(/^\/+|\/+$/g, '')}/${b.replace(/^\/+/, '')}`.replace(/\/{2,}/g, '/');
+
   return out.length > 1 ? out.replace(/\/$/, '') : out;
 }

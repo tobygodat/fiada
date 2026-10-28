@@ -61,21 +61,27 @@ async function pool<T, R>(items: T[], limit: number, run: (item: T) => Promise<R
   // oxlint-disable-next-line unicorn/no-new-array -- sized up front so each worker writes its result at its item's index
   const out: R[] = new Array(items.length);
   let next = 0;
+
   const worker = async () => {
     while (next < items.length) {
       const i = next++;
       out[i] = await run(items[i]);
     }
   };
+
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+
   return out;
 }
 
 const tally = (xs: string[]) => {
   const m = new Map<string, number>();
+
   for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
+
   return [...m].sort((a, b) => b[1] - a[1]);
 };
+
 const listTally = (xs: string[], max = 4) =>
   tally(xs)
     .slice(0, max)
@@ -90,10 +96,13 @@ const listTally = (xs: string[], max = 4) =>
 export async function sortProject(graph: Graph, grouping: Grouping, ask: Ask, opts: SortOptions): Promise<SortedGrouping> {
   const log = opts.log ?? (() => {});
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
   const fileOf = (id: string) => {
     const n = byId.get(id);
+
     return n?.kind === 'symbol' ? n.parent : id;
   };
+
   const layerName = new Map([...graph.layers.map((l) => [l.id, l.name] as const), [UNLAYERED, 'Unlayered']]);
   const domainName = new Map(graph.domains.map((d) => [d.id, d.name]));
   const repos = Object.fromEntries(graph.repos.map((r) => [r.id, r.commit ?? '']));
@@ -103,6 +112,7 @@ export async function sortProject(graph: Graph, grouping: Grouping, ask: Ask, op
   const project = graph.repos
     .map((r) => `- ${r.name}: ${r.fileCount ?? 0} files, ${r.symbolCount ?? 0} symbols${r.frameworks?.length ? `, ${r.frameworks.join(', ')}` : ''}${r.languages ? ` (${Object.keys(r.languages).join(', ')})` : ''}`)
     .join('\n');
+
   const layersText = graph.layers.length
     ? graph.layers.map((l) => `- ${l.id}: ${l.name}${l.rank != null ? ` (rank ${l.rank} in the request flow)` : ''}`).join('\n')
     : '(this project has no layers; leave layer empty)';
@@ -110,33 +120,41 @@ export async function sortProject(graph: Graph, grouping: Grouping, ask: Ask, op
   // Domains the classifier found, with what's in them.
   const userOwned = new Set(grouping.domains.map((d) => d.id));
   const members = new Map<string, GraphNode[]>();
+
   for (const n of graph.nodes) {
     if ((n.kind !== 'symbol' && n.kind !== 'file') || !n.domain) continue;
     const d = n.domain.id;
+
     if (d === UNSORTED_DOMAIN || d === SHARED_DOMAIN) continue;
     (members.get(d) ?? members.set(d, []).get(d)!).push(n);
   }
+
   const found = graph.domains.filter((d) => members.has(d.id));
   const symbolsIn = tally(graph.nodes.filter((n) => n.kind === 'symbol').map((n) => n.parent));
   const perFile = new Map(symbolsIn);
+
   /** A domain's files, most telling first: files that seeded it, then files most of whose code is in it (not a big shared file that lends it a few symbols). */
   const filesOf = (id: string) => {
     const ms = members.get(id) ?? [];
     const seeded = new Set(ms.filter((n) => n.domain!.source === 'seed').map((n) => fileOf(n.id)));
+
     return tally(ms.map((n) => fileOf(n.id)))
       .map(([f, n]) => [f, (seeded.has(f) ? 10 : 0) + n / Math.max(perFile.get(f) ?? 1, n)] as const)
       .sort((a, b) => b[1] - a[1])
       .map(([f]) => f);
   };
+
   const describeDomain = (d: { id: string; name: string }) => {
     const ms = members.get(d.id) ?? [];
     const files = filesOf(d.id);
     const seeds = tally(ms.filter((n) => n.domain!.source === 'seed').map((n) => n.domain!.evidence[0]?.detail ?? '')).filter(([s]) => s);
+
     const syms = ms
       .filter((n) => n.kind === 'symbol')
       .sort((a, b) => (b.loc ?? 0) - (a.loc ?? 0))
       .slice(0, 8)
       .map((n) => n.name);
+
     return [
       `- ${d.id} ("${d.name}")${userOwned.has(d.id) ? ' [named by the user: keep it, no rename or merge]' : ''}: ${ms.filter((n) => n.kind === 'symbol').length} symbols in ${files.length} files`,
       `  files: ${files.slice(0, 6).join(', ')}${files.length > 6 ? ', …' : ''}`,
@@ -150,6 +168,7 @@ export async function sortProject(graph: Graph, grouping: Grouping, ask: Ask, op
   // ── 1. domains: names, merges, additions ───────────────────────────
   const renameable = found.filter((d) => !userOwned.has(d.id));
   const leftoverOutline = outline(leftovers);
+
   const domainsPrompt = `Project:
 ${project}
 
@@ -173,6 +192,7 @@ Then new_domains: the few domains the leftover code needs that none of the above
     domains: [],
     new_domains: [],
   };
+
   if (renameable.length || leftovers.length) {
     log(`[fiada] sort: naming ${renameable.length} domains with ${opts.model}`);
     domainAnswer = (await ask({
@@ -190,6 +210,7 @@ Then new_domains: the few domains the leftover code needs that none of the above
   const renameableIds = new Set(renameable.map((d) => d.id));
   const foundIds = new Set(found.map((d) => d.id));
   const seen = new Set<string>();
+
   for (const d of domainAnswer.domains ?? []) {
     if (!renameableIds.has(d.id) || seen.has(d.id)) continue;
     seen.add(d.id);
@@ -204,16 +225,22 @@ Then new_domains: the few domains the leftover code needs that none of the above
       ...(d.reason?.trim() ? { reason: d.reason.trim() } : {}),
     });
   }
+
   // A domain merged into one that is itself merged away follows it; a pair merged into each other keeps the first.
   const mergedAway = new Set<string>();
+
   for (const d of sortedDomains) {
     if (!d.mergeInto) continue;
+
     if (mergedAway.has(d.mergeInto) && sortedDomains.find((x) => x.id === d.mergeInto)?.mergeInto === d.id) delete d.mergeInto;
     else mergedAway.add(d.id);
   }
+
   const taken = new Set([...foundIds, SHARED_DOMAIN, UNSORTED_DOMAIN, ...grouping.domains.map((d) => d.id)]);
+
   for (const d of (domainAnswer.new_domains ?? []).slice(0, 8)) {
     const id = slug(d.id || d.name);
+
     if (!id || taken.has(id) || !d.name?.trim()) continue;
     taken.add(id);
     sortedDomains.push({ id, name: d.name.trim(), added: true, ...(d.reason?.trim() ? { reason: d.reason.trim() } : {}) });
@@ -221,17 +248,22 @@ Then new_domains: the few domains the leftover code needs that none of the above
 
   // ── 2. leftovers ───────────────────────────────────────────────────
   const finalName = new Map<string, string>();
+
   for (const d of found) if (!mergedAway.has(d.id)) finalName.set(d.id, sortedDomains.find((x) => x.id === d.id)?.name ?? d.name);
+
   for (const d of sortedDomains) if (d.added) finalName.set(d.id, d.name);
   const about = new Map(sortedDomains.map((d) => [d.id, d.reason]));
   const domainIds = [...finalName.keys()];
+
   const domainsText = domainIds
     .map((id) => {
       const d = found.find((x) => x.id === id);
       const files = d ? filesOf(id).slice(0, 4) : [];
+
       return `- ${id}: ${finalName.get(id)}${sortedDomains.find((x) => x.id === id)?.added ? ` (new: ${about.get(id) ?? ''})` : files.length ? ` (e.g. ${files.join(', ')})` : ''}`;
     })
     .join('\n');
+
   const context = `Project:
 ${project}
 
@@ -244,24 +276,32 @@ ${domainsText}`;
   // Neighbours: which domains and layers the code a file uses, and the code using it, is in.
   const out = new Map<string, { domains: string[]; layers: string[] }>();
   const inc = new Map<string, { domains: string[]; layers: string[] }>();
+
   const nameFor = (n: GraphNode | undefined, merged: (id: string) => string) => {
     const d = n?.domain?.id;
+
     return {
       domain: d && d !== UNSORTED_DOMAIN ? (d === SHARED_DOMAIN ? 'Shared' : (finalName.get(merged(d)) ?? domainName.get(d) ?? d)) : null,
       layer: n?.layer && n.layer.id !== UNLAYERED ? (layerName.get(n.layer.id) ?? n.layer.id) : null,
     };
   };
+
   const into = new Map(sortedDomains.filter((d) => d.mergeInto).map((d) => [d.id, d.mergeInto!]));
   const merged = (id: string) => into.get(id) ?? id;
+
   const push = (m: typeof out, file: string, other: GraphNode | undefined) => {
     const e = m.get(file) ?? m.set(file, { domains: [], layers: [] }).get(file)!;
     const { domain, layer } = nameFor(other, merged);
+
     if (domain) e.domains.push(domain);
+
     if (layer) e.layers.push(layer);
   };
+
   for (const e of graph.edges) {
     const a = fileOf(e.from);
     const b = fileOf(e.to);
+
     if (a === b) continue;
     push(out, a, byId.get(e.to));
     push(inc, b, byId.get(e.from));
@@ -276,6 +316,7 @@ ${domainsText}`;
     const o = out.get(f.id);
     const i = inc.get(f.id);
     const current = f.layer && f.layer.id !== UNLAYERED ? layerName.get(f.layer.id) : null;
+
     return [
       `${ref} ${f.id} (${f.lang ?? 'unknown'}, ${f.loc ?? 0} lines)`,
       `  layer: ${lf.needsLayer ? 'needs one' : `${current} (decided; leave layer empty)`}`,
@@ -292,6 +333,7 @@ ${domainsText}`;
   };
 
   const layerIds = graph.layers.map((l) => l.id);
+
   // Refs are numbered within each request (F1, F2, …), so requests of one size share a schema, and the schema lists them.
   const schemaFor = (refs: string[]) =>
     obj({
@@ -307,17 +349,20 @@ ${domainsText}`;
         }),
       },
     });
+
   const ask2 = `Each file below starts with its ref (F1, F2, …) and then its path. For every file:
 - ref: the file's ref exactly as written, e.g. "F1" (not its path).
 - layer: when it needs one, the layer it belongs in, by id, with layer_reason. Otherwise leave both empty.
 - domain: when something in it needs a domain, the domain that code serves, by id, with reason. It applies to everything in the file that needs a domain.
 - symbols: only for a symbol that clearly serves a different domain than the rest of its file: its name, its domain and why.
 Answer every file.`;
+
   const layerOf = pickId(layerIds.map((id) => [id, layerName.get(id) ?? id]));
   const domainOf = pickId([...finalName]);
 
   const placements: Record<string, SortedPlacement> = {};
   const batchSize = opts.batchSize ?? 60;
+
   const run = async (batch: LeftoverFile[], n: number, of: number) => {
     const byRef = new Map(batch.map((lf, i) => [`F${i + 1}`, lf] as const));
     const lines = [...byRef].map(([ref, lf]) => describeFile(lf, ref));
@@ -327,40 +372,54 @@ Answer every file.`;
     const answers = answersIn(answer);
     const match = matchRef(byRef);
     const done = new Set<LeftoverFile>();
+
     for (const a of answers) {
       const lf = match(a.ref);
+
       if (!lf || done.has(lf)) continue;
       done.add(lf);
       const p: Partial<SortedPlacement> = {};
       const layer = lf.needsLayer ? layerOf(a.layer) : undefined;
+
       if (layer) {
         p.layer = layer;
+
         if (str(a.layer_reason)) p.layerReason = str(a.layer_reason);
       }
+
       const domain = lf.needsDomain.length ? domainOf(a.domain) : undefined;
+
       if (domain) p.domain = domain;
       const reason = str(a.reason) || p.layerReason;
+
       if ((p.layer || p.domain) && reason) {
         if (p.layerReason === reason) delete p.layerReason;
         placements[lf.file.id] = { ...p, reason };
       }
+
       for (const s of Array.isArray(a.symbols) ? a.symbols : []) {
         const target = symbolFor(lf.needsDomain.filter((x) => !placements[x.id]), s?.name);
         const sd = domainOf(s?.domain);
+
         if (target && target.kind === 'symbol' && sd && sd !== p.domain && str(s?.reason)) placements[target.id] = { domain: sd, reason: str(s.reason) };
       }
     }
+
     // Say what came back when nothing matched, so a log shows why rather than only that.
     if (batch.length && !done.size) log(`[fiada] sort: no file in the answer to ${label} matched a ref: ${describeAnswer(answer, answers)}`);
+
     return batch.filter((lf) => !done.has(lf));
   };
 
   const batches: LeftoverFile[][] = [];
+
   for (let i = 0; i < leftovers.length; i += batchSize) batches.push(leftovers.slice(i, i + batchSize));
   const missed = (await pool(batches.map((b, i) => [b, i + 1] as const), opts.concurrency ?? 4, ([b, n]) => run(b, n, batches.length))).flat();
+
   // Files an answer skipped get one more try on their own.
   if (missed.length) {
     log(`[fiada] sort: asking again about ${missed.length} files the answers skipped`);
+
     for (let i = 0; i < missed.length; i += batchSize) await run(missed.slice(i, i + batchSize), 1, 1);
   }
 
@@ -382,8 +441,11 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 /** The per-file answers: `{ files: [...] }` as asked, or the same list bare, or keyed by ref. */
 function answersIn(answer: unknown): FileAnswer[] {
   const files = Array.isArray(answer) ? answer : (answer as { files?: unknown } | null)?.files;
+
   if (Array.isArray(files)) return files.filter((f): f is FileAnswer => !!f && typeof f === 'object');
+
   if (files && typeof files === 'object') return Object.entries(files).flatMap(([ref, f]) => (f && typeof f === 'object' ? [{ ref, ...(f as FileAnswer) }] : []));
+
   return [];
 }
 
@@ -398,33 +460,43 @@ export function matchRef(byRef: Map<string, LeftoverFile>): (ref: unknown) => Le
   const exact = new Map<string, LeftoverFile | null>();
   const byPath = new Map<string, LeftoverFile | null>();
   const put = (m: Map<string, LeftoverFile | null>, key: string, lf: LeftoverFile) => m.set(key, m.has(key) && m.get(key) !== lf ? null : lf);
+
   for (const [ref, lf] of byRef) {
     // Labels, ids, paths and names all go in together, so the file labelled F1 and a file whose path is "F1",
     // or a root index.ts and src/index.ts answered as "index.ts", pick neither.
     const name = lf.file.id.split('/').pop()!;
+
     for (const key of [ref, lf.file.id, lf.file.path, name]) {
       if (!key) continue;
       put(exact, key, lf);
       put(byPath, key.toLowerCase(), lf);
     }
   }
+
   const clean = (s: string) => s.trim().replace(/^[\s"'`*[(<]+|[\s"'`*\])>:.,;]+$/g, '').replace(/^\.?\//, '').toLowerCase();
+
   return (ref) => {
     // As written first, so Foo.ts and foo.ts stay apart; one file's id that is another's path in its repository picks neither.
     const w = str(ref);
     const s = clean(w);
+
     if (!s) return undefined;
     const asWritten = exact.has(w) ? (exact.get(w) ?? null) : byPath.has(s) ? (byPath.get(s) ?? null) : undefined;
     const first = clean(s.split(/\s/)[0]);
     // A label in any spelling ("f1", "F01", "[F1]", "F1 app/x.py") counts only when, as written, it names no other file.
     const label = /^f\s*0*(\d+)(?![\w/.-])/.exec(s);
     const asLabel = label ? byRef.get(`F${label[1]}`) : undefined;
+
     if (asLabel) {
       const named = asWritten !== undefined ? asWritten : byPath.has(first) ? (byPath.get(first) ?? null) : undefined;
+
       return named === undefined || named === asLabel ? (byPath.get(`f${label![1]}`) ?? undefined) : undefined;
     }
+
     if (asWritten !== undefined) return asWritten ?? undefined;
+
     if (byPath.has(first)) return byPath.get(first) ?? undefined;
+
     return byPath.get(first.split('/').pop()!) ?? undefined;
   };
 }
@@ -438,12 +510,15 @@ function pickId(entries: (readonly [string, string])[]): (v: unknown) => string 
   const ids = new Set(entries.map(([id]) => id));
   const lower = new Map<string, string | null>();
   const put = (key: string, id: string) => lower.set(key, lower.has(key) && lower.get(key) !== id ? null : id);
+
   for (const [id, name] of entries) {
     put(id.toLowerCase(), id);
     put(name.toLowerCase(), id);
   }
+
   return (v) => {
     const s = str(v);
+
     return ids.has(s) ? s : (lower.get(s.toLowerCase()) ?? undefined);
   };
 }
@@ -456,12 +531,15 @@ function pickId(entries: (readonly [string, string])[]): (v: unknown) => string 
 export function symbolFor<T extends { id: string; name: string }>(symbols: T[], v: unknown): T | undefined {
   const raw = str(v).trim();
   const byId = symbols.find((x) => x.id === raw);
+
   if (byId) return byId;
   const tail = raw.split('#').pop()!;
   let best: T | undefined;
+
   for (const x of symbols) {
     if ((tail === x.name || tail.startsWith(`${x.name} (`)) && x.name.length > (best?.name.length ?? -1)) best = x;
   }
+
   return best;
 }
 
@@ -469,9 +547,12 @@ export function symbolFor<T extends { id: string; name: string }>(symbols: T[], 
 function describeAnswer(answer: unknown, answers: FileAnswer[]): string {
   if (!answers.length) {
     const keys = answer && typeof answer === 'object' && !Array.isArray(answer) ? Object.keys(answer) : [];
+
     return `no files in it${keys.length ? ` (keys: ${keys.slice(0, 5).join(', ')})` : ''}`;
   }
+
   const refs = answers.slice(0, 3).map((a) => JSON.stringify(a.ref ?? null).slice(0, 80));
+
   return `${answers.length} files, refs ${refs.join(', ')}${answers.length > 3 ? ', …' : ''}`;
 }
 
@@ -479,5 +560,6 @@ function describeAnswer(answer: unknown, answers: FileAnswer[]): string {
 function outline(leftovers: LeftoverFile[]): string {
   if (leftovers.length <= 400) return leftovers.map((lf) => `- ${lf.file.id}${lf.needsLayer ? ' (no layer)' : ''}`).join('\n') || '(none)';
   const dirs = tally(leftovers.map((lf) => lf.file.id.split('/').slice(0, -1).join('/')));
+
   return dirs.map(([d, n]) => `- ${d}/ (${n} files)`).join('\n');
 }

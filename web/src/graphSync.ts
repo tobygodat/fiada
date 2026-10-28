@@ -26,6 +26,7 @@ export class GraphSync {
     this.asked = version;
     const mine = ++this.seq;
     let graph: Graph;
+
     try {
       graph = await fetch();
     } catch (err) {
@@ -33,8 +34,10 @@ export class GraphSync {
       if (this.seq === mine) this.asked = -1;
       throw err;
     }
+
     if (this.seq !== mine) return null;
     this.have = version;
+
     return { graph, version };
   }
 }

@@ -24,10 +24,13 @@ import { folderName, unpackUpload, UPLOAD, UploadError } from './upload.ts';
 const exec = promisify(execFile);
 
 export const PROJECT_ROOT = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
+
 // Checkouts from before the rename keep their .strata folder.
 const OLD_HOME = path.join(PROJECT_ROOT, '.strata');
+
 export const FIADA_HOME =
   process.env.FIADA_HOME ?? (!existsSync(path.join(PROJECT_ROOT, '.fiada')) && existsSync(OLD_HOME) ? OLD_HOME : path.join(PROJECT_ROOT, '.fiada'));
+
 /** Where the shared project (no sign-in) keeps its clones. A signed-in person's project keeps its own (tenants.ts). */
 export const CLONES = path.join(FIADA_HOME, 'repos');
 
@@ -52,6 +55,7 @@ const UPLOAD_TMP = '.upload-';
  */
 export function gitHosts(list = process.env.FIADA_GIT_HOSTS): string[] | null {
   const hosts = (list?.trim() || 'github.com,gitlab.com,bitbucket.org').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+
   return hosts.includes('*') ? null : hosts;
 }
 
@@ -68,28 +72,40 @@ const GIT_HOSTS = gitHosts();
  */
 export async function parseSource(input: string, allowLocal = true, hosts: string[] | null = GIT_HOSTS): Promise<RepoSource> {
   const raw = input.trim().replace(/\/+$/, '');
+
   if (!raw || raw.startsWith('-')) throw new Error(allowLocal ? 'Enter a git URL, org/repo, or a local path.' : 'Enter a git URL or org/repo.');
+
   if (/^(~|\.{1,2})?\//.test(raw) || /^[A-Za-z]:[\\/]/.test(raw)) {
     if (!allowLocal) throw new Error(LOCAL_OFF);
     const abs = path.resolve(raw.replace(/^~(?=\/)/, os.homedir()));
     const stat = await fs.stat(abs).catch(() => null);
+
     if (!stat?.isDirectory()) throw new Error(`No directory at ${abs}`);
+
     return { kind: 'local', location: abs, name: path.basename(abs) };
   }
+
   let url = raw;
+
   if (/^[\w.-]+\/[\w.-]+$/.test(raw)) url = `https://github.com/${raw}`;
   else if (/^(github\.com|gitlab\.com|bitbucket\.org)\//.test(raw)) url = `https://${raw}`;
+
   if (!/^(https?:\/\/|ssh:\/\/|git@)/.test(url)) throw new Error(`Not a git URL or path: ${input}`);
+
   if (!allowLocal) {
     // The indexer has no SSH key, so git@host:org/repo is the same repository over https.
     url = url.replace(/^git@([\w.-]+):(?!\/)/, 'https://$1/');
     const u = URL.canParse(url) ? new URL(url) : null;
+
     if (!u || u.protocol !== 'https:' || u.username || u.password || u.port || (hosts && !hosts.includes(u.hostname.toLowerCase()))) {
       throw new Error(`This indexer imports repositories over https${hosts ? ` from ${hosts.join(', ')}` : ''} only.`);
     }
   }
+
   const name = url.split(/[/:]/).pop()!.replace(/\.git$/, '');
+
   if (!name) throw new Error(`Can't tell the repository name from ${input}`);
+
   return { kind: 'git', location: url, name };
 }
 
@@ -97,19 +113,23 @@ export async function parseSource(input: string, allowLocal = true, hosts: strin
 function saved({ id, name, source, kind, remote, branch, commit, uploadedAt }: RepoInfo): SavedRepo {
   if (kind !== 'upload') return { id, name, source, kind };
   const extra = Object.entries({ remote, branch, commit, uploadedAt }).filter(([, v]) => v !== undefined);
+
   return { id, name, source, kind, ...Object.fromEntries(extra) };
 }
 
 const MB = 1 << 20;
+
 /** How often a clone's size is checked while git writes it. */
 const CLONE_WATCH_MS = 1000;
 
 /** Bytes the files under `dir` take, not following links. */
 async function diskUsage(dir: string): Promise<number> {
   let total = 0;
+
   for (const e of await fs.readdir(dir, { withFileTypes: true, recursive: true })) {
     if (e.isFile()) total += (await fs.lstat(path.join(e.parentPath, e.name)).catch(() => null))?.size ?? 0;
   }
+
   return total;
 }
 
@@ -124,6 +144,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').repla
 function authArgs(url: string, token: string | null | undefined): string[] {
   if (!token || !url.startsWith('https://github.com/')) return [];
   const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+
   return ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`];
 }
 
@@ -134,6 +155,7 @@ function authArgs(url: string, token: string | null | undefined): string[] {
  */
 async function withToken(token: string | null | undefined, url: string, run: (auth: string[]) => Promise<unknown>) {
   const auth = authArgs(url, token);
+
   try {
     await run(auth);
   } catch (err) {
@@ -200,10 +222,12 @@ export class Workspace {
 
   async init() {
     await fs.mkdir(this.clones, { recursive: true });
+
     // Uploads a previous run didn't finish unpacking.
     for (const name of await fs.readdir(this.clones)) {
       if (name.startsWith(UPLOAD_TMP)) await fs.rm(path.join(this.clones, name), { recursive: true, force: true });
     }
+
     await this.loadGrouping(true);
     this.unwatch = this.store.watchGrouping?.(this.projectId, () => {
       this.loadGrouping(false).then(() => this.reclassify(), (err) => console.error('[fiada]', err));
@@ -214,6 +238,7 @@ export class Workspace {
         ? { id, name, source, kind, remote, branch, commit, uploadedAt, status: 'queued' as const }
         : { id, name, source, kind, status: 'queued' as const },
     );
+
     for (const r of this.repos) this.enqueue(r.id, false);
   }
 
@@ -227,6 +252,7 @@ export class Workspace {
     const own = this.options.suggestions?.() ?? null;
     const offer = own ?? [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'];
     const account = this.options.account?.();
+
     return {
       repos: this.repos,
       busy: this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
@@ -249,12 +275,14 @@ export class Workspace {
   /** Called after every rebuild or reclassification. */
   onGraph(fn: () => void): () => void {
     this.graphListeners.add(fn);
+
     return () => this.graphListeners.delete(fn);
   }
 
   /** Where a repository's files are on disk: the local directory, or the clone. */
   rootOf(id: string): string | null {
     const repo = this.repos.find((r) => r.id === id);
+
     return repo ? this.checkout(repo) : null;
   }
 
@@ -269,14 +297,18 @@ export class Workspace {
     const run = async () => {
       const repo = this.repos.find((r) => r.id === id);
       const parsed = this.parsed.get(id);
+
       if (!repo || !parsed || repo.kind !== 'local' || repo.status !== 'ready') return;
       const started = Date.now();
+
       if (!(await reloadFiles(parsed, paths))) return this.process(id, false);
       console.log(`[fiada] re-indexed ${paths.length} file${paths.length === 1 ? '' : 's'} in ${id} in ${Date.now() - started}ms`);
       this.rebuild();
     };
+
     const done = this.queue.then(run);
     this.queue = done.catch((err) => console.error('[fiada]', err));
+
     return done.catch(() => undefined);
   }
 
@@ -292,10 +324,13 @@ export class Workspace {
    */
   async readSource(repoId: string, relPath: string): Promise<{ path: string; commit?: string; text: string } | null> {
     const parsed = this.parsed.get(repoId);
+
     if (!parsed || !parsed.files.some((f) => f.path === relPath)) return null;
     const file = await fileWithin(await fs.realpath(parsed.root), relPath);
+
     if (!file) return null;
     const text = await fs.readFile(file.abs, 'utf8');
+
     return { path: relPath, commit: parsed.info.commit, text };
   }
 
@@ -311,11 +346,13 @@ export class Workspace {
   async setGrouping(raw: unknown): Promise<Grouping> {
     const g = normalizeGrouping(raw);
     const keep = !!raw && typeof raw === 'object' && !('sorted' in raw) && this.grouping.sorted;
+
     if (keep) g.sorted = this.grouping.sorted;
     await this.store.saveGrouping(this.projectId, g);
     this.grouping = g;
     this.groupingError = undefined;
     this.reclassify();
+
     return g;
   }
 
@@ -326,18 +363,23 @@ export class Workspace {
 
   private async loadGrouping(first: boolean) {
     let raw: unknown;
+
     try {
       raw = await this.store.loadGrouping(this.projectId);
     } catch (err) {
       this.groupingError = `Couldn't read the grouping: ${(err as Error).message}`;
       console.error(`[fiada] ${this.groupingError}`);
+
       return;
     }
+
     if (raw == null) {
       // A new project starts from the roles preset.
       if (first) await this.store.saveGrouping(this.projectId, this.grouping);
+
       return;
     }
+
     try {
       this.grouping = normalizeGrouping(raw);
       this.groupingError = undefined;
@@ -355,20 +397,24 @@ export class Workspace {
    */
   private async bounded(dir: string, run: (signal?: AbortSignal) => Promise<unknown>) {
     const max = this.options.maxCloneBytes;
+
     if (max === undefined) return run();
     const stop = new AbortController();
     let over = 0;
     let checking = false;
+
     const watch = setInterval(async () => {
       if (checking || over) return;
       checking = true;
       const bytes = await diskUsage(dir).catch(() => 0);
       checking = false;
+
       if (bytes > max) {
         over = bytes;
         stop.abort();
       }
     }, CLONE_WATCH_MS);
+
     try {
       await run(stop.signal);
     } catch (err) {
@@ -376,6 +422,7 @@ export class Workspace {
     } finally {
       clearInterval(watch);
     }
+
     if (over) await this.tooBig(dir, over, max);
     await this.checkCloneSize(dir);
   }
@@ -383,8 +430,10 @@ export class Workspace {
   /** Removes a clone larger than the project allows, and says so. */
   private async checkCloneSize(dir: string) {
     const max = this.options.maxCloneBytes;
+
     if (max === undefined) return;
     const bytes = await diskUsage(dir);
+
     if (bytes > max) await this.tooBig(dir, bytes, max);
   }
 
@@ -396,6 +445,7 @@ export class Workspace {
   /** Throws when the project already holds as many repositories as it may. */
   private checkRoom() {
     const max = this.options.maxRepos;
+
     if (max !== undefined && this.repos.length >= max) {
       throw new Error(`This map holds ${max} repositories at most. Remove one to import another.`);
     }
@@ -404,22 +454,29 @@ export class Workspace {
   async add(input: string): Promise<RepoInfo> {
     const src = await parseSource(input, this.allowLocal);
     const existing = this.repos.find((r) => r.source === src.location);
+
     if (existing) {
       this.refresh(existing.id);
+
       return existing;
     }
+
     this.checkRoom();
     let id = slug(src.name);
+
     for (let n = 2; this.repos.some((r) => r.id === id); n++) id = `${slug(src.name)}-${n}`;
     const info: RepoInfo = { id, name: src.name, source: src.location, kind: src.kind, status: 'queued' };
     this.repos.push(info);
+
     try {
       await this.save();
     } catch (err) {
       this.repos = this.repos.filter((r) => r !== info);
       throw err;
     }
+
     this.enqueue(id, false);
+
     return info;
   }
 
@@ -435,6 +492,7 @@ export class Workspace {
     const name = folderName(rawName);
     const tmp = path.join(this.clones, `${UPLOAD_TMP}${randomUUID()}`);
     let unpacked;
+
     try {
       unpacked = await unpackUpload(archive, tmp);
       // Its own repository, so git lists its files (honouring its .gitignore) rather than whatever encloses FIADA_HOME.
@@ -443,12 +501,15 @@ export class Workspace {
       await fs.rm(tmp, { recursive: true, force: true });
       throw err;
     }
+
     const { remote, branch, head } = unpacked.git;
     const uploads = this.repos.filter((r) => r.kind === 'upload');
+
     const existing =
       uploads.find((r) => r.id === replace) ??
       (remote ? uploads.find((r) => r.remote && remoteKey(r.remote) === remoteKey(remote)) : undefined) ??
       uploads.find((r) => r.name === name && !(remote && r.remote));
+
     if (!existing) {
       try {
         this.checkRoom();
@@ -457,17 +518,21 @@ export class Workspace {
         throw new UploadError((err as Error).message, 409);
       }
     }
+
     const fields = { name, source: name, remote, branch, commit: head?.slice(0, 7), uploadedAt: new Date().toISOString() };
     let info: RepoInfo;
     const before = existing && { ...existing };
+
     if (existing) {
       info = Object.assign(existing, fields, { status: 'queued' as const, error: undefined });
     } else {
       let id = slug(name);
+
       for (let n = 2; this.repos.some((r) => r.id === id); n++) id = `${slug(name)}-${n}`;
       info = { id, kind: 'upload', status: 'queued', ...fields };
       this.repos.push(info);
     }
+
     try {
       await this.save();
     } catch (err) {
@@ -476,30 +541,37 @@ export class Workspace {
       await fs.rm(tmp, { recursive: true, force: true });
       throw err;
     }
+
     console.log(`[fiada] received ${name}: ${unpacked.files} files, ${(unpacked.bytes / 1024).toFixed(0)} KB${remote ? ` from ${remote}` : ''}`);
     this.queue = this.queue
       .then(async () => {
         if (!this.repos.includes(info)) return fs.rm(tmp, { recursive: true, force: true });
         const dir = path.join(this.clones, info.id);
+
         try {
           await fs.rm(dir, { recursive: true, force: true });
           await fs.rename(tmp, dir);
         } catch (err) {
           await fs.rm(tmp, { recursive: true, force: true });
           Object.assign(info, { status: 'error', error: `Couldn't store the upload: ${(err as Error).message}` });
+
           return;
         }
+
         await this.process(info.id, false);
       })
       .catch((err) => console.error('[fiada]', err));
+
     return info;
   }
 
   async remove(id: string) {
     const repo = this.repos.find((r) => r.id === id);
+
     if (!repo) return;
     const index = this.repos.indexOf(repo);
     this.repos = this.repos.filter((r) => r !== repo);
+
     // Persist the removal before discarding anything, so a rejected save
     // (another indexer changed the list) leaves the repo in place.
     try {
@@ -508,13 +580,16 @@ export class Workspace {
       if (!this.repos.includes(repo)) this.repos.splice(Math.min(index, this.repos.length), 0, repo);
       throw err;
     }
+
     this.parsed.delete(id);
+
     if (repo.kind !== 'local') await fs.rm(path.join(this.clones, id), { recursive: true, force: true });
     this.rebuild();
   }
 
   refresh(id: string) {
     const repo = this.repos.find((r) => r.id === id);
+
     if (repo) {
       repo.status = 'queued';
       this.enqueue(id, true);
@@ -531,20 +606,26 @@ export class Workspace {
 
   private async process(id: string, pull: boolean) {
     const repo = this.repos.find((r) => r.id === id);
+
     if (!repo) return; // removed while queued
     const dir = this.checkout(repo);
+
     try {
       // A local folder saved to this project by an indexer on someone's machine.
       if (repo.kind === 'local' && !this.allowLocal) throw new Error(LOCAL_OFF);
+
       if (repo.kind === 'upload' && !(await fs.stat(path.join(dir, '.git')).then(() => true, () => false))) throw new Error(UPLOAD_GONE);
+
       if (repo.kind === 'git') {
         // Saved before the hosts were limited: checked again before anything is fetched.
         if (!this.allowLocal) await parseSource(repo.source, false);
         const token = await this.options.githubToken?.();
         const cloned = await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
+
         if (!cloned) {
           repo.status = 'cloning';
           await fs.rm(dir, { recursive: true, force: true });
+
           try {
             await this.bounded(dir, (signal) =>
               withToken(token, repo.source, async (auth) => {
@@ -564,11 +645,14 @@ export class Workspace {
           await this.checkCloneSize(dir);
         }
       }
+
       repo.status = 'indexing';
+
       // An upload has no history here; its commit is the one its .git named.
       if (repo.kind !== 'upload') repo.commit = await git(['-C', dir, 'rev-parse', '--short', 'HEAD'], 10_000).then((r) => r.stdout.trim(), () => undefined);
       const started = Date.now();
       const parsed = await loadRepo(repo, dir);
+
       if (!this.repos.includes(repo)) return;
       Object.assign(repo, parsed.info, { status: 'ready', error: undefined, indexedAt: new Date().toISOString() });
       parsed.info = repo;
@@ -580,6 +664,7 @@ export class Workspace {
       repo.error = (e.stderr?.trim().split('\n').pop() || e.message).slice(0, 300);
       console.error(`[fiada] ${id}: ${repo.error}`);
     }
+
     // A failed save (the database dropped, or another indexer saved first) is
     // logged rather than thrown here, so the map still rebuilds. Adding and
     // removing repos report it to the caller instead.
@@ -600,6 +685,7 @@ export class Workspace {
   sortAgain(): boolean {
     if (!this.sorter.available) return false;
     this.sorter.request(this.sortHost(), true);
+
     return true;
   }
 
@@ -618,6 +704,7 @@ export class Workspace {
     this.sortedPlaced = this.graph.nodes.filter((n) => n.layer?.source === 'model' || n.domain?.source === 'model').length;
     this.graphVersion++;
     console.log(`[fiada] graph v${this.graphVersion}: classified into ${this.grouping.layers.length} layers in ${Date.now() - started}ms`);
+
     for (const fn of this.graphListeners) fn();
   }
 

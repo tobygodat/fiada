@@ -60,34 +60,43 @@ export interface TarEntry {
 
 const text = (b: Buffer) => {
   const end = b.indexOf(0);
+
   return b.subarray(0, end < 0 ? b.length : end).toString('utf8');
 };
 
 function octal(field: Buffer): number {
   const s = text(field).trim();
+
   if (!/^[0-7]*$/.test(s)) throw NOT_AN_ARCHIVE;
+
   return s ? parseInt(s, 8) : 0;
 }
 
 /** A tar header's checksum: the sum of its bytes, with the checksum field read as spaces. */
 function checksum(h: Buffer): number {
   let sum = 8 * 32;
+
   for (let i = 0; i < 512; i++) if (i < 148 || i >= 156) sum += h[i];
+
   return sum;
 }
 
 /** The `path` record of a pax extended header ("<length> path=<value>\n" records). */
 function paxPath(data: Buffer): string | undefined {
   let found: string | undefined;
+
   for (let i = 0; i < data.length; ) {
     const space = data.indexOf(0x20, i);
     const len = space < 0 ? NaN : parseInt(data.subarray(i, space).toString('ascii'), 10);
+
     if (!(len > 0)) break;
     const record = data.subarray(space + 1, i + len - 1).toString('utf8');
     const eq = record.indexOf('=');
+
     if (record.slice(0, eq) === 'path') found = record.slice(eq + 1);
     i += len;
   }
+
   return found;
 }
 
@@ -97,22 +106,28 @@ function paxPath(data: Buffer): string | undefined {
  */
 export function* readTar(tar: Buffer): Generator<TarEntry> {
   let long: string | undefined;
+
   for (let at = 0; at + 512 <= tar.length; ) {
     const h = tar.subarray(at, at + 512);
+
     if (h.every((b) => b === 0)) return; // end of archive
+
     if (octal(h.subarray(148, 156)) !== checksum(h)) throw NOT_AN_ARCHIVE;
     const size = octal(h.subarray(124, 136));
     const type = h[156] === 0 ? '0' : String.fromCharCode(h[156]);
     const start = at + 512;
+
     if (start + size > tar.length) throw NOT_AN_ARCHIVE;
     const data = tar.subarray(start, start + size);
     at = start + Math.ceil(size / 512) * 512;
+
     if (type === 'x') long = paxPath(data) ?? long;
     else if (type === 'L') long = text(data);
     else if (type !== 'g') {
       const prefix = h.subarray(257, 263).toString('latin1').startsWith('ustar') ? text(h.subarray(345, 500)) : '';
       const name = long ?? (prefix ? `${prefix}/${text(h.subarray(0, 100))}` : text(h.subarray(0, 100)));
       long = undefined;
+
       if (type === '0' || type === '7') yield { path: name, data };
     }
   }
@@ -121,8 +136,10 @@ export function* readTar(tar: Buffer): Generator<TarEntry> {
 /** A folder-relative path, or null when it could land outside the folder. */
 export function safePath(name: string): string | null {
   const rel = name.replace(/^(\.\/)+/, '');
+
   if (!rel || rel.includes('\0') || rel.includes('\\') || rel.startsWith('/')) return null;
   const parts = rel.split('/');
+
   return parts.some((p) => !p || p === '.' || p === '..') ? null : rel;
 }
 
@@ -147,24 +164,31 @@ export function withoutCredentials(url: string): string {
 export function gitMeta(files: Map<string, string>): GitMeta {
   const meta: GitMeta = {};
   let section = '';
+
   for (const raw of (files.get('.git/config') ?? '').split('\n')) {
     const line = raw.trim();
     const header = /^\[\s*([^\]]+?)\s*\]$/.exec(line);
+
     if (header) section = header[1].replace(/\s+/g, ' ').toLowerCase();
     else if (section === 'remote "origin"') {
       const url = /^url\s*=\s*"?([^"]*?)"?\s*$/i.exec(line)?.[1];
+
       if (url && url.length < 500) meta.remote = withoutCredentials(url);
     }
   }
+
   const head = (files.get('.git/HEAD') ?? '').trim();
   const ref = /^ref:\s*(refs\/heads\/(\S+))$/.exec(head);
+
   if (ref) {
     if (ref[2].length < 250) meta.branch = ref[2];
     const loose = files.get(`.git/${ref[1]}`)?.trim();
     const packed = (files.get('.git/packed-refs') ?? '').split('\n').find((l) => l.endsWith(` ${ref[1]}`))?.split(' ')[0];
     const id = loose || packed;
+
     if (id && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id)) meta.head = id;
   } else if (/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)) meta.head = head;
+
   return meta;
 }
 
@@ -182,48 +206,63 @@ export interface Unpacked {
  */
 export async function unpackUpload(archive: Buffer, dest: string, policy: UploadPolicy = UPLOAD): Promise<Unpacked> {
   let tar: Buffer;
+
   try {
     tar = await gunzip(archive, { maxOutputLength: archiveLimit(policy) });
   } catch (err) {
     throw (err as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE' ? tooBig(policy) : NOT_AN_ARCHIVE;
   }
+
   const wanted = new RegExp(policy.files);
   const skip = new Set(policy.skipDirs);
   const git = new Map<string, string>();
   const keep: TarEntry[] = [];
   let bytes = 0;
+
   for (const entry of readTar(tar)) {
     const rel = safePath(entry.path);
+
     if (!rel) throw new UploadError(`The upload has a file outside its folder (${entry.path.slice(0, 120)}).`);
+
     if (GIT_META.test(rel)) {
       if (entry.data.length < MB) git.set(rel, entry.data.toString('utf8'));
       continue;
     }
+
     const dirs = rel.split('/').slice(0, -1);
+
     if (dirs.some((d) => skip.has(d))) continue;
+
     if (!rel.endsWith('/.gitignore') && rel !== '.gitignore' && !wanted.test(rel)) continue;
     bytes += entry.data.length;
+
     if (bytes > policy.maxBytes) throw tooBig(policy);
+
     if (keep.length >= policy.maxFiles) throw tooMany(policy);
     keep.push({ path: rel, data: entry.data });
   }
+
   if (!keep.some((f) => !f.path.endsWith('.gitignore'))) throw new UploadError('The upload has no source files the indexer reads (or its archive is empty).');
   await fs.mkdir(dest, { recursive: false });
   const made = new Set<string>();
+
   for (const f of keep) {
     const abs = path.join(dest, f.path);
     const dir = path.dirname(abs);
+
     if (!made.has(dir)) {
       await fs.mkdir(dir, { recursive: true }).catch((err: Error) => {
         throw new UploadError(`Couldn't unpack ${f.path}: ${err.message}`);
       });
       made.add(dir);
     }
+
     // A path listed twice is written twice, so the later one wins, as with tar itself.
     await fs.writeFile(abs, f.data).catch((err: Error) => {
       throw new UploadError(`Couldn't unpack ${f.path}: ${err.message}`);
     });
   }
+
   return { files: keep.length, bytes, git: gitMeta(git) };
 }
 
@@ -231,6 +270,8 @@ export async function unpackUpload(archive: Buffer, dest: string, policy: Upload
 export function folderName(raw: string): string {
   // oxlint-disable-next-line no-control-regex -- stripping control characters from the name is the point
   const name = raw.split(/[\\/]/).filter(Boolean).pop()?.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 100);
+
   if (!name || name === '.' || name === '..') throw new UploadError('Name the uploaded folder with ?name=<folder name>.');
+
   return name;
 }

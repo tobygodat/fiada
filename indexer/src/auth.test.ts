@@ -12,12 +12,14 @@ const CALLBACK = 'https://indexer.test/api/auth/github/callback';
 function fakeGitHub(user = { id: 42, login: 'ada', name: 'Ada' }): GitHubApi & { codes: string[]; revoked: string[] } {
   const codes: string[] = [];
   const revoked: string[] = [];
+
   return {
     codes,
     revoked,
     async exchange(code, redirectUri) {
       assert.equal(redirectUri, CALLBACK);
       codes.push(code);
+
       return { token: `gho_${code}`, scopes: 'read:user,repo' };
     },
     async user() {
@@ -36,6 +38,7 @@ async function setup(now = () => 1_000_000_000_000) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-auth-'));
   const store = new FileProjectStore(home);
   const github = fakeGitHub();
+
   return { home, store, github, auth: new Auth(store, CONFIG, github, now) };
 }
 
@@ -43,6 +46,7 @@ async function setup(now = () => 1_000_000_000_000) {
 async function signIn(auth: Auth, returnTo = 'https://fiada.tech/') {
   const { url, nonce } = auth.begin(returnTo, CALLBACK);
   const state = new URL(url).searchParams.get('state')!;
+
   return auth.finish('code1', state, nonce, CALLBACK);
 }
 

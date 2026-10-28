@@ -21,6 +21,7 @@ test('gitignore patterns', () => {
     ...parseGitignore(['# comment', '*.log', '/build', 'out/', 'docs/**/*.gen.ts', '**/fixtures', 'secret?.ts', '!keep.log', '\\#hash', 'trailing   ', ''].join('\n')),
     ...parseGitignore('*.ts\n!index.ts\n/local-only\n', 'pkg'),
   ];
+
   const cases: [string, boolean, boolean][] = [
     ['app.log', false, true],
     ['src/deep/app.log', false, true],
@@ -44,6 +45,7 @@ test('gitignore patterns', () => {
     ['pkg/local-only', true, true],
     ['pkg/sub/local-only', true, false],
   ];
+
   for (const [p, dir, want] of cases) assert.equal(isIgnored(rules, p, dir), want, `${p}${dir ? '/' : ''}`);
 });
 
@@ -55,6 +57,7 @@ function fromDisk(dir: string): Folder {
       return Promise.all(
         (await fs.readdir(dir, { withFileTypes: true })).map(async (e) => {
           const abs = path.join(dir, e.name);
+
           return e.isDirectory() ? { name: e.name, folder: fromDisk(abs) } : { name: e.name, file: async () => new File([await fs.readFile(abs)], e.name) };
         }),
       );
@@ -64,6 +67,7 @@ function fromDisk(dir: string): Folder {
 
 async function repo() {
   const root = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-pick-')), 'private-app');
+
   const files: Record<string, string> = {
     '.gitignore': 'generated/\n*.local.ts\n',
     'package.json': '{"name":"private-app"}',
@@ -81,14 +85,17 @@ async function repo() {
     'node_modules/dep/index.js': 'module.exports = 1;\n',
     'dist/app.js': 'x',
   };
+
   for (const [p, text] of Object.entries(files)) {
     await fs.mkdir(path.join(root, path.dirname(p)), { recursive: true });
     await fs.writeFile(path.join(root, p), text);
   }
+
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:org/private-app.git'], { cwd: root });
   execFileSync('git', ['add', '-A'], { cwd: root });
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: root });
+
   return root;
 }
 
@@ -135,6 +142,7 @@ test('a folder over the limit stops with the reason', async () => {
 
 test('an <input webkitdirectory> file list becomes the same folder', async () => {
   const file = (rel: string, text: string) => Object.defineProperty(new File([text], rel.split('/').pop()!), 'webkitRelativePath', { value: rel });
+
   const folder = fromFileList([
     file('app/.gitignore', 'ignored.ts\n'),
     file('app/src/a.ts', 'export {};'),
@@ -143,6 +151,7 @@ test('an <input webkitdirectory> file list becomes the same folder', async () =>
     file('app/.git/HEAD', 'ref: refs/heads/main\n'),
     file('app/.git/objects/ab/cdef', 'blob'),
   ]);
+
   assert.equal(folder?.name, 'app');
   const picked = await collect(folder!, POLICY);
   assert.deepEqual(picked.files.map((f) => f.path).sort(), ['.git/HEAD', '.gitignore', 'src/a.ts']);

@@ -29,17 +29,22 @@ export function visibleNodes(tree: Tree, L: Map<string, Circle>, cam: Camera, w:
   const list: TNode[] = [];
   const open = new Set<string>(['root']);
   const margin = 200;
+
   const onScreen = (c: Circle) => {
     const sx = cam.tx + c.x * cam.k;
     const sy = cam.ty + c.y * cam.k;
     const sr = c.r * cam.k;
+
     return sx + sr > -margin && sx - sr < w + margin && sy + sr > -margin && sy - sr < h + margin;
   };
+
   const walk = (n: TNode) => {
     for (const c of n.children) {
       const p = L.get(c.id);
+
       if (!p) continue;
       list.push(c);
+
       // Don't descend into circles that are off screen: their contents can't be seen,
       // and edges to them can end at the closed circle.
       if (c.children.length && p.r * cam.k > OPEN_PX && onScreen(p)) {
@@ -48,7 +53,9 @@ export function visibleNodes(tree: Tree, L: Map<string, Circle>, cam: Camera, w:
       }
     }
   };
+
   walk(tree.root);
+
   return { list, open, key: [...open].join('\n') };
 }
 
@@ -56,16 +63,20 @@ export function visibleNodes(tree: Tree, L: Map<string, Circle>, cam: Camera, w:
 export function expandedNodes(tree: Tree, expanded: ReadonlySet<string>): Visible {
   const list: TNode[] = [];
   const open = new Set<string>(['root']);
+
   const walk = (n: TNode) => {
     for (const c of n.children) {
       list.push(c);
+
       if (c.children.length && expanded.has(c.id)) {
         open.add(c.id);
         walk(c);
       }
     }
   };
+
   walk(tree.root);
+
   return { list, open, key: [...open].sort().join('\n') };
 }
 
@@ -73,12 +84,15 @@ export function expandedNodes(tree: Tree, expanded: ReadonlySet<string>): Visibl
 export function withPathOpen(tree: Tree, expanded: ReadonlySet<string>, id: string, self: boolean): Set<string> {
   const next = new Set(expanded);
   const n = tree.nodes.get(id);
+
   if (n && self && n.children.length) next.add(n.id);
   let cur = n?.parent ? tree.nodes.get(n.parent) : undefined;
+
   while (cur && cur.id !== 'root') {
     next.add(cur.id);
     cur = cur.parent ? tree.nodes.get(cur.parent) : undefined;
   }
+
   return next;
 }
 
@@ -90,13 +104,17 @@ export function withPathOpen(tree: Tree, expanded: ReadonlySet<string>, id: stri
 export function withPathsOpen(tree: Tree, expanded: ReadonlySet<string>, ids: readonly string[], cap: number): Set<string> {
   for (const deep of [true, false]) {
     let next: Set<string> = new Set(expanded);
+
     for (const id of ids) {
       const n = tree.nodes.get(id);
+
       if (!n) continue;
       next = withPathOpen(tree, next, deep || n.kind !== 'symbol' ? id : (n.parent ?? id), false);
     }
+
     if (next.size - expanded.size <= cap) return next;
   }
+
   return new Set(expanded);
 }
 
@@ -107,18 +125,24 @@ export function withPathsOpen(tree: Tree, expanded: ReadonlySet<string>, ids: re
  */
 export function clickAction(n: TNode, selected: string | null, open: boolean): 'select' | 'open' | 'none' {
   if (selected !== n.id) return 'select';
+
   return n.children.length && !open ? 'open' : 'none';
 }
 
 /** Closes `id` and everything open inside it. */
 export function withCollapsed(tree: Tree, expanded: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(expanded);
+
   const walk = (n: TNode) => {
     next.delete(n.id);
+
     for (const c of n.children) if (next.has(c.id)) walk(c);
   };
+
   const n = tree.nodes.get(id);
+
   if (n) walk(n);
+
   return next;
 }
 
@@ -161,7 +185,9 @@ export const countKind = (kind: EdgeKind, n: number) => `${n} ${KIND_WORD[kind][
 /** How many interactions of each kind a contract carries, most first. */
 export function kindCounts(c: Pick<Contract, 'items'>): [EdgeKind, number][] {
   const m = new Map<EdgeKind, number>();
+
   for (const e of c.items) m.set(e.kind, (m.get(e.kind) ?? 0) + 1);
+
   return [...m].sort((p, q) => q[1] - p[1] || (p[0] < q[0] ? -1 : 1));
 }
 
@@ -177,11 +203,15 @@ export function contractLabel(c: Pick<Contract, 'items' | 'inferred'>): string {
   const [[kind, n], second] = counts;
   const total = c.items.length;
   const guessed = c.inferred === total ? '?' : '';
+
   if (second && n * 3 < total * 2) {
     const two = `${TAG_WORD[kind][1]}${counts.length > 2 ? ', ' : ' & '}${TAG_WORD[second[0]][1]}`;
+
     return `${total} ${two}${counts.length > 2 ? '…' : ''}${guessed}`;
   }
+
   const main = kind === 'http' ? `HTTP · ${n}` : `${n} ${TAG_WORD[kind][n === 1 ? 0 : 1]}`;
+
   return `${main}${total > n ? ` +${total - n}` : ''}${guessed}`;
 }
 
@@ -196,11 +226,14 @@ const REST_WORD: Record<EdgeKind, [string, string]> = { ...KIND_WORD, type: ['ty
  */
 export function restLabel(c: Pick<Contract, 'items' | 'inferred'>): string {
   const counts = kindCounts(c);
+
   if (!counts.length) return '';
   const [[kind, n], second] = counts;
   const total = c.items.length;
   const guessed = c.inferred === total ? '?' : '';
+
   if (second && n * 3 < total * 2) return `${total} ${REST_WORD[kind][1]} & ${REST_WORD[second[0]][1]}${guessed}`;
+
   return `${n} ${REST_WORD[kind][n === 1 ? 0 : 1]}${guessed}`;
 }
 
@@ -233,15 +266,19 @@ export function indexEdges(tree: Tree, graphIndex: Map<string, GraphNode>, edges
     depth[i] = n.depth;
   });
   const located = new Map<string, number>();
+
   const at = (id: string) => {
     let i = located.get(id);
+
     if (i == null) {
       const t = locate(tree, graphIndex, id);
       i = t ? (index.get(t) ?? -1) : -1;
       located.set(id, i);
     }
+
     return i;
   };
+
   const from = new Int32Array(edges.length);
   const to = new Int32Array(edges.length);
   const cross = new Uint8Array(edges.length);
@@ -252,12 +289,14 @@ export function indexEdges(tree: Tree, graphIndex: Map<string, GraphNode>, edges
     const rb = graphIndex.get(e.to)?.repo;
     cross[i] = ra && rb && ra !== rb ? 1 : 0;
   });
+
   return { tree, edges, nodes, index, parent, depth, from, to, cross };
 }
 
 /** Its two ends in the order the interactions run: [from, to, whether some run the other way too]. */
 export function direction(c: Contract): [string, string, boolean] {
   if (c.forward === 0) return [c.b, c.a, false];
+
   return [c.a, c.b, c.forward < c.items.length];
 }
 
@@ -265,12 +304,16 @@ export function direction(c: Contract): [string, string, boolean] {
 export function meetingPoint(tree: Tree, a: string, b: string): string {
   let x = tree.nodes.get(a);
   let y = tree.nodes.get(b);
+
   while (x && y && x !== y) {
     const dx = x.depth;
     const dy = y.depth;
+
     if (dx >= dy) x = x.parent ? tree.nodes.get(x.parent) : undefined;
+
     if (dy >= dx) y = y.parent ? tree.nodes.get(y.parent) : undefined;
   }
+
   return x && x === y ? x.id : 'root';
 }
 
@@ -286,40 +329,55 @@ export function aggregateEdges(ix: EdgeIndex, vis: Visible): Contract[] {
   const n = ix.nodes.length;
   // lifted[i]: index of the visible node standing in for node i; -2 = not computed yet.
   const lifted = new Int32Array(n).fill(-2);
+
   for (const v of vis.list) {
     const i = ix.index.get(v.id);
+
     if (i != null) lifted[i] = i;
   }
+
   const lift = (i: number): number => {
     if (i < 0) return -1;
+
     if (lifted[i] !== -2) return lifted[i];
     // Walk up to the first node whose answer is known, then fill in the path.
     const path: number[] = [];
     let cur = i;
+
     while (cur >= 0 && lifted[cur] === -2) {
       path.push(cur);
       cur = ix.parent[cur];
     }
+
     const ans = cur < 0 ? -1 : lifted[cur];
+
     for (const p of path) lifted[p] = ans;
+
     return ans;
   };
+
   const isAncestor = (anc: number, i: number) => {
     let cur = i;
+
     while (cur >= 0 && ix.depth[cur] > ix.depth[anc]) cur = ix.parent[cur];
+
     return cur === anc;
   };
 
   const pairs = new Map<number, Contract>();
+
   for (let e = 0; e < ix.edges.length; e++) {
     const a = lift(ix.from[e]);
     const b = lift(ix.to[e]);
+
     if (a < 0 || b < 0 || a === b) continue;
+
     // An edge from a node to its own (open) ancestor has nowhere to draw.
     if (isAncestor(a, b) || isAncestor(b, a)) continue;
     const [lo, hi] = a < b ? [a, b] : [b, a];
     const pk = lo * n + hi;
     let p = pairs.get(pk);
+
     if (!p) {
       const A = ix.nodes[lo];
       const B = ix.nodes[hi];
@@ -328,14 +386,20 @@ export function aggregateEdges(ix: EdgeIndex, vis: Visible): Contract[] {
       p = { key: `${x.id}|${y.id}`, a: x.id, b: y.id, items: [], kinds: new Set(), cross: 0, inferred: 0, forward: 0, tag: '' };
       pairs.set(pk, p);
     }
+
     const edge = ix.edges[e];
     p.items.push(edge);
     p.kinds.add(edge.kind);
+
     if (edge.basis === 'inferred') p.inferred++;
     p.cross += ix.cross[e];
+
     if (ix.nodes[a].id === p.a) p.forward++;
   }
+
   const out = [...pairs.values()].sort((p, q) => q.items.length - p.items.length || (p.key < q.key ? -1 : 1));
+
   for (const p of out) p.tag = contractLabel(p);
+
   return out;
 }

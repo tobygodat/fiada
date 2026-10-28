@@ -60,6 +60,7 @@ export function ringGeometry(r: number) {
   const line = small ? 1.5 : 2;
   const gapR = r + 0.5 + gap / 2;
   const lineR = r + 0.5 + gap + line / 2;
+
   return { gap, line, gapR, lineR, outer: lineR + line / 2 };
 }
 
@@ -77,10 +78,12 @@ function halo(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, co
 export function hereGeometry(r: number, changed: boolean) {
   const g = ringGeometry(r);
   const line = 1.5;
+
   if (!changed) return { gap: g.gap, line, gapR: g.gapR, lineR: g.lineR, outer: g.lineR + line / 2 };
   const gap = r < 6 ? 1.5 : 2;
   const gapR = g.outer + gap / 2;
   const lineR = g.outer + gap + line / 2;
+
   return { gap, line, gapR, lineR, outer: lineR + line / 2 };
 }
 
@@ -140,24 +143,30 @@ const FULL: [number, number] = [0, Math.PI * 2];
 export function visibleArc(x: number, y: number, r: number, w: number, h: number, pad = 4): [number, number] | null {
   const nx = Math.max(-pad, Math.min(x, w + pad));
   const ny = Math.max(-pad, Math.min(y, h + pad));
+
   if (Math.hypot(nx - x, ny - y) > r + pad) return null;
+
   const corners = [
     [-pad, -pad],
     [w + pad, -pad],
     [-pad, h + pad],
     [w + pad, h + pad],
   ];
+
   if (corners.every(([cx, cy]) => Math.hypot(cx - x, cy - y) < r - pad)) return null;
+
   if (r < 400 || (nx === x && ny === y)) return FULL;
   const mid = Math.atan2(h / 2 - y, w / 2 - x);
   let lo = 0;
   let hi = 0;
+
   for (const [cx, cy] of corners) {
     let a = Math.atan2(cy - y, cx - x) - mid;
     a -= Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
     lo = Math.min(lo, a);
     hi = Math.max(hi, a);
   }
+
   return [mid + lo, mid + hi];
 }
 
@@ -172,13 +181,16 @@ export function visibleArc(x: number, y: number, r: number, w: number, h: number
 function drawRipples(ctx: CanvasRenderingContext2D, rings: { x: number; y: number; r: number; guessed: boolean }[], view?: { w: number; h: number }) {
   if (!rings.length) return;
   ctx.fillStyle = token('--muted');
+
   for (const guessed of [false, true]) {
     ctx.globalAlpha = guessed ? 0.5 : 1;
+
     for (const d of rings) {
       if (d.guessed !== guessed || d.r < RIPPLE_MIN_R) continue;
       const { lineR, line } = ringGeometry(d.r);
       // Dots cost by the length of the ring, so a leaf zoomed far past the screen draws only the part on it.
       const span = view ? visibleArc(d.x, d.y, lineR, view.w, view.h) : FULL;
+
       if (!span) continue;
       // Square dots a line wide, in pairs round the ring, so it reads apart from the evenly dotted
       // ring on what an agent only looked at. As many small squares draw far faster than a dashed
@@ -187,10 +199,13 @@ function drawRipples(ctx: CanvasRenderingContext2D, rings: { x: number; y: numbe
       const pair = (line + 1.5) / lineR;
       const n = Math.max(1, Math.floor((span[1] - span[0]) / step));
       const a0 = span[0] + ((span[1] - span[0]) % step) / 2;
+
       for (let k = 0; k <= n; k++) {
         const a = a0 + k * step;
+
         if (a > span[1]) break;
         ctx.fillRect(d.x + lineR * Math.cos(a) - line / 2, d.y + lineR * Math.sin(a) - line / 2, line, line);
+
         if (a + pair <= span[1]) ctx.fillRect(d.x + lineR * Math.cos(a + pair) - line / 2, d.y + lineR * Math.sin(a + pair) - line / 2, line, line);
       }
     }
@@ -199,6 +214,7 @@ function drawRipples(ctx: CanvasRenderingContext2D, rings: { x: number; y: numbe
 
 /** Below this radius a circle is too small for a ring of dots to read. */
 const RIPPLE_MIN_R = 4;
+
 /** Below this radius a circle holding dependents but no changes shows its ring without a count. */
 const RIPPLE_BADGE_R = 24;
 
@@ -206,6 +222,7 @@ const RIPPLE_BADGE_R = 24;
 export function unreadGeometry(x: number, y: number, outer: number, r: number) {
   const dot = r < 6 ? 2 : 3;
   const a = (-135 * Math.PI) / 180;
+
   return { x: x + Math.cos(a) * outer, y: y + Math.sin(a) * outer, dot, gap: dot + 1.5 };
 }
 
@@ -233,8 +250,10 @@ export function marksReach(r: number, m: Marks | undefined, open: boolean): numb
   if (!m) return null;
   const ripple = rippleRing(m, open);
   const here = m.here === 'self' || (m.here === 'inside' && !open) ? hereGeometry(r, !!m.self || ripple) : null;
+
   if (!here && !m.self && !(ripple && r >= RIPPLE_MIN_R) && !looks(m, open)) return null;
   const outer = here?.outer ?? ringGeometry(r).outer;
+
   return m.self && m.selfUnread ? outer + unreadGeometry(0, 0, outer, r).gap : outer;
 }
 
@@ -247,8 +266,10 @@ function looks(m: Marks, open: boolean) {
 export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: TreeActivity, now: number, view?: { w: number; h: number }): boolean {
   let pulsing = false;
   const ripples: { x: number; y: number; r: number; guessed: boolean }[] = [];
+
   for (const d of drawn) {
     const m = marks.get(d.n.id);
+
     if (!m) continue;
     const age = now - m.at;
     const recent = age >= 0 && age < PULSE_MS;
@@ -256,17 +277,23 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
     const ripple = rippleRing(m, d.open);
     // An agent working here now: on the node itself, or on the closed circle it's inside.
     const here = m.here === 'self' || (m.here === 'inside' && !d.open) ? hereGeometry(d.r, !!m.self || ripple) : null;
+
     if (here) ring(ctx, d.x, d.y, here, changeColor('working'), []);
+
     if (ripple) ripples.push({ x: d.x, y: d.y, r: d.r, guessed: m.reached === 'inferred' });
+
     // Looked at, and nothing changed, working or depending on a change here: the quietest mark there is.
     if (!m.self && !here && !ripple && m.looked && looks(m, d.open)) lookedRing(ctx, d.x, d.y, d.r, LOOKED_ALPHA[m.looked]);
+
     if (m.self) {
       const color = changeColor(m.self);
       ring(ctx, d.x, d.y, g, color, m.self === 'deleted' ? [3, 3] : []);
+
       if (recent) {
         halo(ctx, d.x, d.y, here?.outer ?? g.outer, color, age, 0.7);
         pulsing = true;
       }
+
       if (m.selfUnread) unreadDot(ctx, d.x, d.y, here?.outer ?? g.outer, d.r);
     } else if (!d.open && recent && changeCount(m)) {
       // Something inside a closed circle just changed.
@@ -274,8 +301,10 @@ export function drawRings(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks: 
       pulsing = true;
     }
   }
+
   drawRipples(ctx, ripples, view);
   ctx.globalAlpha = 1;
+
   return pulsing;
 }
 
@@ -292,6 +321,7 @@ function boxAt(d: Drawn, angle: number, w: number, h: number, out: number): Rect
   const py = d.y + s * out;
   const x = c > 0.3 ? px : c < -0.3 ? px - w : px - w / 2;
   const y = s > 0.3 ? py : s < -0.3 ? py - h : py - h / 2;
+
   return { x, y, w, h };
 }
 
@@ -303,20 +333,26 @@ function segmentHits(x1: number, y1: number, x2: number, y2: number, b: Rect, pa
   const dy = y2 - y1;
   let t0 = 0;
   let t1 = 1;
+
   // Clip against each side in turn: left, right, top, bottom.
   for (let side = 0; side < 4; side++) {
     const p = side === 0 ? -dx : side === 1 ? dx : side === 2 ? -dy : dy;
     const q = side === 0 ? x1 - (b.x - pad) : side === 1 ? b.x + b.w + pad - x1 : side === 2 ? y1 - (b.y - pad) : b.y + b.h + pad - y1;
+
     if (p === 0) {
       if (q < 0) return false;
       continue;
     }
+
     const t = q / p;
+
     if (p < 0) {
       if (t > t0) t0 = t;
     } else if (t < t1) t1 = t;
+
     if (t0 > t1) return false;
   }
+
   return true;
 }
 
@@ -324,6 +360,7 @@ type Edge = Taken['edges'][number];
 
 /** How far a straight piece may stray from the curve it stands for. */
 const STRAY = 0.5;
+
 /** Pieces longer than this are split anyway, so each one lands in few cells. */
 const PIECE = 96;
 
@@ -340,10 +377,12 @@ function sample(e: Edge, region: Rect, grow: number, each: (x1: number, y1: numb
   const ry0 = region.y - grow;
   const rx1 = region.x + region.w + grow;
   const ry1 = region.y + region.h + grow;
+
   const split = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, depth: number) => {
     // The curve lies inside its control points' box.
     if (Math.max(x0, x1, x2) < rx0 || Math.min(x0, x1, x2) > rx1 || Math.max(y0, y1, y2) < ry0 || Math.min(y0, y1, y2) > ry1) return;
     const stray = Math.hypot(x0 - 2 * x1 + x2, y0 - 2 * y1 + y2) / 4;
+
     if (depth >= 40 || (stray <= STRAY && Math.hypot(x2 - x0, y2 - y0) <= PIECE)) return each(x0, y0, x2, y2, stray);
     const ax = (x0 + x1) / 2;
     const ay = (y0 + y1) / 2;
@@ -354,6 +393,7 @@ function sample(e: Edge, region: Rect, grow: number, each: (x1: number, y1: numb
     split(x0, y0, ax, ay, mx, my, depth + 1);
     split(mx, my, bx, by, x2, y2, depth + 1);
   };
+
   const [x0, y0, cx, cy, x2, y2] = e.pts;
   split(x0, y0, cx, cy, x2, y2, 0);
 }
@@ -364,17 +404,20 @@ const edgePad = (e: Edge) => e.w / 2 + 2;
 /** Whether a drawn link passes through the box, with its width and a little air around it. */
 export function curveHits(e: Edge, box: Rect): boolean {
   const pad = edgePad(e);
+
   if (e.maxX < box.x - pad || e.minX > box.x + box.w + pad || e.maxY < box.y - pad || e.minY > box.y + box.h + pad) return false;
   let hit = false;
   sample(e, box, pad + STRAY, (ax, ay, bx, by, stray) => {
     hit ||= segmentHits(ax, ay, bx, by, box, pad + stray);
   });
+
   return hit;
 }
 
 // Screen cells for looking up what's near a spot. Each item is visited once per
 // look (`seen`), and a link counts once however many of its pieces are hit (`hit`).
 const CELL = 64;
+
 type Item = { seen: number } & (
   | { k: 'seg'; link: { hit: number }; x1: number; y1: number; x2: number; y2: number; pad: number }
   | { k: 'rect'; r: Rect }
@@ -408,17 +451,21 @@ export class BadgeSpace {
     const reach = { x: Infinity, y: Infinity, w: 0, h: 0 };
     let x1 = -Infinity;
     let y1 = -Infinity;
+
     for (const { d, w, h } of badges) {
       const r = ringGeometry(d.r).outer + 2 + Math.max(w, h);
       const [cx0, cx1, cy0, cy1] = this.span(d.x - r, d.y - r, d.x + r, d.y + r);
+
       for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) this.near.add(key(cx, cy));
       reach.x = Math.min(reach.x, d.x - r);
       reach.y = Math.min(reach.y, d.y - r);
       x1 = Math.max(x1, d.x + r);
       y1 = Math.max(y1, d.y + r);
     }
+
     reach.w = x1 - reach.x;
     reach.h = y1 - reach.y;
+
     for (const e of taken.edges) {
       const link = { hit: 0 };
       const base = edgePad(e);
@@ -427,7 +474,9 @@ export class BadgeSpace {
         this.add({ k: 'seg', link, x1: ax, y1: ay, x2: bx, y2: by, pad, seen: 0 }, Math.min(ax, bx) - pad, Math.min(ay, by) - pad, Math.max(ax, bx) + pad, Math.max(ay, by) + pad);
       });
     }
+
     for (const r of taken.rects) this.add({ k: 'rect', r, seen: 0 }, r.x, r.y, r.x + r.w, r.y + r.h);
+
     for (const d of drawn) if (!d.open) this.add({ k: 'circle', d, seen: 0 }, d.x - d.r, d.y - d.r, d.x + d.r, d.y + d.r);
   }
 
@@ -442,11 +491,14 @@ export class BadgeSpace {
 
   private add(item: Item, x0: number, y0: number, x1: number, y1: number) {
     const [cx0, cx1, cy0, cy1] = this.span(x0, y0, x1, y1);
+
     for (let cx = cx0; cx <= cx1; cx++)
       for (let cy = cy0; cy <= cy1; cy++) {
         const k = key(cx, cy);
+
         if (!this.near.has(k)) continue;
         const cell = this.cells.get(k);
+
         if (cell) cell.push(item);
         else this.cells.set(k, [item]);
       }
@@ -458,13 +510,17 @@ export class BadgeSpace {
     let score = box.x < f.x0 || box.x + box.w > f.x1 || box.y < f.y0 || box.y + box.h > f.y1 ? 3 : 0;
     const stamp = ++this.stamp;
     const [cx0, cx1, cy0, cy1] = this.span(box.x, box.y, box.x + box.w, box.y + box.h);
+
     for (let cx = cx0; cx <= cx1; cx++)
       for (let cy = cy0; cy <= cy1; cy++) {
         const cell = this.cells.get(key(cx, cy));
+
         if (!cell) continue;
+
         for (const it of cell) {
           if (it.seen === stamp) continue;
           it.seen = stamp;
+
           if (it.k === 'rect') {
             if (overlaps(it.r, box)) score += 10;
           } else if (it.k === 'seg') {
@@ -476,11 +532,14 @@ export class BadgeSpace {
             const o = it.d;
             const nx = Math.max(box.x, Math.min(o.x, box.x + box.w));
             const ny = Math.max(box.y, Math.min(o.y, box.y + box.h));
+
             if ((nx - o.x) ** 2 + (ny - o.y) ** 2 < o.r * o.r) score += 1;
           }
+
           if (score >= limit) return score;
         }
       }
+
     return score;
   }
 
@@ -494,16 +553,21 @@ export class BadgeSpace {
     const out = ringGeometry(d.r).outer + 1;
     let best = boxAt(d, ANGLES[0], w, h, out);
     let bestScore = Infinity;
+
     for (const a of ANGLES) {
       const box = boxAt(d, a, w, h, out);
       const score = this.cost(box, d, bestScore);
+
       if (score < bestScore) {
         best = box;
         bestScore = score;
+
         if (!score) break;
       }
     }
+
     this.add({ k: 'rect', r: best, seen: 0 }, best.x, best.y, best.x + best.w, best.y + best.h);
+
     return best;
   }
 }
@@ -522,13 +586,18 @@ export interface BadgeCache {
 /** Every number the badge spots depend on, in order, to compare with the last frame's. */
 function geometryKey(taken: Taken, drawn: readonly Drawn[], badged: readonly { d: Drawn; w: number; h: number }[]): Float64Array {
   const out: number[] = [taken.view.w, taken.view.h, taken.free.x0, taken.free.x1, taken.free.y0, taken.free.y1, taken.edges.length];
+
   for (const e of taken.edges) out.push(e.w, ...e.pts);
   out.push(taken.rects.length);
+
   for (const r of taken.rects) out.push(r.x, r.y, r.w, r.h);
   out.push(drawn.length);
+
   for (const d of drawn) if (!d.open) out.push(d.x, d.y, d.r);
   out.push(badged.length);
+
   for (const b of badged) out.push(b.d.x, b.d.y, b.d.r, b.w, b.h);
+
   return Float64Array.from(out);
 }
 
@@ -539,6 +608,7 @@ const BADGE_SIZE = 13;
 const BADGE_H = 20;
 const BADGE_PAD = 6;
 const BADGE_GAP = 6;
+
 /** The ripple's mark in a badge: a 9px dotted ring and the space after it. */
 const RIPPLE_MARK = 13;
 const badgeFont = () => `400 ${BADGE_SIZE}px ${fonts().serif || 'serif'}`;
@@ -546,11 +616,15 @@ const badgeFont = () => `400 ${BADGE_SIZE}px ${fonts().serif || 'serif'}`;
 // Widths by font and text: a badge reads a few short strings, so each is measured once.
 // The web font can arrive after the first frame; measure again when it does.
 const widths = new Map<string, number>();
+
 if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => widths.clear());
+
 function measure(ctx: CanvasRenderingContext2D, font: string, text: string): number {
   const key = `${font}|${text}`;
   let w = widths.get(key);
+
   if (w == null) widths.set(key, (w = ctx.measureText(text).width));
+
   return w;
 }
 
@@ -563,16 +637,20 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
   ctx.font = font;
   const badges: { d: Drawn; m: Marks; w: number; h: number; parts: { text: string; color: string; w: number; dots?: boolean }[] }[] = [];
   const muted = token('--muted');
+
   for (const d of drawn) {
     const m = !d.open && marks.get(d.n.id);
+
     // A circle holding only dependents gets their count once it's big enough to be a place you'd
     // look into; smaller ones keep just the ripple ring, and a crowded map keeps few badges.
     if (!m || !(changeCount(m) || (m.ripple && d.r >= RIPPLE_BADGE_R))) continue;
+
     // Small circles get a dot for their changes.
     if (d.r < 9) {
       badges.push({ d, m, w: 5, h: 5, parts: [] });
       continue;
     }
+
     const parts: { text: string; color: string; w: number; dots?: boolean }[] = (
       [
         ['added', '+'],
@@ -582,17 +660,21 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
     )
       .filter(([k]) => m[k])
       .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: changeColor(k), w: measure(ctx, font, `${sign}${m[k]}`) }));
+
     // How many of those you haven't opened since they changed, in words.
     if (m.unread) parts.push({ text: `${m.unread} unread`, color: token('--unread'), w: measure(ctx, font, `${m.unread} unread`) });
+
     // Dependents inside: a small dotted ring, as on the map, then how many.
     if (m.ripple) parts.push({ text: String(m.ripple), color: muted, w: RIPPLE_MARK + measure(ctx, font, String(m.ripple)), dots: true });
     const w = Math.ceil(parts.reduce((a, p) => a + p.w, 0) + BADGE_GAP * (parts.length - 1) + BADGE_PAD * 2);
     badges.push({ d, m, w, h: BADGE_H, parts });
   }
+
   if (!badges.length) return;
 
   const k = geometryKey(taken, drawn, badges);
   let boxes = cache.boxes;
+
   if (!boxes || !sameKey(cache.key, k)) {
     const space = new BadgeSpace(taken, drawn, badges);
     boxes = badges.map((b) => space.place(b.d, b.w, b.h));
@@ -608,13 +690,16 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
   ctx.lineWidth = 1;
   badges.forEach((b, i) => {
     const box = boxes[i];
+
     if (!b.parts.length) {
       ctx.fillStyle = changeColor(dominant(b.m));
       ctx.beginPath();
       ctx.arc(box.x + 2.5, box.y + 2.5, 2.5, 0, Math.PI * 2);
       ctx.fill();
+
       return;
     }
+
     // Whole pixels, so the 1px border stays crisp.
     const x = Math.round(box.x) + 0.5;
     const y = Math.round(box.y) + 0.5;
@@ -625,8 +710,10 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
     ctx.fill();
     ctx.stroke();
     let tx = x - 0.5 + BADGE_PAD;
+
     for (const p of b.parts) {
       const cy = y - 0.5 + b.h / 2;
+
       if (p.dots) {
         ctx.strokeStyle = p.color;
         ctx.lineWidth = 1.5;
@@ -639,6 +726,7 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
         ctx.lineCap = 'butt';
         ctx.lineWidth = 1;
       }
+
       ctx.fillStyle = p.color;
       ctx.fillText(p.text, tx + (p.dots ? RIPPLE_MARK : 0), cy + 0.5);
       tx += p.w + BADGE_GAP;
@@ -655,7 +743,9 @@ const COUNT_WORDS = ['', 'one', 'two', 'three', 'four', 'five'];
  */
 export function collisionAt(id: string, open: boolean, at: ReadonlyMap<string, number>): number {
   let n = at.get(id) ?? 0;
+
   if (!open) for (const [c, k] of at) if (k > n && (c.startsWith(`${id}/`) || c.startsWith(`${id}#`))) n = k;
+
   return n;
 }
 
@@ -666,14 +756,17 @@ export function collisionAt(id: string, open: boolean, at: ReadonlyMap<string, n
  */
 export function drawCollisions(ctx: CanvasRenderingContext2D, drawn: Drawn[], at: ReadonlyMap<string, number>): Rect[] {
   const out: Rect[] = [];
+
   if (!at.size) return out;
   const size = 13;
   ctx.font = `600 ${size}px ${fonts().serif}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.globalAlpha = 1;
+
   for (const d of drawn) {
     const n = collisionAt(d.n.id, d.open, at);
+
     if (!n || d.r < 4) continue;
     const text = `${COUNT_WORDS[n] ?? n} agents`;
     const w = Math.ceil(ctx.measureText(text).width) + 12;
@@ -687,5 +780,6 @@ export function drawCollisions(ctx: CanvasRenderingContext2D, drawn: Drawn[], at
     ctx.fillText(text, d.x, y + h / 2 + 0.5);
     out.push({ x, y, w, h });
   }
+
   return out;
 }

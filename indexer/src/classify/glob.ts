@@ -5,8 +5,10 @@
  */
 export function globToRegExp(glob: string): RegExp {
   let re = '';
+
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];
+
     if (c === '*' && glob[i + 1] === '*') {
       re += glob[i + 2] === '/' ? '(?:.*/)?' : '.*';
       i += glob[i + 2] === '/' ? 2 : 1;
@@ -18,12 +20,16 @@ export function globToRegExp(glob: string): RegExp {
       i = end;
     } else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
+
   return new RegExp(`^${re}(?:/.*)?$`);
 }
 
 const cache = new Map<string, RegExp>();
+
 export function globMatch(glob: string, path: string): boolean {
   let re = cache.get(glob);
+
   if (!re) cache.set(glob, (re = globToRegExp(glob)));
+
   return re.test(path);
 }

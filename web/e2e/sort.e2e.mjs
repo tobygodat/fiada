@@ -24,38 +24,49 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const opt = (name, d) => (args.includes(name) ? args[args.indexOf(name) + 1] : d);
 const repo = args.find((a, i) => !a.startsWith('--') && !['--out', '--indexer', '--expect'].includes(args[i - 1]));
+
 if (!repo) {
   console.error('usage: node web/e2e/sort.e2e.mjs <local repository> [--out dir] [--indexer checkout] [--expect placed|unplaced] [--video]');
   process.exit(1);
 }
+
 const out = path.resolve(opt('--out', fs.mkdtempSync(path.join(os.tmpdir(), 'fiada-sort-e2e-'))));
 const checkout = path.resolve(opt('--indexer', path.join(here, '../..')));
 const expect = opt('--expect', 'placed');
+
 fs.mkdirSync(out, { recursive: true });
+
 const INDEXER_PORT = 4188;
 const WEB_PORT = 5188;
 
 const children = [];
+
 function start(cmd, argv, cwd, env, logFile, inherit = process.env) {
   const p = spawn(cmd, argv, { cwd, env: { ...inherit, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const log = fs.createWriteStream(logFile);
   p.stdout.pipe(log);
   p.stderr.pipe(log);
   children.push(p);
+
   return p;
 }
+
 const stopAll = () => children.forEach((p) => p.kill());
+
 process.on('exit', stopAll);
 
 async function until(what, check, ms = 60_000) {
   const end = Date.now() + ms;
+
   for (;;) {
     try {
       const v = await check();
+
       if (v) return v;
     } catch {
       // not up yet
     }
+
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -75,23 +86,31 @@ const mockUrl = await until('the mock', () => /http:\/\/\S+/.exec(fs.readFileSyn
 
 // 2. The indexer, with a fresh home and no keys but the mock's.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'fiada-home-'));
+
 // Left out, not blanked: a legacy STRATA_* name wins over its FIADA_* one even when empty. The map gets the same,
 // so neither STRATA_INDEXER_PORT nor VITE_API_URL sends it to another indexer.
 const bare = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^MONGODB_URI$|^VITE_API_URL$/.test(k)));
+
 start('node', ['--import', 'tsx', 'src/server.ts'], path.join(checkout, 'indexer'), { PORT: String(INDEXER_PORT), HOST: '127.0.0.1', FIADA_HOME: home, ANTHROPIC_API_KEY: 'mock', ANTHROPIC_BASE_URL: mockUrl }, path.join(out, 'indexer.log'), bare);
+
 await until('the indexer', async () => (await fetch(`http://127.0.0.1:${INDEXER_PORT}/api/workspace`)).ok);
 
 // 3. The map, proxying /api to that indexer.
 const vite = path.join(path.dirname(createRequire(import.meta.url).resolve('vite/package.json')), 'bin/vite.js');
+
 start('node', [vite, '--port', String(WEB_PORT), '--strictPort'], path.join(here, '..'), { FIADA_INDEXER_PORT: String(INDEXER_PORT) }, path.join(out, 'web.log'), bare);
+
 const app = `http://127.0.0.1:${WEB_PORT}`;
+
 await until('the map', async () => (await fetch(app)).ok);
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined) });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
+
 // --video: the page's frames over CDP, joined by ffmpeg into run.mp4 at the end.
 const frames = [];
+
 if (args.includes('--video')) {
   const cdp = await context.newCDPSession(page);
   fs.mkdirSync(path.join(out, 'frames'), { recursive: true });
@@ -103,13 +122,16 @@ if (args.includes('--video')) {
   });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 85, everyNthFrame: 1 });
 }
+
 // A watchable pace for the video; as fast as it goes otherwise.
 const pace = args.includes('--video') ? 1200 : 0;
 const pause = (ms) => page.waitForTimeout(ms + pace);
 const shot = (name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 const failures = [];
+
 const check = (ok, what) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
+
   if (!ok) failures.push(what);
 };
 
@@ -125,6 +147,7 @@ try {
   await sorting.waitFor({ timeout: 120_000 });
   await page.waitForFunction(() => {
     const t = document.querySelector('.sorting')?.textContent ?? '';
+
     return t && !/is sorting/.test(t);
   }, null, { timeout: 120_000 });
   await pause(800);
@@ -166,13 +189,16 @@ try {
     const detail = page.locator('aside.detail').first();
     // Open the outline down to a symbol: Middleware, its layers, its files.
     const target = page.locator('.outline-row .outline-name', { hasText: /^combine$/ }).first();
+
     for (let i = 0; i < 6 && !(await target.count()); i++) {
       const labels = await page.getByRole('button', { name: /^Unfold / }).evaluateAll((bs) => bs.map((b) => b.getAttribute('aria-label').slice('Unfold '.length)));
       const next = labels.find((l) => l === 'Middleware' || !domains.includes(l));
+
       if (!next) break;
       await page.getByRole('button', { name: `Unfold ${next}`, exact: true }).first().click();
       await page.waitForTimeout(300 + pace / 3);
     }
+
     await target.scrollIntoViewIfNeeded();
     await target.click();
     await pause(1200);
@@ -190,6 +216,7 @@ try {
   mock.kill();
   stopAll();
 }
+
 if (frames.length) {
   // Each frame shows until the next one arrives, so the video keeps the run's own pace.
   const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.02, ((frames[i + 1]?.at ?? f.at + 1) - f.at)).toFixed(3)}`).join('\n');
@@ -197,5 +224,7 @@ if (frames.length) {
   const ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', path.join(out, 'frames.txt'), '-vf', 'scale=1440:-2,format=yuv420p', '-r', '30', path.join(out, 'run.mp4')], { stdio: 'inherit' });
   await new Promise((r) => ff.on('close', r));
 }
+
 console.log(`artifacts in ${out}`);
+
 process.exit(failures.length ? 1 : 0);

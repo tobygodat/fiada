@@ -18,31 +18,44 @@ const title = (s) => words(s).replace(/\b\w/g, (c) => c.toUpperCase());
 /** The feature a path belongs to, by its folders: src/middleware/x.ts → middleware. */
 function featureOf(path) {
   const parts = path.split('/').slice(1, -1).filter((p) => !['src', 'lib', 'app'].includes(p));
+
   if (parts[0] === 'tests' || parts[0] === 'test' || /\.test\./.test(path)) return 'tests';
+
   if (parts[0] === 'examples' || parts[0] === 'docs') return parts[0];
+
   if (!parts.length) return path.split('/').length <= 2 && !/\/src\//.test(path) ? 'tooling' : 'core';
+
   return parts[0];
 }
 
 /** Picks a layer from the request's own list. */
 function layerFor(path, layers) {
   const has = (id) => (layers.includes(id) ? id : null);
+
   if (featureOf(path) === 'tests') return has('test') ?? layers[0];
+
   if (/\.(tsx|jsx)$/.test(path)) return has('ui') ?? layers[0];
+
   if (/config\.|rollup|vite/.test(path)) return has('job') ?? has('service') ?? layers[0];
+
   return has('client') ?? has('service') ?? layers[0];
 }
 
 /** A value that follows `schema`: the first enum value, a stand-in line for strings, one array item per id in an enum'd id field. */
 function fill(schema) {
   if (schema.enum) return schema.enum[0];
+
   if (schema.type === 'string') return 'A line from the stand-in for Claude.';
+
   if (schema.type === 'array') {
     const item = schema.items ?? {};
     const idKey = Object.keys(item.properties ?? {}).find((k) => item.properties[k].enum);
+
     return idKey ? item.properties[idKey].enum.map((id) => ({ ...fill(item), [idKey]: id })) : [];
   }
+
   if (schema.type === 'object') return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([k, v]) => [k, fill(v)]));
+
   return null;
 }
 
@@ -50,24 +63,29 @@ function answer(body) {
   const schema = body.output_config?.format?.schema ?? {};
   const prompt = typeof body.messages[0].content === 'string' ? body.messages[0].content : '';
   const props = schema.properties ?? {};
+
   if (props.new_domains) {
     // Step 1: the leftover outline lists one file per line ("- repo/path (no layer)").
     const paths = [...prompt.matchAll(/^- (\S+\/\S+?)(?: \(no layer\))?$/gm)].map((m) => m[1]);
     const features = [...new Set(paths.map(featureOf))];
+
     return {
       domains: [],
       new_domains: features.map((f) => ({ id: f, name: title(f), reason: `the files under ${f}` })),
     };
   }
+
   if (props.files) {
     const item = props.files.items.properties;
     const layers = (item.layer.enum ?? []).filter(Boolean);
     const domains = (item.domain.enum ?? []).filter(Boolean);
     const files = [...prompt.matchAll(/^(F\d+) (\S+) \(/gm)].map((m) => m[2]);
+
     return {
       files: files.map((path) => {
         const f = featureOf(path);
         const layer = layers.length ? layerFor(path, layers) : '';
+
         return {
           ref: path,
           layer,
@@ -79,6 +97,7 @@ function answer(body) {
       }),
     };
   }
+
   return fill(schema);
 }
 
@@ -91,12 +110,16 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     const body = JSON.parse(raw);
     const text = JSON.stringify(answer(body));
+
     if (process.env.MOCK_CLAUDE_LOG) fs.appendFileSync(process.env.MOCK_CLAUDE_LOG, JSON.stringify({ at: new Date().toISOString(), request: body, answer: JSON.parse(text) }) + '\n');
     const message = { id: `msg_mock_${Date.now()}`, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } };
+
     if (!body.stream) {
       res.writeHead(200, { 'content-type': 'application/json' });
+
       return res.end(JSON.stringify({ ...message, content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: text.length } }));
     }
+
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
     res.write(sse('message_start', { message }));
     res.write(sse('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }));
@@ -109,4 +132,5 @@ const server = http.createServer((req, res) => {
 });
 
 const port = Number(process.argv[2] ?? 0);
+
 server.listen(port, '127.0.0.1', () => console.log(`mock Claude on http://127.0.0.1:${server.address().port}`));

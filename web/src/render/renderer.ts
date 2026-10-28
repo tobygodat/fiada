@@ -23,8 +23,10 @@ import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POL
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
 const LABEL_MIN_R = 16;
+
 /** Below this radius a closed circle is labelled only if its whole name fits. */
 const LABEL_FULL_R = 34;
+
 /** How strongly the rest of the map is drawn while one agent's changes are lit. */
 const UNLIT = 0.22;
 
@@ -37,6 +39,7 @@ const UNLIT = 0.22;
  */
 export const TYPE = [13, 15, 17, 20, 24] as const;
 export const typeSize = (px: number) => TYPE.reduce<number>((s, t) => (t <= px ? t : s), TYPE[0]);
+
 /** Container names are 600, leaves and everything else 400. */
 type Weight = 400 | 600;
 
@@ -100,6 +103,7 @@ interface DrawnNode {
   /** Drawn faint: an agent's changes are lit and this is neither one of them nor round one. */
   unlit?: boolean;
 }
+
 interface DrawnEdge {
   g: Contract;
   pts: number[];
@@ -109,6 +113,7 @@ interface DrawnEdge {
   maxX: number;
   maxY: number;
 }
+
 interface Rect {
   x: number;
   y: number;
@@ -118,8 +123,11 @@ interface Rect {
 
 const sameHit = (a: Hit | null, b: Hit | null): boolean => {
   if (a === b) return true;
+
   if (!a || !b || a.type !== b.type) return false;
+
   if (a.type === 'edge' || a.type === 'tag') return a.key === (b as typeof a).key;
+
   // A circle that opens under the pointer is a different target: its edges stop being in focus.
   return a.id === (b as typeof a).id && (a.type !== 'node' || a.open === (b as typeof a).open);
 };
@@ -198,6 +206,7 @@ export class MapRenderer {
     host.addEventListener('pointerup', this.onUp);
     host.addEventListener('pointercancel', this.onCancel);
     host.addEventListener('pointerleave', this.onLeave);
+
     // Labels are measured in Literata; re-measure once it arrives. The canvas
     // alone doesn't make the browser fetch a web font, so ask for both weights.
     const remeasure = () => {
@@ -205,7 +214,9 @@ export class MapRenderer {
       this.lastFont = '';
       this.request();
     };
+
     document.fonts?.ready.then(remeasure);
+
     if (document.fonts) Promise.all([400, 600].map((wt) => document.fonts.load(`${wt} 15px ${this.serif}`))).then(remeasure, () => {});
     // The palettes are tokens, so a theme switch is a repaint.
     this.offTheme = onThemeChange(() => {
@@ -233,11 +244,15 @@ export class MapRenderer {
   /** New scene. Pass `from` (the previous layout) to animate circles into their new places. */
   setScene(scene: Scene, from?: Map<string, Circle>, duration = 520) {
     const prev = this.scene;
+
     if (prev && (prev.pal !== scene.pal || prev.colorBy !== scene.colorBy)) this.colors.clear();
+
     if (prev?.tree !== scene.tree) this.counts = new WeakMap();
     this.scene = scene;
+
     // Animate only when this scene is what changed the layout (from may be stale otherwise).
     if (prev?.L !== scene.L) this.layoutAnim = from && prev?.tree === scene.tree && prev.L === from ? { from, start: performance.now(), dur: duration } : null;
+
     if (scene.mode === 'click') this.setVis(scene.vis);
     else if (prev?.mode !== 'zoom' || prev.L !== scene.L) this.vis = null; // recomputed from the camera next frame
     this.request();
@@ -251,6 +266,7 @@ export class MapRenderer {
 
   private free() {
     const f = freeArea({ w: this.w, h: this.h, ...this.panels });
+
     return { x0: f.cx - f.w / 2 + 12, x1: f.cx + f.w / 2 - 12, y0: 12, y1: this.h - 12 };
   }
 
@@ -261,6 +277,7 @@ export class MapRenderer {
   /** Subscribe to camera changes, however they happen (for the zoom readout and breadcrumb). */
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
+
     return () => {
       this.listeners.delete(fn);
     };
@@ -279,6 +296,7 @@ export class MapRenderer {
    */
   animateTo(target: Camera, how: 'smooth' | 'direct' = 'smooth', duration?: number) {
     const anchor = { x: this.w / 2, y: this.h / 2 };
+
     if (how === 'smooth') {
       const z = smoothZoom(this.cam, target, anchor, Math.min(this.w, this.h) || 1);
       const dur = duration ?? Math.max(350, Math.min(1100, z.duration * 0.9));
@@ -286,6 +304,7 @@ export class MapRenderer {
     } else {
       this.camAnim = { at: directZoom(this.cam, target, anchor), start: performance.now(), dur: duration ?? 520 };
     }
+
     this.request();
   }
 
@@ -298,32 +317,44 @@ export class MapRenderer {
   private tick = (now: number) => {
     this.raf = 0;
     let more = false;
+
     if (this.camAnim) {
       const t = Math.min(1, (now - this.camAnim.start) / this.camAnim.dur);
       this.cam = this.camAnim.at(easeInOut(t));
+
       if (t >= 1) this.camAnim = null;
       else more = true;
     }
+
     let lt = 1;
+
     if (this.layoutAnim) {
       lt = Math.min(1, (now - this.layoutAnim.start) / this.layoutAnim.dur);
+
       if (lt >= 1) this.layoutAnim = null;
       else more = true;
     }
+
     this.draw(easeInOut(lt));
+
     if (this.pulsing) more = true;
+
     if (this.emitted !== this.cam) {
       this.emitted = this.cam;
+
       for (const fn of this.listeners) fn();
     }
+
     // Whatever is under a resting pointer may have moved or changed.
     if (this.pointer && !this.drag?.moved) this.setHover(this.hitTest(this.pointer.x, this.pointer.y));
+
     if (more) this.request();
   };
 
   private resize() {
     const r = this.host.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
+
     if (r.width === this.w && r.height === this.h && dpr === this.dpr) return;
     this.w = r.width;
     this.h = r.height;
@@ -348,22 +379,26 @@ export class MapRenderer {
   private color(kind: 'repo' | 'layer' | 'neutral', id: string | undefined, a: number) {
     const key = `${kind}|${id}|${a}`;
     let c = this.colors.get(key);
+
     if (!c) {
       const pal = this.scene!.pal;
       c = kind === 'repo' ? pal.repo(id!, a) : kind === 'layer' ? pal.layer(id, a) : pal.neutral(a);
       this.colors.set(key, c);
     }
+
     return c;
   }
 
   private nodeColor(n: TNode, a: number) {
     if (this.scene!.colorBy === 'layer') return n.layer ? this.color('layer', n.layer, a) : this.color('neutral', undefined, a);
+
     return n.repo ? this.color('repo', n.repo, a) : this.color('neutral', undefined, a);
   }
 
   /** Sets the drawing font, skipping the (costly) assignment when it hasn't changed. */
   private font(weight: Weight, size: number) {
     const f = `${weight} ${size}px ${this.serif}`;
+
     if (f !== this.lastFont) this.ctx.font = this.lastFont = f;
   }
 
@@ -375,12 +410,14 @@ export class MapRenderer {
   private textWidth(text: string, weight: Weight, size: number) {
     const key = `${weight}|${size}|${text}`;
     let w = this.widths.get(key);
+
     if (w == null) {
       // A separate context, so measuring never changes the font being drawn with.
       this.measure.font = `${weight} ${size}px ${this.serif}`;
       w = this.measure.measureText(text).width;
       this.widths.set(key, w);
     }
+
     return w;
   }
 
@@ -388,11 +425,14 @@ export class MapRenderer {
     if (this.textWidth(text, weight, size) <= max) return text;
     let lo = 0;
     let hi = text.length;
+
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
+
       if (this.textWidth(text.slice(0, mid) + '…', weight, size) <= max) lo = mid;
       else hi = mid - 1;
     }
+
     return lo ? text.slice(0, lo) + '…' : '';
   }
 
@@ -402,12 +442,16 @@ export class MapRenderer {
     const words = text.split(/(?<=[\s._/-])/);
     let line = '';
     let i = 0;
+
     for (; i < words.length; i++) {
       const next = line + words[i];
+
       if (line && this.textWidth(next, weight, size) > max) break;
       line = next;
     }
+
     if (i >= words.length) return [this.fit(line, weight, size, max)];
+
     return [this.fit(line.trimEnd(), weight, size, max), this.fit(words.slice(i).join(''), weight, size, max)];
   }
 
@@ -415,6 +459,7 @@ export class MapRenderer {
     if (this.counts.has(n)) return this.counts.get(n)!;
     let s: string | null = null;
     const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? '' : 's'}`;
+
     if (n.kind === 'repo') s = `${plural(countFiles(n), 'file')} · ${plural(n.symbols, 'symbol')}`;
     else if (n.kind === 'domain') {
       const repos = new Set<string>();
@@ -424,6 +469,7 @@ export class MapRenderer {
     } else if (n.kind === 'folder') s = plural(countFiles(n), 'file');
     else if ((n.kind === 'file' || n.kind === 'layer') && n.children.length) s = plural(n.children.length, 'symbol');
     this.counts.set(n, s);
+
     return s;
   }
 
@@ -433,10 +479,12 @@ export class MapRenderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     // The map's paper: flat, no gradient.
     ctx.clearRect(0, 0, w, h);
+
     if (ink.ground) {
       ctx.fillStyle = ink.ground;
       ctx.fillRect(0, 0, w, h);
     }
+
     this.drawnNodes = [];
     this.drawnEdges = [];
     this.drawnTags = [];
@@ -446,18 +494,22 @@ export class MapRenderer {
     this.drawnTabs = [];
     this.pulsing = false;
     const scene = this.scene;
+
     if (!scene || !w) return;
     const { tree, L } = scene;
     const { k, tx, ty } = this.cam;
 
     if (scene.mode === 'zoom') {
       const vis = visibleNodes(tree, L, this.cam, w, h);
+
       if (!this.vis || vis.key !== this.vis.key) {
         this.setVis(vis);
         this.on.visible(vis);
       }
     }
+
     const vis = this.vis;
+
     if (!vis) return;
 
     // Circles, mid-animation when the layout just changed.
@@ -466,6 +518,7 @@ export class MapRenderer {
 
     // Selection stands in at its nearest visible ancestor.
     let sv: string | null = scene.selected;
+
     while (sv && !this.visIds.has(sv)) sv = tree.nodes.get(sv)?.parent ?? null;
 
     const toScreen = (c: Circle) => ({ x: tx + c.x * k, y: ty + c.y * k, r: c.r * k });
@@ -486,26 +539,32 @@ export class MapRenderer {
     const hoverKey = this.hover?.type === 'edge' || this.hover?.type === 'tag' ? this.hover.key : null;
     let focusEdges: { g: Contract; A: Circle; B: Circle; role: 'focus' | 'sel' | 'rest' }[] = [];
     const resting: typeof focusEdges = [];
+
     for (const g of scene.contracts) {
       if (!this.visIds.has(g.a) || !this.visIds.has(g.b)) continue;
       const touches = !!fv && within(g.a) !== within(g.b);
       const role = g.key === selKey ? 'sel' : touches ? 'focus' : rest.has(g.key) ? 'rest' : null;
+
       if (!role) continue;
       const A = at(g.a);
       const B = at(g.b);
+
       if (!A || !B) continue;
       const sa = toScreen(A);
       const sb = toScreen(B);
+
       // A resting edge between two places off screen says nothing about what's on it.
       if (!onScreen(sa) && !onScreen(sb) && (role === 'rest' || !segmentOnScreen(sa, sb, w, h))) continue;
       (role === 'rest' ? resting : focusEdges).push({ g, A, B, role });
     }
+
     if (focusEdges.length > this.policy.focusMax) {
       // The selected contract always stays.
       const score = (e: (typeof focusEdges)[number]) => (e.role === 'sel' ? Infinity : edgeScore(e.g, this.policy.boost));
       focusEdges.sort((p, q) => score(q) - score(p));
       focusEdges = focusEdges.slice(0, Math.max(this.policy.focusMax, selKey && focusEdges[0].g.key === selKey ? 1 : 0));
     }
+
     // Rest edges underneath, the ones in focus on top.
     const drawn = [...resting, ...focusEdges.slice(0, MAX_EDGES)];
     const inFocus = focusEdges.length > 0 || anyEdgeSel;
@@ -530,8 +589,11 @@ export class MapRenderer {
       const stroke = isSel || isHover ? ink.text : ink.muted;
       const cross = crossRepo(g);
       let op = role === 'rest' ? (inFocus ? this.policy.restFade : cross ? 0.75 : 0.6) : isSel ? 1 : anyEdgeSel ? 0.25 : 0.85;
+
       if (guess && !isSel) op *= 0.8;
+
       if (isHover && !isSel) op = Math.max(op, 0.75);
+
       if (role === 'rest' && !isHover && unlitEdge(g)) op *= UNLIT;
       // Width follows the log of the number of interactions, relative to the heaviest on screen.
       const sw = 1 + 4.5 * (Math.log(n) / Math.log(Math.max(2, heaviest))) + (isSel ? 0.5 : 0);
@@ -557,6 +619,7 @@ export class MapRenderer {
       // resting link pointed at that had no room for words gets its tag instead.
       const words = role === 'rest' && this.policy.restLabels && !inFocus && (isHover ? worded.has(g.key) : !unlitEdge(g));
       const tagged = !words && (isSel || isHover || (role === 'focus' ? i - resting.length < MAX_TAGS : this.policy.restTags && !inFocus && i < MAX_TAGS));
+
       if (tagged && c.gap > 36) tagQueue.push({ g, pts: [x1, y1, mx, my, x2, y2], isSel });
       else if (words) labelQueue.push({ g, pts: [x1, y1, mx, my, x2, y2], gap: c.gap, sw, hot: isHover });
     });
@@ -565,10 +628,13 @@ export class MapRenderer {
 
     // ── circles ──
     const hoverId = this.hover?.type === 'node' ? this.hover.id : null;
+
     for (const n of vis.list) {
       const c = at(n.id);
+
       if (!c) continue;
       const s = toScreen(c);
+
       if (s.r < 0.6 || !onScreen(s)) continue;
       const isOpen = vis.open.has(n.id);
       const leaf = n.kind === 'symbol' || (n.kind === 'file' && !n.children.length);
@@ -581,19 +647,24 @@ export class MapRenderer {
       ctx.globalAlpha = (anim && !anim.from.has(n.id) ? lt : 1) * (unlit && !sel && !hovered ? UNLIT : 1);
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+
       // A closed circle is its colour at 12% (a leaf at 30%) inside a rim of the colour itself. An open
       // one is a place you're in, drawn as its rim alone. Selected: an ink rim over the selection fill.
       if (!isOpen) {
         ctx.fillStyle = sel ? ink.selection : this.nodeColor(n, leaf ? 0.3 : 0.12);
         ctx.fill();
       }
+
       ctx.lineWidth = sel ? 2 : hovered || marked ? 1.5 : 1;
       ctx.strokeStyle = sel || hovered || marked ? ink.text : this.nodeColor(n, isOpen ? 0.45 : 0.85);
       ctx.stroke();
       this.drawnNodes.push({ n, x: s.x, y: s.y, r: s.r, open: isOpen, unlit: unlit && !sel && !hovered });
     }
+
     ctx.globalAlpha = 1;
+
     if (scene.fenced?.size) drawFences(ctx, this.drawnNodes, scene.fenced, UNLIT, { w, h });
+
     if (scene.activity?.size) this.pulsing = drawRings(ctx, this.drawnNodes, scene.activity, Date.now(), { w, h });
 
     // ── labels ──
@@ -601,12 +672,14 @@ export class MapRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const hoverTab = this.hover?.type === 'tab' ? this.hover.id : null;
+
     for (const d of this.drawnNodes) {
       const { n, x, y, r } = d;
       const big = n.kind === 'repo' || n.kind === 'domain';
       // Names of unlit circles stay just readable.
       const nameAlpha = d.unlit ? UNLIT + 0.18 : 1;
       ctx.globalAlpha = nameAlpha;
+
       if (d.open) {
         // An open circle's name sits in a gap cut from its rim, then "−" to close it (click mode).
         // Pointing at it turns the words green, as a pointed-at word does.
@@ -619,6 +692,7 @@ export class MapRenderer {
         const bw = Math.round(nw + mw + 16);
         const bx = Math.round(x - bw / 2);
         const by = Math.round(y - r - bh / 2);
+
         if (by + bh < 0 || by > h || bx + bw < 0 || bx > w) continue;
         const hot = n.id === hoverTab;
         // The gap in the rim is cut in full, whatever strength the name is drawn at.
@@ -630,11 +704,13 @@ export class MapRenderer {
         this.font(600, size);
         ctx.fillStyle = hot ? ink.accent : ink.text;
         ctx.fillText(name, bx + 8, by + bh / 2 + 0.5);
+
         if (collapse) {
           this.font(400, size);
           ctx.fillStyle = hot ? ink.accent : ink.muted;
           ctx.fillText('−', bx + 8 + nw + 6, by + bh / 2 + 0.5);
         }
+
         ctx.textAlign = 'center';
         this.drawnTabs.push({ id: n.id, x: bx, y: by, w: bw, h: bh });
       } else if (r > LABEL_MIN_R) {
@@ -644,28 +720,35 @@ export class MapRenderer {
         const size = typeSize(r * (big ? 0.24 : 0.2));
         const max = r * 1.8;
         const lines = big ? this.wrap2(n.name, weight, size, max) : [this.fit(n.name, weight, size, max)];
+
         if (!big && r < LABEL_FULL_R && lines[0] !== n.name) {
           // A small circle with a clipped name ("lin…") says nothing. Try a file without its extension, or
           // the last part of a folder path ("react-email" for "packages/react-email"); else leave it to the details panel.
           const short = n.kind === 'file' ? n.name.replace(/\.[^.]+$/, '') : n.name.slice(n.name.lastIndexOf('/') + 1);
+
           if (!short || short === n.name || this.textWidth(short, weight, size) > max) continue;
           lines[0] = short;
         }
+
         if (!lines[0]) continue;
         const subSize = size >= 20 ? 15 : 13;
         // The counts under the name, whole or just their first part ("284 symbols"), never clipped.
         let sub = (big && r > 48) || (!big && r > 44) ? this.subtitle(n) : null;
+
         if (sub && this.textWidth(sub, 400, subSize) > max) sub = sub.split(' · ')[0];
+
         if (sub && this.textWidth(sub, 400, subSize) > max) sub = null;
         const lh = Math.round(size * 1.3);
         const total = lines.length * lh + (sub ? subSize * 1.5 : 0);
         let cy = y - total / 2 + lh / 2;
         ctx.fillStyle = n.id === hoverId ? ink.accent : ink.text;
         this.font(weight, size);
+
         for (const line of lines) {
           ctx.fillText(line, x, cy);
           cy += lh;
         }
+
         if (sub) {
           ctx.fillStyle = ink.muted;
           this.font(400, subSize);
@@ -673,6 +756,7 @@ export class MapRenderer {
         }
       }
     }
+
     ctx.globalAlpha = 1;
 
     // ── edge tags ──
@@ -683,17 +767,22 @@ export class MapRenderer {
     this.font(400, 13);
     const first = (t: (typeof tagQueue)[number]) => (t.isSel ? 0 : t.g.key === hoverKey ? 1 : 2);
     tagQueue.sort((p, q) => first(p) - first(q));
+
     for (const t of tagQueue) {
       const isHover = t.g.key === hoverKey;
       const label = t.g.tag;
       const tw = Math.round(Math.max(22, this.textWidth(label, 400, 13) + 14));
       const box = (p: { x: number; y: number }) => ({ x: Math.round(p.x - tw / 2), y: Math.round(p.y - 11), w: tw, h: 22 });
+
       const clear = (p: { x: number; y: number }) => {
         const b = box(p);
+
         return !this.drawnTags.some((o) => b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
       };
+
       const half = { w: tw / 2, h: 11 };
       const at = tagPoint(...t.pts, tagBox, half, clear) ?? (t.isSel || isHover ? tagPoint(...t.pts, tagBox, half) : null);
+
       if (!at) continue;
       const r = box(at);
       ctx.globalAlpha = t.isSel || !anyEdgeSel ? 1 : 0.3;
@@ -707,10 +796,12 @@ export class MapRenderer {
       ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 0.5);
       this.drawnTags.push({ ...r, key: t.g.key });
     }
+
     ctx.globalAlpha = 1;
 
     // ── where agents meet, before the words on links so those keep clear of it ──
     const met = scene.collisions?.size ? drawCollisions(ctx, this.drawnNodes, scene.collisions) : [];
+
     if (met.length) this.lastFont = '';
 
     // ── words on resting links ──
@@ -721,70 +812,97 @@ export class MapRenderer {
     // strongest links get their words first.
     // Rules hung from links to their words, kept clear like links (straight, so the control point is their middle).
     const rules: DrawnEdge[] = [];
+
     if (labelQueue.length) {
       this.font(400, 13);
       // Closed circles, out to their activity rings and unread dots; open circles only where their rim carries marks.
       const marked = (d: DrawnNode) => marksReach(d.r, scene.activity?.get(d.n.id), d.open);
       const closed = this.drawnNodes.filter((d) => !d.open && d.r > 2).map((d) => ({ x: d.x, y: d.y, r: marked(d) ?? d.r }));
+
       const rims = this.drawnNodes.flatMap((d) => {
         const reach = d.open ? marked(d) : null;
+
         return reach == null ? [] : [{ x: d.x, y: d.y, r: d.r, reach }];
       });
+
       const overlaps = (b: Rect, o: Rect, m: number) => b.x < o.x + o.w + m && o.x < b.x + b.w + m && b.y < o.y + o.h + m && o.y < b.y + b.h + m;
+
       // A rule from the link to its words mustn't run through words already set:
       // tags, open circles' names and other links' words.
       const crossesWords = (a: { x: number; y: number }, z: { x: number; y: number }) => {
         const n = Math.max(2, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
         const rects = [...this.drawnTags, ...this.drawnTabs, ...met];
+
         for (let i = 0; i < n; i++) {
           const x = a.x + ((z.x - a.x) * i) / n;
           const y = a.y + ((z.y - a.y) * i) / n;
+
           if (rects.some((o) => x > o.x - 1 && x < o.x + o.w + 1 && y > o.y - 1 && y < o.y + o.h + 1)) return true;
         }
+
         return false;
       };
+
       // Nor over a closed circle, or across the marks on an open one's rim.
       const crossesCircle = (a: { x: number; y: number }, z: { x: number; y: number }) =>
         closed.some((d) => distToSegment(d.x, d.y, a.x, a.y, z.x, z.y) < d.r + 1) ||
         rims.some((d) => ruleCrossesRing(a, z, { x: d.x, y: d.y, inner: d.r - 1, outer: d.reach + 1 }));
+
       const nearest = (b: Rect, d: { x: number; y: number }) => Math.hypot(Math.max(b.x, Math.min(d.x, b.x + b.w)) - d.x, Math.max(b.y, Math.min(d.y, b.y + b.h)) - d.y);
       const farthest = (b: Rect, d: { x: number; y: number }) => Math.hypot(Math.max(Math.abs(b.x - d.x), Math.abs(b.x + b.w - d.x)), Math.max(Math.abs(b.y - d.y), Math.abs(b.y + b.h - d.y)));
+
       const inCircle = (b: Rect) =>
         closed.some((d) => nearest(b, d) < d.r + 2) || rims.some((d) => nearest(b, d) < d.reach + 2 && farthest(b, d) > d.r - 2);
+
       // Always in the same order, so the words pointed at keep the spot they had.
       labelQueue.sort((p, q) => edgeScore(q.g, this.policy.boost) - edgeScore(p.g, this.policy.boost) || (p.g.key < q.g.key ? -1 : 1));
       ctx.lineJoin = 'round';
+
       for (const t of labelQueue) {
         const text = restLabel(t.g);
+
         if (!text) continue;
         const tw = Math.ceil(this.textWidth(text, 400, 13));
         const box = (p: { x: number; y: number }): Rect => ({ x: Math.round(p.x - tw / 2 - 4), y: Math.round(p.y - 9), w: tw + 8, h: 18 });
         // Other links and rules already hung: the words' ground would cut them, and a rule across one leaves it unclear whose words these are.
         const links = [...this.drawnEdges.filter((e) => e.g.key !== t.g.key), ...rules];
+
         const crossesLinks = (a: { x: number; y: number }, z: { x: number; y: number }) => {
           const n = Math.max(1, Math.ceil(Math.hypot(z.x - a.x, z.y - a.y) / 3));
+
           // From the first step off the link to the box, so its own link's neighbours where it starts don't count.
           for (let i = 1; i <= n; i++) {
             const x = a.x + ((z.x - a.x) * i) / n;
             const y = a.y + ((z.y - a.y) * i) / n;
+
             if (links.some((e) => curveHits(e, { x: x - 0.5, y: y - 0.5, w: 1, h: 1 }))) return true;
           }
+
           return false;
         };
+
         const clear = (p: { x: number; y: number }, from?: { x: number; y: number }) => {
           const b = box(p);
+
           if (b.x < tagBox.x0 || b.x + b.w > tagBox.x1 || b.y < tagBox.y0 || b.y + b.h > tagBox.y1) return false;
+
           if (this.drawnTags.some((o) => overlaps(b, o, 4)) || this.drawnTabs.some((o) => overlaps(b, o, 4)) || met.some((o) => overlaps(b, o, 4)) || inCircle(b)) return false;
+
           if (from) {
             const end = { x: Math.max(b.x, Math.min(from.x, b.x + b.w)), y: Math.max(b.y, Math.min(from.y, b.y + b.h)) };
+
             if (crossesCircle(from, end) || crossesWords(from, end) || crossesLinks(from, end)) return false;
           }
+
           return !links.some((e) => curveHits(e, b));
         };
+
         const at = labelSpot(t.pts, t.gap, { w: tw / 2 + 4, h: 9 }, t.sw, clear);
+
         if (!at) continue;
         const r = box(at);
         ctx.globalAlpha = 1;
+
         if (at.from) {
           // The rule from the link to the box's nearest edge.
           const ex = Math.max(r.x, Math.min(at.from.x, r.x + r.w));
@@ -798,6 +916,7 @@ export class MapRenderer {
           const { x: fx, y: fy } = at.from;
           rules.push({ g: t.g, pts: [fx, fy, (fx + ex) / 2, (fy + ey) / 2, ex, ey], w: 1, minX: Math.min(fx, ex), minY: Math.min(fy, ey), maxX: Math.max(fx, ex), maxY: Math.max(fy, ey) });
         }
+
         ctx.strokeStyle = ink.ground;
         ctx.lineWidth = 6;
         ctx.strokeText(text, at.x, at.y + 0.5);
@@ -806,6 +925,7 @@ export class MapRenderer {
         this.drawnTags.push({ ...r, key: t.g.key });
         this.drawnLabels.push({ ...r, key: t.g.key, text });
       }
+
       ctx.lineJoin = 'miter';
     }
 
@@ -836,15 +956,20 @@ export class MapRenderer {
   private edges(scene: Scene) {
     const vis = this.vis!;
     let c = this.edgeCache;
+
     if (!c || c.L !== scene.L || c.vis !== vis || c.contracts !== scene.contracts) {
       // Closed circles are what an edge shouldn't run through; open ones are regions it may cross.
       const obstacles: Circle[] = [];
+
       for (const n of vis.list) {
         const o = scene.L.get(n.id);
+
         if (o && !vis.open.has(n.id)) obstacles.push(o);
       }
+
       c = this.edgeCache = { L: scene.L, vis, contracts: scene.contracts, rest: restEdges(scene.contracts, this.visIds, this.policy, (g) => meetingPoint(scene.tree, g.a, g.b)), bends: new Map(), obstacles };
     }
+
     return c;
   }
 
@@ -852,14 +977,18 @@ export class MapRenderer {
   private within(id: string | null): (n: string) => boolean {
     const tree = this.scene!.tree;
     const memo = new Map<string, boolean>();
+
     return (n) => {
       if (!id) return false;
       let hit = memo.get(n);
+
       if (hit == null) {
         let cur: string | null = n;
+
         while (cur && cur !== id) cur = tree.nodes.get(cur)?.parent ?? null;
         memo.set(n, (hit = cur === id));
       }
+
       return hit;
     };
   }
@@ -872,28 +1001,34 @@ export class MapRenderer {
   private bend(scene: Scene, g: Contract): number {
     const c = this.edges(scene);
     let b = c.bends.get(g.key);
+
     if (b == null) {
       const A = scene.L.get(g.a);
       const B = scene.L.get(g.b);
       b = A && B && this.policy.route ? bestBend(A, B, c.obstacles) : DEFAULT_BEND;
       c.bends.set(g.key, b);
     }
+
     return b;
   }
 
   /** Where `id` was last drawn on screen, if it was. */
   where(id: string): { x: number; y: number; r: number } | null {
     const d = this.drawnNodes.find((n) => n.n.id === id);
+
     return d ? { x: d.x, y: d.y, r: d.r } : null;
   }
 
   /** Where a contract's tag (or, without one, the middle of its curve) was last drawn. */
   whereContract(key: string): { x: number; y: number } | null {
     const t = this.drawnTags.find((r) => r.key === key);
+
     if (t) return { x: t.x + t.w / 2, y: t.y + t.h / 2 };
     const e = this.drawnEdges.find((d) => d.g.key === key);
+
     if (!e) return null;
     const [x1, y1, cx, cy, x2, y2] = e.pts;
+
     return { x: 0.25 * x1 + 0.5 * cx + 0.25 * x2, y: 0.25 * y1 + 0.5 * cy + 0.25 * y2 };
   }
 
@@ -901,30 +1036,41 @@ export class MapRenderer {
 
   hitTest(x: number, y: number): Hit | null {
     const inRect = (r: Rect) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+
     for (let i = this.drawnTags.length - 1; i >= 0; i--) if (inRect(this.drawnTags[i])) return { type: 'tag', key: this.drawnTags[i].key };
+
     for (let i = this.drawnTabs.length - 1; i >= 0; i--) if (inRect(this.drawnTabs[i])) return { type: 'tab', id: this.drawnTabs[i].id };
     // Closed circles and leaves first (deepest wins), then edges, then the open circles they sit in.
     let openHit: DrawnNode | null = null;
+
     for (let i = this.drawnNodes.length - 1; i >= 0; i--) {
       const d = this.drawnNodes[i];
       const dx = x - d.x;
       const dy = y - d.y;
+
       if (dx * dx + dy * dy > d.r * d.r) continue;
+
       if (!d.open) return { type: 'node', id: d.n.id, open: false };
       openHit ??= d;
     }
+
     let best: DrawnEdge | null = null;
     let bestD = Infinity;
+
     for (const e of this.drawnEdges) {
       const tol = Math.max(6, e.w / 2 + 4);
+
       if (x < e.minX - tol || x > e.maxX + tol || y < e.minY - tol || y > e.maxY + tol) continue;
       const dist = distToQuad(x, y, e.pts);
+
       if (dist <= tol && dist < bestD) {
         best = e;
         bestD = dist;
       }
     }
+
     if (best) return { type: 'edge', key: best.g.key };
+
     return openHit ? { type: 'node', id: openHit.n.id, open: true } : null;
   }
 
@@ -932,6 +1078,7 @@ export class MapRenderer {
 
   private local(e: { clientX: number; clientY: number }) {
     const r = this.host.getBoundingClientRect();
+
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
@@ -955,40 +1102,52 @@ export class MapRenderer {
     const p = this.local(e);
     this.pointer = p;
     const d = this.drag;
+
     if (d && (e.buttons & 1 || e.pointerType !== 'mouse')) {
       const dx = p.x - d.x;
       const dy = p.y - d.y;
+
       if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) {
         d.moved = true;
         this.camAnim = null;
+
         try {
           this.host.setPointerCapture(d.id);
         } catch {
           // synthetic events have no capturable pointer
         }
+
         this.setHover(null);
         this.host.style.cursor = 'grabbing';
       }
+
       if (d.moved) {
         this.cam = { k: d.cam.k, tx: d.cam.tx + dx, ty: d.cam.ty + dy };
         this.request();
       }
+
       return;
     }
+
     this.setHover(this.hitTest(p.x, p.y));
   };
 
   private onUp = (e: PointerEvent) => {
     const d = this.drag;
     this.drag = null;
+
     if (!d) return;
     const { x, y } = this.local(e);
     const hit = this.hitTest(x, y);
+
     if (d.moved) {
       this.host.style.cursor = '';
+
       return this.setHover(hit);
     }
+
     if (!hit) return this.on.empty();
+
     if (hit.type === 'node') this.on.node(hit.id, hit.open);
     else if (hit.type === 'tab') this.on.tab(hit.id);
     else this.on.edge(hit.key);
@@ -1007,13 +1166,16 @@ export class MapRenderer {
   private setHover(hit: Hit | null) {
     if (sameHit(hit, this.hover)) {
       if (hit && this.pointer) this.placeTip();
+
       return;
     }
+
     this.hover = hit;
     this.host.style.cursor = hit ? 'pointer' : '';
     const text = hit ? this.describe(hit) : '';
     this.tip.textContent = text;
     this.tip.style.display = text ? 'block' : 'none';
+
     if (text) this.placeTip();
     this.request();
   }
@@ -1029,20 +1191,27 @@ export class MapRenderer {
 
   private describe(hit: Hit): string {
     const scene = this.scene;
+
     if (!scene) return '';
+
     if (hit.type === 'edge' || hit.type === 'tag') {
       const c = scene.contracts.find((g) => g.key === hit.key);
+
       if (!c) return '';
       const [from, to, both] = direction(c);
       const A = scene.tree.nodes.get(from)?.name;
       const B = scene.tree.nodes.get(to)?.name;
+
       const kinds = kindCounts(c)
         .map(([kind, n]) => countKind(kind, n))
         .join(', ');
+
       const guessed = !c.inferred ? '' : c.inferred === c.items.length ? ' · inferred' : ` · ${c.inferred} inferred`;
       const cross = !c.cross ? '' : c.cross === c.items.length ? ' · cross-repo' : ` · ${c.cross} cross-repo`;
+
       return `${A} ${both ? '⇄' : '→'} ${B} · ${kinds}${cross}${guessed}`;
     }
+
     // Circles and their name tabs say nothing on hover; the details panel has it on click.
     return '';
   }
@@ -1055,33 +1224,43 @@ export class MapRenderer {
  */
 function animatedCircles(tree: Tree, to: Map<string, Circle>, from: Map<string, Circle>, t: number) {
   const cache = new Map<string, Circle>();
+
   const get = (id: string): Circle | undefined => {
     const hit = cache.get(id);
+
     if (hit) return hit;
     const b = to.get(id);
+
     if (!b) return undefined;
     const a = from.get(id);
     let c: Circle;
+
     if (a) c = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, r: a.r + (b.r - a.r) * t };
     else {
       const pid = tree.nodes.get(id)?.parent;
       const p = pid ? get(pid) : undefined;
       const pb = pid ? to.get(pid) : undefined;
+
       if (p && pb && pb.r > 0) {
         const s = p.r / pb.r;
         c = { x: p.x + (b.x - pb.x) * s, y: p.y + (b.y - pb.y) * s, r: b.r * s };
       } else c = b;
     }
+
     cache.set(id, c);
+
     return c;
   };
+
   return get;
 }
 
 function countFiles(n: TNode): number {
   if (n.kind === 'file') return 1;
   let c = 0;
+
   for (const ch of n.children) c += countFiles(ch);
+
   return c;
 }
 
@@ -1101,6 +1280,7 @@ function segmentOnScreen(a: { x: number; y: number }, b: { x: number; y: number 
   const maxX = Math.max(a.x, b.x);
   const minY = Math.min(a.y, b.y);
   const maxY = Math.max(a.y, b.y);
+
   return maxX > 0 && minX < w && maxY > 0 && minY < h;
 }
 
@@ -1121,16 +1301,21 @@ function tagPoint(
 ) {
   const at = (t: number) => {
     const u = 1 - t;
+
     return { x: u * u * x1 + 2 * u * t * cx + t * t * x2, y: u * u * y1 + 2 * u * t * cy + t * t * y2 };
   };
+
   const inside = (p: { x: number; y: number }) =>
     p.x - half.w >= box.x0 && p.x + half.w <= box.x1 && p.y - half.h >= box.y0 && p.y + half.h <= box.y1;
+
   for (let step = 0; step <= 7; step++) {
     for (const t of step ? [0.5 - step * 0.05, 0.5 + step * 0.05] : [0.5]) {
       const p = at(t);
+
       if (inside(p) && ok(p)) return p;
     }
   }
+
   return null;
 }
 
@@ -1140,6 +1325,7 @@ function distToQuad(x: number, y: number, [x1, y1, cx, cy, x2, y2]: number[]) {
   let px = x1;
   let py = y1;
   const N = 16;
+
   for (let i = 1; i <= N; i++) {
     const t = i / N;
     const u = 1 - t;
@@ -1149,6 +1335,7 @@ function distToQuad(x: number, y: number, [x1, y1, cx, cy, x2, y2]: number[]) {
     px = qx;
     py = qy;
   }
+
   return best;
 }
 
@@ -1157,5 +1344,6 @@ function distToSegment(x: number, y: number, x1: number, y1: number, x2: number,
   const dy = y2 - y1;
   const l2 = dx * dx + dy * dy;
   const t = l2 ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / l2)) : 0;
+
   return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
 }

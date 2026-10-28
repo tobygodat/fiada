@@ -40,9 +40,11 @@ declare module 'fastify' {
 const PORT = Number(process.env.PORT ?? 4178);
 const HOST = process.env.HOST || defaultHost();
 const KEY = process.env.FIADA_API_KEY || undefined;
+
 // The map's own domains are always allowed, so the hosted map works without editing the host's variables.
 const MAP_ORIGINS = 'https://fiada.tech,https://www.fiada.tech';
 const allowedOrigin = originMatcher([MAP_ORIGINS, process.env.FIADA_ALLOWED_ORIGINS].filter(Boolean).join(','));
+
 /** The indexer's own URL as others reach it, when the request can't be trusted to say (FIADA_PUBLIC_URL). */
 const PUBLIC_URL = process.env.FIADA_PUBLIC_URL?.trim().replace(/\/+$/, '') || undefined;
 
@@ -55,13 +57,17 @@ const auth = authConfig ? new Auth(store, authConfig) : null;
 /** A whole number from the environment, or the fallback when it is unset or not one. */
 const count = (name: string, fallback: number) => {
   const n = Number(process.env[name]);
+
   return process.env[name]?.trim() && Number.isInteger(n) && n >= 0 ? n : fallback;
 };
+
 // What one caller may do, so nobody can use up the indexer, its disk or its model key for everyone else.
 const changes = new RateLimit(count('FIADA_RATE_LIMIT', 60));
 const agentReports = new RateLimit(count('FIADA_AGENT_RATE_LIMIT', 600));
+
 /** Questions an agent's read tools may ask a minute (ask.ts): each walks the graph. */
 const agentQuestions = new RateLimit(count('FIADA_AGENT_READ_LIMIT', 300));
+
 /** Model requests each signed-in person's map may make a day. */
 const budget = new LLMBudget(count('FIADA_LLM_DAILY', 200));
 const MAX_REPOS = count('FIADA_MAX_REPOS', 20);
@@ -84,9 +90,11 @@ const shared = auth
 
 /** With sign-in: each person's own project, as they last signed in. */
 const people = new Map<string, AccountInfo>();
+
 const tenants = new Tenants(async (projectId) => {
   let recent: string[] = [];
   auth!.recentRepos(projectId).then((r) => (recent = r), () => undefined);
+
   return openTenant({
     store,
     projectId,
@@ -115,14 +123,17 @@ const publicUrl = (req: FastifyRequest) => PUBLIC_URL ?? `${req.protocol}://${re
 
 // Behind a host's proxy (and the dev server's), the forwarded headers say the scheme and host the browser used.
 const app = Fastify({ logger: { level: 'warn' }, trustProxy: true });
+
 app.decorateRequest('tenant', null as unknown as Tenant);
 
 /** Answers 429 when `key` has made too many requests of this kind lately. */
 function limited(limit: RateLimit, key: string, reply: FastifyReply) {
   const wait = limit.take(key);
+
   if (!wait) return false;
   reply.header('retry-after', String(wait));
   reply.code(429).send({ error: `Too many requests. Try again in ${wait} second${wait === 1 ? '' : 's'}.` });
+
   return true;
 }
 
@@ -133,43 +144,65 @@ app.addHook('onRequest', async (req, reply) => {
   // Answers are data for the map, never pages to render or frame.
   reply.header('x-content-type-options', 'nosniff');
   reply.header('x-frame-options', 'DENY');
+
   if (allowedOrigin(origin)) reply.header('access-control-allow-origin', origin);
+
   if (req.method === 'OPTIONS') {
     reply.header('access-control-allow-methods', 'GET, POST, PUT, DELETE');
     reply.header('access-control-allow-headers', 'content-type, authorization');
     reply.header('access-control-max-age', '600');
+
     return reply.code(204).send();
   }
+
   const route = req.url.split('?')[0];
+
   // Signing in answers for itself.
   if (route === '/api/auth' || route.startsWith('/api/auth/')) return;
+
   // The owner's usage numbers take the indexer's key, signed in or not, and no project. Checked by
   // the matched route: Fastify decodes the path, so /api/admin/%73tats reaches the same handler.
   if (req.routeOptions.url === '/api/admin/stats') {
     reply.header('cache-control', 'no-store');
+
     if (!KEY) return reply.callNotFound();
+
     if (hasKey(req.headers.authorization, KEY)) return;
+
     if (limited(changes, req.ip, reply)) return;
+
     return reply.code(401).send({ error: "This needs the indexer's access key." });
   }
+
   const asking = READS.has(req.method) && AGENT_READS.has(route);
+
   if (!auth) {
     if (!READS.has(req.method) && !isLoopback(HOST) && limited(changes, req.ip, reply)) return;
+
     if (asking && !isLoopback(HOST) && limited(agentQuestions, req.ip, reply)) return;
+
     if (KEY && !READS.has(req.method) && !hasKey(req.headers.authorization, KEY)) {
       return reply.code(401).send({ error: "This map is read-only without the indexer's access key. Open it once with ?key=<key> to make changes." });
     }
+
     req.tenant = shared!;
+
     return;
   }
+
   // Agents may report and ask the map; everything else takes a signed-in browser.
   const who = whoMayCall(req.method, route);
   const token = bearer(req.headers.authorization);
+
   const account =
     who === 'agent' ? await auth.agent(token) : who === 'agent-or-person' ? ((await auth.agent(token)) ?? (await auth.session(token))) : await auth.session(token);
+
   if (!account) return reply.code(401).send({ error: who === 'person' ? SIGN_IN : AGENT_SIGN_IN, signIn: who === 'person' });
+
   if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
+
   if (!READS.has(req.method) && limited(who === 'agent' ? agentReports : changes, account.id, reply)) return;
+
   if (asking && limited(agentQuestions, account.id, reply)) return;
   const info = accountInfo(account);
   people.set(account.id, info);
@@ -181,6 +214,7 @@ app.addHook('onRequest', async (req, reply) => {
 app.get('/api/auth', async (req): Promise<AuthState> => {
   if (!auth) return { mode: 'off' };
   const account = await auth.session(bearer(req.headers.authorization));
+
   return account ? { mode: 'github', account: accountInfo(account) } : { mode: 'github' };
 });
 
@@ -189,12 +223,15 @@ app.get<{ Querystring: { return?: string } }>('/api/auth/github/login', async (r
   if (!auth) return reply.code(404).send({ error: 'This indexer has no GitHub sign-in.' });
   const own = new URL(publicUrl(req)).origin;
   const returnTo = req.query.return ?? `${own}/`;
+
   if (!returnAllowed(returnTo, own, allowedOrigin)) {
     return reply.code(400).send({ error: `This indexer can't sign you in for ${returnTo}: add its origin to FIADA_ALLOWED_ORIGINS.` });
   }
+
   const { url, nonce } = auth.begin(returnTo, `${publicUrl(req)}${CALLBACK_PATH}`);
   const secure = req.protocol === 'https' ? '; Secure' : '';
   reply.header('set-cookie', `${NONCE_COOKIE}=${nonce}; Path=/api/auth/github; Max-Age=600; HttpOnly; SameSite=Lax${secure}`);
+
   return reply.redirect(url);
 });
 
@@ -202,18 +239,22 @@ app.get<{ Querystring: { return?: string } }>('/api/auth/github/login', async (r
 app.get<{ Querystring: { code?: string; state?: string; error_description?: string } }>(CALLBACK_PATH, async (req, reply) => {
   if (!auth) return reply.code(404).send({ error: 'This indexer has no GitHub sign-in.' });
   reply.header('set-cookie', `${NONCE_COOKIE}=; Path=/api/auth/github; Max-Age=0; HttpOnly; SameSite=Lax`);
+
   try {
     if (req.query.error_description) throw new Error(req.query.error_description);
     const done = await auth.finish(req.query.code, req.query.state, cookie(req.headers.cookie, NONCE_COOKIE), `${publicUrl(req)}${CALLBACK_PATH}`);
     people.set(done.account.id, accountInfo(done.account));
     console.log(`[fiada] ${done.account.login} signed in`);
+
     return reply.redirect(`${done.returnTo.split('#')[0]}#fiada_session=${encodeURIComponent(done.session)}`);
   } catch (err) {
     const message = (err as Error).message;
     const back = auth.returnOf(req.query.state);
+
     if (back && returnAllowed(back, new URL(publicUrl(req)).origin, allowedOrigin)) {
       return reply.redirect(`${back.split('#')[0]}#fiada_error=${encodeURIComponent(message)}`);
     }
+
     return reply.code(400).send({ error: message });
   }
 });
@@ -227,25 +268,32 @@ async function signedIn(req: FastifyRequest) {
 app.get('/api/auth/agent', async (req, reply): Promise<AgentConnection | void> => {
   if (!auth) return { url: publicUrl(req) };
   const account = await signedIn(req);
+
   if (!account) return reply.code(401).send({ error: SIGN_IN, signIn: true });
+
   return { url: publicUrl(req), token: auth.agentToken(account) };
 });
 
 // A new agent token; agents set up with the old one stop reporting.
 app.post('/api/auth/agent/reset', async (req, reply): Promise<AgentConnection | void> => {
   const account = await signedIn(req);
+
   if (!auth || !account) return reply.code(401).send({ error: SIGN_IN, signIn: true });
+
   return { url: publicUrl(req), token: await auth.resetAgentToken(account) };
 });
 
 // Deletes the person's account and everything their project kept: repositories, clones, grouping, summaries.
 app.delete('/api/auth/account', async (req, reply) => {
   const account = await signedIn(req);
+
   if (!auth || !account) return reply.code(401).send({ error: SIGN_IN, signIn: true });
+
   if (deleting.has(account.id)) return reply.code(409).send({ error: DELETING });
   // The project first and the account last, so a step that fails leaves the person
   // signed in to try again. Meanwhile nothing signed in as them may reopen the project.
   deleting.add(account.id);
+
   try {
     await tenants.drop(account.id);
     await store.deleteProject?.(account.id);
@@ -254,8 +302,10 @@ app.delete('/api/auth/account', async (req, reply) => {
   } finally {
     deleting.delete(account.id);
   }
+
   people.delete(account.id);
   console.log(`[fiada] ${account.login} deleted their account`);
+
   return { deleted: true };
 });
 
@@ -267,18 +317,22 @@ app.get('/api/graph', async (req) => req.tenant.ws.getGraph());
 
 app.post<{ Body: { source?: string } }>('/api/repos', async (req, reply) => {
   const source = req.body?.source;
+
   if (typeof source !== 'string') return reply.code(400).send({ error: 'Body must be { "source": "<git url | org/repo | local path>" }' });
+
   try {
     await req.tenant.ws.add(source);
   } catch (err) {
     return reply.code(400).send({ error: (err as Error).message });
   }
+
   return reply.code(202).send(req.tenant.ws.state());
 });
 
 // A folder uploaded from the map, as a gzipped tar (see upload.ts). Uploading
 // the same folder again replaces it; ?replace=<id> says which one to replace.
 const UPLOAD_LIMIT = archiveLimit(UPLOAD);
+
 app.addContentTypeParser(['application/gzip', 'application/x-gzip'], { parseAs: 'buffer', bodyLimit: UPLOAD_LIMIT }, (_req, body, done) => done(null, body));
 
 app.post<{ Querystring: { name?: string; replace?: string } }>(
@@ -292,23 +346,27 @@ app.post<{ Querystring: { name?: string; replace?: string } }>(
   },
   async (req, reply) => {
     if (!Buffer.isBuffer(req.body)) return reply.code(415).send({ error: 'Send the folder as a gzipped tar (content-type: application/gzip) with ?name=<folder name>.' });
+
     try {
       await req.tenant.ws.upload(req.query.name ?? '', req.body, req.query.replace || undefined);
     } catch (err) {
       if (err instanceof UploadError) return reply.code(err.status).send({ error: err.message });
       throw err;
     }
+
     return reply.code(202).send(req.tenant.ws.state());
   },
 );
 
 app.delete<{ Params: { id: string } }>('/api/repos/:id', async (req) => {
   await req.tenant.ws.remove(req.params.id);
+
   return req.tenant.ws.state();
 });
 
 app.post<{ Params: { id: string } }>('/api/repos/:id/refresh', async (req, reply) => {
   req.tenant.ws.refresh(req.params.id);
+
   return reply.code(202).send(req.tenant.ws.state());
 });
 
@@ -325,19 +383,23 @@ app.put('/api/grouping', async (req, reply) => {
 
 app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, reply) => {
   const preset = req.body?.preset as LayerPreset;
+
   if (!PRESETS.includes(preset)) return reply.code(400).send({ error: `preset must be one of ${PRESETS.join(', ')}` });
+
   return { grouping: await req.tenant.ws.applyPreset(preset) };
 });
 
 // Sorts the project's leftovers with the model again. Answers at once; the map picks the result up when it lands.
 app.post('/api/grouping/sort', async (req, reply) => {
   if (!req.tenant.ws.sortAgain()) return reply.code(409).send({ error: `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
+
   return reply.code(202).send(req.tenant.ws.state());
 });
 
 // Fences: circles marked "ask first" or "off limits". PUT one { node, rule } at a time; rule null takes it down.
 app.get('/api/fences', async (req) => {
   await req.tenant.fences.fresh();
+
   return { fences: req.tenant.fences.all() };
 });
 
@@ -352,9 +414,12 @@ app.put<{ Body: { node?: unknown; rule?: unknown } }>('/api/fences', async (req,
 
 app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async (req, reply) => {
   const { repo, path } = req.query;
+
   if (!repo || !path) return reply.code(400).send({ error: 'Query must be ?repo=<id>&path=<repo-relative path>' });
   const source = await req.tenant.ws.readSource(repo, path);
+
   if (!source) return reply.code(404).send({ error: `${repo}/${path} is not an indexed file` });
+
   return source;
 });
 
@@ -362,7 +427,9 @@ app.get<{ Querystring: { repo?: string; path?: string } }>('/api/source', async 
 app.get<{ Querystring: { node?: string } }>('/api/summary', async (req, reply) => {
   if (!req.query.node) return reply.code(400).send({ error: 'Query must be ?node=<node id>' });
   const summary = await req.tenant.summaries.get(req.query.node);
+
   if (!summary) return reply.code(404).send({ error: `${req.query.node} is not in the graph` });
+
   return summary;
 });
 
@@ -373,18 +440,22 @@ app.get<{ Querystring: { node?: string } }>('/api/summary', async (req, reply) =
 app.post('/api/agent/events', { bodyLimit: 32 << 20 }, async (req, reply) => {
   const body = req.body as AgentEvent | AgentEvent[] | undefined;
   const events = Array.isArray(body) ? body : body ? [body] : [];
+
   if (!events.every((e) => e && typeof e === 'object' && typeof e.type === 'string' && e.agent && typeof e.agent.cwd === 'string')) {
     return reply.code(400).send({ error: 'Body must be an agent event or a list of them: { type, agent: { client, cwd, … }, … }' });
   }
+
   return req.tenant.agents.ingest(events);
 });
 
 // An agent's hook asks before an edit lands: allow, ask the person, or deny.
 app.post('/api/agent/check', async (req, reply) => {
   const body = req.body as FenceCheck | undefined;
+
   if (!body?.agent || typeof body.agent.cwd !== 'string' || typeof body.agent.client !== 'string' || !Array.isArray(body.files)) {
     return reply.code(400).send({ error: 'Body must be { agent: { client, cwd, … }, files: [{ path, lines? }] }' });
   }
+
   return req.tenant.agents.check(body, req.tenant.fences);
 });
 
@@ -393,17 +464,23 @@ app.get('/api/agent/state', async (req) => req.tenant.agents.state());
 // What an agent's read tools ask the map (ask.ts): where something lives, who uses it, what an edit to it reaches.
 // The agent says what it looked at afterwards, as a `looked` event, so the map can mark it.
 const indexes = new WeakMap<object, GraphIndex>();
+
 function graphIndex(t: Tenant): GraphIndex {
   const graph = t.ws.getGraph();
   const shared = t.summaries.index;
+
   if (shared?.graph === graph) return shared;
   let gi = indexes.get(graph);
+
   if (!gi) indexes.set(graph, (gi = indexGraph(graph)));
+
   return gi;
 }
+
 for (const q of QUESTIONS) {
   app.get<{ Querystring: Record<string, string> }>(`/api/agent/${q}`, async (req, reply) => {
     const { status, body } = answer(graphIndex(req.tenant), q, req.query, (id) => req.tenant.summaries.brief(id));
+
     return reply.code(status).send(body);
   });
 }
@@ -425,12 +502,14 @@ app.get('/api/agent/stream', (req, reply) => {
 
 app.get<{ Querystring: { node?: string } }>('/api/agent/diff', async (req, reply) => {
   if (!req.query.node) return reply.code(400).send({ error: 'Query must be ?node=<file or symbol id>' });
+
   return { diffs: req.tenant.agents.diffs(req.query.node) };
 });
 
 // Aggregate counts for the owner: how many people, when they signed up and last signed in, how many repositories.
 app.get('/api/admin/stats', async (_req, reply): Promise<UsageStats | void> => {
   if (!store.usage) return reply.code(501).send({ error: "This indexer's store can't count its usage." });
+
   return usageStats(await store.usage(), new Date());
 });
 
@@ -438,18 +517,26 @@ app.get('/api/admin/stats', async (_req, reply): Promise<UsageStats | void> => {
 // absolute path, often longer than a path parameter may be.
 app.delete<{ Querystring: { id?: string } }>('/api/agent', async (req) => {
   req.tenant.agents.clear(req.query.id || undefined);
+
   return req.tenant.agents.state();
 });
 
 await app.listen({ port: PORT, host: HOST });
+
 console.log(`[fiada] indexer listening on http://${HOST}:${PORT}`);
+
 if (auth) {
   console.log(`[fiada] GitHub sign-in is on: each person gets a project of their own (callback ${PUBLIC_URL ?? '<this indexer>'}${CALLBACK_PATH})`);
+
   if (KEY) console.log('[fiada] FIADA_API_KEY opens only the usage numbers (/api/admin/stats) while GitHub sign-in is on');
 } else if (!shared!.ws.allowLocal) console.log('[fiada] local folders are off: this indexer imports git repositories only');
+
 if (process.env.FIADA_ALLOWED_ORIGINS) console.log(`[fiada] browsers may call the API from ${process.env.FIADA_ALLOWED_ORIGINS}`);
+
 console.log(sortLlm ? `[fiada] sorting imports with ${sortLlm.label} (${sortLlm.model})` : `[fiada] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
+
 console.log(summaryLlm ? `[fiada] node summaries: written by ${summaryLlm.label} (${summaryLlm.model})` : `[fiada] no ${KEY_HINT}: node summaries are lines from the graph`);
+
 if (!auth) {
   if (KEY) console.log('[fiada] changes need the access key (FIADA_API_KEY)');
   else if (!isLoopback(HOST)) console.warn('[fiada] no FIADA_API_KEY or GitHub sign-in: anyone who can reach this indexer can change its project');

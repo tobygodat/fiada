@@ -18,15 +18,18 @@ function memoryStore(saved: SavedRepo[]): ProjectStore {
 
 async function folder(files: Record<string, string>) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-ask-')));
+
   for (const [p, text] of Object.entries(files)) {
     await fs.mkdir(path.dirname(path.join(dir, p)), { recursive: true });
     await fs.writeFile(path.join(dir, p), text);
   }
+
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 'test@example.com');
   git(dir, 'config', 'user.name', 'test');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-qm', 'init');
+
   return dir;
 }
 
@@ -50,6 +53,7 @@ const API = {
   ].join('\n'),
   'app/store.py': 'def save_item(name):\n    return {"name": name}\n',
 };
+
 const WEB = {
   'src/client.ts': [
     'export function createItem(name: string) {',
@@ -69,10 +73,12 @@ const WEB = {
 };
 
 let shared: Promise<ReturnType<typeof indexGraph>> | null = null;
+
 /** Both repositories, indexed once for every test here. */
 function graph() {
   return (shared ??= (async () => {
     const [api, web] = await Promise.all([folder(API), folder(WEB)]);
+
     const ws = new Workspace(
       memoryStore([
         { id: 'api', name: 'api', source: api, kind: 'local' },
@@ -80,8 +86,11 @@ function graph() {
       ]),
       'default',
     );
+
     await ws.init();
+
     for (let i = 0; i < 300 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 20));
+
     return indexGraph(ws.getGraph());
   })());
 }
@@ -109,10 +118,13 @@ test('where something lives: by name, by words in any spelling, and by route', a
 
 test('a target is an id, a path, the end of a path, path#symbol or a name; several matches come back to choose from', async () => {
   const gi = await graph();
+
   const id = (t: string) => {
     const r = resolveTarget(gi, t);
+
     return 'node' in r ? r.node.id : r.candidates.map((c) => c.id);
   };
+
   assert.equal(id('api/app/store.py#save_item'), 'api/app/store.py#save_item');
   assert.equal(id('app/store.py'), 'api/app/store.py');
   assert.equal(id('./store.py'), 'api/app/store.py');

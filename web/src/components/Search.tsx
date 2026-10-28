@@ -28,13 +28,16 @@ export function Search({ nodes, onPick }: Props) {
       if (e.isComposing) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
       if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing)) {
         e.preventDefault();
         input.current?.focus();
         input.current?.select();
       }
     };
+
     window.addEventListener('keydown', onKey);
+
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
@@ -53,8 +56,10 @@ export function Search({ nodes, onPick }: Props) {
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     // While an IME is composing, its keys (arrows to pick a candidate, Enter to commit, Esc to cancel) are still typing.
     if (e.nativeEvent.isComposing) return;
+
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
+
       if (!hits.length) return;
       setOpen(true);
       setActive((at + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
@@ -65,6 +70,7 @@ export function Search({ nodes, onPick }: Props) {
     } else if (e.key === 'Escape') {
       // Let go of the search, not the map's selection.
       e.stopPropagation();
+
       if (query) setQuery('');
       else input.current?.blur();
       setOpen(false);
@@ -127,6 +133,7 @@ export function Search({ nodes, onPick }: Props) {
 function Name({ hit }: { hit: SearchHit }) {
   if (!hit.span) return <>{hit.name}</>;
   const [a, b] = hit.span;
+
   return (
     <>
       {hit.name.slice(0, a)}

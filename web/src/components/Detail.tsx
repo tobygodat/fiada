@@ -79,7 +79,9 @@ interface Props {
 export function Detail(p: Props) {
   if (p.contract) return <ContractDetail {...p} contract={p.contract} />;
   const n = p.selected ? p.tree.nodes.get(p.selected) : null;
+
   if (!n) return null;
+
   return <NodeDetail {...p} n={n} />;
 }
 
@@ -154,11 +156,13 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
 }
 
 type FenceChoice = FenceRule | 'none';
+
 const FENCE_OPTIONS: [FenceChoice, string, string][] = [
   ['none', 'none', 'Agents change it as usual.'],
   ['ask', 'ask first', "Before an agent's file edit inside lands, you're asked."],
   ['off', 'off limits', "Agents' file edits inside are refused."],
 ];
+
 const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
 const KIND_INSIDE: Record<GraphNode['kind'], string> = { repo: 'in this repository', folder: 'in this module', file: 'in this file', symbol: 'to this symbol' };
 
@@ -173,10 +177,12 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const value: FenceChoice = own?.rule ?? 'none';
+
   const choose = async (rule: FenceChoice) => {
     if (!onFence || busy) return;
     setBusy(true);
     setError(null);
+
     try {
       await onFence(g.id, rule === 'none' ? null : rule);
     } catch (err) {
@@ -185,13 +191,16 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
       setBusy(false);
     }
   };
+
   const inside = KIND_INSIDE[g.kind];
+
   const sentence =
     value === 'off'
       ? `Agents can't change anything ${inside} with their edit tools: the edit is refused before it lands. Shell commands aren't checked.`
       : value === 'ask'
         ? `Agents ask you before they change anything ${inside} with their edit tools. Shell commands aren't checked.`
         : 'Agents change it as usual.';
+
   return (
     <div className="detail-block fence-block" aria-busy={busy}>
       <div className="block-title">fence</div>
@@ -230,29 +239,35 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
     let live = true;
     let timer: number | undefined;
     let tries = 0;
+
     const load = () =>
       api.summary(id).then(
         (s) => {
           if (!live) return;
           setState({ id, s });
+
           // A big import's first pass takes minutes: ask again, backing off to every ten seconds.
           if (s.status === 'pending') timer = window.setTimeout(load, Math.min(1000 * 1.5 ** tries++, 10_000));
         },
         () => live && setState({ id, failed: true }),
       );
+
     void load();
+
     return () => {
       live = false;
       window.clearTimeout(timer);
     };
   }, [id, rev]);
   const mine = state?.id === id ? state : null;
+
   // An indexer from before summaries (or one that's down) still gets the client's own count for groups.
   if (!mine?.s) return mine?.failed && fallback ? <div className="detail-block summary">{fallback}</div> : null;
   const s = mine.s;
   const generated = s.status === 'ready' ? s.generated : undefined;
   // The code's own first sentence leads; a short one ("Retrieve items.") keeps the graph's line after it.
   const text = generated ? generated.text : s.doc ? (s.doc.length < 90 ? `${s.doc} ${s.line}` : s.doc) : s.line;
+
   const note = generated ? (
     <span title={`Written ${new Date(generated.at).toLocaleString()} from the code and its neighbours`}>generated · {generated.model}</span>
   ) : s.status === 'pending' ? (
@@ -265,6 +280,7 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
       {s.off ? ` · ${s.off}` : ''}
     </span>
   );
+
   return (
     <div className="detail-block node-summary">
       <p>{text}</p>
@@ -276,8 +292,10 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
 /** Who looked at this node without changing it, in words, as the map's dotted ring says it. */
 function Looked({ id, activity }: { id: string; activity?: ActivityState | null }) {
   const l = activity?.looked?.[id];
+
   if (!l) return null;
   const names = [...new Set(l.agents.map((a) => activity!.agents.find((x) => x.id === a)?.name ?? 'an agent'))];
+
   return (
     <p className="detail-looked">
       <span className="swatch-ring looked" aria-hidden />
@@ -316,19 +334,24 @@ function Changed({
   const nodes = shown ?? activity?.nodes;
   const shownOwn = code ? nodes?.[g.id] : undefined;
   const reach = useMemo(() => (shownOwn && shownOwn.kind !== 'deleted' ? reachSentences(g, graph.edges, graphIndex, nodes) : []), [shownOwn, g, graph, graphIndex, nodes]);
+
   // Something deleted on the tour stands on what's left (a file on its folder, a function on its
   // file): its own diff under it, and for a function only the hunks that take it away.
   // The file's first function on the tour also shows the hunks none of its changed functions accounts for.
   const rest = tour?.stop.rest?.map((id): HunkOwner => {
     const n = graphIndex.get(id);
     const oldLines = tour.stop.restOld?.[id];
+
     return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { name: id.slice(id.indexOf('#') + 1), oldLines };
   });
+
   // Another agent's changes in the file are left out of this one's diff.
   const p = tour?.stop.peer;
+
   const peer: Theirs | undefined = p && {
     owners: p.ids.map((id): HunkOwner => {
       const n = graphIndex.get(id);
+
       return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, p.old?.[id]) : { oldLines: p.old?.[id] };
     }),
     top: p.top,
@@ -338,11 +361,14 @@ function Changed({
       .map((c): HunkOwner => {
         const n = graphIndex.get(c.id);
         const oldLines = tour.stop.restOld?.[c.id];
+
         return n?.kind === 'symbol' && n.lines ? ownerOf(n.lines, oldLines) : { oldLines };
       }),
   };
+
   if (tour && tour.stop.id !== g.id) {
     const fn = tour.stop.id.includes('#');
+
     return (
       <AgentChange
         node={tour.stop.id}
@@ -357,10 +383,13 @@ function Changed({
       />
     );
   }
+
   const own = code ? activity?.nodes[g.id] : null;
   const stop = tour?.stop.id === g.id ? tour : null;
+
   if (!own && !stop) return null;
   const file = g.kind === 'symbol' ? activity?.nodes[g.parent] : own;
+
   // Refetched when any agent changes the file; on a tour, never for less than the stop's own change.
   return (
     <AgentChange
@@ -388,20 +417,24 @@ function useSource(repo: string, path: string, commit?: string, rev = 0): { line
     if (!repo || !path) return;
     let live = true;
     let p = sources.get(key);
+
     if (!p) {
       p = api.source(repo, path);
       sources.set(key, p);
       p.catch(() => sources.delete(key));
     }
+
     p.then(
       (s) => live && setState({ key, text: s.text }),
       (err: Error) => live && setState({ key, error: err.message }),
     );
+
     return () => {
       live = false;
     };
   }, [key, repo, path]);
   const mine = state?.key === key ? state : null;
+
   return { lines: mine?.text != null ? mine.text.split('\n') : null, error: mine?.error ?? null };
 }
 
@@ -454,8 +487,10 @@ function Code({ g, repo, rev }: { g: GraphNode; repo?: RepoInfo; rev: number }) 
 /** Link to the file at the indexed commit, for repositories cloned from GitHub. */
 function webUrl(repo: RepoInfo, path: string, lines: [number, number] | null): string | null {
   const m = /^(?:https:\/\/github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?$/.exec(repo.source);
+
   if (!m) return null;
   const at = lines ? `#L${lines[0]}-L${lines[1]}` : '';
+
   return `https://github.com/${m[1]}/blob/${repo.commit ?? 'HEAD'}/${path.split('/').map(encodeURIComponent).join('/')}${at}`;
 }
 
@@ -487,7 +522,9 @@ function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; laye
   const facts = g.facts ?? [];
   const imports = facts.filter((f) => f.type === 'import').map((f) => f.value);
   const seen = facts.filter((f) => f.type !== 'import').map(describeFact);
+
   if (imports.length) seen.push(`imports ${imports.slice(0, 6).join(', ')}${imports.length > 6 ? ` +${imports.length - 6}` : ''}`);
+
   return (
     <div className="detail-block">
       <div className="block-title">why it's here</div>
@@ -528,6 +565,7 @@ interface Dep {
 
 function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void; graphIndex: Map<string, GraphNode>; self: TNode; onSelect(id: string): void }) {
   const { title, items, graphIndex, self, onSelect } = p;
+
   if (!items.length) {
     return (
       <div className="dep-col">
@@ -537,6 +575,7 @@ function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void
       </div>
     );
   }
+
   return (
     <div className="dep-col">
       <button className="block-title fold" onClick={p.onFold} aria-expanded={p.open}>
@@ -546,6 +585,7 @@ function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void
       {p.open && items.slice(0, 40).map((d) => {
         const other = graphIndex.get(d.id);
         const crossRepo = other && self.repo && other.repo !== self.repo;
+
         return (
           <button key={d.id + d.kind} className="dep" onClick={() => onSelect(d.id)} title={d.inferred && d.reason ? `${d.id}\ninferred: ${d.reason}` : d.id}>
             <span className="muted">{EDGE_VERB[d.kind]}</span>
@@ -565,31 +605,41 @@ function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void
 /** Edges that cross the boundary of this node's subtree, deduplicated by the node on the other side. */
 function dependencies(tree: Tree, edges: GraphEdge[], n: TNode) {
   const inside = new Set<string>();
+
   const walk = (x: TNode) => {
     inside.add(x.id);
     x.children.forEach(walk);
   };
+
   walk(n);
   // In the code view a file's symbols are inside it; in both views a symbol owns nothing else.
   const has = (id: string) => inside.has(id) || (n.kind === 'file' && id.startsWith(n.id + '#'));
   const uses = new Map<string, Dep>();
   const usedBy = new Map<string, Dep>();
+
   // One row per node on the other side, under its strongest kind of use; inferred only if nothing proves it.
   const keep = (m: Map<string, Dep>, id: string, e: GraphEdge) => {
     const guess = e.basis === 'inferred';
     const cur = m.get(id);
+
     if (!cur) return void m.set(id, { id, kind: e.kind, inferred: guess, reason: guess ? e.reason : undefined });
+
     if (KIND_RANK[e.kind] < KIND_RANK[cur.kind]) cur.kind = e.kind;
+
     if (!guess) cur.inferred = false;
   };
+
   for (const e of edges) {
     const a = has(e.from);
     const b = has(e.to);
+
     if (a && !b) keep(uses, e.to, e);
     else if (b && !a) keep(usedBy, e.from, e);
   }
+
   // Requests first: following them is how you get from a page to its backend.
   const order = (m: Map<string, Dep>) => [...m.values()].sort((x, y) => KIND_RANK[x.kind] - KIND_RANK[y.kind]);
+
   return { uses: order(uses), usedBy: order(usedBy) };
 }
 
@@ -600,8 +650,11 @@ function summary(n: TNode): string {
   const walk = (x: TNode) => (x.kind === 'symbol' || x.kind === 'file' ? repos.add(x.repo) : x.children.forEach(walk));
   walk(n);
   const where = repos.size === 1 ? `in ${[...repos][0]}` : `across ${repos.size} repositories`;
+
   if (n.kind === 'domain') return `${n.symbols} symbols ${where}, in ${n.children.length} layer${n.children.length === 1 ? '' : 's'}.`;
+
   if (n.kind === 'layer') return `${n.children.length} ${n.name} symbol${n.children.length === 1 ? '' : 's'} ${where}.`;
+
   return `${n.children.length} entries, ${n.symbols} symbols.`;
 }
 
@@ -615,9 +668,13 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
   const code = c.items.filter((e) => e.kind !== 'http' && e.kind !== 'type');
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const call: string[] = [];
+
   if (http.length) call.push(`${plural(http.length, 'HTTP request')} (${[...new Set(http.map((e) => e.detail))].slice(0, 3).join(', ')}${http.length > 3 ? ', …' : ''})`);
+
   if (code.length) call.push(`${code.length} direct ${[...new Set(code.map((e) => EDGE_VERB[e.kind]))].join(' / ')}`);
+
   if (types.length) call.push(plural(types.length, 'shared type'));
+
   const response = http.length
     ? 'JSON from the matched route handlers.'
     : types.length && !code.length
@@ -719,6 +776,7 @@ function Interaction(p: {
   const guess = p.mark && e.basis === 'inferred';
   const proven = hasEvidence(e);
   const why = proven || !!e.reason;
+
   return (
     <div className="interaction-wrap">
       <div className="interaction" title={`${e.from} → ${e.to}`}>
@@ -783,22 +841,29 @@ function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, Gr
   const file = graphIndex.get(ev.file);
   const repo = graph.repos.find((r) => r.id === file?.repo);
   const { lines, error } = useSource(file?.repo ?? '', file?.path ?? '', repo?.commit, p.rev);
+
   // Go to the innermost symbol around the line, which both views have; the file itself only
   // exists in the code view, so fall back to it only when it's on this map.
   const target = useMemo(() => {
     let best: GraphNode | null = null;
+
     for (const n of graph.nodes) {
       if (n.kind !== 'symbol' || !n.lines || !n.id.startsWith(ev.file + '#') || n.lines[0] > ev.line || n.lines[1] < ev.line) continue;
+
       if (!best || n.lines[1] - n.lines[0] < best.lines![1] - best.lines![0]) best = n;
     }
+
     const id = best?.id ?? ev.file;
     const at = locate(tree, graphIndex, id);
+
     return at && at !== 'root' ? id : null;
   }, [graph, graphIndex, tree, ev]);
+
   if (!file?.path) return <div className="muted small snippet">That file isn't in the map.</div>;
   const a = Math.max(1, ev.line - CONTEXT);
   const b = lines ? Math.min(lines.length, ev.line + CONTEXT) : a;
   const web = repo && webUrl(repo, file.path, [ev.line, ev.line]);
+
   return (
     <div className="snippet">
       {error && (

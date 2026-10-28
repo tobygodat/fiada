@@ -20,10 +20,12 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const [template, ...rest] = process.argv.slice(2);
+
 if (!template || !fs.existsSync(path.join(template, 'backend'))) {
   console.error('usage: node web/e2e/ripple.mjs <full-stack-fastapi-template checkout> [--video <dir>] [--shots <dir>]');
   process.exit(1);
 }
+
 const opt = (name) => (rest.includes(name) ? path.resolve(rest[rest.indexOf(name) + 1]) : null);
 const video = opt('--video');
 const shots = opt('--shots');
@@ -35,12 +37,14 @@ const api = async (method, route, body) => {
   // oxlint-disable-next-line unicorn/no-invalid-fetch-options -- GET calls pass no body, so body is undefined there
   const res = await fetch(INDEXER + route, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body && JSON.stringify(body) });
   assert.ok(res.ok, `${method} ${route} answered ${res.status}`);
+
   return res.json();
 };
 
 // Two repositories, as on a real machine.
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fiada-ripple-'));
 const repos = {};
+
 for (const name of ['frontend', 'backend']) {
   const dir = path.join(root, name);
   fs.cpSync(path.join(template, name), dir, { recursive: true });
@@ -50,38 +54,54 @@ for (const name of ['frontend', 'backend']) {
   git('-c', 'user.email=e2e@fiada.tech', '-c', 'user.name=e2e', 'commit', '-qm', 'init');
   repos[name] = dir;
 }
+
 const before = new Set((await api('GET', '/api/workspace')).repos.map((r) => r.id));
+
 for (const dir of Object.values(repos)) await api('POST', '/api/repos', { source: dir });
+
 let ids = [];
+
 for (let i = 0; i < 120; i++) {
   const ws = await api('GET', '/api/workspace');
   const mine = ws.repos.filter((r) => !before.has(r.id));
   ids = mine.map((r) => r.id);
+
   if (mine.length === 2 && mine.every((r) => r.status === 'ready') && !ws.busy) break;
   await new Promise((r) => setTimeout(r, 500));
 }
+
 assert.equal(ids.length, 2, 'both repositories imported');
+
 const backend = ids.find((id) => id.startsWith('backend'));
 const frontend = ids.find((id) => id.startsWith('frontend'));
 
 // The agent: a task, then a change to a shared type and a route, reported by the hook.
 const session = `e2e-${Date.now()}`;
 const report = (...args) => execFileSync('node', [hook, ...args, '--session', session], { cwd: repos.backend, env: { ...process.env, FIADA_URL: INDEXER }, stdio: 'pipe' });
+
 const edit = (file, from, to) => {
   const p = path.join(repos.backend, file);
   const text = fs.readFileSync(p, 'utf8');
   assert.ok(text.includes(from), `${file} has ${from}`);
   fs.writeFileSync(p, text.replace(from, to));
 };
+
 report('task', 'Add tags to items');
+
 report('status', 'Adding a tag filter to the items list');
+
 edit('app/models.py', 'class ItemPublic(ItemBase):\n    id: uuid.UUID\n', 'class ItemPublic(ItemBase):\n    id: uuid.UUID\n    tags: list[str] = []\n');
+
 edit('app/api/routes/items.py', 'skip: int = 0, limit: int = 100\n) -> Any:', 'skip: int = 0, limit: int = 100, tag: str | None = None\n) -> Any:');
+
 report('changed', 'app/models.py', 'app/api/routes/items.py');
+
 const state = await api('GET', '/api/agent/state');
+
 assert.equal(state.nodes[`${backend}/app/api/routes/items.py#read_items`]?.kind, 'modified', 'the route is marked changed');
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+
 try {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: process.env.SCHEME === 'light' ? 'light' : 'dark', recordVideo: video ? { dir: video, size: { width: 1440, height: 900 } } : undefined });
   const page = await ctx.newPage();
@@ -125,6 +145,7 @@ try {
   execFileSync('git', ['checkout', '--', '.'], { cwd: repos.backend });
   report('changed', 'app/models.py', 'app/api/routes/items.py');
   await queue.locator('.queue-key').getByText('depends on a change').waitFor();
+
   for (let i = 0; i < 40 && Object.keys((await api('GET', '/api/agent/state')).nodes).length; i++) await pause(250);
   assert.deepEqual(Object.keys((await api('GET', '/api/agent/state')).nodes), [], 'reverted: nothing marked');
   await pause(1500);
@@ -141,10 +162,12 @@ try {
   report('changed', 'app/api/routes/items.py');
   const gone = `${backend}/app/api/routes/items.py#read_item`;
   let after = await api('GET', '/api/agent/state');
+
   for (let i = 0; i < 40 && !after.lost?.some((e) => e.to === gone); i++) {
     await pause(250);
     after = await api('GET', '/api/agent/state');
   }
+
   assert.equal(after.nodes[gone]?.kind, 'deleted', 'the route is marked deleted');
   assert.ok(after.lost?.some((e) => e.to === gone && e.kind === 'http' && e.from.startsWith(`${frontend}/`)), 'the request to it is kept');
   execFileSync('git', ['checkout', '--', '.'], { cwd: repos.backend });
@@ -153,7 +176,9 @@ try {
   console.log('ripple e2e: passed');
 } finally {
   await browser.close();
+
   for (const a of (await api('GET', '/api/agent/state')).agents) if (a.cwd === repos.backend) await fetch(`${INDEXER}/api/agent?id=${encodeURIComponent(a.id)}`, { method: 'DELETE' });
+
   for (const id of ids) await fetch(`${INDEXER}/api/repos/${encodeURIComponent(id)}`, { method: 'DELETE' });
   fs.rmSync(root, { recursive: true, force: true });
 }

@@ -11,10 +11,13 @@ export const encloses = (fence: Fence, id: string) => id.startsWith(`${fence.nod
 /** The fence that decides for edits inside a fenced ancestor of `id`; null when none is round it. */
 export function fenceAround(fences: readonly Fence[], id: string): Fence | null {
   let best: Fence | null = null;
+
   for (const f of fences) {
     if (!encloses(f, id)) continue;
+
     if (!best || (f.rule !== best.rule ? f.rule === 'off' : f.node.length > best.node.length)) best = f;
   }
+
   return best;
 }
 
@@ -29,5 +32,6 @@ export const collisionWords = (c: Collision, short = false) => `${count(c.agents
 export function fenceWords(h: FenceHit): string {
   const base = h.file.slice(h.file.lastIndexOf('/') + 1);
   const round = h.node === h.file ? 'on it' : `round ${h.node}`;
+
   return h.decision === 'deny' ? `stopped at the ${RULE_WORDS[h.rule]} fence ${round}: ${base} stays as it is` : `asked you before changing ${base}, for the ${RULE_WORDS[h.rule]} fence ${round}`;
 }

@@ -21,16 +21,20 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const [graphFile, ...rest] = process.argv.slice(2);
+
 if (!graphFile) {
   console.error('usage: bun run --cwd web bench <graph.json> [--frames 80]');
   process.exit(1);
 }
+
 const opt = (name, d) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : d);
 const frames = Number(opt('--frames', 80));
+
 // --changes N: an agent has just changed the N symbols the most code depends on, so the overlay
 // draws its rings, badges and the ripple on everything that depends on them; the worst case.
 const changes = Number(opt('--changes', 0));
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
+
 if (!fs.existsSync(path.join(dist, 'index.html'))) {
   console.error('web/dist is missing: run bun run build first');
   process.exit(1);
@@ -38,6 +42,7 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
 
 const graphJson = fs.readFileSync(graphFile, 'utf8');
 const graph = JSON.parse(graphJson);
+
 const workspace = {
   repos: graph.repos.map((r) => ({ ...r, status: 'ready' })),
   busy: false,
@@ -45,34 +50,46 @@ const workspace = {
   suggestions: [],
   project: { id: 'bench', groupingLocation: 'bench' },
 };
+
 const activity = (() => {
   if (!changes) return null;
   const into = new Map();
+
   for (const e of graph.edges) into.set(e.to, (into.get(e.to) ?? 0) + 1);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const top = [...into].filter(([id]) => byId.get(id)?.kind === 'symbol').sort((a, b) => b[1] - a[1]).slice(0, changes);
   const at = Date.now() - 60_000;
   const nodes = {};
+
   for (const [id] of top) {
     nodes[id] = { kind: 'modified', agents: ['bench'], at, unit: 'symbol' };
     nodes[byId.get(id).parent] = { kind: 'modified', agents: ['bench'], at, unit: 'file' };
   }
+
   return { version: 1, graphVersion: 1, agents: [], nodes };
 })();
+
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' };
+
 const server = http.createServer((req, res) => {
   const p = decodeURIComponent(req.url.split('?')[0]);
+
   if (p === '/api/agent/stream' && activity) {
     // Held open, as the indexer's is, so the map gets the state once and keeps it.
     res.writeHead(200, { 'content-type': 'text/event-stream' });
+
     return res.write(`data: ${JSON.stringify(activity)}\n\n`);
   }
+
   const f = path.join(dist, p === '/' ? 'index.html' : p);
+
   if (!f.startsWith(dist) || !fs.existsSync(f)) return res.writeHead(404).end();
   res.writeHead(200, { 'content-type': types[path.extname(f)] ?? 'application/octet-stream' });
   fs.createReadStream(f).pipe(res);
 });
+
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
+
 // CHROMIUM_PATH points at an installed Chrome/Chromium when Playwright's own download isn't there.
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 
@@ -80,10 +97,12 @@ const stats = (xs) => {
   const s = [...xs].sort((a, b) => a - b);
   const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];
   const mean = s.reduce((a, b) => a + b, 0) / s.length;
+
   return { mean: +mean.toFixed(1), median: +q(0.5).toFixed(1), p90: +q(0.9).toFixed(1), max: +s[s.length - 1].toFixed(1), dropped: s.filter((x) => x > 20).length };
 };
 
 const rows = [];
+
 for (const mode of ['click', 'zoom']) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.addInitScript((m) => localStorage.setItem('strata.expandMode', m), mode);
@@ -105,25 +124,33 @@ for (const mode of ['click', 'zoom']) {
           const out = [];
           let last = 0;
           let i = 0;
+
           const tick = () => {
             const now = performance.now();
+
             if (i > 0) out.push(now - last);
             last = now;
+
             if (i++ >= n) {
               if (kind === 'pan') el.dispatchEvent(new PointerEvent('pointerup', { clientX: x + n * 4, clientY: y, bubbles: true, pointerId: 1 }));
+
               return resolve(out);
             }
+
             if (kind === 'zoom') el.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, clientX: x, clientY: y, bubbles: true, cancelable: true }));
             else {
               if (i === 1) el.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true, pointerId: 1, button: 0 }));
               el.dispatchEvent(new PointerEvent('pointermove', { clientX: x + i * 4, clientY: y + i * 2, bubbles: true, pointerId: 1, buttons: 1 }));
             }
+
             requestAnimationFrame(tick);
           };
+
           requestAnimationFrame(tick);
         }),
       { kind, dy, n: frames },
     );
+
   rows.push({ mode, gesture: 'zoom in', ...stats(await gesture('zoom', -40)) });
   rows.push({ mode, gesture: 'pan', ...stats(await gesture('pan', 0)) });
   rows.push({ mode, gesture: 'zoom out', ...stats(await gesture('zoom', 40)) });
@@ -131,8 +158,13 @@ for (const mode of ['click', 'zoom']) {
 }
 
 const n = graph.nodes.length;
+
 console.log(`${graphFile}: ${n} nodes, ${graph.edges.length} edges${activity ? `, ${changes} symbols changed by an agent` : ''}; frame intervals in ms (dropped = frames over 20ms)`);
+
 console.table(rows);
+
 await browser.close();
+
 server.closeAllConnections?.();
+
 server.close();

@@ -33,6 +33,7 @@ export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK
   const alts = ALTITUDES[view];
   const crumbs = useCameraCrumbs(renderer, crumbsAt) ?? given;
   const idx = Math.max(0, Math.min(alts.length - 1, altitude));
+
   return (
     <div className="topbar">
       <nav className="crumbs">
@@ -72,15 +73,20 @@ function useCameraCrumbs(renderer: RefObject<MapRenderer | null>, crumbsAt: ((ca
   const [crumbs, setCrumbs] = useState<TNode[] | null>(null);
   useEffect(() => {
     const r = renderer.current;
+
     if (!r || !crumbsAt) return setCrumbs(null);
     const key = (c: TNode[]) => c.at(-1)?.id ?? 'root';
+
     const update = () => {
       const next = crumbsAt(r.camera);
       setCrumbs((cur) => (cur && key(cur) === key(next) ? cur : next));
     };
+
     update();
+
     return r.subscribe(update);
   }, [renderer, crumbsAt]);
+
   return crumbs;
 }
 
@@ -89,14 +95,20 @@ function Zoom({ renderer, fitK }: { renderer: RefObject<MapRenderer | null>; fit
   const [k, setK] = useState(1);
   useEffect(() => {
     const r = renderer.current;
+
     if (!r) return;
     let last = -1;
+
     const update = () => {
       const pct = Math.round((r.camera.k / fitK) * 100);
+
       if (pct !== last) setK((last = pct));
     };
+
     update();
+
     return r.subscribe(update);
   }, [renderer, fitK]);
+
   return <span className="num small muted zoom">{k}%</span>;
 }

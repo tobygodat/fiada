@@ -11,9 +11,11 @@ const fact = (type: NonNullable<LayerMatcher['fact']>['type'], value?: string, p
   fact: value ? { type, value } : { type },
   priority,
 });
+
 const imports = (priority: number, ...pkgs: string[]): LayerMatcher[] => pkgs.map((p) => ({ import: p, priority }));
 const dirs = (priority: number, ...names: string[]): LayerMatcher[] => names.map((d) => ({ path: `**/${d}/**`, priority }));
 const files = (priority: number, ...globs: string[]): LayerMatcher[] => globs.map((g) => ({ path: `**/${g}`, priority }));
+
 /** Folder names that mean something else in a frontend package (a web app's "api/" wraps fetch calls). */
 const frontendDirs = (...names: string[]): LayerMatcher[] => names.map((d) => ({ path: `**/${d}/**`, fact: { type: 'frontend' }, priority: 110 }));
 
@@ -129,7 +131,9 @@ export const PRESETS: LayerPreset[] = ['roles', 'by-repo', 'empty'];
 
 export function presetLayers(preset: LayerPreset, repos: Pick<RepoInfo, 'id' | 'name'>[]): LayerDef[] {
   if (preset === 'roles') return rolesPreset();
+
   if (preset === 'by-repo') return byRepoPreset(repos);
+
   return [];
 }
 

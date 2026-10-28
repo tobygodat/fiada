@@ -24,7 +24,9 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const repo = process.argv[2];
+
 assert.ok(repo, 'usage: review-tour-live.mjs <fastapi clone> [url]');
+
 const url = process.argv.slice(3).find((a) => /^https?:/.test(a)) ?? 'http://localhost:5178/';
 const shots = process.argv.includes('--shots') ? process.argv[process.argv.indexOf('--shots') + 1] : null;
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,24 +35,32 @@ const GONE = 'backend/app/utils.py';
 const CRUD = 'backend/app/crud.py';
 const ADDED = 'backend/app/export.py';
 const BIG = 'backend/app/big_report.py';
+
 const hook = (session, file = FILE) =>
   execFileSync('node', [join(here, '../../agent/bin/fiada-hook.mjs'), 'changed', '--client', 'claude-code', '--session', session, '--cwd', repo, file]);
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const page = await browser.newPage({ viewport: { width: 1600, height: 960 } });
+
 await page.route(/fonts\.(googleapis|gstatic)\.com/, async (r) => r.fulfill({ response: await r.fetch() }).catch(() => r.abort()));
+
 const errors = [];
+
 page.on('pageerror', (e) => errors.push(e.message));
+
 const hunks = () => page.locator('.agent-diff .hunk-at').allInnerTexts();
+
 const goTo = async (name) => {
   await page.locator(`.tour-tick[aria-label*=": ${name},"]`).click();
   await page.locator('.tour-name', { hasText: name }).waitFor();
   await page.locator('.agent-diff').first().waitFor();
   await page.waitForTimeout(600);
 };
+
 const count = async () => {
   const m = /change (\d+) of (\d+)/.exec(await page.locator('.tour-count').innerText());
   assert.ok(m, 'the tour says where you are');
+
   return { at: +m[1], of: +m[2] };
 };
 
@@ -65,10 +75,12 @@ try {
   const before = await count();
   // Go to the first stop in the file the other agent will touch.
   const ticks = page.locator('.tour-tick');
+
   for (let i = 0; i < (await ticks.count()) && !(await page.locator('.tour-path').innerText()).endsWith(FILE); i++) {
     await ticks.nth(i).click();
     await page.waitForTimeout(300);
   }
+
   const name = await page.locator('.tour-name').innerText();
   assert.ok((await page.locator('.tour-path').innerText()).endsWith(FILE), `a stop is in ${FILE}`);
   await page.locator('.agent-diff').first().waitFor();
@@ -101,6 +113,7 @@ try {
   await page.waitForTimeout(1500);
   await tick('create_item').waitFor();
   await goTo('items_by_priority');
+
   if (shots) await page.screenshot({ path: `${shots}/read-after-other-edit.png` });
   assert.match(await tick('create_item').getAttribute('aria-label'), /, unread$/, 'the function it just changed is new to read');
   assert.match(await tick('items_by_priority').getAttribute('aria-label'), /, read$/, 'the one you read stays read');
@@ -109,8 +122,10 @@ try {
   await goTo('create_item');
   await page.keyboard.press('r');
   await page.waitForTimeout(400);
+
   const crudTicks = async () =>
     (await page.locator('.tour-tick').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).filter((l) => /: (create_item|items_by_priority),/.test(l));
+
   assert.ok((await crudTicks()).every((l) => l.endsWith(', read')), 'both read');
   writeFileSync(join(repo, CRUD), readFileSync(join(repo, CRUD), 'utf8').replace('import Session, col, select', 'import Session, col, func, select'));
   hook('demo-review', CRUD);
@@ -148,6 +163,7 @@ try {
   const moved = await page.locator('.tour-name').innerText();
   assert.notEqual(moved, 'update_user', 'the tour left the stop By function can’t show');
   assert.equal(await page.locator('.detail-title').innerText(), moved, 'and the detail panel shows where it went');
+
   if (shots) await page.screenshot({ path: `${shots}/view-switch.png` });
   await view('code');
   await page.waitForTimeout(1200);
@@ -184,6 +200,7 @@ try {
   const withImport = await page.locator('.agent-diff').innerText();
   assert.match(withImport, /def export_csv[\s\S]*import csv/, 'the first shows its own lines, then the import');
   assert.doesNotMatch(withImport, /def export_json/);
+
   if (shots) await page.screenshot({ path: `${shots}/added-file.png` });
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', ADDED]);
   execFileSync('rm', [join(repo, ADDED)]);
@@ -212,6 +229,7 @@ try {
   await page.waitForTimeout(1500);
   await page.locator('.tour-cut').waitFor();
   assert.match(await page.locator('.tour-cut').innerText(), /cut this diff short/);
+
   if (shots) await page.locator('.tour').screenshot({ path: join(shots, 'tour-cut.png') });
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', BIG]);
   execFileSync('rm', [join(repo, BIG)]);

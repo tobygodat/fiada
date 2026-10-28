@@ -41,6 +41,7 @@ export interface OpenOptions extends WorkspaceOptions {
 /** Opens one project: its workspace, summaries, fences and agent hub, wired together as the server uses them. */
 export async function openTenant(o: OpenOptions): Promise<Tenant> {
   const ws = new Workspace(o.store, o.projectId, o.access, new Sorter(o.sortLlm), o);
+
   const summaries = new Summaries({
     store: o.store,
     projectId: o.projectId,
@@ -48,6 +49,7 @@ export async function openTenant(o: OpenOptions): Promise<Tenant> {
     read: (repo, p) => ws.readSource(repo, p).then((s) => s?.text ?? null),
     busy: () => ws.state().busy,
   });
+
   await summaries.init();
   const off = ws.onGraph(() => summaries.setGraph(ws.getGraph()));
   await ws.init();
@@ -55,6 +57,7 @@ export async function openTenant(o: OpenOptions): Promise<Tenant> {
   const fences = new Fences(o.store, o.projectId);
   await fences.init();
   const agents = new AgentHub(ws);
+
   return {
     projectId: o.projectId,
     ws,
@@ -96,19 +99,23 @@ export class Tenants {
   /** The person's project, opening it if it isn't open. Concurrent calls share one opening. */
   get(projectId: string, account: AccountInfo): Promise<Tenant> {
     let e = this.open.get(projectId);
+
     if (!e) {
       e = { tenant: this.make(projectId, account), used: this.now() };
       this.open.set(projectId, e);
       // A project that failed to open is tried again on the next request.
       e.tenant.catch(() => this.open.get(projectId) === e && this.open.delete(projectId));
     }
+
     e.used = this.now();
+
     return e.tenant;
   }
 
   /** Closes the person's project if it is open, and forgets it, so their next request would open it afresh. */
   async drop(projectId: string) {
     const e = this.open.get(projectId);
+
     if (!e) return;
     this.open.delete(projectId);
     await (await e.tenant.catch(() => null))?.close();
@@ -121,9 +128,11 @@ export class Tenants {
   /** Closes projects nobody has used for a while, that no map is listening to and that aren't indexing. */
   async sweep() {
     const cutoff = this.now() - this.idleMs;
+
     for (const [id, e] of this.open) {
       if (e.used > cutoff) continue;
       const t = await e.tenant.catch(() => null);
+
       if (!t || this.open.get(id) !== e || e.used > cutoff || t.agents.watched || t.ws.state().busy) continue;
       this.open.delete(id);
       await t.close().catch((err) => console.error(`[fiada] closing project ${id}: ${(err as Error).message}`));
@@ -134,6 +143,7 @@ export class Tenants {
     clearInterval(this.timer);
     const all = [...this.open.values()];
     this.open.clear();
+
     for (const e of all) await (await e.tenant.catch(() => null))?.close();
   }
 }

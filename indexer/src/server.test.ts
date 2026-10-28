@@ -27,6 +27,7 @@ const freePort = () =>
 
 const get = async <T>(route: string, key?: string) => {
   const res = await fetch(`${base}${route}`, { headers: key ? { authorization: `Bearer ${key}` } : {} });
+
   return { status: res.status, body: (await res.json()) as T };
 };
 
@@ -36,23 +37,28 @@ before(async () => {
   await fs.mkdir(path.join(repo, 'src'), { recursive: true });
   await fs.writeFile(path.join(repo, 'src/cart.ts'), "export function addToCart(id: string) {\n  return id;\n}\n");
   await fs.writeFile(path.join(repo, 'src/page.ts'), "import { addToCart } from './cart';\n\nexport function buy() {\n  return addToCart('a');\n}\n");
+
   for (const args of [['init', '-q'], ['config', 'user.email', 't@example.com'], ['config', 'user.name', 't'], ['add', '-A'], ['commit', '-qm', 'init']]) execFileSync('git', ['-C', repo, ...args]);
 
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(port), HOST: '127.0.0.1', FIADA_HOME: home, FIADA_API_KEY: KEY, FIADA_PROJECT: 'test' };
+
   for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'FIADA_GITHUB_CLIENT_ID', 'FIADA_GITHUB_CLIENT_SECRET', 'STRATA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_SECRET', 'MONGODB_URI']) delete env[k];
   const entry = fileURLToPath(new URL('./server.ts', import.meta.url));
   server = spawn(process.execPath, ['--import', 'tsx', entry], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   server.stdout!.on('data', (c) => (log += c));
   server.stderr!.on('data', (c) => (log += c));
+
   for (let i = 0; i < 150 && !log.includes('listening'); i++) await new Promise((r) => setTimeout(r, 100));
   assert.ok(log.includes('listening'), log);
 
   const add = await fetch(`${base}/api/repos`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` }, body: JSON.stringify({ source: repo }) });
   assert.equal(add.status, 202);
+
   for (let i = 0; i < 150; i++) {
     const ws = (await get<{ busy: boolean; repos: { status: string }[] }>('/api/workspace')).body;
+
     if (!ws.busy && ws.repos[0]?.status === 'ready') break;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -84,8 +90,10 @@ test('the read routes answer without the access key, as every read does', async 
 test('what the agent looked at goes through the events route, which still needs the key', async () => {
   const agent = { client: 'claude-code', session: 'x', cwd: '/elsewhere' };
   const events = [{ agent, type: 'looked', nodes: ['shop/src/cart.ts#addToCart'] }];
+
   const post = (key?: string) =>
     fetch(`${base}/api/agent/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify(events) });
+
   assert.equal((await post()).status, 401);
   assert.equal((await post(KEY)).status, 200);
   const state = await get<ActivityState>('/api/agent/state');
@@ -96,6 +104,7 @@ test('what the agent looked at goes through the events route, which still needs 
 test('the usage numbers answer only with the access key, and say counts, not who', async () => {
   assert.equal((await get('/api/admin/stats')).status, 401);
   assert.equal((await get('/api/admin/stats', 'wrong')).status, 401);
+
   for (const path of ['/api/admin/%73tats', '/api/%61dmin/stats']) assert.equal((await get(path)).status, 401, `${path} needs the key too`);
   const res = await fetch(`${base}/api/admin/stats`, { headers: { authorization: `Bearer ${KEY}` } });
   assert.equal(res.status, 200);

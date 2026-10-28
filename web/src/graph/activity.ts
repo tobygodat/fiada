@@ -52,30 +52,41 @@ export function rollupActivity(
   edges: readonly GraphEdge[] = [],
 ): TreeActivity {
   const out: TreeActivity = new Map();
+
   const get = (id: string) => {
     let m = out.get(id);
+
     if (!m) out.set(id, (m = { self: null, added: 0, modified: 0, deleted: 0, at: 0, here: null, selfUnread: false, unread: 0, looked: null, reached: null, direct: false, ripple: 0 }));
+
     return m;
   };
+
   const unit = tree.view === 'code' ? 'file' : 'symbol';
+
   for (const [id, c] of Object.entries(nodes)) {
     const own = tree.nodes.get(id);
     // A node that isn't in this tree (deleted, not re-indexed yet, or a file By function
     // shows as its symbols) counts at the nearest ancestor that is.
     const at = own ? id : locate(tree, graphIndex, c.anchor ?? id);
+
     if (!at) continue;
+
     if (own) {
       const m = get(id);
       m.self = c.kind;
       m.at = Math.max(m.at, c.at);
       m.selfUnread = !!unread?.has(id);
     }
+
     // Symbols in Code view mark themselves but aren't counted: the file they're in is.
     const counted = c.unit === unit || (unit === 'symbol' && !!own && !own.children.length);
     const isUnread = counted && !!unread?.has(id);
+
     for (let cur: string | null = own ? own.parent : at; cur; cur = tree.nodes.get(cur)?.parent ?? null) {
       const m = get(cur);
+
       if (counted) m[c.kind]++;
+
       if (isUnread) m.unread++;
       m.at = Math.max(m.at, c.at);
     }
@@ -86,12 +97,16 @@ export function rollupActivity(
   for (const a of agents) {
     if (a.state !== 'working' || !a.files.length) continue;
     const last = Math.max(...a.files.map((f) => Date.parse(f.at)));
+
     for (const f of a.files) {
       if (Date.parse(f.at) !== last) continue;
+
       for (const id of hereIds(f, tree)) {
         const at = tree.nodes.has(id) ? id : locate(tree, graphIndex, nodes[id]?.anchor ?? id);
+
         if (!at || at === tree.root.id) continue;
         get(at).here = 'self';
+
         for (let cur = tree.nodes.get(at)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) {
           const m = get(cur);
           m.here ??= 'inside';
@@ -99,17 +114,21 @@ export function rollupActivity(
       }
     }
   }
+
   // What agents looked at: the node itself where this view draws it, and every circle round it,
   // so a closed one can say something inside was looked at.
   const kids = childrenOf(graphIndex);
+
   for (const id of Object.keys(looked)) {
     for (const at of lookedIds(tree, graphIndex, kids, id)) {
       get(at).looked = 'self';
+
       for (let cur = tree.nodes.get(at)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) get(cur).looked ??= 'inside';
     }
   }
 
   if (edges.length) addRipple(out, get, tree, graphIndex, nodes, edges);
+
   return out;
 }
 
@@ -118,15 +137,19 @@ type Children = () => Map<string, string[]>;
 /** Every graph node's children, built the first time it's asked for. */
 function childrenOf(graphIndex: Map<string, GraphNode>): Children {
   let kids: Map<string, string[]> | null = null;
+
   return () => {
     if (!kids) {
       kids = new Map();
+
       for (const g of graphIndex.values()) {
         const list = kids.get(g.parent);
+
         if (list) list.push(g.id);
         else kids.set(g.parent, [g.id]);
       }
     }
+
     return kids;
   };
 }
@@ -139,22 +162,27 @@ function childrenOf(graphIndex: Map<string, GraphNode>): Children {
  */
 function lookedIds(tree: Tree, graphIndex: Map<string, GraphNode>, kids: Children, id: string): string[] {
   if (tree.nodes.has(id)) return id === tree.root.id ? [] : [id];
+
   if (!graphIndex.has(id) || graphIndex.get(id)!.kind === 'repo') return [];
   const out: string[] = [];
   const queue = [id];
+
   while (queue.length) {
     for (const c of kids().get(queue.shift()!) ?? []) {
       if (tree.nodes.has(c)) out.push(c);
       else queue.push(c);
     }
   }
+
   return out;
 }
 
 /** What one agent looked at, out of every agent's. */
 export function agentLooked(looked: Record<string, LookedAt> | undefined, agentId: string): Record<string, LookedAt> {
   const out: Record<string, LookedAt> = {};
+
   for (const [id, l] of Object.entries(looked ?? {})) if (l.agents.includes(agentId)) out[id] = l;
+
   return out;
 }
 
@@ -167,20 +195,28 @@ export function agentLooked(looked: Record<string, LookedAt> | undefined, agentI
  */
 function narrowedFiles(nodes: Record<string, NodeChange>): Map<string, string[]> {
   const bySymbol = new Map<string, { ids: string[]; agents: Set<string> }>();
+
   for (const [id, c] of Object.entries(nodes)) {
     const hash = id.indexOf('#');
+
     if (c.unit !== 'symbol' || hash < 0) continue;
     const file = id.slice(0, hash);
     let f = bySymbol.get(file);
+
     if (!f) bySymbol.set(file, (f = { ids: [], agents: new Set() }));
     f.ids.push(id);
+
     for (const a of c.agents) f.agents.add(a);
   }
+
   const out = new Map<string, string[]>();
+
   for (const [file, f] of bySymbol) {
     const c = nodes[file];
+
     if (!c || (c.agents.every((a) => f.agents.has(a)) && !c.agents.some((a) => c.whole?.includes(a)))) out.set(file, f.ids);
   }
+
   return out;
 }
 
@@ -191,9 +227,11 @@ function narrowedFiles(nodes: Record<string, NodeChange>): Map<string, string[]>
  */
 function changedTarget(graphIndex: Map<string, GraphNode>, nodes: Record<string, NodeChange>) {
   const narrowed = narrowedFiles(nodes);
+
   return (id: string) => {
     if (nodes[id]) return true;
     const g = graphIndex.get(id);
+
     return g?.kind === 'symbol' && !!nodes[g.parent] && !narrowed.has(g.parent);
   };
 }
@@ -218,30 +256,39 @@ function addRipple(
   // Tree id of each dependent → whether some link proving it reaches a change.
   const dependents = new Map<string, boolean>();
   const located = new Map<string, string | null>();
+
   for (const e of edges) {
     if (!changed(e.to) || nodes[e.from]) continue;
     let at = located.get(e.from);
+
     if (at === undefined) located.set(e.from, (at = locate(tree, graphIndex, e.from)));
+
     if (!at || at === tree.root.id || isChanged(at)) continue;
     dependents.set(at, dependents.get(at) || e.basis !== 'inferred');
   }
+
   const mark = (m: Marks, sure: boolean) => {
     if (sure) m.reached = 'evidenced';
     else m.reached ??= 'inferred';
   };
+
   // The unit each dependent is counted as: its file in Code view, itself in By function.
   const units = new Map<string, boolean>();
+
   for (const [id, sure] of dependents) {
     const m = get(id);
     mark(m, sure);
     m.direct = true;
     const n = tree.nodes.get(id)!;
     const unit = tree.view === 'code' && n.kind === 'symbol' ? n.parent : id;
+
     if (!unit || unit === tree.root.id || isChanged(unit)) continue;
     units.set(unit, units.get(unit) || sure);
   }
+
   for (const [id, sure] of units) {
     if (id !== tree.root.id) mark(get(id), sure);
+
     for (let cur = tree.nodes.get(id)?.parent ?? null; cur && cur !== tree.root.id; cur = tree.nodes.get(cur)?.parent ?? null) {
       const m = get(cur);
       m.ripple++;
@@ -253,11 +300,13 @@ function addRipple(
 /** The changes one agent made, out of every agent's, each credited to that agent alone (so a file another agent also changed narrows as it would for this one). */
 export function agentNodes(nodes: Record<string, NodeChange>, agentId: string): Record<string, NodeChange> {
   const out: Record<string, NodeChange> = {};
+
   for (const [id, c] of Object.entries(nodes)) {
     if (!c.agents.includes(agentId)) continue;
     const { whole, ...rest } = c;
     out[id] = whole?.includes(agentId) ? { ...rest, agents: [agentId], whole: [agentId] } : { ...rest, agents: [agentId] };
   }
+
   return out;
 }
 
@@ -280,34 +329,46 @@ export function spotlight(
   looked: Record<string, LookedAt> = {},
 ): Spotlight | null {
   const changed = new Set<string>();
+
   for (const [id, c] of Object.entries(nodes)) {
     if (!c.agents.includes(agentId)) continue;
     const at = tree.nodes.has(id) ? id : locate(tree, graphIndex, c.anchor ?? id);
+
     if (at && at !== tree.root.id) changed.add(at);
   }
+
   const seen = new Set<string>();
   const kids = childrenOf(graphIndex);
+
   for (const [id, l] of Object.entries(looked)) {
     if (l.agents.includes(agentId)) for (const at of lookedIds(tree, graphIndex, kids, id)) seen.add(at);
   }
+
   // The camera goes to what it changed; to what it looked at only when it changed nothing.
   const targets = changed.size ? changed : seen;
+
   if (!targets.size) return null;
   const lit = new Set<string>();
+
   for (const id of [...changed, ...seen]) {
     for (let cur: string | null = id; cur && !lit.has(cur); cur = tree.nodes.get(cur)?.parent ?? null) lit.add(cur);
   }
+
   const depth = (id: string) => tree.nodes.get(id)?.depth ?? 0;
+
   return { targets: [...targets].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : 1)), lit };
 }
 
 /** The ids that stand for a changed file in this view. */
 function hereIds(f: AgentFile, tree: Tree): string[] {
   const file = f.node ?? (f.repo ? `${f.repo}/${f.path}` : null);
+
   if (tree.view !== 'code') {
     const symbols = f.symbols.map((s) => s.id).filter((id) => tree.nodes.has(id));
+
     if (symbols.length) return symbols;
   }
+
   return file ? [file] : [];
 }
 
@@ -319,16 +380,21 @@ export const readWords = (read: number, total: number) => `${read} of ${plural(t
 /** "2 files changed: 1 added, 1 modified" for a tooltip. */
 export function describeMarks(m: Marks, view: Tree['view']): string {
   const parts: string[] = [];
+
   if (m.here) parts.push(m.here === 'self' ? 'an agent is working here' : 'an agent is working inside');
+
   if (m.self) parts.push(m.self);
   else if (m.looked) parts.push(m.looked === 'self' ? 'an agent looked at this' : 'an agent looked inside');
   const n = changeCount(m);
+
   if (n) {
     const kinds = (['added', 'modified', 'deleted'] as const).filter((k) => m[k]).map((k) => `${m[k]} ${k}`);
     parts.push(`${plural(n, view === 'code' ? 'file' : 'symbol')} changed inside: ${kinds.join(', ')}`);
     parts.push(readWords(n - m.unread, n));
   }
+
   if (m.selfUnread) parts.push('changed since you last looked');
+
   return parts.join(' · ');
 }
 
@@ -344,6 +410,7 @@ const KIND_VERB: Record<EdgeKind, [string, string]> = {
 /** What a changed node is, as the last word of its sentence: "this route", "this type". */
 function thing(g: GraphNode): string {
   if (g.kind === 'file') return 'file';
+
   switch (g.symbolKind) {
     case 'interface':
     case 'type':
@@ -381,33 +448,44 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
   const requests: GraphEdge[] = [];
   // One per dependent: its strongest link, and whether any link from it is proven.
   const users = new Map<string, { kind: EdgeKind; sure: boolean }>();
+
   for (const e of edges) {
     if (!target(e.to) || inside(e.from)) continue;
+
     if (e.kind === 'http') {
       requests.push(e);
       continue;
     }
+
     const u = users.get(e.from);
+
     if (!u) users.set(e.from, { kind: e.kind, sure: e.basis !== 'inferred' });
     else {
       if (RANK[e.kind] < RANK[u.kind]) u.kind = e.kind;
       u.sure ||= e.basis !== 'inferred';
     }
   }
+
   const repoName = (id: string) => {
     const r = graphIndex.get(id)?.repo ?? id.split('/')[0];
+
     return graphIndex.get(r)?.name ?? r;
   };
+
   /** "23 from web and 4 from api", most first. */
   const byRepo = (ids: string[], noun: [string, string], prep: string) => {
     const counts = new Map<string, number>();
+
     for (const id of ids) counts.set(repoName(id), (counts.get(repoName(id)) ?? 0) + 1);
     const groups = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+
     return andList(groups.map(([repo, n], i) => `${n}${i ? '' : ` ${noun[n === 1 ? 0 : 1]}`} ${prep} ${repo}`));
   };
+
   const guessed = (n: number, total: number) => (n ? (n === total ? (total === 1 ? ', inferred' : ', all inferred') : `, ${n} of them inferred`) : '');
 
   const out: string[] = [];
+
   if (requests.length) {
     // The routes the requests reach: each request names the route it matched, and a symbol may serve several.
     const routes = new Set(requests.map((e) => `${e.to}|${e.detail ?? ''}`)).size;
@@ -415,9 +493,11 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
     const what = routes > 1 ? 'these routes' : 'this route';
     out.push(`${byRepo(requests.map((e) => e.from), ['request', 'requests'], 'from')} ${verb} ${what}${guessed(requests.filter((e) => e.basis === 'inferred').length, requests.length)}.`);
   }
+
   if (users.size) {
     const ids = [...users.keys()];
     const kinds = ids.map((id) => graphIndex.get(id));
+
     const noun: [string, string] = kinds.every((n) => n?.kind === 'file')
       ? ['file', 'files']
       : kinds.every((n) => n?.kind === 'symbol' && (n.symbolKind === 'function' || n.symbolKind === undefined))
@@ -425,6 +505,7 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
         : kinds.every((n) => n?.kind === 'symbol' && n.symbolKind === 'component')
           ? ['component', 'components']
           : ['place', 'places'];
+
     // The verb of the kind they share; when they reach it in different ways, they all use it.
     const ways = new Set([...users.values()].map((u) => u.kind));
     const kind: EdgeKind = ways.size === 1 ? [...ways][0] : 'references';
@@ -433,7 +514,9 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
     const unsure = [...users.values()].filter((u) => !u.sure).length;
     out.push(`${byRepo(ids, noun, 'in')} ${verb} this ${thing(g)}${guessed(unsure, users.size)}.`);
   }
+
   if (!out.length && (g.routes?.length || g.exported)) out.push(`Nothing in the imported repositories reaches this ${g.routes?.length ? 'route' : thing(g)} yet.`);
+
   // Sentences start with a capital.
   return out.map((s) => s[0].toUpperCase() + s.slice(1));
 }

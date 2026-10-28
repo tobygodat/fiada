@@ -15,6 +15,7 @@ test('the code view reads indexed files and nothing else', async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-home-'));
   const ws = new Workspace(new FileProjectStore(home), 'test');
   const repo = await ws.add(dir);
+
   for (let i = 0; i < 200 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 25));
   assert.equal(repo.status, 'ready', repo.error);
 
@@ -42,6 +43,7 @@ test('links out of a repository are never read, even when one appears after inde
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-home-'));
   const ws = new Workspace(new FileProjectStore(home), 'test');
   const repo = await ws.add(dir);
+
   for (let i = 0; i < 200 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 25));
   assert.equal(repo.status, 'ready', repo.error);
 

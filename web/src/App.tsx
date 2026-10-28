@@ -38,8 +38,10 @@ import { useWorkspace } from './useWorkspace.ts';
 // --fiada-sidebar and --fiada-detail in styles.css.
 const SIDEBAR = 16 + 312;
 const DETAIL = 16 + 372;
+
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
 const CLICK_MAX_K = 3.5;
+
 /** Lighting an agent's changes opens the way down to them only while that opens at most this many circles. */
 const OPEN_CAP = 16;
 
@@ -50,6 +52,7 @@ const ALTITUDE: Record<View, Partial<Record<TKind, number>>> = {
 };
 
 const MODE_KEY = 'strata.expandMode';
+
 const readMode = (): ExpandMode => {
   try {
     return localStorage.getItem(MODE_KEY) === 'zoom' ? 'zoom' : 'click';
@@ -61,6 +64,7 @@ const readMode = (): ExpandMode => {
 /** What a new map opens with: repositories open so their top-level modules show, unless there are many. */
 function defaultExpanded(tree: Tree): Set<string> {
   const repos = tree.root.children.filter((c) => c.kind === 'repo');
+
   return new Set(repos.length && repos.length <= 4 ? repos.map((r) => r.id) : []);
 }
 
@@ -118,12 +122,14 @@ export function App() {
   const clickVis = useMemo(() => (tree && mode === 'click' ? expandedNodes(tree, expanded) : null), [tree, mode, expanded]);
   const vis = mode === 'click' ? clickVis : zoomVis;
   const edgeIndex = useMemo(() => (tree && graph ? indexEdges(tree, graphIndex, graph.edges) : null), [tree, graph, graphIndex]);
+
   const contracts = useMemo(
     () => (edgeIndex && vis ? aggregateEdges(edgeIndex, vis) : []),
     // Re-aggregate only when the set of open circles changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [edgeIndex, vis?.key],
   );
+
   const pal = useMemo(
     () =>
       palette(
@@ -142,17 +148,21 @@ export function App() {
   useEffect(() => {
     if (project) setRead({ project, marks: loadRead(project) });
   }, [project]);
+
   const updateRead = useCallback(
     (next: (marks: ReadMarks) => ReadMarks | null) =>
       setRead((cur) => {
         if (!cur.project) return cur;
         const marks = next(cur.marks);
+
         if (!marks) return cur;
         saveRead(cur.project, marks);
+
         return { project: cur.project, marks };
       }),
     [],
   );
+
   const unread = useMemo(() => (agents.state && readMarks ? unreadIds(agents.state.nodes, readMarks) : null), [agents.state, readMarks]);
   const readState = useMemo(() => (unread && readMarks ? { unread, marks: readMarks } : null), [unread, readMarks]);
   // Opening a node reads its changes, and keeps reading new ones while it stays open.
@@ -160,9 +170,11 @@ export function App() {
   useEffect(() => {
     if (selected && changedNodes) updateRead((marks) => markRead(marks, selected, changedNodes));
   }, [selected, changedNodes, updateRead, read.project]);
+
   const readAll = useCallback(
     (agentId?: string) => {
       const a = agentId ? agents.state?.agents.find((x) => x.id === agentId) : null;
+
       if (a) updateRead((marks) => markAgentRead(marks, a));
       else if (changedNodes && !agentId) updateRead((marks) => markAllRead(marks, changedNodes));
     },
@@ -170,26 +182,32 @@ export function App() {
   );
 
   const lit = litAgent && agents.state?.agents.some((a) => a.id === litAgent) ? litAgent : null;
+
   const spot = useMemo(
     () => (tree && lit && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, lit, agents.state.looked) : null),
     [tree, graphIndex, agents.state, lit],
   );
+
   // The tour walks the lit agent's changes; lighting another agent, or none, ends it.
   // (Not gated on the spotlight: By function has no circle for a deleted file's folder, yet the tour still has a stop for it.)
   const touring = tour && tour.agent === lit ? tour : null;
   const tourAgent = touring ? agents.state?.agents.find((a) => a.id === touring.agent) : undefined;
   // Kept while the agent's changes are: its status lines and prompts don't order the tour again.
   const [tourStops] = useState(tourCache);
+
   const stops = useMemo(
     () => (graph && tourAgent && agents.state ? tourStops(graph, graphIndex, tourAgent, agents.state.nodes, agents.state.lost) : []),
     [graph, graphIndex, tourAgent, agents.state],
   );
+
   const tourAt = touring ? Math.max(0, stops.findIndex((s) => s.id === touring.stop)) : -1;
+
   // Agents with something on the map to walk through: "review" shows only for them.
   const canReview = useMemo(
     () => new Set((agents.state?.agents ?? []).filter((a) => reviewable(graphIndex, a, agents.state!.nodes)).map((a) => a.id)),
     [agents.state, graphIndex],
   );
+
   // Ended, not hidden: lighting that agent again later starts afresh rather than bringing the old review back.
   useEffect(() => {
     if (tour && tour.agent !== lit) setTour(null);
@@ -198,17 +216,21 @@ export function App() {
 
   // One agent lit: the map, and the panel's account of what changes reach, use only its changes.
   const shownChanges = useMemo(() => (agents.state && spot && lit ? agentNodes(agents.state.nodes, lit) : agents.state?.nodes), [agents.state, spot, lit]);
+
   const activity = useMemo(() => {
     const s = agents.state;
     const nodes = shownChanges;
+
     if (!tree || !s || !nodes) return null;
     // One agent lit: the map marks only its changes, unread by its own times, and what it looked at.
     const looked = spot && lit ? agentLooked(s.looked, lit) : (s.looked ?? {});
+
     if (!Object.keys(nodes).length && !Object.keys(looked).length) return null;
     const one = spot ? s.agents.find((a) => a.id === lit) : undefined;
     const unreadHere = one && unread && readMarks ? agentUnreadIds(one, unread, readMarks, s.nodes) : unread;
     // The links into code an agent deleted are gone from the graph; the indexer kept them.
     const edges = s.lost?.length && graph ? [...graph.edges, ...s.lost] : graph?.edges;
+
     return rollupActivity(tree, graphIndex, nodes, one ? [one] : s.agents, unreadHere, looked, edges);
   }, [tree, graphIndex, graph, agents.state, shownChanges, spot, lit, unread, readMarks]);
 
@@ -224,15 +246,20 @@ export function App() {
 
   /** Fenced circles of this tree, by node id. */
   const fenced = useMemo(() => (tree && fences.fences.length ? new Map(fences.fences.filter((f) => tree.nodes.has(f.node)).map((f) => [f.node, f.rule])) : null), [tree, fences.fences]);
+
   /** Where two agents' changes meet, placed on this tree: circle id → how many agents. */
   const collisions = useMemo(() => {
     const list = agents.state?.collisions;
+
     if (!tree || !list?.length) return null;
     const at = new Map<string, number>();
+
     for (const c of list) {
       const id = locate(tree, graphIndex, c.node);
+
       if (id && id !== 'root') at.set(id, Math.max(at.get(id) ?? 0, c.agents.length));
     }
+
     return at.size ? at : null;
   }, [tree, graphIndex, agents.state]);
 
@@ -257,23 +284,30 @@ export function App() {
   const cameraFor = useCallback(
     (Lx: Map<string, Circle>, id: string, opts: { detail: boolean; from?: string | null }): Camera | null => {
       const root = Lx.get('root');
+
       if (!tree || !root || !size.w) return null;
       const vp = viewport(opts.detail);
       const all = frame(root, vp, 0.46);
       const n = tree.nodes.get(id);
       const c = Lx.get(id);
+
       if (!n || !c || id === 'root') return all;
       // Leaves are framed with their parent around them.
       const target = n.children.length ? c : (Lx.get(n.parent ?? 'root') ?? c);
+
       if (mode === 'zoom') return frame(target, vp, 0.36);
+
       if (target.r * all.k >= 0.2 * freeArea(vp).side) return all;
       const own = frame(target, vp, 0.36, CLICK_MAX_K);
       const prev = opts.from && opts.from !== id ? tree.nodes.get(opts.from) : null;
       const pc = prev && (prev.children.length ? Lx.get(prev.id) : Lx.get(prev.parent ?? ''));
+
       if (pc) {
         const both = frame(enclose(target, pc), vp, 0.44, CLICK_MAX_K);
+
         if (both.k >= own.k * 0.3) return both;
       }
+
       return own;
     },
     [tree, mode, size, viewport],
@@ -285,14 +319,19 @@ export function App() {
       if (!tree || !size.w) return null;
       // What stands for each on the map: itself, or the nearest circle round it that's laid out; a leaf with its parent round it.
       const around = new Set<string>();
+
       for (const id of ids) {
         let n = tree.nodes.get(id);
+
         while (n && !Lx.has(n.id)) n = n.parent ? tree.nodes.get(n.parent) : undefined;
+
         if (n) around.add(n.children.length || !n.parent ? n.id : n.parent);
       }
+
       // All in one circle: framed the way selecting it would.
       if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
       const box = [...around].map((id) => Lx.get(id)!).reduce(enclose);
+
       return mode === 'zoom' ? frame(box, viewport(true), 0.36) : frame(box, viewport(true), 0.44, CLICK_MAX_K);
     },
     [tree, size, mode, cameraFor, viewport],
@@ -302,7 +341,9 @@ export function App() {
     (anim: boolean) => {
       const r = renderer.current;
       const cam = cameraFor(L, 'root', { detail: false });
+
       if (!r || !cam) return;
+
       if (anim) r.animateTo(cam, 'smooth');
       else r.setCamera(cam);
     },
@@ -313,9 +354,11 @@ export function App() {
   useEffect(() => {
     const want = intent.current;
     const r = renderer.current;
+
     if (!want || !r || !size.w) return;
     intent.current = null;
     const cam = 'cam' in want ? want.cam : 'fit' in want ? cameraForAll(L, want.fit) : cameraFor(L, want.focus, want);
+
     if (cam) r.animateTo(cam, from ? 'direct' : 'smooth');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L]);
@@ -325,17 +368,22 @@ export function App() {
     (id: string) => {
       const r = renderer.current;
       const c = L.get(id);
+
       if (!r || !c) return;
       const cam = r.camera;
       const f = freeArea(viewport(true));
       const margin = 24;
+
       const shift = (s: number, sr: number, lo: number, hi: number) => {
         const pad = Math.min(sr + margin, (hi - lo) / 2);
+
         return s < lo + pad ? lo + pad - s : s > hi - pad ? hi - pad - s : 0;
       };
+
       const sr = c.r * cam.k;
       const dx = shift(cam.tx + c.x * cam.k, sr, f.cx - f.w / 2, f.cx + f.w / 2);
       const dy = shift(cam.ty + c.y * cam.k, sr, 0, f.h);
+
       if (Math.abs(dx) + Math.abs(dy) >= 1) r.animateTo({ k: cam.k, tx: cam.tx + dx, ty: cam.ty + dy }, 'direct', 380);
     },
     [L, viewport],
@@ -352,12 +400,14 @@ export function App() {
   const go = useCallback(
     (next: Set<string> | null, focusId: string, opts: { detail: boolean; from?: string | null }) => {
       setFocus(focusId);
+
       if (next && !sameSet(next, expanded)) {
         setFrom(L);
         setExpandedBy((e) => ({ ...e, [view]: next }));
         intent.current = { focus: focusId, ...opts };
       } else {
         const cam = cameraFor(L, focusId, opts);
+
         if (cam) renderer.current?.animateTo(cam, 'smooth');
       }
     },
@@ -368,14 +418,18 @@ export function App() {
   const select = useCallback(
     (id: string | null, quiet = false) => {
       setSelectedEdge(null);
+
       if (!id || !tree) return setSelected(null);
       const at = locate(tree, graphIndex, id);
+
       if (!at || at === 'root') return;
+
       // A tour's steps stay out of Back: it returns to where you were before the review.
       if (!quiet) remember();
       setSelected(at);
       // Coming from a selection (a dependency or contract end in the detail panel): keep it in view too.
       const opts = { detail: true, from: selected ?? focus };
+
       // Click mode opens the way to it but not the node itself: that's a second click, as on the map.
       if (mode === 'click') go(withPathOpen(tree, expanded, at, false), at, opts);
       else go(null, at, opts);
@@ -387,14 +441,19 @@ export function App() {
     (id: string, open: boolean) => {
       if (!tree) return;
       const n = tree.nodes.get(id);
+
       if (!n) return;
       setSelectedEdge(null);
+
       // Between the top-level circles is empty space, not "the workspace".
       if (id === 'root') return setSelected(null);
+
       if (mode === 'zoom') return select(id);
       const action = clickAction(n, selected, open);
+
       if (action === 'none') return;
       remember();
+
       if (action === 'open') return go(withPathOpen(tree, expanded, id, true), id, { detail: true });
       // First click: select it and show its details, moving the view only if the panel would cover it.
       setSelected(id);
@@ -406,6 +465,7 @@ export function App() {
   const collapse = useCallback(
     (id: string) => {
       if (!tree) return;
+
       if (mode === 'zoom') return select(id);
       remember();
       setSelectedEdge(null);
@@ -419,14 +479,18 @@ export function App() {
   const crumb = useCallback(
     (id: string) => {
       if (!tree) return;
+
       if (id === 'root') {
         remember();
         setSelected(null);
         setSelectedEdge(null);
+
         if (mode === 'click') return go(defaultExpanded(tree), 'root', { detail: false });
         setFocus('root');
+
         return fitAll(true);
       }
+
       if (mode === 'zoom') return select(id);
       remember();
       setSelectedEdge(null);
@@ -438,14 +502,17 @@ export function App() {
 
   const back = useCallback(() => {
     const place = history[history.length - 1];
+
     if (!place) return;
     setHistory((h) => h.slice(0, -1));
     setView(place.view);
     setSelected(place.selected);
     setSelectedEdge(place.selectedEdge);
     setFocus(place.focus);
+
     if (place.view === view && place.expanded !== expandedBy) setFrom(L);
     setExpandedBy(place.expanded);
+
     if (place.cam) {
       if (place.view === view && place.expanded === expandedBy) renderer.current?.animateTo(place.cam, 'smooth');
       else intent.current = { cam: place.cam };
@@ -458,6 +525,7 @@ export function App() {
     } catch {
       // private mode: the choice lasts for this tab only
     }
+
     setFrom(undefined);
     setZoomVis(null);
     setHistory([]);
@@ -471,6 +539,7 @@ export function App() {
    * doesn't draw: switch to Code first and select it there.
    */
   const placeAfterView = useRef<string | null>(null);
+
   const place = useCallback(
     (id: string) => {
       if (!tree || tree.view === 'code' || tree.nodes.has(id)) return select(id);
@@ -502,22 +571,28 @@ export function App() {
     (id: string) => {
       if (spot && lit === id) return setLitAgent(null);
       const s = tree && agents.state ? spotlight(tree, graphIndex, agents.state.nodes, id, agents.state.looked) : null;
+
       if (!tree || !s) return;
       setLitAgent(id);
       remember();
       setSelected(null);
       setSelectedEdge(null);
       setFocus(s.targets.reduce((m, t) => meetingPoint(tree, m, t)));
+
       if (mode === 'click') {
         const next = withPathsOpen(tree, expanded, s.targets, OPEN_CAP);
+
         if (!sameSet(next, expanded)) {
           setFrom(L);
           setExpandedBy((e) => ({ ...e, [view]: next }));
           intent.current = { fit: s.targets };
+
           return;
         }
       }
+
       const cam = cameraForAll(L, s.targets);
+
       if (cam) renderer.current?.animateTo(cam, 'smooth');
     },
     [spot, lit, tree, agents.state, graphIndex, remember, mode, expanded, L, view, cameraForAll],
@@ -534,17 +609,21 @@ export function App() {
 
   /** A stop whose file or folder By function leaves out (it shows functions, not files that have them): shown in Code instead. */
   const pendingStop = useRef<string | null>(null);
+
   const showStop = useCallback(
     (target: string) => {
       if (tree && tree.view !== 'code') {
         // Every chain of parents ends at the root, which stands for nothing.
         const at = locate(tree, graphIndex, target);
+
         if (!at || at === tree.root.id) {
           pendingStop.current = target;
           setView('code');
+
           return;
         }
       }
+
       select(target, true);
     },
     [tree, graphIndex, select],
@@ -559,8 +638,10 @@ export function App() {
   const startTour = useCallback(
     (id: string) => {
       const a = agents.state?.agents.find((x) => x.id === id);
+
       if (!graph || !a || !agents.state) return;
       const list = tourStops(graph, graphIndex, a, agents.state.nodes);
+
       if (!list.length) return;
       const m = loadMarks(tourProject, id);
       const i = Math.max(0, nextUnread(list, m));
@@ -576,6 +657,7 @@ export function App() {
   const goStop = useCallback(
     (i: number) => {
       const s = stops[i];
+
       if (!touring || !s) return;
       setTour({ agent: touring.agent, stop: s.id });
       showStop(s.target);
@@ -587,12 +669,15 @@ export function App() {
   const markStopRead = useCallback(
     (i: number, read: boolean) => {
       const s = stops[i];
+
       if (!touring || !s) return;
       const next = markStop(marks, s, read);
       setMarks(next);
       saveMarks(tourProject, touring.agent, next);
+
       if (!read) return;
       const after = nextUnread(stops, next, i + 1);
+
       if (after >= 0 && after !== i) goStop(after);
     },
     [stops, touring, marks, tourProject, goStop],
@@ -601,8 +686,10 @@ export function App() {
   // Picking one of the tour's changes on the map or in the outline takes the tour there too.
   useEffect(() => {
     const cur = stops[tourAt];
+
     if (!touring || !selected || cur?.target === selected) return;
     const s = stops.find((x) => x.target === selected);
+
     if (s) setTour({ agent: touring.agent, stop: s.id });
   }, [selected, touring, stops, tourAt]);
 
@@ -614,15 +701,20 @@ export function App() {
   useEffect(() => {
     if (!touring) return;
     const i = stops.findIndex((s) => s.id === touring.stop);
+
     if (i >= 0) {
       lastStop.current = i;
       const { id, target } = stops[i];
       const moved = shown.current?.id === id && shown.current.target !== target;
       shown.current = { id, target };
+
       if (moved) showStop(target);
+
       return;
     }
+
     if (tourOver(stops, agentGraph, shownGraph)) return setTour(null);
+
     if (!stops.length) return;
     const s = stops[Math.min(lastStop.current, stops.length - 1)];
     setTour({ agent: touring.agent, stop: s.id });
@@ -642,28 +734,39 @@ export function App() {
     // Something picked in the view before (`place`) is selected once its view is drawn.
     const want = (viewChanged && placeAfterView.current) || selected;
     placeAfterView.current = null;
+
     if (viewChanged && want) {
       const at = locate(tree, graphIndex, want);
+
       if (at && at !== 'root') {
         setSelected(at);
         setFocus(at);
+
         if (mode === 'click') {
           const next = withPathOpen(tree, expanded, at, false);
+
           if (!sameSet(next, expanded)) {
             setExpandedBy((e) => ({ ...e, [tree.view]: next }));
             intent.current = { focus: at, detail: true };
+
             return;
           }
         }
+
         const cam = cameraFor(L, at, { detail: true });
+
         if (cam) renderer.current?.animateTo(cam, 'smooth');
+
         return;
       }
     }
+
     if (selected && (viewChanged || !tree.nodes.has(selected))) setSelected(null);
+
     if (viewChanged) setSelectedEdge(null);
     // A rebuilt graph with the same repositories (an agent's edit was re-indexed) leaves the camera where you put it.
     const reposChanged = !prev || prev.root.children.map((c) => c.id).join('\n') !== tree.root.children.map((c) => c.id).join('\n');
+
     if (viewChanged || !prev || (focus === 'root' && reposChanged) || !tree.nodes.has(focus)) {
       setFocus('root');
       fitAll(viewChanged);
@@ -674,6 +777,7 @@ export function App() {
   // After the switch to Code for a tour stop By function couldn't show (below the fit above, so it wins).
   useEffect(() => {
     const target = pendingStop.current;
+
     if (!target || tree?.view !== 'code' || !sized) return;
     pendingStop.current = null;
     select(target, true);
@@ -688,20 +792,28 @@ export function App() {
     const prev = tourView.current;
     tourView.current = tree.view;
     const cur = stops[tourAt];
+
     if (!touring || !cur || prev === tree.view) return;
+
     const shows = (s: TourStop) => {
       const at = locate(tree, graphIndex, s.target);
+
       return !!at && at !== tree.root.id;
     };
+
     if (shows(cur)) return;
+
     for (let d = 1; d < stops.length; d++) {
       const s = [stops[tourAt + d], stops[tourAt - d]].find((x) => x && shows(x));
+
       if (s) {
         setTour({ agent: touring.agent, stop: s.id });
         select(s.target, true);
+
         return;
       }
     }
+
     setTour(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, sized]);
@@ -712,6 +824,7 @@ export function App() {
       if (e.isComposing) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
       if (e.key === 'Escape') {
         clear();
       } else if (!typing && (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft'))) {
@@ -722,21 +835,27 @@ export function App() {
         onNodeClick(selected, !!clickVis?.open.has(selected));
       }
     };
+
     window.addEventListener('keydown', onKey);
+
     return () => window.removeEventListener('keydown', onKey);
   }, [back, selected, onNodeClick, clickVis, clear]);
 
   const altitude = useMemo(() => {
     if (!vis || !tree) return 0;
     let a = 0;
+
     for (const id of vis.open) a = Math.max(a, ALTITUDE[view][tree.nodes.get(id)?.kind ?? 'root'] ?? 0);
+
     return a;
   }, [vis, tree, view]);
 
   const contract = selectedEdge ? (contracts.find((c) => c.key === selectedEdge) ?? null) : null;
   const empty = !graph || graph.nodes.length === 0;
+
   const fitK = useMemo(() => {
     const root = L.get('root');
+
     return root && size.w ? frame(root, viewport(false), 0.46).k : 1;
   }, [L, size.w, viewport]);
 
@@ -750,8 +869,10 @@ export function App() {
   const stopKey = shownKey(stop, showing, touring?.agent);
   const [settled, setSettled] = useState<string | null>(null);
   useEffect(() => setSettled(stopKey), [stopKey]);
+
   const crumbsAt = useMemo(() => {
     if (mode !== 'zoom' || !tree || !zoomVis) return null;
+
     return (cam: Camera) => {
       const f = freeArea(viewport(detailOpen));
       const x = (f.cx - cam.tx) / cam.k;
@@ -759,11 +880,14 @@ export function App() {
       // The deepest open circle under the middle that is big enough on screen to be where you are.
       const minR = (f.side * 0.3) / cam.k;
       let here = tree.root;
+
       for (const id of zoomVis.open) {
         const n = tree.nodes.get(id);
         const c = L.get(id);
+
         if (n && c && n.depth > here.depth && c.r >= minR && (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r ** 2) here = n;
       }
+
       return ancestors(tree, here.id);
     };
   }, [mode, tree, zoomVis, L, viewport, detailOpen]);
@@ -926,6 +1050,7 @@ function Legend({
     : mode === 'click'
       ? 'point at a circle for its links · click for details, again to open it · scroll to zoom'
       : 'point at a circle for its links · scroll to zoom and open circles';
+
   return (
     <div className={`legend${besideDetail ? ' beside-detail' : ''}`}>
       <span>{hint}</span>

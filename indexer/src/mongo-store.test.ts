@@ -9,6 +9,7 @@ import { decodeKeys, encodeKeys, MongoProjectStore, ProjectConflictError, redact
 import { createStore, FileProjectStore, type SavedRepo } from './store.ts';
 
 const repos: SavedRepo[] = [{ id: 'web', name: 'web', source: 'https://github.com/org/web', kind: 'git' }];
+
 // Only the shape matters to the store; the workspace validates groupings.
 const grouping = {
   rules: [{ match: { path: 'web/src/**' }, domain: 'items' }],
@@ -44,6 +45,7 @@ test('connection strings pasted with their .env quotes still work', () => {
 test('createStore uses files when MONGODB_URI is unset or MongoDB is unusable', async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
   const previous = process.env.MONGODB_URI;
+
   try {
     delete process.env.MONGODB_URI;
     assert.ok((await createStore(home)) instanceof FileProjectStore);
@@ -80,15 +82,18 @@ async function withDb(name: string, run: (open: () => Promise<MongoProjectStore>
   const dbName = `fiada_test_${name}_${process.pid}`;
   const raw = new MongoClient(mongoUri!);
   const opened: MongoProjectStore[] = [];
+
   try {
     await run(async () => {
       const store = await MongoProjectStore.connect(mongoUri!, dbName);
       opened.push(store);
+
       return store;
     }, raw);
   } finally {
     await raw.db(dbName).dropDatabase().catch(() => {});
     await raw.close();
+
     for (const s of opened) await s.close();
   }
 }

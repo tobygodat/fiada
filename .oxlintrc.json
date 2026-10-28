@@ -40,7 +40,7 @@
     // The rules below found code written before the linter. Each is off until a
     // cleanup PR adopts it (TOB-222); they don't change behaviour, so none blocks.
     // 5,041 findings: the code packs short statements without blank lines; adopting it is a whitespace-only rewrite of every file.
-    "anti-slop/require-readable-spacing": "off",
+    "anti-slop/require-readable-spacing": "error",
     // 233 findings: casts over parsed JSON and tree-sitter nodes carry no comment yet.
     "anti-slop/require-safety-comment-for-type-assertion": "off",
     // 80 findings: typeof guards are how the indexer and agent check untrusted JSON at their boundaries.

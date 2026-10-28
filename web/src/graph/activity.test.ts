@@ -38,6 +38,7 @@ test('By function view counts symbols under their layer and domain', () => {
 });
 
 const file = (path: string, at: string, symbols: AgentFile['symbols'] = []): AgentFile => ({ repo: 'web', path, node: `web/${path}`, kind: 'modified', symbols, at, diff: true });
+
 const agent = (state: AgentActivity['state'], files: AgentFile[]): AgentActivity => ({
   id: `a-${state}`,
   client: 'claude-code',
@@ -53,9 +54,11 @@ const agent = (state: AgentActivity['state'], files: AgentFile[]): AgentActivity
 
 test('a working agent is here: at the file it changed last, and inside every circle round it', () => {
   const tree = buildCodeTree(graph);
+
   const a = rollupActivity(tree, graphIndex, nodes, [
     agent('working', [file('src/pages/tags.tsx', '2026-09-27T10:00:10Z'), file('src/pages/items.tsx', '2026-09-27T10:00:20Z')]),
   ]);
+
   assert.equal(a.get('web/src/pages/items.tsx')?.here, 'self');
   assert.equal(a.get('web/src/pages')?.here, 'inside');
   assert.equal(a.get('web')?.here, 'inside');
@@ -66,6 +69,7 @@ test('a working agent is here: at the file it changed last, and inside every cir
 
 test('an agent that waits, or has ended, is nowhere', () => {
   const tree = buildCodeTree(graph);
+
   for (const state of ['waiting', 'ended'] as const) {
     const a = rollupActivity(tree, graphIndex, nodes, [agent(state, [file('src/pages/items.tsx', '2026-09-27T10:00:20Z')])]);
     assert.equal(a.get('web/src/pages/items.tsx')?.here, null, state);
@@ -82,11 +86,13 @@ test('By function: the agent is at the symbols it changed in that file', () => {
 
 test("one agent's changes: the circles standing for them, and every circle round them", () => {
   const tree = buildCodeTree(graph);
+
   const mixed: Record<string, NodeChange> = {
     ...nodes,
     'web/src/client/api.ts': { ...change('modified', 'file', 40), agents: ['b'] },
     'web/src/pages/about.tsx': { ...change('modified', 'file', 50), agents: ['a', 'b'] },
   };
+
   assert.deepEqual(Object.keys(agentNodes(mixed, 'b')).sort(), ['web/src/client/api.ts', 'web/src/pages/about.tsx']);
   const s = spotlight(tree, graphIndex, mixed, 'b');
   assert.deepEqual(s?.targets, ['web/src/client/api.ts', 'web/src/pages/about.tsx']);
@@ -125,9 +131,11 @@ test('a changed route ripples to the client requesting it, across repositories, 
     {},
     edges,
   );
+
   // The request to read_items is proven; the guessed one goes to create_item, which didn't change.
   assert.deepEqual(ripple(a.get('web/src/client/api.ts#ItemsService')), { reached: 'evidenced', ripple: 0 });
   assert.deepEqual(ripple(a.get('web/src/client/api.ts')), { reached: 'evidenced', ripple: 0 });
+
   for (const id of ['web/src/client', 'web/src', 'web']) assert.deepEqual(ripple(a.get(id)), { reached: 'evidenced', ripple: 1 }, id);
   // The change itself, and what it calls, aren't dependents.
   assert.equal(a.get('api/app/routes/items.py#read_items')?.reached, null);
@@ -178,6 +186,7 @@ test('a dependent the agent changed too is marked as a change, not as a dependen
     {},
     edges,
   );
+
   assert.equal(a.get('web/src/pages/items.tsx#useItems')?.reached, null);
   // ItemsPage calls the changed useItems: inside a changed file, so marked but not counted above it.
   assert.equal(a.get('web/src/pages/items.tsx#ItemsPage')?.reached, 'evidenced');
@@ -203,10 +212,12 @@ test('a file that imports a change is a dependent itself, not only the circle ro
 
 test('a file another agent changed at its top level stays whole, however narrowly a second agent changed it', () => {
   const by = (kind: NodeChange['kind'], unit: NodeChange['unit'], agents: string[]): NodeChange => ({ kind, unit, at: 10, agents });
+
   const both = {
     'api/app/routes/items.py': by('modified', 'file', ['a', 'b']),
     'api/app/routes/items.py#read_items': by('modified', 'symbol', ['b']),
   };
+
   // Agent a touched only the top level, so the guessed request to create_item is reached too.
   const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], null, {}, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'evidenced');

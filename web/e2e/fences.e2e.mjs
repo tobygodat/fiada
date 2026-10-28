@@ -24,12 +24,16 @@ import { chromium } from 'playwright';
 
 const args = process.argv.slice(2);
 const repoDir = args[0] && path.resolve(args[0]);
+
 if (!repoDir || !args.includes('--scratch')) {
   console.error('usage: node web/e2e/fences.e2e.mjs <scratch clone> --scratch [--out <dir>]');
   process.exit(1);
 }
+
 const out = path.resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : 'e2e-out');
+
 fs.mkdirSync(out, { recursive: true });
+
 const API = process.env.FIADA_URL ?? 'http://127.0.0.1:4178';
 const MAP = process.env.FIADA_MAP ?? 'http://localhost:5178/';
 const HOOK = fileURLToPath(new URL('../../agent/bin/fiada-hook.mjs', import.meta.url));
@@ -38,7 +42,9 @@ const api = async (method, p, body) => {
   // oxlint-disable-next-line unicorn/no-invalid-fetch-options -- GET calls pass no body, so body is undefined there
   const res = await fetch(`${API}${p}`, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body && JSON.stringify(body) });
   const json = await res.json();
+
   if (!res.ok) throw new Error(`${method} ${p}: ${res.status} ${JSON.stringify(json)}`);
+
   return json;
 };
 
@@ -57,11 +63,13 @@ const hook = (payload) =>
 async function agent(session, prompt) {
   await hook({ session_id: session, hook_event_name: 'SessionStart', source: 'startup' });
   await hook({ session_id: session, hook_event_name: 'UserPromptSubmit', prompt });
+
   return {
     async edit(rel, oldText, newText) {
       const input = { file_path: path.join(repoDir, rel), old_string: oldText, new_string: newText };
       const said = await hook({ session_id: session, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: input });
       const answer = said ? JSON.parse(said).hookSpecificOutput : null;
+
       // Claude Code runs the edit only when the hook let it through (an "ask" waits for the person; this script says no).
       if (!answer) {
         const file = path.join(repoDir, rel);
@@ -70,17 +78,22 @@ async function agent(session, prompt) {
         fs.writeFileSync(file, text.replace(oldText, newText));
         await hook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: input, tool_response: {} });
       }
+
       return answer;
     },
   };
 }
 
 const step = (s) => console.log(`· ${s}`);
+
 const until = async (what, fn, ms = 10_000) => {
   const end = Date.now() + ms;
+
   for (;;) {
     const v = await fn().catch(() => null);
+
     if (v) return v;
+
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -90,48 +103,66 @@ const until = async (what, fn, ms = 10_000) => {
 const real = fs.realpathSync(repoDir);
 let ws = await api('GET', '/api/workspace');
 let repo = ws.repos.find((r) => r.source === real || r.source === repoDir);
+
 if (!repo) {
   step(`importing ${repoDir}`);
   ws = await api('POST', '/api/repos', { source: repoDir });
   repo = ws.repos.find((r) => r.source === real || r.source === repoDir);
 }
+
 await until('the repository to be indexed', async () => !(await api('GET', '/api/workspace')).busy && (await api('GET', '/api/workspace')).repos.find((r) => r.id === repo.id)?.status === 'ready', 60_000);
+
 const R = repo.id;
 const ROUTES = `${R}/backend/app/api/routes`;
 const CORE = `${R}/backend/app/core`;
 const LOGIN = `${R}/backend/app/api/routes/login.py`;
+
 execFileSync('git', ['-C', repoDir, 'checkout', '--', '.']);
+
 await api('DELETE', '/api/agent');
+
 for (const f of (await api('GET', '/api/fences')).fences) await api('PUT', '/api/fences', { node: f.node, rule: null });
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined) });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
+
 // The recording: each frame Chromium paints, with when it was painted.
 const framesDir = path.join(out, 'frames');
+
 fs.rmSync(framesDir, { recursive: true, force: true });
+
 fs.mkdirSync(framesDir);
+
 const frames = [];
 const cdp = await context.newCDPSession(page);
+
 cdp.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
   const file = path.join(framesDir, `${String(frames.length).padStart(5, '0')}.jpg`);
   fs.writeFileSync(file, Buffer.from(data, 'base64'));
   frames.push({ file, t: metadata.timestamp });
   cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
 });
+
 await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 85, maxWidth: 1440, maxHeight: 900, everyNthFrame: 1 });
+
 const errors = [];
+
 page.on('pageerror', (e) => errors.push(e.message));
+
 const shot = (name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 const pause = (ms = 700) => page.waitForTimeout(ms);
 const row = (name) => page.locator('.outline-row', { has: page.locator('.outline-name', { hasText: new RegExp(`^${name.replace(/[.]/g, '\\.')}$`) }) }).first();
+
 /** Opens the structure outline down to `names` and selects the last one. */
 async function open(...names) {
   for (const n of names.slice(0, -1)) {
     const r = row(n);
+
     if ((await r.locator('.chev').getAttribute('aria-expanded')) !== 'true') await r.locator('.chev').click();
     await pause(150);
   }
+
   await row(names.at(-1)).locator('.outline-name').click();
   await pause(1200);
 }
@@ -147,10 +178,13 @@ try {
   assert.equal(await a.edit('backend/app/api/routes/items.py', 'skip: int = 0, limit: int = 100', 'skip: int = 0, limit: int = 50'), null);
   const b = await agent('b7c2-e2e', 'Lock down user updates');
   assert.equal(await b.edit('backend/app/api/routes/users.py', 'def update_user_me(', 'def update_user_me_locked('), null);
+
   const state = await until('the collision', async () => {
     const s = await api('GET', '/api/agent/state');
+
     return s.collisions.length ? s : null;
   });
+
   assert.deepEqual(state.collisions.map((c) => [c.node, c.unit, c.agents.length]), [[ROUTES, 'folder', 2]]);
   const line = page.locator('.queue-collision').first();
   await line.waitFor();
@@ -257,17 +291,21 @@ try {
 } finally {
   await cdp.send('Page.stopScreencast').catch(() => {});
   await context.close();
+
   // Frames to a video at the pace they were painted.
   if (frames.length > 1) {
     const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.01, (frames[i + 1]?.t ?? f.t + 1) - f.t).toFixed(3)}`).join('\n');
     fs.writeFileSync(path.join(framesDir, 'list.txt'), `${list}\nfile '${frames.at(-1).file}'\n`);
+
     try {
       execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', path.join(framesDir, 'list.txt'), '-vf', 'fps=25,scale=1440:-2', '-pix_fmt', 'yuv420p', path.join(out, 'fences.mp4')]);
     } catch {
       console.log(`no ffmpeg: the recording is the frames in ${framesDir}`);
     }
   }
+
   await browser.close();
+
   // Leave the project and the clone as they were.
   for (const f of (await api('GET', '/api/fences')).fences) await api('PUT', '/api/fences', { node: f.node, rule: null });
   await api('DELETE', '/api/agent');

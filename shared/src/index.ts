@@ -98,6 +98,7 @@ export interface LayerDef {
 
 /** Where code no matcher or neighbour places goes, so it's visible rather than guessed. */
 export const UNLAYERED = 'unlayered';
+
 /** Domains for code split evenly between several domains, and for code with no signal at all. */
 export const SHARED_DOMAIN = 'shared';
 export const UNSORTED_DOMAIN = 'unsorted';

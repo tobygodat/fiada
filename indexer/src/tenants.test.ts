@@ -33,6 +33,7 @@ test("one person's project never shows another's repositories, files or agents",
   const store = new FileProjectStore(home);
   const ada = await project(store, home, 'gh-1');
   const bob = await project(store, home, 'gh-2');
+
   try {
     const repo = await ada.ws.add(code);
     await settle(ada);
@@ -64,15 +65,18 @@ test('projects open once however many requests arrive, and close when idle', asy
   let t = 0;
   let opened = 0;
   const closed: string[] = [];
+
   const tenants = new Tenants(
     async (projectId) => {
       opened++;
       const idle = { state: () => ({ busy: false }) };
+
       return { projectId, ws: idle, agents: { watched: false }, close: async () => void closed.push(projectId) } as unknown as Tenant;
     },
     1000,
     () => t,
   );
+
   const who = { login: 'ada', privateRepos: false };
   const [a, b] = await Promise.all([tenants.get('gh-1', who), tenants.get('gh-1', who)]);
   assert.equal(a, b);

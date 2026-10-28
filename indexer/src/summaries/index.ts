@@ -65,7 +65,9 @@ export class Summaries {
   async init() {
     try {
       const saved = (await this.o.store.loadSummaries?.(this.o.projectId)) ?? {};
+
       for (const [hash, s] of Object.entries(saved)) this.cache.set(hash, s);
+
       if (this.cache.size) this.log(`loaded ${this.cache.size} saved summaries`);
     } catch (err) {
       this.log(`couldn't load saved summaries: ${(err as Error).message}`);
@@ -76,6 +78,7 @@ export class Summaries {
   setGraph(graph: Graph) {
     this.gi = indexGraph(graph);
     this.texts.clear();
+
     if (!this.o.llm) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.startEager(), this.o.debounceMs ?? 1500);
@@ -84,24 +87,31 @@ export class Summaries {
   /** The summary of one node, starting its generation if it has none yet. Null for an id the graph doesn't have. */
   async get(id: string): Promise<NodeSummary | null> {
     const gi = this.gi;
+
     if (!gi) return null;
     const derived = describe(gi, id);
+
     if (derived == null) return null;
     const n = gi.byId.get(id);
     const doc = n ? await this.doc(n) : '';
     const base: NodeSummary = { node: id, line: derived, ...(doc ? { doc } : {}), status: 'off' };
+
     if (!this.o.llm) return { ...base, off: `set ${KEY_HINT} on the indexer for generated summaries` };
 
     const it = await this.itemFor(gi, id);
+
     if (!it) return { ...base, status: 'error', error: "Couldn't read this code from the indexer's checkout." };
     const hit = this.cache.get(it.hash);
+
     if (hit) return { ...base, generated: hit, status: 'ready' };
     const failure = this.failed.get(it.hash);
+
     if (failure && Date.now() - failure.at < RETRY_MS) return { ...base, status: 'error', error: failure.message };
 
     if (it.kind === 'symbol') this.job(`file:${it.group}`, () => this.writeSymbols(gi, it.group!, it.node));
     // Containers above files wait for the eager pass while it's due or running, since they're written from their children's summaries.
     else if (it.kind === 'file' || (!this.eagerRun && !this.timer)) this.job(`item:${it.hash}`, () => this.write([it], 'high'));
+
     return { ...base, status: 'pending' };
   }
 
@@ -113,6 +123,7 @@ export class Summaries {
   /** The best summary a node has right now, without writing one: the generated one when it is written, else the line. */
   brief(id: string): string | undefined {
     const gi = this.gi;
+
     return (gi && this.summaryOf(gi)(id)) || undefined;
   }
 
@@ -124,10 +135,13 @@ export class Summaries {
         this.timer = undefined;
         this.startEager();
       }
+
       const pending = [this.eagerRun, ...this.jobs.values()].filter(Boolean);
+
       if (!pending.length) break;
       await Promise.all(pending);
     }
+
     await this.flush();
   }
 
@@ -136,17 +150,21 @@ export class Summaries {
   private text(n: GraphNode): Promise<string | null> {
     const key = `${n.repo}\0${n.path}`;
     let p = this.texts.get(key);
+
     if (!p) {
       p = this.o.read(n.repo, n.path!).catch(() => null);
       this.texts.set(key, p);
     }
+
     return p;
   }
 
   private async doc(n: GraphNode): Promise<string> {
     if ((n.kind !== 'file' && n.kind !== 'symbol') || !n.path) return '';
     const text = await this.text(n);
+
     if (!text) return '';
+
     return n.kind === 'file' ? fileDoc(text, n.lang) : symbolDoc(text, n);
   }
 
@@ -154,7 +172,9 @@ export class Summaries {
   private summaryOf = (gi: GraphIndex) => (id: string) => {
     const kid = gi.byId.get(id);
     const known = this.known.get(id);
+
     if (known && this.cache.has(known)) return this.cache.get(known)!.text;
+
     return (kid && describe(gi, id)) ?? '';
   };
 
@@ -163,20 +183,28 @@ export class Summaries {
 
   private remember(it: Item): Item {
     this.known.set(it.node, it.hash);
+
     return it;
   }
 
   private async itemFor(gi: GraphIndex, id: string): Promise<Item | null> {
     const g = parseGroupId(gi, id);
+
     if (g) return this.remember(groupItem(gi, id, g, this.summaryOf(gi)));
     const n = gi.byId.get(id);
+
     if (!n) return null;
+
     if (n.kind === 'file') return this.remember(fileItem(gi, n, await this.text(n)));
+
     if (n.kind === 'symbol') {
       const text = await this.text(n);
+
       return text == null ? null : this.remember(symbolItem(gi, n, text.split('\n')));
     }
+
     if (n.kind === 'folder') return this.remember(folderItem(gi, n, this.summaryOf(gi)));
+
     return this.remember(repoItem(gi, n, this.summaryOf(gi)));
   }
 
@@ -184,35 +212,45 @@ export class Summaries {
 
   private job(key: string, run: () => Promise<void>) {
     if (this.jobs.has(key)) return;
+
     const p = run()
       .catch((err) => this.log(`summaries: ${(err as Error).message}`))
       .finally(() => this.jobs.delete(key));
+
     this.jobs.set(key, p);
   }
 
   private startEager() {
     this.timer = undefined;
+
     if (!this.o.llm || !this.gi) return;
+
     if (this.o.busy?.()) {
       this.timer = setTimeout(() => this.startEager(), 1000);
+
       return;
     }
+
     if (this.eagerRun) {
       // Running against an older graph: it stops between phases; go again after.
       this.rerun = true;
+
       return;
     }
+
     const gi = this.gi;
     const started = Date.now();
     const before = { ...this.stats };
     this.eagerRun = this.eager(gi)
       .then(() => {
         const calls = this.stats.calls - before.calls;
+
         if (calls) this.log(`summaries: wrote ${this.stats.items - before.items} in ${calls} request${calls === 1 ? '' : 's'} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
       })
       .catch((err) => this.log(`summaries: ${(err as Error).message}`))
       .finally(() => {
         this.eagerRun = null;
+
         if (this.rerun) {
           this.rerun = false;
           this.startEager();
@@ -225,6 +263,7 @@ export class Summaries {
     const nodes = gi.graph.nodes;
     const files = await Promise.all(nodes.filter((n) => n.kind === 'file').map((n) => this.itemFor(gi, n.id)));
     await this.write(files.filter((x): x is Item => !!x), 'low');
+
     if (this.gi !== gi) return;
 
     // Deepest folders first, so a folder can read its subfolders' summaries within the same phase's later batches.
@@ -233,16 +272,20 @@ export class Summaries {
     // The function view's groups: domains, and each layer within one, over symbols and symbol-less files.
     const leaves = nodes.filter((n) => n.kind === 'symbol' || (n.kind === 'file' && !gi.children.get(n.id)?.some((c) => c.kind === 'symbol')));
     const groups = new Set<string>();
+
     for (const n of leaves) {
       const d = `domain:${n.domain?.id ?? UNSORTED_DOMAIN}`;
       groups.add(d).add(`${d}/${n.layer?.id ?? UNLAYERED}`);
     }
+
     const second = await Promise.all([...groups].map((id) => this.itemFor(gi, id)));
     await this.write(second.filter((x): x is Item => !!x), 'low');
+
     for (const level of levels(folders, depth)) {
       if (this.gi !== gi) return;
       await this.write(await Promise.all(level.map((f) => this.itemFor(gi, f.id))).then((xs) => xs.filter((x): x is Item => !!x)), 'low');
     }
+
     if (this.gi !== gi) return;
     const repos = await Promise.all(nodes.filter((n) => n.kind === 'repo').map((n) => this.itemFor(gi, n.id)));
     await this.write(repos.filter((x): x is Item => !!x), 'low');
@@ -251,8 +294,10 @@ export class Summaries {
   /** A file's symbols that have no summary yet, the selected one first, in as few requests as fit. */
   private async writeSymbols(gi: GraphIndex, fileId: string, first: string) {
     const file = gi.byId.get(fileId);
+
     if (!file) return;
     const text = await this.text(file);
+
     if (text == null) return;
     const lines = text.split('\n');
     const symbols = (gi.children.get(fileId) ?? []).filter((c) => c.kind === 'symbol');
@@ -267,45 +312,55 @@ export class Summaries {
     const unique = new Map(queue.map((it) => [it.hash, it]));
     const todo = [...unique.values()];
     const workers: Promise<void>[] = [];
+
     const next = async (): Promise<void> => {
       while (todo.length) {
         await this.slot(priority);
+
         try {
           const batch = takeBatch(todo).filter((it) => !this.cache.has(it.hash) && !this.claimed.has(it.hash));
+
           if (batch.length) await this.run({ items: batch, context });
         } finally {
           this.release();
         }
       }
     };
+
     for (let i = 0; i < (this.o.concurrency ?? 3); i++) workers.push(next());
     await Promise.all(workers);
   }
 
   private recentlyFailed(hash: string) {
     const f = this.failed.get(hash);
+
     return !!f && Date.now() - f.at < RETRY_MS;
   }
 
   /** One request. A reply that was cut off or unreadable is retried as two halves; one that failed outright marks its items. */
   private async run(batch: Batch): Promise<void> {
     const llm = this.o.llm!;
+
     for (const it of batch.items) this.claimed.add(it.hash);
+
     try {
       const text = prompt(batch);
       this.stats.calls++;
       this.stats.promptChars += text.length + SYSTEM.length;
+
       const reply = (await llm.json({
         label: `summaries of ${batch.items.length} ${batch.items[0].kind === 'symbol' ? 'symbols' : 'nodes'}`,
         system: [SYSTEM],
         prompt: text,
         schema: replySchema(batch.items.length),
       })) as { summaries?: { id?: unknown; summary?: unknown }[] };
+
       const at = new Date().toISOString();
       const missing: Item[] = [];
       const texts = matchReply(batch.items, Array.isArray(reply?.summaries) ? reply.summaries : []);
       batch.items.forEach((it, i) => {
         const s = texts[i];
+
         if (!s) return void missing.push(it);
         const stored = { text: s, model: llm.model, at };
         this.cache.set(it.hash, stored);
@@ -313,24 +368,30 @@ export class Summaries {
         this.stats.items++;
       });
       this.scheduleSave();
+
       for (const it of batch.items) this.claimed.delete(it.hash);
+
       if (missing.length && missing.length < batch.items.length) await this.run({ ...batch, items: missing });
       else if (missing.length) this.fail(missing, 'The model left these out of its reply.');
     } catch (err) {
       for (const it of batch.items) this.claimed.delete(it.hash);
+
       // A reply that was cut off, declined or unreadable may be one item's fault: try the halves.
       if (batch.items.length > 1 && (err instanceof SyntaxError || /cut off|declined/.test((err as Error).message))) {
         const half = Math.ceil(batch.items.length / 2);
         await this.run({ ...batch, items: batch.items.slice(0, half) });
         await this.run({ ...batch, items: batch.items.slice(half) });
+
         return;
       }
+
       this.fail(batch.items, describeLLMError(err));
     }
   }
 
   private fail(items: Item[], message: string) {
     this.stats.failures += items.length;
+
     for (const it of items) this.failed.set(it.hash, { message, at: Date.now() });
     this.log(`summaries: ${items.length} not written: ${message}`);
   }
@@ -338,13 +399,16 @@ export class Summaries {
   private async slot(priority: 'high' | 'low') {
     if (this.active < (this.o.concurrency ?? 3)) {
       this.active++;
+
       return;
     }
+
     await new Promise<void>((resolve) => this.waiting[priority].push(resolve));
   }
 
   private release() {
     const next = this.waiting.high.shift() ?? this.waiting.low.shift();
+
     if (next) next();
     else this.active--;
   }
@@ -367,8 +431,10 @@ export class Summaries {
     clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
     const entries = this.unsaved;
+
     if (!Object.keys(entries).length || !this.o.store.saveSummaries) return;
     this.unsaved = {};
+
     try {
       await this.o.store.saveSummaries(this.o.projectId, entries);
     } catch (err) {
@@ -386,6 +452,8 @@ export class Summaries {
 /** Folders grouped by depth, deepest first. */
 function levels(folders: GraphNode[], depth: (n: GraphNode) => number): GraphNode[][] {
   const by = new Map<number, GraphNode[]>();
+
   for (const f of folders) by.set(depth(f), [...(by.get(depth(f)) ?? []), f]);
+
   return [...by].sort((a, b) => b[0] - a[0]).map(([, fs]) => fs);
 }
