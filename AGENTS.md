@@ -21,10 +21,10 @@ A map of your codebase that sorts itself, explains itself, and lights up where y
 - `bun run test` (never `bun test`)
 - `bun run build`
 - Run `bun run dev`, then drive these flows at http://localhost:5178 with `agent-browser` and attach screenshots:
-  - Import a repository (a local checkout's absolute path, or `fastapi/full-stack-fastapi-template`): its circle appears on the map and its row under **repositories**.
+  - Import `fastapi/full-stack-fastapi-template`: its row under **repositories** gives files and symbols, and its circle fills the map.
   - Click a circle: the detail panel names it and says what it does. Click it again: it opens in place with its children.
-  - Switch **view** to **by function** and click a link's tag: the contract panel lists the interactions and the code behind each.
-  - For a visible change, repeat it in the light theme (`setTheme('light')`).
+  - Switch **view** to **by function**, open **Items**, and click the link from Client to API: the contract panel lists 5 HTTP requests, and **why** shows the request, route and mounts behind one.
+  - For a visible change, repeat it under both **theme** words, **dark** and **light**.
 
 ## Rules
 
