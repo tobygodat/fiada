@@ -1,5 +1,5 @@
-# Typecheck, test and build on every pull request and every push to main:
-# the same three commands AGENTS.md asks for before a push, each in its own
+# Typecheck, lint, test and build on every pull request and every push to
+# main: the same commands AGENTS.md asks for before a merge, each in its own
 # job so they run side by side and the run takes as long as the slowest one.
 name: ci
 
@@ -21,10 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
-      # One failure doesn't cancel the others, so a run reports all three.
+      # One failure doesn't cancel the others, so a run reports all of them.
       fail-fast: false
       matrix:
-        task: [typecheck, test, build]
+        task: [typecheck, lint, test, build]
     steps:
       - uses: actions/checkout@v5
 

@@ -15,13 +15,16 @@
     "dev": "concurrently -k -n indexer,web -c yellow,cyan \"bun run --cwd indexer dev\" \"bun run --cwd web dev\"",
     "build": "bun run --cwd web build",
     "typecheck": "tsc -p shared && tsc -p indexer && tsc -p web && tsc -p agent",
+    "lint": "oxlint --deny-warnings",
     "test": "bun run --cwd indexer test && bun run --cwd web test && bun run --cwd agent test",
     "index": "bun run --cwd indexer index",
     "agent:setup": "bun run --cwd agent setup",
     "agent:build": "bun run --cwd agent build"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.90.0",
     "concurrently": "^9.2.1",
+    "oxlint": "1.90.0",
     "typescript": "~5.9.3"
   },
   "engines": {
