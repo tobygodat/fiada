@@ -1,0 +1,65 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    ".agent/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".windsurf/**",
+    "**/dist/**",
+    ".fiada/**",
+    ".strata/**",
+    // Scripts recorded with a merged PR's media, kept as a record and not run again.
+    "docs/pr-media/**",
+    "tools/oxlint/anti-slop/**"
+  ],
+  "jsPlugins": [
+    { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }
+  ],
+  "rules": {
+    // Destructuring a field away to keep the rest is how tests drop fields.
+    "no-unused-vars": ["error", { "ignoreRestSiblings": true }],
+    // The code uses comma sequences as single-statement loop and branch bodies on purpose.
+    "no-unused-expressions": "off",
+
+    "oxc/no-accumulating-spread": "error",
+    "anti-slop/no-reduce-accumulator-copy": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-widen-then-assert": "error",
+
+    // The rules below found code written before the linter. Each is off until a
+    // cleanup PR adopts it (TOB-222); they don't change behaviour, so none blocks.
+    // 5,041 findings: the code packs short statements without blank lines; adopting it is a whitespace-only rewrite of every file.
+    "anti-slop/require-readable-spacing": "off",
+    // 233 findings: casts over parsed JSON and tree-sitter nodes carry no comment yet.
+    "anti-slop/require-safety-comment-for-type-assertion": "off",
+    // 80 findings: typeof guards are how the indexer and agent check untrusted JSON at their boundaries.
+    "anti-slop/no-runtime-typeof": "off",
+    // 76 findings: annotations widen literal defaults in existing modules.
+    "anti-slop/no-known-value-widening": "off",
+    // 51 findings: `...(x ? { k } : {})` is the code's idiom for optional fields.
+    "anti-slop/no-conditional-empty-object-spread": "off",
+    // 32 findings: hook payloads, MCP messages and JSON bodies arrive as unknown and are narrowed inside.
+    "anti-slop/no-unknown-parameters": "off",
+    // 27 findings: double casts over tree-sitter and Mongo documents.
+    "anti-slop/no-chained-type-assertions": "off",
+    // 23 findings: Record<string, ...> maps keyed by ids.
+    "anti-slop/no-unsafe-dictionary-type": "off",
+    // 13 findings: store and model loaders return parsed JSON for callers to check.
+    "anti-slop/no-unknown-returns": "off",
+    // 12 findings: the suggested iterator helpers need Node 22, and engines allows 20.19.
+    "anti-slop/no-array-filter-map": "off",
+    // 3 findings, all in agent tests that post arbitrary payloads.
+    "anti-slop/no-object-parameters": "off"
+  }
+}

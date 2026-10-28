@@ -24,7 +24,7 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** True for addresses only this machine can reach. */
 export function isLoopback(host: string): boolean {
-  return host === 'localhost' || host === '::1' || /^127\./.test(host);
+  return host === 'localhost' || host === '::1' || host.startsWith('127.');
 }
 
 /** Variables that hosting platforms set in every container they run. */

@@ -224,7 +224,7 @@ function classBody(def: SyntaxNode, name: string): ClassBody {
     const assign = stmt.type === 'expression_statement' ? stmt.namedChildren.find((x) => x.type === 'assignment') : null;
     if (!assign) continue;
     const type = assign.childForFieldName('type')?.text ?? '';
-    if (/^Mapped\[/.test(type)) out.columns = true;
+    if (type.startsWith('Mapped[')) out.columns = true;
     for (const call of assign.descendantsOfType('call')) {
       const fn = call.childForFieldName('function')?.text ?? '';
       const args = call.childForFieldName('arguments')?.namedChildren ?? [];

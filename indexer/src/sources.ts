@@ -168,7 +168,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
       const text = (await readWithin(realRoot, rel)) ?? '';
       if (base.endsWith('.txt')) {
         for (const l of text.split('\n')) {
-          const name = l.trim().split(/[<>=~!\[; #]/)[0];
+          const name = l.trim().split(/[<>=~![; #]/)[0];
           if (name && !name.startsWith('-')) pyDeps.add(name.toLowerCase());
         }
       } else {

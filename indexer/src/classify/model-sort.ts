@@ -58,6 +58,7 @@ const obj = (properties: Record<string, unknown>) => ({ type: 'object', addition
 const oneOf = (values: string[]) => (values.length ? { type: 'string', enum: values } : { type: 'string' });
 
 async function pool<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  // oxlint-disable-next-line unicorn/no-new-array -- sized up front so each worker writes its result at its item's index
   const out: R[] = new Array(items.length);
   let next = 0;
   const worker = async () => {

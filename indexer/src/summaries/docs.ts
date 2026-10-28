@@ -101,7 +101,7 @@ export function fileDoc(text: string, lang?: string): string {
   const lines = text.split('\n');
   let i = 0;
   // Shebangs, encodings and blank lines come before a module's doc.
-  while (i < lines.length && (/^\s*$/.test(lines[i]) || /^#!/.test(lines[i]) || /^#.*coding[:=]/.test(lines[i]))) i++;
+  while (i < lines.length && (/^\s*$/.test(lines[i]) || lines[i].startsWith('#!') || /^#.*coding[:=]/.test(lines[i]))) i++;
   if (lang === 'python') {
     while (i < lines.length && /^\s*#/.test(lines[i])) i++;
     while (i < lines.length && /^\s*$/.test(lines[i])) i++;

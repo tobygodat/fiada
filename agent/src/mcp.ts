@@ -478,7 +478,7 @@ export async function runMcp() {
     }
   });
   // The client closed our stdin: answer what's in flight, then go.
-  process.stdin.on('end', () => void Promise.allSettled([...inflight]).then(() => process.exit(0)));
+  process.stdin.on('end', () => void Promise.allSettled(inflight).then(() => process.exit(0)));
   log(`ready; sending to ${FIADA_URL}`);
 }
 

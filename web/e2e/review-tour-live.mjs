@@ -111,7 +111,7 @@ try {
   await page.waitForTimeout(400);
   const crudTicks = async () =>
     (await page.locator('.tour-tick').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).filter((l) => /: (create_item|items_by_priority),/.test(l));
-  assert.ok((await crudTicks()).every((l) => /, read$/.test(l)), 'both read');
+  assert.ok((await crudTicks()).every((l) => l.endsWith(', read')), 'both read');
   writeFileSync(join(repo, CRUD), readFileSync(join(repo, CRUD), 'utf8').replace('import Session, col, select', 'import Session, col, func, select'));
   hook('demo-review', CRUD);
   await page.waitForTimeout(1500);

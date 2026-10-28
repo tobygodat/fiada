@@ -229,6 +229,7 @@ export async function unpackUpload(archive: Buffer, dest: string, policy: Upload
 
 /** A folder name fit to show and to derive an id from. */
 export function folderName(raw: string): string {
+  // oxlint-disable-next-line no-control-regex -- stripping control characters from the name is the point
   const name = raw.split(/[\\/]/).filter(Boolean).pop()?.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 100);
   if (!name || name === '.' || name === '..') throw new UploadError('Name the uploaded folder with ?name=<folder name>.');
   return name;
