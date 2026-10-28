@@ -161,7 +161,7 @@ export function sortedDomainList(grouping: Grouping, proposed: { id: string; nam
   if (!sorted) return proposed;
   const merges = mergeMap(grouping);
   const byId = new Map(sorted.domains.map((d) => [d.id, d]));
-  const out = proposed.filter((d) => !merges.has(d.id)).map((d) => ({ id: d.id, name: byId.get(d.id)?.name ?? d.name }));
+  const out = proposed.flatMap((d) => (merges.has(d.id) ? [] : [{ id: d.id, name: byId.get(d.id)?.name ?? d.name }]));
   const have = new Set(out.map((d) => d.id));
 
   for (const d of sorted.domains) if (d.added && !have.has(d.id) && !merges.has(d.id)) out.push({ id: d.id, name: d.name });

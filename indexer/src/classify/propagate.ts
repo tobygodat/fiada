@@ -169,8 +169,7 @@ export function seedAndPropagate(opts: PropagateOptions = {}): DomainStrategy {
       const size = (id: string) => [...seeds.values()].filter((s) => s.id === id).length;
 
       const kept = [...filesPer]
-        .filter(([, fs]) => fs.size >= 2)
-        .map(([id]) => [id, size(id)] as const)
+        .flatMap(([id, fs]) => (fs.size >= 2 ? [[id, size(id)] as const] : []))
         .sort((a, b) => b[1] - a[1])
         .slice(0, maxDomains)
         .map(([id]) => id);

@@ -237,7 +237,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
 
   // A directory is a Python import root if it holds a top-level package.
   const pyRoots = new Set<string>(['']);
-  const inits = new Set(files.filter((f) => f.path.endsWith('__init__.py')).map((f) => path.posix.dirname(f.path)));
+  const inits = new Set(files.flatMap((f) => (f.path.endsWith('__init__.py') ? [path.posix.dirname(f.path)] : [])));
 
   for (const pkg of inits) {
     const parent = path.posix.dirname(pkg);
@@ -248,7 +248,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
   for (const f of files) if (f.path.startsWith('src/') && f.lang === 'python') pyRoots.add('src');
 
   const deps = new Set([...packages.flatMap((p) => p.deps), ...pyDeps, ...goDeps]);
-  const frameworks = FRAMEWORKS.filter(([re]) => [...deps].some((d) => re.test(d))).map(([, name]) => name);
+  const frameworks = FRAMEWORKS.flatMap(([re, name]) => ([...deps].some((d) => re.test(d)) ? [name] : []));
   const languages: Record<string, number> = {};
 
   for (const f of files) {

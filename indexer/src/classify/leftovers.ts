@@ -25,7 +25,7 @@ export interface SortStats {
 
 /** The nodes the By-function view draws as leaves. */
 export function leaves(nodes: GraphNode[]): GraphNode[] {
-  const hasSymbols = new Set(nodes.filter((n) => n.kind === 'symbol').map((n) => n.parent));
+  const hasSymbols = new Set(nodes.flatMap((n) => (n.kind === 'symbol' ? [n.parent] : [])));
 
   return nodes.filter((n) => n.kind === 'symbol' || (n.kind === 'file' && !hasSymbols.has(n.id)));
 }

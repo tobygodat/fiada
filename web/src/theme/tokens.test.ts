@@ -72,7 +72,12 @@ for (const t of ['dark', 'light'] as const) {
   });
 
   test(`${t}: layer tints stay 30° from each other and from every change-state hue`, () => {
-    const change = CHANGE.map(get).map(oklch).filter((c) => c.c > 0.04);
+    const change = CHANGE.map(get).flatMap((v) => {
+      const c = oklch(v);
+
+      return c.c > 0.04 ? [c] : [];
+    });
+
     const tints = TINTS.map(get).map(oklch);
     tints.forEach((a, i) => {
       for (const b of change) assert.ok(hueGap(a.h, b.h) >= 30, `${TINTS[i]} ${a.h.toFixed(0)}° is near a change-state hue ${b.h.toFixed(0)}°`);

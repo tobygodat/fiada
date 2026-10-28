@@ -286,7 +286,7 @@ ${domainsText}`;
     };
   };
 
-  const into = new Map(sortedDomains.filter((d) => d.mergeInto).map((d) => [d.id, d.mergeInto!]));
+  const into = new Map(sortedDomains.flatMap((d) => (d.mergeInto ? [[d.id, d.mergeInto] as const] : [])));
   const merged = (id: string) => into.get(id) ?? id;
 
   const push = (m: typeof out, file: string, other: GraphNode | undefined) => {

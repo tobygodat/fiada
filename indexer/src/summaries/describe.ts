@@ -143,7 +143,7 @@ export function symbolNeighbours(gi: GraphIndex, id: string) {
   const name = (other: string) => gi.byId.get(other)?.name ?? shortName(other);
   const outE = gi.out.get(id) ?? [];
   const inE = gi.in.get(id) ?? [];
-  const pick = (es: GraphEdge[], end: 'from' | 'to', kinds: string[]) => [...new Set(es.filter((e) => kinds.includes(e.kind) && e[end] !== id).map((e) => name(e[end])))];
+  const pick = (es: GraphEdge[], end: 'from' | 'to', kinds: string[]) => [...new Set(es.flatMap((e) => (kinds.includes(e.kind) && e[end] !== id ? [name(e[end])] : [])))];
 
   return {
     calls: pick(outE, 'to', ['calls', 'http']),

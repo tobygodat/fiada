@@ -36,6 +36,7 @@
     "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/no-array-filter-map": "error",
 
     // The rules below found code written before the linter. Each is off until a
     // cleanup PR adopts it (TOB-222); they don't change behaviour, so none blocks.
@@ -57,8 +58,6 @@
     "anti-slop/no-unsafe-dictionary-type": "off",
     // 13 findings: store and model loaders return parsed JSON for callers to check.
     "anti-slop/no-unknown-returns": "off",
-    // 12 findings: the suggested iterator helpers need Node 22, and engines allows 20.19.
-    "anti-slop/no-array-filter-map": "off",
     // 3 findings, all in agent tests that post arbitrary payloads.
     "anti-slop/no-object-parameters": "off"
   }

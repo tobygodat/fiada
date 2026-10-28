@@ -388,7 +388,7 @@ export function describeMarks(m: Marks, view: Tree['view']): string {
   const n = changeCount(m);
 
   if (n) {
-    const kinds = (['added', 'modified', 'deleted'] as const).filter((k) => m[k]).map((k) => `${m[k]} ${k}`);
+    const kinds = (['added', 'modified', 'deleted'] as const).flatMap((k) => (m[k] ? [`${m[k]} ${k}`] : []));
     parts.push(`${plural(n, view === 'code' ? 'file' : 'symbol')} changed inside: ${kinds.join(', ')}`);
     parts.push(readWords(n - m.unread, n));
   }

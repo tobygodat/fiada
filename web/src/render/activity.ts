@@ -658,8 +658,7 @@ export function drawBadges(ctx: CanvasRenderingContext2D, drawn: Drawn[], marks:
         ['deleted', '−'],
       ] as const
     )
-      .filter(([k]) => m[k])
-      .map(([k, sign]) => ({ text: `${sign}${m[k]}`, color: changeColor(k), w: measure(ctx, font, `${sign}${m[k]}`) }));
+      .flatMap(([k, sign]) => (m[k] ? [{ text: `${sign}${m[k]}`, color: changeColor(k), w: measure(ctx, font, `${sign}${m[k]}`) }] : []));
 
     // How many of those you haven't opened since they changed, in words.
     if (m.unread) parts.push({ text: `${m.unread} unread`, color: token('--unread'), w: measure(ctx, font, `${m.unread} unread`) });

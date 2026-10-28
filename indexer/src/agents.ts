@@ -1255,7 +1255,7 @@ export class AgentHub {
         return;
       }
 
-      f.theirs = new Map([...f.base.keys()].filter((id) => !mine(id)).map((id) => [id, 'deleted']));
+      f.theirs = new Map([...f.base.keys()].flatMap((id) => (mine(id) ? [] : [[id, 'deleted'] as const])));
 
       for (const [id, prev] of f.symAt) {
         if (prev.back) continue;

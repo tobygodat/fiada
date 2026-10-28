@@ -257,7 +257,7 @@ const TYPE_WRAPPERS = new Set(['Mapped', 'WriteOnlyMapped', 'DynamicMapped', 'Li
 
 /** The entity class an annotation like `so.WriteOnlyMapped['Post']` or `Mapped[list[Note]]` points at. */
 function annotatedClass(type: string): string | null {
-  const names = [...type.matchAll(/[A-Z]\w*/g)].map((m) => m[0]).filter((n) => !TYPE_WRAPPERS.has(n));
+  const names = [...type.matchAll(/[A-Z]\w*/g)].flatMap(([n]) => (TYPE_WRAPPERS.has(n) ? [] : [n]));
 
   return names.pop() ?? null;
 }
