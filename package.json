@@ -18,7 +18,7 @@
     "lint": "oxlint --deny-warnings",
     "test": "bun run --cwd indexer test && bun run --cwd web test && bun run --cwd agent test",
     "index": "bun run --cwd indexer index",
-    "agent:setup": "bun run --cwd agent setup",
+    "agent:setup": "node agent/bin/fiada-setup.mjs",
     "agent:build": "bun run --cwd agent build"
   },
   "devDependencies": {

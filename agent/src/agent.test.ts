@@ -365,6 +365,24 @@ test('setup keeps a token only for the indexer it was given for', () => {
   assert.equal(flag(['--url=https://a.test'], '--url'), 'https://a.test');
 });
 
+test('setup --write takes a relative path from the folder the command was typed in', async () => {
+  const typedIn = fileURLToPath(new URL('../../docs/', import.meta.url));
+  const name = path.basename(await fs.mkdtemp(path.join(typedIn, '.fiada-setup-')));
+  const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-bin-'));
+  // A stand-in for Claude Code, so the test registers no MCP server on this machine.
+  await fs.writeFile(path.join(bin, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const { INIT_CWD: _, npm_config_local_prefix: __, ...env } = process.env;
+
+  try {
+    execFileSync('bun', ['run', 'agent:setup', '--write', name], { cwd: typedIn, env: { ...env, PATH: `${bin}${path.delimiter}${env.PATH}` }, stdio: 'pipe' });
+    const written = JSON.parse(await fs.readFile(path.join(typedIn, name, '.claude', 'settings.local.json'), 'utf8'));
+    assert.deepEqual(written.permissions.allow, ['mcp__fiada']);
+  } finally {
+    await fs.rm(path.join(typedIn, name), { recursive: true, force: true });
+    await fs.rm(fileURLToPath(new URL(`../${name}`, import.meta.url)), { recursive: true, force: true });
+  }
+});
+
 test('setup runs this copy by its path, or through npx when it lives in npx cache', () => {
   const pkg = { name: '@fiadatech/agent', version: '1.2.3' };
   const installed = commandsFor('/usr/lib/node_modules/@fiadatech/agent/bin', pkg);
