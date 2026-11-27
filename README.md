@@ -88,7 +88,7 @@ bun run agent:setup --write /absolute/path/to/your/repo
 cd /absolute/path/to/your/repo && claude
 ```
 
-`--write` adds Fiada's hooks to the repository's `.claude/settings.local.json` and registers the `fiada` MCP server with `claude mcp add`. On fiada.tech, **connect an agent** in the sidebar gives one `npx` command with your token, so no checkout of Fiada is needed. [Coding agents](docs/CODING-AGENTS.md) covers Cursor, Codex and scripts.
+`--write` adds Fiada's hooks, and a rule that lets Claude Code call Fiada's tools without asking, to the repository's `.claude/settings.local.json`. It also registers the `fiada` MCP server with `claude mcp add`. On fiada.tech, **connect an agent** in the sidebar gives one `npx` command with your token, so no checkout of Fiada is needed. [Coding agents](docs/CODING-AGENTS.md) covers Cursor, Codex and scripts.
 
 ## Stack and quality
 
