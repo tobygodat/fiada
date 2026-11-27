@@ -34,6 +34,9 @@ import { useFences } from './useFences.ts';
 import { useTheme } from './useTheme.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
+/** The whole map's radius as a share of the canvas's shorter side: it fills the canvas, with room for its name. */
+const FIT = 0.49;
+
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
 const CLICK_MAX_K = 3.5;
 
@@ -64,6 +67,13 @@ function defaultExpanded(tree: Tree): Set<string> {
 }
 
 const NO_LAYOUT = new Map<string, Circle>();
+
+/** The circle that is the whole map: the one repository or domain when there is only one, else the root round them all. */
+const whole = (tree: Tree, Lx: Map<string, Circle>) => {
+  const top = tree.root.children;
+
+  return (top.length === 1 && Lx.get(top[0].id)) || Lx.get('root');
+};
 
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((x) => b.has(x));
 
@@ -284,7 +294,7 @@ export function App() {
 
       if (!tree || !root || !size.w) return null;
       const vp = viewport();
-      const all = frame(root, vp, 0.46);
+      const all = frame(whole(tree, Lx) ?? root, vp, FIT);
       const n = tree.nodes.get(id);
       const c = Lx.get(id);
 
@@ -327,9 +337,14 @@ export function App() {
 
       // All in one circle: framed the way selecting it would.
       if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
-      const box = [...around].map((id) => Lx.get(id)!).reduce(enclose);
+      // Each with the branch it sits on: the circles just inside the one they all share, so you can tell where they are.
+      const chains = [...around].map((id) => ancestors(tree, id));
+      let shared = 0;
 
-      return mode === 'zoom' ? frame(box, viewport(), 0.36) : frame(box, viewport(), 0.36, CLICK_MAX_K);
+      while (chains.every((c) => c.length > shared + 1 && c[shared].id === chains[0][shared].id)) shared++;
+      const box = chains.map((c) => Lx.get(c[shared].id) ?? Lx.get(c[c.length - 1].id)!).reduce(enclose);
+
+      return mode === 'zoom' ? frame(box, viewport(), 0.44) : frame(box, viewport(), 0.46, CLICK_MAX_K);
     },
     [tree, size, mode, cameraFor, viewport],
   );
@@ -851,10 +866,10 @@ export function App() {
   const empty = !graph || graph.nodes.length === 0;
 
   const fitK = useMemo(() => {
-    const root = L.get('root');
+    const root = tree && whole(tree, L);
 
-    return root && size.w ? frame(root, viewport(), 0.46).k : 1;
-  }, [L, size.w, viewport]);
+    return root && size.w ? frame(root, viewport(), FIT).k : 1;
+  }, [tree, L, size.w, viewport]);
 
   // Zoom mode has no "opened" place: the breadcrumb follows the camera, to the
   // innermost open circle under the middle of the free area.
@@ -1041,8 +1056,8 @@ function Legend({
   const hint = lit
     ? `showing what ${lit} changed or looked at · esc for the whole map`
     : mode === 'click'
-      ? 'point at a circle for its links · click for details, again to open it · scroll to zoom'
-      : 'point at a circle for its links · scroll to zoom and open circles';
+      ? 'point at a circle for its links · click it for details, again to open it'
+      : 'point at a circle for its links · scroll to open it';
 
   return (
     <div className="legend">

@@ -70,7 +70,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     <section className="section">
       <div className="section-title">agents</div>
       <p className="small muted account-line">
-        Show what Claude Code is doing on this map, and let it ask the map about your code.{' '}
+        Let Claude Code show its work here.{' '}
         <button className="link" aria-expanded={open} onClick={show}>
           {open ? 'hide the setup' : 'connect an agent'}
         </button>

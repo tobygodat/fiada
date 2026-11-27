@@ -5,7 +5,7 @@
 :root {
   /* Fiada's own layout: panel widths. App.tsx keeps the map clear of them (SIDEBAR, DETAIL). */
   --fiada-sidebar: 312px;
-  --fiada-detail: 372px;
+  --fiada-detail: 352px;
   --fiada-topbar: 48px;
 }
 
@@ -251,6 +251,7 @@ a { color: inherit; }
   height: var(--size-control); padding: 0 var(--space-8) 0 var(--space-sm); font-weight: var(--weight-bold);
 }
 .sidebar-pill:hover { color: var(--accent); }
+@media (max-width: 720px) { .sidebar-pill { height: var(--size-hit); min-width: var(--size-hit); } }
 .sidebar-head { display: flex; align-items: baseline; gap: var(--space-8); padding: var(--space-sm) var(--space-8) var(--space-sm) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .sidebar-head .icon-btn { margin-left: auto; align-self: center; }
 .brand { font-size: var(--size-title); line-height: var(--leading-tight); letter-spacing: var(--tracking-title); font-weight: var(--weight-bold); }

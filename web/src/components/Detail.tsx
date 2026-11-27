@@ -276,10 +276,7 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
   ) : s.status === 'error' ? (
     <span>Couldn't write a summary: {s.error}</span>
   ) : (
-    <span>
-      {s.doc ? 'its doc comment and the map' : 'from the map'}
-      {s.off ? ` · ${s.off}` : ''}
-    </span>
+    <span title={s.off}>{s.doc ? 'its doc comment and the map' : 'from the map'}</span>
   );
 
   return (

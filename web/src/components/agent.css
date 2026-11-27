@@ -180,7 +180,8 @@
 }
 @media (max-width: 720px) {
   .queue-folded { grid-column: 1; grid-row: 2; width: auto; }
-  .main:not(:has(> .detail)) > .queue-folded { grid-column: 1 / 2; grid-row: 1 / 2; left: var(--space-md); width: auto; }
+  /* At the foot of the map, clear of the sidebar's button at its head. */
+  .main:not(:has(> .detail)) > .queue-folded { grid-column: 1 / 2; grid-row: 1 / 2; top: auto; bottom: var(--space-md); left: var(--space-md); width: auto; }
 }
 .queue-folded-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-folded-line .queue-state { margin: 0; font-size: inherit; }
