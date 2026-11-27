@@ -15,7 +15,7 @@ import { aboutToEdit, fenceAnswer, placed, firstLine, linesOf, STATUS_BRIEF, STA
 import { ask, type Asked } from './client.ts';
 import { clientId, formatImpact, nowLines, FiadaMcp } from './mcp.ts';
 import { applyConfig, configPath } from './env.ts';
-import { commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
+import { ALLOW, allowTools, commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
 // A fixture's remote is the URL it names, not what this machine's git config rewrites it to (url.<base>.insteadOf).
@@ -326,6 +326,14 @@ test('setup merges hooks without disturbing others and replaces its own', () => 
   assert.deepEqual(twice.hooks.PostToolUse[0].hooks, [mine]);
   assert.equal(twice.hooks.PostToolUse[1].hooks[0].command, 'node /y/fiada-hook.mjs');
   assert.equal(twice.hooks.Stop.length, 1);
+});
+
+test("setup lets the agent call Fiada's tools without asking, once, keeping other rules", () => {
+  const settings = { permissions: { allow: ['Bash(ls:*)'], deny: ['Read(.env)'] } };
+  const once = allowTools(settings);
+  assert.deepEqual(once.permissions, { allow: ['Bash(ls:*)', ALLOW], deny: ['Read(.env)'] });
+  assert.deepEqual(allowTools(once), once);
+  assert.deepEqual(allowTools({}).permissions, { allow: [ALLOW] });
 });
 
 test('the saved config fills in the indexer and token, and never sends the token elsewhere', () => {
