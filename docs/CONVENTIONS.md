@@ -23,8 +23,8 @@ bun run agent:build  # bundle the agent for npm
 - `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium. Set `CHROMIUM_PATH` if Playwright's browser isn't installed.
 - In cloud containers, Playwright's bundled ffmpeg is missing, so the e2e scripts record with a CDP screencast and system ffmpeg, and launch Chromium from `/opt/pw-browsers/chromium`.
 - CI (`.github/workflows/ci.yml`) runs typecheck, lint, test and build as parallel jobs on every pull request and every push to `main`. `.github/workflows/keepalive.yml` calls the hosted indexer's `/api/health` three times a day so Supabase is unlikely to pause the database.
-- Configuration lives in a gitignored `.env` at the repo root, from `.env.example`. The README's Configuration section is the full table. Every `FIADA_*` variable is also read as `STRATA_*`, and the old name wins when both are set. Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
-- Deploys: a merge to `main` deploys the map to Cloudflare Workers and the indexer to Render ([ADR 0004](adr/0004-render-and-supabase.md)). The README's Deploy section has the setup.
+- Configuration lives in a gitignored `.env` at the repo root, from `.env.example`. [Configuration](HOSTING.md#configuration) is the full table. Every `FIADA_*` variable is also read as `STRATA_*`, and the old name wins when both are set. Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
+- Deploys: a merge to `main` deploys the map to Cloudflare Workers and the indexer to Render ([ADR 0004](adr/0004-render-and-supabase.md)). [Deploy](HOSTING.md#deploy) has the setup.
 - Publishing the agent: bump `version` in `agent/package.json`, then `npm publish -w @fiadatech/agent`, which bundles it with esbuild first.
 
 ## Layout and naming
@@ -52,6 +52,28 @@ bun run agent:build  # bundle the agent for npm
 - Tests are `*.test.ts` beside the code they test, using `node:test` and `node:assert/strict`. Add or update one with any behaviour change.
 - Fixtures belong in tests only, never in the product.
 - `web/src/theme/tokens.test.ts` fails on colliding hues or low contrast. `web/src/csp.test.ts` fails when `index.html`'s inline script changes without a new hash in `web/public/_headers`.
+
+What each suite covers, and how to run the Postgres store tests:
+
+```sh
+bun run test             # indexer: route matching, layer matchers, rules and pins, the file store, a two-repo fixture end to end,
+                     #          agent changes mapped to files and symbols with incremental re-indexing
+                     # web: edge lifting, click-mode layout, camera framing, agent change roll-ups
+                     # agent: diff and status parsing, working-tree sweeps on a real git repo, the MCP handshake and tools,
+                     #        the read tools against a stand-in indexer
+                     # ask: where_is, who_uses and impact over a two-repo fixture, and the read routes on a running indexer
+                     # sign-in: signed sessions and agent tokens, sealed GitHub tokens, one person's project apart from another's
+FIADA_TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres bun run test   # also runs the Postgres store tests
+bun run typecheck
+```
+
+To measure how smoothly the map zooms and pans on a real graph (headless Chromium, both modes):
+
+```sh
+bun run build
+bun run index vercel/next.js --out "$PWD/next.graph.json"
+bun run --cwd web bench "$PWD/next.graph.json"   # needs bunx playwright install chromium, or CHROMIUM_PATH
+```
 
 ## Commits and pull requests
 

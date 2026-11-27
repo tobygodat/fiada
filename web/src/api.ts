@@ -14,7 +14,7 @@ export const apiUrl = (path: string) => `${API_BASE}${path}`;
 const UNREACHABLE = API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with bun run dev.";
 
 /** Said when /api on the page's own host is a plain 404: a deployed build without VITE_API_URL. */
-const NOT_SET_UP = 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in the README).';
+const NOT_SET_UP = 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in docs/HOSTING.md).';
 
 const KEY_ITEM = 'strata.key';
 
