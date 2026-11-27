@@ -59,7 +59,7 @@ The indexer parses 12 languages with tree-sitter compiled to WebAssembly, then r
 
 ## Run it locally
 
-You need Node 22 or later (the version CI and the container use), [bun](https://bun.sh) 1.4 or later, and git.
+Use Node 22 or later (the version CI and the container use), [bun](https://bun.sh) 1.4 or later, and git.
 
 ```sh
 git clone https://github.com/tobygodat/fiada && cd fiada
