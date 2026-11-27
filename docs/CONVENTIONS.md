@@ -79,4 +79,4 @@ bun run --cwd web bench "$PWD/next.graph.json"   # needs bunx playwright install
 
 - Commit subjects say what changed in plain words ("Map: no hover text over circles").
 - PRs target `main` and merge with a merge commit. Never rewrite `main`.
-- Codex (`chatgpt-codex-connector`) reviews every PR when it opens and after each push, and has found real bugs. Read its comments before merging.
+- No automated reviewer comments on PRs. CI runs on every PR, and before a PR is called ready, a GPT 6.2 Sol review loop (the `sol-loop` skill) reads the diff and its findings are fixed or answered.
