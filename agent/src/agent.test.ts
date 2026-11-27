@@ -9,6 +9,7 @@ import type { AgentEvent, Ambiguous, DependentsAnswer, FindAnswer, ImpactAnswer,
 import { ancestors, startedAt } from './client.ts';
 import { checkout, kindOf, merge, parseDiff, parseStatus, real } from './git.ts';
 import http from 'node:http';
+import type { Server } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { aboutToEdit, fenceAnswer, placed, firstLine, linesOf, STATUS_BRIEF, STATUS_NUDGE, sweep } from './hook.ts';
 import { ask, type Asked } from './client.ts';
@@ -18,6 +19,14 @@ import { commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextC
 import { changedSince, compare, take } from './snapshot.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+
+/** The port a server listening on TCP took. */
+function portOf(server: Server) {
+  const at = server.address();
+  assert.ok(at instanceof Object, 'listening on a port, not a pipe');
+
+  return at.port;
+}
 
 async function repo(files: Record<string, string>) {
   const dir = await real(await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-agent-')));
@@ -272,7 +281,7 @@ test('the hook briefs the agent on its status line at the start and with each pr
   });
 
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const url = `http://127.0.0.1:${portOf(server)}`;
 
   try {
     const base = { session_id: 'hook-test', cwd: dir, transcript_path: '/dev/null' };
@@ -439,7 +448,7 @@ test('the hook asks Fiada before an edit lands, as Claude Code runs it, and stay
   });
 
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const url = `http://127.0.0.1:${portOf(server)}`;
   const edit = (file: string, extra: JsonObject = {}) => ({ session_id: 'fence-test', cwd: dir, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, file), old_string: 'SECRET', new_string: 'KEY', ...extra } });
 
   try {
@@ -500,6 +509,7 @@ test('the read tools ask the map, answer in plain lines, and report what the age
     },
   }));
 
+  // SAFETY: ask's answer type is the route's, unchecked JSON from the indexer; this stand-in answers each route the test asks with that route's answer from answers.
   const asker = (async (r: string, params: Record<string, string | number | undefined>) => {
     asked.push([r, params]);
 
@@ -509,7 +519,7 @@ test('the read tools ask the map, answer in plain lines, and report what the age
   process.env.FIADA_CWD = dir;
   const mcp = new FiadaMcp(() => undefined, async (events) => (sent.push(events), { files: [] }), asker);
   delete process.env.FIADA_CWD;
-  const call = async (name: string, args: Record<string, unknown>) => (await mcp.call(name, args)) as { content: { text: string }[]; isError?: boolean };
+  const call = (name: string, args: JsonObject) => mcp.call(name, args);
 
   const where = await call('where_is', { query: 'item', limit: 2 });
   assert.deepEqual(asked[0], ['find', { q: 'item', limit: 2 }]);
@@ -527,7 +537,9 @@ test('the read tools ask the map, answer in plain lines, and report what the age
   assert.match(users.content[0].text, /^1 place uses create_item \(function in api\/app\/routes\/items\.py:61-72\):/);
   assert.match(users.content[0].text, /- ItemsService \(class\) in web\/src\/sdk\.ts:287-365, another repository\n  http, proven\n    web\/src\/sdk\.ts:308  return client\.post\(\{/);
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual((sent[1][0] as { nodes: string[] }).nodes, [route.id]);
+  const looked = sent[1][0];
+  assert.ok(looked.type === 'looked');
+  assert.deepEqual(looked.nodes, [route.id]);
 
   const reach = await call('impact', { target: item.id, depth: 2 });
   assert.deepEqual(asked[2], ['impact', { node: item.id, limit: undefined, depth: 2 }]);
@@ -568,7 +580,7 @@ test('the MCP server asks the indexer over HTTP with the agent token', async () 
   });
 
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const url = `http://127.0.0.1:${portOf(server)}`;
   const bin = fileURLToPath(new URL('../bin/fiada-mcp.mjs', import.meta.url));
 
   try {
@@ -609,7 +621,7 @@ test('the hook reports a file the agent read as looked at', async () => {
   });
 
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const url = `http://127.0.0.1:${portOf(server)}`;
 
   try {
     await runHook({ session_id: 'read-test', cwd: dir, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: 'a.py' } }, { FIADA_URL: url });

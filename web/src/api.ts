@@ -136,11 +136,11 @@ export function authHeaders(method = 'GET') {
 /** The access key this browser has for a shared indexer, for the agent setup command. */
 export const sharedKey = () => accessKey;
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
+async function call<T>(path: string, init?: Omit<RequestInit, 'body'> & { body?: string | Blob }): Promise<T> {
   const headers: Record<string, string> = authHeaders(init?.method);
 
-  if (typeof init?.body === 'string') headers['content-type'] = 'application/json';
-  else if (init?.body instanceof Blob) headers['content-type'] = init.body.type;
+  if (init?.body instanceof Blob) headers['content-type'] = init.body.type;
+  else if (init?.body !== undefined) headers['content-type'] = 'application/json';
 
   const res = await fetch(apiUrl(path), { ...init, headers }).catch(() => {
     throw new Error(UNREACHABLE);

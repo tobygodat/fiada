@@ -25,7 +25,7 @@ export async function cli(command?: string, args = process.argv.slice(2)) {
   switch (cmd) {
     case 'setup':
       return runSetup(rest).catch((err) => {
-        console.error((err as Error).message);
+        console.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
       });
     case 'hook':

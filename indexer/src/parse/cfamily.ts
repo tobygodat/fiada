@@ -8,7 +8,7 @@ import { innermost, outline, type Decl, type LangSpec, type RefSink } from './ou
 import { line, type SyntaxNode } from './treesitter.ts';
 
 const HEADER = /\.(h|hh|hpp|hxx|h\+\+|inl)$/;
-const TYPE_SPEC = { struct_specifier: 'class', union_specifier: 'class', class_specifier: 'class', enum_specifier: 'enum' } as const;
+const TYPE_SPEC = new Map(Object.entries({ struct_specifier: 'class', union_specifier: 'class', class_specifier: 'class', enum_specifier: 'enum' } as const));
 
 /** Walk down pointer, reference and init declarators to the function declarator, if there is one. */
 function functionDeclarator(n: SyntaxNode | null | undefined): SyntaxNode | null {
@@ -110,7 +110,7 @@ function makeSpec(header: boolean, namespaces: Set<string>): LangSpec {
 
           if (!name || !/^\w+$/.test(name)) return null;
           const body = type?.childForFieldName('body');
-          const kind = type && type.type in TYPE_SPEC && body ? TYPE_SPEC[type.type as keyof typeof TYPE_SPEC] : 'type';
+          const kind = (type && body ? TYPE_SPEC.get(type.type) : undefined) ?? 'type';
 
           return { as: 'type', kind, name, body };
         }
@@ -127,15 +127,16 @@ function makeSpec(header: boolean, namespaces: Set<string>): LangSpec {
         case 'enum_specifier': {
           const name = n.childForFieldName('name')?.text;
           const body = n.childForFieldName('body');
+          const kind = TYPE_SPEC.get(n.type);
 
-          if (!name || !body) return null;
+          if (!name || !body || !kind) return null;
 
           const bases = n.namedChildren
             .filter((c) => c.type === 'base_class_clause')
             .flatMap((c) => c.namedChildren.filter((b) => b.type === 'type_identifier' || b.type === 'qualified_identifier' || b.type === 'template_type'))
             .map((b) => (b.type === 'template_type' ? (b.childForFieldName('name')?.text ?? b.text) : b.text.split('::').pop()!));
 
-          return { as: 'type', kind: TYPE_SPEC[n.type as keyof typeof TYPE_SPEC], name, body, bases };
+          return { as: 'type', kind, name, body, bases };
         }
       }
 

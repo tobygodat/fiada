@@ -104,7 +104,11 @@ export function nextConfig(before: AgentConfig, url: string, token?: string): Ag
   const same = before.url?.replace(/\/+$/, '') === trimmed;
   const keep = token ?? (same ? before.token : undefined);
 
-  return { url: trimmed, ...(keep ? { token: keep } : {}) };
+  const config: AgentConfig = { url: trimmed };
+
+  if (keep) config.token = keep;
+
+  return config;
 }
 
 /** Saves the config and says whether the indexer takes it. */
@@ -121,7 +125,7 @@ async function connect(url: string, token?: string) {
   try {
     const res = await fetch(`${config.url}/api/agent/events`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(config.token ? { authorization: `Bearer ${config.token}` } : {}) },
+      headers: config.token ? { 'content-type': 'application/json', authorization: `Bearer ${config.token}` } : { 'content-type': 'application/json' },
       body: '[]',
       signal: AbortSignal.timeout(8000),
     });
@@ -174,7 +178,7 @@ To report to a hosted map, add --url <indexer> --token <token>; the map's "conne
   try {
     settings = JSON.parse(await fs.readFile(file, 'utf8'));
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Couldn't read ${file}: ${(err as Error).message}`);
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw new Error(`Couldn't read ${file}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   await fs.mkdir(path.dirname(file), { recursive: true });

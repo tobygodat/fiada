@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { AccountInfo, Graph, Grouping, LayerPreset, RepoInfo, SortedGrouping, Workspace as WorkspaceState } from '@fiada/shared';
+import { messageOf, type AccountInfo, type Graph, type Grouping, type LayerPreset, type RepoInfo, type SortedGrouping, type Workspace as WorkspaceState } from '@fiada/shared';
 import { remoteKey } from './agents.ts';
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
@@ -153,7 +153,7 @@ function authArgs(url: string, token: string | null | undefined): string[] {
  * fails: GitHub turns away a revoked or expired token even for a public
  * repository. The first error is the one reported.
  */
-async function withToken(token: string | null | undefined, url: string, run: (auth: string[]) => Promise<unknown>) {
+async function withToken<T>(token: string | null | undefined, url: string, run: (auth: string[]) => Promise<T>) {
   const auth = authArgs(url, token);
 
   try {
@@ -253,7 +253,7 @@ export class Workspace {
     const offer = own ?? [...(this.allowLocal ? [PROJECT_ROOT] : []), 'fastapi/full-stack-fastapi-template'];
     const account = this.options.account?.();
 
-    return {
+    const state: WorkspaceState = {
       repos: this.repos,
       busy: this.repos.some((r) => r.status !== 'ready' && r.status !== 'error'),
       graphVersion: this.graphVersion,
@@ -262,9 +262,13 @@ export class Workspace {
       sorting: this.sorter.state(this.grouping, this.sortedPlaced),
       access: this.access,
       upload: UPLOAD,
-      ...(own ? { ownSuggestions: true } : {}),
-      ...(account ? { account } : {}),
     };
+
+    if (own) state.ownSuggestions = true;
+
+    if (account) state.account = account;
+
+    return state;
   }
 
   /** Bumps whenever the graph is rebuilt or reclassified. */
@@ -367,7 +371,7 @@ export class Workspace {
     try {
       raw = await this.store.loadGrouping(this.projectId);
     } catch (err) {
-      this.groupingError = `Couldn't read the grouping: ${(err as Error).message}`;
+      this.groupingError = `Couldn't read the grouping: ${messageOf(err)}`;
       console.error(`[fiada] ${this.groupingError}`);
 
       return;
@@ -395,7 +399,7 @@ export class Workspace {
    * and stops git once that passes the project's limit, so a huge repository
    * never fills the disk. The clone is then removed and the limit reported.
    */
-  private async bounded(dir: string, run: (signal?: AbortSignal) => Promise<unknown>) {
+  private async bounded<T>(dir: string, run: (signal?: AbortSignal) => Promise<T>) {
     const max = this.options.maxCloneBytes;
 
     if (max === undefined) return run();
@@ -515,7 +519,7 @@ export class Workspace {
         this.checkRoom();
       } catch (err) {
         await fs.rm(tmp, { recursive: true, force: true });
-        throw new UploadError((err as Error).message, 409);
+        throw new UploadError(messageOf(err), 409);
       }
     }
 
@@ -553,7 +557,7 @@ export class Workspace {
           await fs.rename(tmp, dir);
         } catch (err) {
           await fs.rm(tmp, { recursive: true, force: true });
-          Object.assign(info, { status: 'error', error: `Couldn't store the upload: ${(err as Error).message}` });
+          Object.assign(info, { status: 'error', error: `Couldn't store the upload: ${messageOf(err)}` });
 
           return;
         }
@@ -659,16 +663,16 @@ export class Workspace {
       this.parsed.set(id, parsed);
       console.log(`[fiada] indexed ${id}: ${repo.fileCount} files, ${repo.symbolCount} symbols in ${Date.now() - started}ms`);
     } catch (err) {
-      const e = err as Error & { stderr?: string };
+      const stderr = err instanceof Error && 'stderr' in err ? String(err.stderr ?? '') : '';
       repo.status = 'error';
-      repo.error = (e.stderr?.trim().split('\n').pop() || e.message).slice(0, 300);
+      repo.error = (stderr.trim().split('\n').pop() || messageOf(err)).slice(0, 300);
       console.error(`[fiada] ${id}: ${repo.error}`);
     }
 
     // A failed save (the database dropped, or another indexer saved first) is
     // logged rather than thrown here, so the map still rebuilds. Adding and
     // removing repos report it to the caller instead.
-    await this.save().catch((err) => console.error(`[fiada] couldn't save repos for project "${this.projectId}": ${(err as Error).message}`));
+    await this.save().catch((err) => console.error(`[fiada] couldn't save repos for project "${this.projectId}": ${messageOf(err)}`));
     this.rebuild();
   }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange } from '@fiada/shared';
+import { UNLAYERED, type AgentActivity, type AgentFile, type GraphNode, type NodeChange, type Placement } from '@fiada/shared';
+import { withStorage } from './storage.test-util.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
 import { diffShown, readyToMark, shownKey, shownRev, forgetMarks, isRead, layerName, loops, markStop, nextUnread, reviewable, stopRev, tourCache, tourOver, tourStops, type ReadMarks } from './tour.ts';
 
@@ -54,6 +55,8 @@ const agent = (files: AgentFile[]): AgentActivity => ({
 });
 
 const NO_NODES: Record<string, NodeChange> = {};
+
+const placed = (id: string): Placement => ({ id, confidence: 1, source: 'fact', evidence: [] });
 
 test('stops follow the data flow: page, client, route, model, whatever order the agent touched them in', () => {
   // Listed backwards, the way an agent working from the database up would touch them.
@@ -393,11 +396,11 @@ test('a class whose method changed is read at the method, not again as the class
   // Java and the like list a class and each method in it, the class's lines holding the method's.
   const F = 'svc/src/Items.java';
 
-  const node = (name: string, lines: [number, number]) =>
-    ({ id: `svc/${F.slice(4)}#${name}`, kind: 'symbol', name, parent: `svc/${F.slice(4)}`, repo: 'svc', lines, layer: { id: 'api' } }) as GraphNode;
+  const node = (name: string, lines: [number, number]): GraphNode =>
+    ({ id: `svc/${F.slice(4)}#${name}`, kind: 'symbol', name, parent: `svc/${F.slice(4)}`, repo: 'svc', lines, layer: placed('api') });
 
   const nodes = [node('Items', [1, 30]), node('Items.add', [3, 10]), node('Items.list', [12, 20]), node('Items.Page', [22, 29]), node('Items.Page.next', [23, 28])];
-  const fileNode = { id: `svc/${F.slice(4)}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
+  const fileNode: GraphNode = { id: `svc/${F.slice(4)}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: placed('api') };
   const ix = new Map([fileNode, ...nodes].map((n) => [n.id, n]));
   const id = (name: string) => `svc/${F.slice(4)}#${name}`;
 
@@ -408,8 +411,8 @@ test('a class whose method changed is read at the method, not again as the class
       sym(id('Items.Page')),
       sym(id('Items.Page.next')),
       // A deleted class and its deleted method, by their lines in HEAD.
-      { ...sym(id('Old'), 'deleted'), oldLines: [40, 60] as [number, number] },
-      { ...sym(id('Old.run'), 'deleted'), oldLines: [42, 50] as [number, number] },
+      { ...sym(id('Old'), 'deleted'), oldLines: [40, 60] },
+      { ...sym(id('Old.run'), 'deleted'), oldLines: [42, 50] },
     ]),
   ]);
 
@@ -424,14 +427,14 @@ test('a class whose method changed is read at the method, not again as the class
 
 test('a class that lost a method is read at the deleted method, by their lines in HEAD', () => {
   const F = 'src/Items.java';
-  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
-  const cls = { id: `svc/${F}#Items`, kind: 'symbol', name: 'Items', parent: `svc/${F}`, repo: 'svc', lines: [1, 20], layer: { id: 'api' } } as GraphNode;
+  const fileNode: GraphNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: placed('api') };
+  const cls: GraphNode = { id: `svc/${F}#Items`, kind: 'symbol', name: 'Items', parent: `svc/${F}`, repo: 'svc', lines: [1, 20], layer: placed('api') };
   const ix = new Map([fileNode, cls].map((n) => [n.id, n]));
 
   const a = agent([
     file('svc', F, [
-      { ...sym(`svc/${F}#Items`), oldLines: [1, 30] as [number, number] },
-      { ...sym(`svc/${F}#Items.gone`, 'deleted'), oldLines: [22, 28] as [number, number] },
+      { ...sym(`svc/${F}#Items`), oldLines: [1, 30] },
+      { ...sym(`svc/${F}#Items.gone`, 'deleted'), oldLines: [22, 28] },
     ]),
   ]);
 
@@ -445,8 +448,8 @@ test('a class that lost a method is read at the deleted method, by their lines i
 test("a deleted function's stop carries its lines from before, for its own hunks, and so does the file's first stop", () => {
   const a = agent([
     file('web', 'src/client/api.ts', [
-      { ...sym('web/src/client/api.ts#Users.get', 'deleted'), oldLines: [10, 12] as [number, number] },
-      { ...sym('web/src/client/api.ts#Items.get', 'deleted'), oldLines: [30, 32] as [number, number] },
+      { ...sym('web/src/client/api.ts#Users.get', 'deleted'), oldLines: [10, 12] },
+      { ...sym('web/src/client/api.ts#Items.get', 'deleted'), oldLines: [30, 32] },
     ]),
   ]);
 
@@ -486,8 +489,8 @@ test("a stop's diff is fetched again when the other code it carries changes, not
 test("a changed function's stop carries its lines in HEAD too, for a removal hunk left where it was, and is placed by its lines now", () => {
   const a = agent([
     file('web', 'src/client/api.ts', [
-      { ...sym('web/src/client/api.ts#UsersService'), oldLines: [10, 20] as [number, number] },
-      { ...sym('web/src/client/api.ts#ItemsService'), oldLines: [40, 50] as [number, number] },
+      { ...sym('web/src/client/api.ts#UsersService'), oldLines: [10, 20] },
+      { ...sym('web/src/client/api.ts#ItemsService'), oldLines: [40, 50] },
     ]),
   ]);
 
@@ -828,29 +831,19 @@ test('loops: a long chain of stops is walked without running out of stack', () =
 
 test('forgetMarks: clears every review’s read marks and nothing else', () => {
   const store = new Map<string, string>([['fiada.tour.p.a', '{}'], ['fiada.tour.q.b', '{}'], ['strata-theme', 'dark'], ['fiada.session', 's']]);
-  const was = (globalThis as { localStorage?: unknown }).localStorage;
-  (globalThis as { localStorage?: unknown }).localStorage = {
-    get length() { return store.size; },
-    key: (i: number) => [...store.keys()][i] ?? null,
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-  };
 
-  try {
+  withStorage(store, () => {
     forgetMarks();
     assert.deepEqual([...store.keys()].sort(), ['fiada.session', 'strata-theme']);
-  } finally {
-    (globalThis as { localStorage?: unknown }).localStorage = was;
-  }
+  });
 });
 
 test("a class left out for its method is read on the file's first stop: a change to its own lines is new there", () => {
   const F = 'src/Items.java';
-  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
+  const fileNode: GraphNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: placed('api') };
 
-  const node = (name: string, lines: [number, number]) =>
-    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as GraphNode;
+  const node = (name: string, lines: [number, number]): GraphNode =>
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: placed('api') });
 
   const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
   const t = '2026-09-27T10:00:00Z';
@@ -870,10 +863,10 @@ test("a class left out for its method is read on the file's first stop: a change
 
 test("a class left out for its method that another agent changed too says so on the stop showing its rows", () => {
   const F = 'src/Items.java';
-  const fileNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: { id: 'api' } } as GraphNode;
+  const fileNode: GraphNode = { id: `svc/${F}`, kind: 'file', name: 'Items.java', parent: 'svc', repo: 'svc', layer: placed('api') };
 
-  const node = (name: string, lines: [number, number]) =>
-    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: { id: 'api' } }) as GraphNode;
+  const node = (name: string, lines: [number, number]): GraphNode =>
+    ({ id: `svc/${F}#${name}`, kind: 'symbol', name, parent: `svc/${F}`, repo: 'svc', lines, layer: placed('api') });
 
   const ix = new Map([fileNode, node('Items', [1, 30]), node('Items.add', [3, 10])].map((n) => [n.id, n]));
 
@@ -886,7 +879,7 @@ test("a class left out for its method that another agent changed too says so on 
   assert.deepEqual(stop.carries, [{ id: `svc/${F}#Items`, at: stop.carries![0].at }], 'carries keep only id and time');
   assert.equal(stops(false)[0].shared, undefined);
   // The class's lines before the change go with the stop too, so its rows are known as this agent's.
-  const withOld = tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), oldLines: [1, 28] as [number, number] }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
+  const withOld = tourStops({ edges: [], layers: graph.layers }, ix, agent([file('svc', F, [{ ...sym(`svc/${F}#Items`), oldLines: [1, 28] }, sym(`svc/${F}#Items.add`)])]), NO_NODES);
   assert.deepEqual(withOld[0].restOld, { [`svc/${F}#Items`]: [1, 28] });
 });
 
@@ -951,16 +944,16 @@ test("with the indexer's revision of an agent's files, a status update doesn't r
   const first = tour(graph, graphIndex, { ...agent(files), filesRev: 'r1' }, NO_NODES);
   assert.equal(first.length, 1);
   // Files that can't be read or written out: the revision alone says they are the same.
-  const sealed = new Proxy([] as AgentFile[], { get: () => assert.fail('the files were read') });
+  const sealed = new Proxy<AgentFile[]>([], { get: () => assert.fail('the files were read') });
   assert.equal(tour(graph, graphIndex, { ...agent(sealed), filesRev: 'r1', note: 'running the tests' }, NO_NODES), first);
   const more = [...files, file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')])];
   assert.equal(tour(graph, graphIndex, { ...agent(more), filesRev: 'r2' }, NO_NODES).length, 2);
 });
 
 test("another agent's changes in a file go with each of that file's stops, so its diff leaves them out", () => {
-  const f = {
+  const f: AgentFile = {
     ...file('web', 'src/client/api.ts', [sym('web/src/client/api.ts#ItemsService')]),
-    others: [{ id: 'web/src/client/api.ts#request', kind: 'modified' as const, oldLines: [3, 9] as [number, number] }],
+    others: [{ id: 'web/src/client/api.ts#request', kind: 'modified' as const, oldLines: [3, 9] }],
     topTheirs: true,
   };
 

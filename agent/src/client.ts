@@ -15,6 +15,8 @@ export const FIADA_URL = (process.env.FIADA_URL ?? `http://127.0.0.1:${process.e
 
 /** The person's agent token for an indexer people sign in to, or a shared indexer's access key. */
 const KEY = process.env.FIADA_TOKEN || process.env.FIADA_API_KEY;
+const AUTH: HeadersInit = KEY ? { authorization: `Bearer ${KEY}` } : {};
+const JSON_HEADERS: HeadersInit = KEY ? { 'content-type': 'application/json', authorization: `Bearer ${KEY}` } : { 'content-type': 'application/json' };
 
 /** What the indexer made of the files in a batch. */
 export interface IngestReply {
@@ -27,7 +29,7 @@ export async function send(events: AgentEvent[], timeoutMs = 1500): Promise<Inge
   try {
     const res = await fetch(`${FIADA_URL}/api/agent/events`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) },
+      headers: JSON_HEADERS,
       body: JSON.stringify(events),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -49,7 +51,7 @@ export async function ask<T>(route: 'find' | 'dependents' | 'impact', params: Re
 
   try {
     const res = await fetch(`${FIADA_URL}/api/agent/${route}?${qs}`, {
-      headers: KEY ? { authorization: `Bearer ${KEY}` } : {},
+      headers: AUTH,
       signal: AbortSignal.timeout(timeoutMs),
     });
 
@@ -71,7 +73,7 @@ export async function check(body: FenceCheck, timeoutMs = 1500): Promise<FenceVe
   try {
     const res = await fetch(`${FIADA_URL}/api/agent/check`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) },
+      headers: JSON_HEADERS,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -20,8 +20,9 @@ let log = '';
 const freePort = () =>
   new Promise<number>((resolve) => {
     const s = net.createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as net.AddressInfo;
-      s.close(() => resolve(port));
+      const at = s.address();
+      assert.ok(at instanceof Object);
+      s.close(() => resolve(at.port));
     });
   });
 
@@ -92,7 +93,7 @@ test('what the agent looked at goes through the events route, which still needs 
   const events = [{ agent, type: 'looked', nodes: ['shop/src/cart.ts#addToCart'] }];
 
   const post = (key?: string) =>
-    fetch(`${base}/api/agent/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify(events) });
+    fetch(`${base}/api/agent/events`, { method: 'POST', headers: key ? { 'content-type': 'application/json', authorization: `Bearer ${key}` } : { 'content-type': 'application/json' }, body: JSON.stringify(events) });
 
   assert.equal((await post()).status, 401);
   assert.equal((await post(KEY)).status, 200);

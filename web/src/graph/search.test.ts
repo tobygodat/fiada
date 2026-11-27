@@ -65,7 +65,7 @@ test('a collapsed folder chain says where it really hangs', () => {
 });
 
 test('two symbols with one name in one file say their lines', () => {
-  const at = (line: number, suffix = '') => ({ id: `r/a.ts#render${suffix}`, kind: 'symbol', name: 'render', parent: 'r/a.ts', repo: 'r', lines: [line, line + 4] as [number, number] }) as const;
+  const at = (line: number, suffix = ''): GraphNode => ({ id: `r/a.ts#render${suffix}`, kind: 'symbol', name: 'render', parent: 'r/a.ts', repo: 'r', lines: [line, line + 4] });
   const hits = searchNodes([at(3), at(20, '~2')], 'render');
   assert.deepEqual(hits.map((h) => h.where), ['r/a.ts:3', 'r/a.ts:20']);
 });

@@ -288,7 +288,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
       case 'ruby': {
         // Constants are global. Code inside `module Admin` names `Admin::Policy` as `Policy`: a guess when only the last part matches.
         joinNs(`rb:${repo.info.id}`, repo.info.id, 'this repository (Ruby constants are global)', e);
-        const short = file.symbols.map((s, i) => [s.name.split('::').pop()!, e.ids[i]] as [string, string]).filter(([n], i) => n !== file.symbols[i].name);
+        const short = file.symbols.map((s, i): [string, string] => [s.name.split('::').pop()!, e.ids[i]]).filter(([n], i) => n !== file.symbols[i].name);
         joinNs(`rb~:${repo.info.id}`, repo.info.id, 'this repository', e, short, 'matched on the last part of the constant name, as Ruby resolves it through the enclosing modules');
         break;
       }
@@ -1007,7 +1007,13 @@ export function link(repos: ParsedRepo[]): LinkResult {
     const to = !owner.includes('#') && r.member ? (resolveName(owner, r.member, 0, e.repo) ?? owner) : owner;
     const how = mod ? 'import' : 'path';
 
-    return { to, how, ...(mod ? { spec: b!.spec } : {}), ...(split.guess ? { guess: split.guess } : {}), modules: [split.id] };
+    const resolved: Resolved = { to, how, modules: [split.id] };
+
+    if (mod) resolved.spec = b!.spec;
+
+    if (split.guess) resolved.guess = split.guess;
+
+    return resolved;
   };
 
   /**
@@ -1035,7 +1041,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
       const split = splitNamespaced(e, family, [...around.slice(0, i), ...parts]);
       const sid = split?.rest ? resolveName(split.id, split.rest, 0, e.repo) : null;
 
-      if (sid) return { to: sid, how: 'path', ...(split!.guess ? { guess: split!.guess } : {}), modules: [split!.id] };
+      if (sid) return split!.guess ? { to: sid, how: 'path', guess: split!.guess, modules: [split!.id] } : { to: sid, how: 'path', modules: [split!.id] };
     }
 
     if (family !== 'cs') return null;
@@ -1229,7 +1235,7 @@ export function link(repos: ParsedRepo[]): LinkResult {
 
   for (const e of files.values()) {
     const usedModules = new Set<string>();
-    const sources: [string, Ref[], At][] = [[e.id, e.file.fileRefs, atOf(e)], ...e.file.symbols.map((s, i) => [e.ids[i], s.refs, atOf(e, i)] as [string, Ref[], At])];
+    const sources: [string, Ref[], At][] = [[e.id, e.file.fileRefs, atOf(e)], ...e.file.symbols.map((s, i): [string, Ref[], At] => [e.ids[i], s.refs, atOf(e, i)])];
 
     for (const [from, refs, at] of sources) {
       for (const r of refs) {

@@ -2,7 +2,7 @@
 // anything is cloning or indexing, and refetches the graph when it changes.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Graph, LayerPreset, Workspace } from '@fiada/shared';
+import { messageOf, type Graph, type LayerPreset, type Workspace } from '@fiada/shared';
 import { api } from './api.ts';
 import { GraphSync, type LoadedGraph } from './graphSync.ts';
 
@@ -46,7 +46,7 @@ export function useWorkspace(): WorkspaceHandle {
       // Quick while repositories index or Claude sorts, so the result shows as soon as it lands.
       timer.current = window.setTimeout(() => sync(), next.busy || next.sorting?.status === 'running' ? 800 : 5000);
     } catch (err) {
-      setOffline((err as Error).message);
+      setOffline(messageOf(err));
       timer.current = window.setTimeout(() => sync(), 2000);
     }
   }, []);

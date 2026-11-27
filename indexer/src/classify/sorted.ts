@@ -36,16 +36,27 @@ export function normalizeSorted(raw: unknown): SortedGrouping | undefined {
   if (isObj(raw.placements)) {
     for (const [id, p] of Object.entries(raw.placements)) {
       if (!isObj(p) || !str(p.reason) || (!str(p.layer) && !str(p.domain))) continue;
-      placements[id] = {
-        ...(str(p.layer) ? { layer: p.layer as string } : {}),
-        ...(str(p.domain) ? { domain: p.domain as string } : {}),
-        reason: p.reason as string,
-        ...(str(p.layer) && str(p.layerReason) ? { layerReason: p.layerReason as string } : {}),
-      };
+      const layer = str(p.layer);
+      const domain = str(p.domain);
+      const layerReason = str(p.layerReason);
+      const head: Pick<SortedPlacement, 'layer' | 'domain'> = {};
+
+      if (layer) head.layer = layer;
+
+      if (domain) head.domain = domain;
+      const placement: SortedPlacement = { ...head, reason: p.reason as string };
+
+      if (layer && layerReason) placement.layerReason = layerReason;
+      placements[id] = placement;
     }
   }
 
-  return { model: raw.model as string, ...(str(raw.by) ? { by: raw.by as string } : {}), at: raw.at as string, repos, domains, placements };
+  const head: Pick<SortedGrouping, 'model' | 'by'> = { model: raw.model as string };
+  const by = str(raw.by);
+
+  if (by) head.by = by;
+
+  return { ...head, at: raw.at as string, repos, domains, placements };
 }
 
 /**

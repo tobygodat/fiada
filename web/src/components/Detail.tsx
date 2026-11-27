@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   describeFact,
+  messageOf,
   modelLabel,
   UNLAYERED,
   type ActivityState,
@@ -186,7 +187,7 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
     try {
       await onFence(g.id, rule === 'none' ? null : rule);
     } catch (err) {
-      setError((err as Error).message);
+      setError(messageOf(err));
     } finally {
       setBusy(false);
     }
@@ -525,6 +526,8 @@ function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; laye
 
   if (imports.length) seen.push(`imports ${imports.slice(0, 6).join(', ')}${imports.length > 6 ? ` +${imports.length - 6}` : ''}`);
 
+  const detected: [string, string][] = seen.length ? [['detected', seen.join(' · ')]] : [];
+
   return (
     <div className="detail-block">
       <div className="block-title">why it's here</div>
@@ -532,7 +535,7 @@ function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; laye
         rows={[
           ['layer', layerName, explain(layer)],
           ['domain', domainName, explain(domain)],
-          ...(seen.length ? [['detected', seen.join(' · ')] as [string, string]] : []),
+          ...detected,
         ]}
       />
     </div>

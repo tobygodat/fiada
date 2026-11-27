@@ -35,7 +35,7 @@ function methodsOf(n: SyntaxNode): string[] | null {
   if (n.type === 'composite_literal') {
     const items = (n.childForFieldName('body')?.namedChildren ?? []).map((c) => methodsOf(c.type === 'literal_element' ? (c.namedChildren[0] ?? c) : c));
 
-    return items.length && items.every(Boolean) ? items.flat() as string[] : null;
+    return items.length && items.every((m): m is string[] => m !== null) ? items.flat() : null;
   }
 
   return null;

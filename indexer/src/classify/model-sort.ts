@@ -222,13 +222,15 @@ Then new_domains: the few domains the leftover code needs that none of the above
     const was = domainName.get(d.id) ?? d.id;
     const name = d.name?.trim() || was;
     const mergeInto = d.merge_into && d.merge_into !== d.id && foundIds.has(d.merge_into) ? d.merge_into : undefined;
-    sortedDomains.push({
-      id: d.id,
-      name,
-      ...(name !== was ? { from: was } : {}),
-      ...(mergeInto ? { mergeInto } : {}),
-      ...(d.reason?.trim() ? { reason: d.reason.trim() } : {}),
-    });
+    const domain: SortedDomain = { id: d.id, name };
+    const reason = d.reason?.trim();
+
+    if (name !== was) domain.from = was;
+
+    if (mergeInto) domain.mergeInto = mergeInto;
+
+    if (reason) domain.reason = reason;
+    sortedDomains.push(domain);
   }
 
   // A domain merged into one that is itself merged away follows it; a pair merged into each other keeps the first.
@@ -248,7 +250,11 @@ Then new_domains: the few domains the leftover code needs that none of the above
 
     if (!id || taken.has(id) || !d.name?.trim()) continue;
     taken.add(id);
-    sortedDomains.push({ id, name: d.name.trim(), added: true, ...(d.reason?.trim() ? { reason: d.reason.trim() } : {}) });
+    const domain: SortedDomain = { id, name: d.name.trim(), added: true };
+    const reason = d.reason?.trim();
+
+    if (reason) domain.reason = reason;
+    sortedDomains.push(domain);
   }
 
   // ── 2. leftovers ───────────────────────────────────────────────────
@@ -428,7 +434,11 @@ Answer every file.`;
     for (let i = 0; i < missed.length; i += batchSize) await run(missed.slice(i, i + batchSize), 1, 1);
   }
 
-  return { model: opts.model, ...(opts.by ? { by: opts.by } : {}), at: new Date().toISOString(), repos, domains: sortedDomains, placements };
+  const head: Pick<SortedGrouping, 'model' | 'by'> = { model: opts.model };
+
+  if (opts.by) head.by = opts.by;
+
+  return { ...head, at: new Date().toISOString(), repos, domains: sortedDomains, placements };
 }
 
 /** One file's answer, as the model sent it: nothing in it is trusted to be there or to be the right type. */

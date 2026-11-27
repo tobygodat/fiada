@@ -2,7 +2,7 @@
 // project's layers, and an outline of whichever hierarchy the map is showing.
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
-import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@fiada/shared';
+import { messageOf, UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@fiada/shared';
 import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
@@ -143,6 +143,7 @@ function Problem({ text }: { text: string }) {
 }
 
 const PRESET_LABEL: Record<LayerPreset, string> = { roles: 'roles', 'by-repo': 'by repo', empty: 'empty' };
+const PRESET_OPTIONS = (['roles', 'by-repo', 'empty'] as const).map((p): [LayerPreset, string] => [p, PRESET_LABEL[p]]);
 
 const LAYERS_OPEN = 'strata.layersOpen';
 
@@ -221,7 +222,7 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
       {canEdit(workspace) && (
         <div className="setting layer-choice">
           <span className="setting-name small">preset</span>
-          <Choice label="layer preset" value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
+          <Choice label="layer preset" value={graph.preset ?? ''} options={PRESET_OPTIONS} onChange={(p) => p && choose(p)} />
         </div>
       )}
       <div className="layer-list">
@@ -330,7 +331,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
       setProgress(`uploading ${picked.name}… ${picked.sources.toLocaleString()} files, ${size(archive.size)}`);
       await onUpload(picked.name, archive, replace.current);
     } catch (err) {
-      onError((err as Error).message);
+      onError(messageOf(err));
     } finally {
       setProgress(null);
     }
@@ -346,7 +347,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
 
       if (folder) await send(folder);
     } catch (err) {
-      onError((err as Error).message);
+      onError(messageOf(err));
     }
   };
 
@@ -390,7 +391,7 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
       await onAdd(source.trim());
       setInput('');
     } catch (err) {
-      setError((err as Error).message);
+      setError(messageOf(err));
     } finally {
       setPending(false);
     }

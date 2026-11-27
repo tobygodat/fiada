@@ -160,7 +160,13 @@ export function classifyGraph(base: BaseGraph, grouping: Grouping, strategies?: 
     repos: base.repos,
     nodes,
     edges: base.edges,
-    layers: grouping.layers.map(({ id, name, rank }) => ({ id, name, ...(rank == null ? {} : { rank }) })),
+    layers: grouping.layers.map(({ id, name, rank }) => {
+      const layer: Graph['layers'][number] = { id, name };
+
+      if (rank != null) layer.rank = rank;
+
+      return layer;
+    }),
     domains: domainList,
     preset: grouping.preset,
   };

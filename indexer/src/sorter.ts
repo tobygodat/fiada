@@ -60,14 +60,17 @@ export class Sorter {
     const ds = sorted?.domains ?? [];
     const by = this.llm?.label ?? sorted?.by;
 
-    return {
-      available: this.available,
-      status,
-      ...(status === 'off' ? { keyHint: KEY_HINT } : {}),
-      ...(by ? { by } : {}),
-      ...(sorted ? { model: sorted.model, at: sorted.at, placed, merged: ds.filter((d) => d.mergeInto).length, renamed: ds.filter((d) => d.from && !d.mergeInto).length, added: ds.filter((d) => d.added).length } : {}),
-      ...(status === 'error' && this.error ? { error: this.error } : {}),
-    };
+    const state: SortingState = { available: this.available, status };
+
+    if (status === 'off') state.keyHint = KEY_HINT;
+
+    if (by) state.by = by;
+
+    if (sorted) Object.assign(state, { model: sorted.model, at: sorted.at, placed, merged: ds.filter((d) => d.mergeInto).length, renamed: ds.filter((d) => d.from && !d.mergeInto).length, added: ds.filter((d) => d.added).length });
+
+    if (status === 'error' && this.error) state.error = this.error;
+
+    return state;
   }
 
   /**

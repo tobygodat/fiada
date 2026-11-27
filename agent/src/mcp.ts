@@ -357,7 +357,7 @@ export class FiadaMcp {
           return void fail(-32601, `Method not found: ${msg.method}`);
       }
     } catch (err) {
-      fail(-32603, (err as Error).message);
+      fail(-32603, err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -379,7 +379,7 @@ export class FiadaMcp {
   }
 
   private text(text: string, isError = false) {
-    return { content: [{ type: 'text', text }], ...(isError ? { isError } : {}) };
+    return isError ? { content: [{ type: 'text', text }], isError } : { content: [{ type: 'text', text }] };
   }
 
   async call(name: string, args: Json) {

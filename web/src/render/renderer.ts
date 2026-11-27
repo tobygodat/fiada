@@ -18,8 +18,9 @@ import type { ColorBy, Palette } from '../theme.ts';
 import { fonts, onThemeChange, token } from '../theme/tokens.ts';
 import { type BadgeCache, curveHits, drawBadges, drawCollisions, drawRings, marksReach } from './activity.ts';
 import { drawFences } from './fences.ts';
-import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, ruleCrossesRing, type EdgePolicy, type EdgePreset } from './edges.ts';
+import { bestBend, curve, DEFAULT_BEND, labelSpot, DEFAULT_EDGE_POLICY, EDGE_POLICIES, edgeScore, restEdges, ruleCrossesRing, type EdgePolicy } from './edges.ts';
 
+const EDGE_PRESETS: Record<string, EdgePolicy | undefined> = EDGE_POLICIES;
 const MAX_EDGES = 220;
 const MAX_TAGS = 40;
 const LABEL_MIN_R = 16;
@@ -124,12 +125,14 @@ interface Rect {
 const sameHit = (a: Hit | null, b: Hit | null): boolean => {
   if (a === b) return true;
 
-  if (!a || !b || a.type !== b.type) return false;
+  if (!a || !b) return false;
 
-  if (a.type === 'edge' || a.type === 'tag') return a.key === (b as typeof a).key;
+  if (a.type === 'edge' || a.type === 'tag') return b.type === a.type && a.key === b.key;
 
   // A circle that opens under the pointer is a different target: its edges stop being in focus.
-  return a.id === (b as typeof a).id && (a.type !== 'node' || a.open === (b as typeof a).open);
+  if (a.type === 'node') return b.type === 'node' && a.id === b.id && a.open === b.open;
+
+  return b.type === 'tab' && a.id === b.id;
 };
 
 export class MapRenderer {
@@ -937,14 +940,19 @@ export class MapRenderer {
     }
   }
 
-  /** How much of the web to draw: a preset name, or individual settings over the current ones. */
   /** The words on resting links last frame, for scripted walks and tests. */
   get restLabels(): readonly { key: string; text: string; x: number; y: number; w: number; h: number }[] {
     return this.drawnLabels;
   }
 
-  setEdgePolicy(p: EdgePreset | Partial<EdgePolicy>) {
-    this.policy = typeof p === 'string' ? (EDGE_POLICIES[p] ?? DEFAULT_EDGE_POLICY) : { ...this.policy, ...p };
+  /** How much of the web to draw, by preset name; a name that isn't one draws the default. */
+  setEdgePreset(name: string) {
+    this.setEdgePolicy(EDGE_PRESETS[name] ?? DEFAULT_EDGE_POLICY);
+  }
+
+  /** How much of the web to draw: individual settings over the current ones. */
+  setEdgePolicy(p: Partial<EdgePolicy>) {
+    this.policy = { ...this.policy, ...p };
     this.edgeCache = null;
     this.request();
   }

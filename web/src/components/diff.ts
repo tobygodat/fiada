@@ -29,8 +29,8 @@ export const ownerOf = (lines?: readonly [number, number], oldLines?: readonly [
 export function pickHunks(diff: string, own?: HunkOwner, rest?: readonly HunkOwner[], peer?: Theirs): string[] {
   const hunks = split(diff);
 
-  if (!Array.isArray(hunks[0])) return hunks as string[];
-  let all = hunks as string[][];
+  if (!hunks) return diff.split('\n');
+  let all = hunks;
   // The note a diff cut short ends with, taken off its last hunk while the hunks are cut up.
   const end = all[all.length - 1];
   const cut = end[end.length - 1]?.startsWith(CUT) ? end.pop() : undefined;
@@ -337,12 +337,12 @@ function belongs(h: string[], o: HunkOwner): boolean {
   return h.some((l, i) => i > 0 && l[0] === '-' && word.test(l.slice(1)));
 }
 
-/** A diff's hunks, each its header line and body; the lines as they are when it has no hunk. */
-function split(diff: string): string[][] | string[] {
+/** A diff's hunks, each its header line and body; null when it has no hunk. */
+function split(diff: string): string[][] | null {
   const out = diff.split('\n');
   const start = out.findIndex((l) => l.startsWith('@@'));
 
-  if (start < 0) return out;
+  if (start < 0) return null;
   const hunks: string[][] = [];
 
   for (const l of out.slice(start)) {

@@ -41,25 +41,33 @@
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/require-readable-spacing": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
 
-    // The rules below stay off. The first four ask for a decoder that parses
-    // input at each I/O boundary into a domain type. The indexer and agent
-    // instead check request bodies, hook payloads, MCP messages, model replies
-    // and stored JSON field by field in normalizers that take `unknown`, and
-    // the published agent may import only Node's built-ins. Moving to decoders
-    // changes what malformed input does, so it is its own piece of work.
-    // 77 findings: those field checks, plus browser feature probes such as `typeof matchMedia === 'function'`.
+    // The rules below stay off. Nearly all they still find is input at an I/O
+    // boundary, which they want parsed by a decoder into a domain type; the
+    // few exceptions are named in each rule's count. The
+    // indexer and agent instead check request bodies, agent events, hook
+    // payloads, MCP messages, model replies and stored JSON field by field in
+    // normalizers that take `unknown`, and the published agent may import only
+    // Node's built-ins. Moving to decoders changes what malformed input does,
+    // so it is its own piece of work.
+    // 74 findings: those field checks (request bodies, agent events, hook and MCP fields, model replies, package.json,
+    // the agent's config file, localStorage), three browser feature probes such as `typeof matchMedia === 'function'`,
+    // and link.ts telling a mount's named router from a function's router argument (`MountDecl['child']`), which
+    // needs a tagged type in every parser that emits mounts.
     "anti-slop/no-runtime-typeof": "off",
-    // 26 findings: the normalizers and parsers that take raw input (normalizeGrouping, cleanFences, answersIn, hook fields).
+    // 22 findings: the normalizers that take raw input (normalizeGrouping, normalizeSorted, cleanFences, cleanRel,
+    // clampInt, setGrouping, hook and MCP fields), and the Mongo store's field save and key escaper.
     "anti-slop/no-unknown-parameters": "off",
-    // 9 findings: stores return a grouping for normalizeGrouping to check, and the Mongo key escaper maps any stored value.
+    // 6 findings: stores return a grouping for normalizeGrouping to check, and the Mongo store's field load and key
+    // escaper pass stored documents through.
     "anti-slop/no-unknown-returns": "off",
-    // 10 findings: the agent reads Claude Code, Cursor and MCP messages as Record<string, any>, and the normalizers' isObj guards.
+    // 7 findings: the agent reads Claude Code and MCP messages as Record<string, any>, the normalizers' object guards,
+    // and the query an agent read route answers.
     "anti-slop/no-unsafe-dictionary-type": "off",
-    // 185 findings: most cast parsed JSON or a caught error (`err as Error`); they go when decoders arrive, and a SAFETY line on each would only restate the cast.
-    "anti-slop/require-safety-comment-for-type-assertion": "off",
-    // 50 findings: `...(x ? { k } : {})` adds optional fields in expressions. Separate statements reorder keys in written JSON
-    // (fiada.grouping.json, API and MCP replies), and `k: x ? v : undefined` sends undefined to headers and MongoDB.
-    "anti-slop/no-conditional-empty-object-spread": "off"
+    // 53 findings: each casts data that was just parsed or received (request bodies, res.json(), JSON.parse of stored
+    // files, tokens, SSE and localStorage, model replies, hook and MCP fields, CLI arguments, and normalizer fields
+    // already checked by str()). Seven are tests reading HTTP JSON or encodeKeys output. They go when decoders arrive.
+    "anti-slop/require-safety-comment-for-type-assertion": "off"
   }
 }

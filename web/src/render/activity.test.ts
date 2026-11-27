@@ -4,7 +4,7 @@ import type { TNode } from '../graph/tree.ts';
 import type { Marks, TreeActivity } from '../graph/activity.ts';
 import { type BadgeCache, BadgeSpace, curveHits, drawBadges, drawRings, hereGeometry, LOOKED_ALPHA, marksReach, ringGeometry, rippleRing, type Rect, type Taken, unreadGeometry, visibleArc } from './activity.ts';
 
-const node = (id: string) => ({ id }) as TNode;
+const node = (id: string): TNode => ({ id, kind: 'file', name: id, parent: null, children: [], depth: 0, repo: '', size: 1, weight: 1, symbols: 0 });
 const circle = (id: string, x: number, y: number, r: number, open = false) => ({ n: node(id), x, y, r, open });
 const free = { x0: 0, x1: 1000, y0: 0, y1: 1000 };
 const view = { w: 1000, h: 1000 };

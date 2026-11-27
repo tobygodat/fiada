@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UNLAYERED, UNSORTED_DOMAIN, type Fact, type Graph, type GraphEdge, type GraphNode, type Grouping, type Json, type JsonObject, type SortedGrouping } from '@fiada/shared';
 import { classifyGraph, type BaseGraph } from './build.ts';
+import { dig } from './json.test-util.ts';
 import { matchRef, sortProject, symbolFor, type Ask } from './classify/model-sort.ts';
 import { KEY_HINT, type JsonRequest, type LLM } from './llm.ts';
 import { defaultGrouping, leftoverFiles, normalizeGrouping, sortStats } from './classify/index.ts';
@@ -338,7 +339,7 @@ test('the request lists its refs in the schema and says to answer with them', as
   await sortProject(classifyGraph(plain, defaultGrouping()), defaultGrouping(), ask, { model: 'claude-test', batchSize: 2 });
   const batches = asked.filter((r) => r.label.startsWith('leftovers'));
   assert.equal(batches.length, 2);
-  const refsOf = (r: JsonRequest) => (r.schema as any).properties.files.items.properties.ref.enum;
+  const refsOf = (r: JsonRequest) => dig(r.schema, 'properties', 'files', 'items', 'properties', 'ref', 'enum');
   assert.deepEqual(refsOf(batches[0]), ['F1', 'F2']);
   assert.deepEqual(refsOf(batches[1]), ['F1'], 'numbered within each request');
   assert.match(batches[1].prompt, /^F1 typing\/src\/theme\.ts /m);
@@ -413,7 +414,12 @@ test('when no ref matches, the log says what came back', async () => {
 });
 
 test('matchRef: a shared file name or a folder that starts like a ref picks nothing wrong', () => {
-  const lf = (id: string) => ({ file: { id, kind: 'file', name: id.split('/').pop()!, parent: 'r', repo: 'r', path: id.slice(2) } as GraphNode, needsLayer: true, needsDomain: [], placed: [] });
+  const lf = (id: string) => {
+    const file: GraphNode = { id, kind: 'file', name: id.split('/').pop()!, parent: 'r', repo: 'r', path: id.slice(2) };
+
+    return { file, needsLayer: true, needsDomain: [], placed: [] };
+  };
+
   const a = lf('r/a/index.ts');
   const b = lf('r/b/index.ts');
   const c = lf('r/f2/util.ts');
@@ -427,7 +433,12 @@ test('matchRef: a shared file name or a folder that starts like a ref picks noth
 });
 
 test('matchRef: a path two repositories share, or two files differing only in case, picks neither', () => {
-  const lf = (repo: string, path: string) => ({ file: { id: `${repo}/${path}`, kind: 'file', name: path.split('/').pop()!, parent: repo, repo, path } as GraphNode, needsLayer: true, needsDomain: [], placed: [] });
+  const lf = (repo: string, path: string) => {
+    const file: GraphNode = { id: `${repo}/${path}`, kind: 'file', name: path.split('/').pop()!, parent: repo, repo, path };
+
+    return { file, needsLayer: true, needsDomain: [], placed: [] };
+  };
+
   const web = lf('web', 'src/index.ts');
   const api = lf('api', 'src/index.ts');
   const upper = lf('api', 'src/Foo.ts');

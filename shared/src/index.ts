@@ -846,3 +846,6 @@ export type Json = string | number | boolean | null | Json[] | JsonObject;
 
 /** A JSON object, such as a request body, a model's reply or a settings file. */
 export type JsonObject = { [key: string]: Json };
+
+/** An error's message, or the thrown value as text when it isn't an Error. */
+export const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));

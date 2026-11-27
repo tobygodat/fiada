@@ -275,7 +275,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
         onShow &&
         ((e) => {
           // Not when the click ends selecting some of its words to copy.
-          if (!(e.target as Element).closest('button, a') && window.getSelection()?.type !== 'Range') onShow();
+          if (!(e.target instanceof Element && e.target.closest('button, a')) && window.getSelection()?.type !== 'Range') onShow();
         })
       }
     >

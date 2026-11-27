@@ -107,7 +107,7 @@ export async function pickDirectory(): Promise<Folder | null> {
   try {
     return fromHandle(await pick({ id: 'fiada-upload', mode: 'read' }));
   } catch (err) {
-    if ((err as Error).name === 'AbortError') return null;
+    if (err instanceof Error && err.name === 'AbortError') return null;
     throw err;
   }
 }

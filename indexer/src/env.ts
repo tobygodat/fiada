@@ -4,7 +4,7 @@
 try {
   process.loadEnvFile(new URL('../../.env', import.meta.url));
 } catch (err) {
-  if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw err;
 }
 
 // Fiada was called Strata, and hosts already set STRATA_* variables. Each one

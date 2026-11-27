@@ -6,7 +6,7 @@
 // model read (items.ts) and persisted through the ProjectStore, so a restart
 // or re-index only rewrites what changed.
 
-import { UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode, type NodeSummary } from '@fiada/shared';
+import { messageOf, UNLAYERED, UNSORTED_DOMAIN, type Graph, type GraphNode, type NodeSummary } from '@fiada/shared';
 import type { ProjectStore, StoredSummary } from '../store.ts';
 import { describe, indexGraph, parseGroupId, type GraphIndex } from './describe.ts';
 import { fileDoc, symbolDoc } from './docs.ts';
@@ -73,7 +73,7 @@ export class Summaries {
 
       if (this.cache.size) this.log(`loaded ${this.cache.size} saved summaries`);
     } catch (err) {
-      this.log(`couldn't load saved summaries: ${(err as Error).message}`);
+      this.log(`couldn't load saved summaries: ${messageOf(err)}`);
     }
   }
 
@@ -97,7 +97,10 @@ export class Summaries {
     if (derived == null) return null;
     const n = gi.byId.get(id);
     const doc = n ? await this.doc(n) : '';
-    const base: NodeSummary = { node: id, line: derived, ...(doc ? { doc } : {}), status: 'off' };
+    const head: Pick<NodeSummary, 'node' | 'line' | 'doc'> = { node: id, line: derived };
+
+    if (doc) head.doc = doc;
+    const base: NodeSummary = { ...head, status: 'off' };
 
     if (!this.o.llm) return { ...base, off: `set ${KEY_HINT} on the indexer for generated summaries` };
 
@@ -217,7 +220,7 @@ export class Summaries {
     if (this.jobs.has(key)) return;
 
     const p = run()
-      .catch((err) => this.log(`summaries: ${(err as Error).message}`))
+      .catch((err) => this.log(`summaries: ${messageOf(err)}`))
       .finally(() => this.jobs.delete(key));
 
     this.jobs.set(key, p);
@@ -250,7 +253,7 @@ export class Summaries {
 
         if (calls) this.log(`summaries: wrote ${this.stats.items - before.items} in ${calls} request${calls === 1 ? '' : 's'} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
       })
-      .catch((err) => this.log(`summaries: ${(err as Error).message}`))
+      .catch((err) => this.log(`summaries: ${messageOf(err)}`))
       .finally(() => {
         this.eagerRun = null;
 
@@ -380,7 +383,7 @@ export class Summaries {
       for (const it of batch.items) this.claimed.delete(it.hash);
 
       // A reply that was cut off, declined or unreadable may be one item's fault: try the halves.
-      if (batch.items.length > 1 && (err instanceof SyntaxError || /cut off|declined/.test((err as Error).message))) {
+      if (batch.items.length > 1 && (err instanceof SyntaxError || /cut off|declined/.test(messageOf(err)))) {
         const half = Math.ceil(batch.items.length / 2);
         await this.run({ ...batch, items: batch.items.slice(0, half) });
         await this.run({ ...batch, items: batch.items.slice(half) });
@@ -443,7 +446,7 @@ export class Summaries {
     } catch (err) {
       // Kept in memory either way; the next save tries these again.
       this.unsaved = { ...entries, ...this.unsaved };
-      this.log(`couldn't save summaries: ${(err as Error).message}`);
+      this.log(`couldn't save summaries: ${messageOf(err)}`);
     }
   }
 
