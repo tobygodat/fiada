@@ -227,7 +227,7 @@ test('file store round-trips a project and ignores its own writes', async () => 
   assert.equal(changes, 0);
   await fs.writeFile(store.describe('p1'), JSON.stringify({ schema: 1, layers: [] }));
 
-  for (let i = 0; i < 250 && changes === 0; i++) await new Promise((r) => setTimeout(r, 20));
+  for (const until = performance.now() + 5000; changes === 0 && performance.now() < until; ) await new Promise((r) => setTimeout(r, 20));
   stop();
   assert.equal(changes, 1, 'a hand edit is noticed');
   assert.throws(() => store.describe('../escape'));

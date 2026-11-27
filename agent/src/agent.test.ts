@@ -17,6 +17,11 @@ import { applyConfig, configPath } from './env.ts';
 import { commandsFor, EDIT_MATCHER, flag, hooksBlock, MATCHER, mergeHooks, nextConfig } from './setup.ts';
 import { changedSince, compare, take } from './snapshot.ts';
 
+// A fixture's remote is the URL it names, not what this machine's git config rewrites it to (url.<base>.insteadOf).
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+
+process.env.GIT_CONFIG_GLOBAL = os.devNull;
+
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 async function repo(files: Record<string, string>) {
