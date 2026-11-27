@@ -242,7 +242,8 @@ a { color: inherit; }
 /* Docked: a column of raised paper the full height of the window, ruled off from the map. */
 .sidebar, .detail { position: relative; top: auto; left: auto; right: auto; border: 0; border-radius: 0; }
 .sidebar { grid-column: 1; grid-row: 1 / -1; width: var(--fiada-sidebar); overflow-y: auto; border-right: 1px solid var(--hairline); }
-@media (max-width: 720px) {
+/* Under 1100px the map can't spare the sidebar's column beside the right one: it opens over the map. */
+@media (max-width: 1099px) {
   .sidebar { position: absolute; z-index: 7; top: 0; bottom: 0; left: 0; width: min(var(--fiada-sidebar), 88vw); border-right: 1px solid var(--hairline-strong); }
 }
 .sidebar > * { flex: none; }
