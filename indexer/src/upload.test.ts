@@ -46,14 +46,22 @@ async function scratch() {
   return fs.mkdtemp(path.join(home, 'case-'));
 }
 
-test('reads what GNU tar writes, long names included', async () => {
+const gnuTar = ['tar', 'gtar'].find((bin) => {
+  try {
+    return execFileSync(bin, ['--version'], { encoding: 'utf8' }).includes('GNU tar');
+  } catch {
+    return false;
+  }
+});
+
+test('reads what GNU tar writes, long names included', { skip: !gnuTar && 'GNU tar is not installed (macOS ships bsdtar; brew install gnu-tar adds gtar)' }, async () => {
   const dir = await scratch();
   const deep = `src/${'nested-folder/'.repeat(9)}really-long-module-name.ts`;
   await fs.mkdir(path.join(dir, 'app', path.dirname(deep)), { recursive: true });
   await fs.writeFile(path.join(dir, 'app', deep), 'export const x = 1;\n');
   await fs.writeFile(path.join(dir, 'app', 'main.py'), 'print("hi")\n');
   const tgz = path.join(dir, 'app.tgz');
-  execFileSync('tar', ['-czf', tgz, '-C', path.join(dir, 'app'), '.']);
+  execFileSync(gnuTar!, ['-czf', tgz, '-C', path.join(dir, 'app'), '.']);
   const files = [...readTar(zlib.gunzipSync(await fs.readFile(tgz)))].map((e) => [e.path.replace(/^\.\//, ''), e.data.toString()]);
   assert.deepEqual(files.sort(), [
     ['main.py', 'print("hi")\n'],

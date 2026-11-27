@@ -245,9 +245,10 @@ test("a file with thousands of changed functions and hunks is cut up without che
 
   hunks.push('@@ -40001,0 +40001,1 @@', '+export const LAST = 1;');
   const diff = hunks.join('\n');
-  const t = performance.now();
+  const t = process.cpuUsage();
   const first = pickHunks(diff, owners[0], owners);
-  const took = performance.now() - t;
+  const { user, system } = process.cpuUsage(t);
+  const took = (user + system) / 1000;
   assert.ok(took < 1000, `cut up in ${Math.round(took)} ms`);
   assert.deepEqual(first, ['@@ -2,1 +2,1 @@', '-  return 0;', '+  return 1;', '@@ -40001,0 +40001,1 @@', '+export const LAST = 1;']);
 });
