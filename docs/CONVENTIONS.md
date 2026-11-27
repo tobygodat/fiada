@@ -17,6 +17,7 @@ bun run agent:build  # bundle the agent for npm
 ```
 
 - `bun run test`, not `bun test`: bun's own runner doesn't run `node:test`.
+- The indexer tests run with `--liftoff-only`: on Node 24, V8's optimising compiler runs out of zone memory on the Swift grammar's largest function and kills the process ([nodejs/node#63421](https://github.com/nodejs/node/issues/63421)). Node 22, which CI and the `Dockerfile` use, is not affected.
 - The MongoDB store tests run only when `FIADA_TEST_MONGODB_URI` is set.
 - `node web/e2e/fences.e2e.mjs <scratch clone> --scratch` drives fences and collisions end to end in Chromium against `bun run dev`, with the real agent hook. It edits the clone and puts it back. The other scripts in `web/e2e/` drive one feature each (the review tour, ripples, the sort, an agent session); read each one's header before running it.
 - `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium. Set `CHROMIUM_PATH` if Playwright's browser isn't installed.

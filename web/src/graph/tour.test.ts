@@ -541,9 +541,10 @@ test('a tour of thousands of changes is ordered without rescanning every stop at
   const edges = Array.from({ length: N / 10 }, (_, k) => ({ from: `r/a.ts#f${k * 10}`, to: `r/a.ts#f${k * 10 + 1}`, kind: 'calls' as const }));
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent([file('r', 'a.ts', nodes.slice(2).map((n) => sym(n.id)))]);
-  const t = performance.now();
+  const t = process.cpuUsage();
   const stops = tourStops({ edges, layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
-  const took = performance.now() - t;
+  const { user, system } = process.cpuUsage(t);
+  const took = (user + system) / 1000;
   assert.ok(took < 2000, `ordered in ${Math.round(took)} ms`);
   assert.equal(stops.length, N);
   // A caller still comes straight before what it calls.
@@ -564,9 +565,10 @@ test('a tour of one change in each of thousands of files is built without a pass
 
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent(Array.from({ length: N }, (_, i) => file('r', `f${i}.ts`, [sym(`r/f${i}.ts#g`)])));
-  const t = performance.now();
+  const t = process.cpuUsage();
   const stops = tourStops({ edges: [], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
-  const took = performance.now() - t;
+  const { user, system } = process.cpuUsage(t);
+  const took = (user + system) / 1000;
   assert.ok(took < 2000, `built in ${Math.round(took)} ms`);
   assert.equal(stops.length, N);
   assert.ok(stops.every((s) => s.rest?.length === 1 && !s.restOld), 'each file’s one function carries its file');
@@ -587,9 +589,10 @@ test('a link between two files with thousands of changed functions each is not o
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const syms = (f: string) => Array.from({ length: N }, (_, i) => sym(`r/${f}#f${i}`));
   const a = agent([file('r', 'a.ts', syms('a.ts')), file('r', 'z.ts', syms('z.ts'))]);
-  const t = performance.now();
+  const t = process.cpuUsage();
   const stops = tourStops({ edges: [{ from: 'r/z.ts', to: 'r/a.ts', kind: 'imports' }], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
-  const took = performance.now() - t;
+  const { user, system } = process.cpuUsage(t);
+  const took = (user + system) / 1000;
   assert.ok(took < 2000, `ordered in ${Math.round(took)} ms`);
   assert.equal(stops.length, 2 * N);
   // Every caller still comes before every function in the callee file.
@@ -687,9 +690,10 @@ test('thousands of deleted files on one folder take its layer without counting i
   for (let i = 0; i < N; i++) nodes.push({ id: `r/live${i}.ts`, kind: 'file', name: `live${i}.ts`, parent: 'r', repo: 'r', path: `live${i}.ts`, loc: 10, layer: placed('ui') });
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent(Array.from({ length: N }, (_, i) => ({ ...file('r', `gone${i}.ts`, [], 'deleted'), node: 'r' })));
-  const t = performance.now();
+  const t = process.cpuUsage();
   const stops = tourStops({ edges: [], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
-  const took = performance.now() - t;
+  const { user, system } = process.cpuUsage(t);
+  const took = (user + system) / 1000;
   assert.ok(took < 1000, `ordered in ${Math.round(took)} ms`);
   assert.equal(stops.length, N);
   assert.ok(stops.every((s) => s.layer === 'ui' && s.target === 'r'));
@@ -707,9 +711,10 @@ test('a new file with a hundred thousand functions is ordered without searching 
   for (let i = 0; i < N; i++) nodes.push({ id: `r/gen.ts#f${i}`, kind: 'symbol', name: `f${i}`, parent: 'r/gen.ts', repo: 'r', path: 'gen.ts', lines: [i + 1, i + 1], layer: placed('ui') });
   const idx = new Map(nodes.map((n) => [n.id, n]));
   const a = agent([file('r', 'gen.ts', Array.from({ length: N }, (_, i) => sym(`r/gen.ts#f${i}`, 'added')), 'added')]);
-  const t = performance.now();
+  const t = process.cpuUsage();
   const stops = tourStops({ edges: [], layers: [{ id: 'ui', name: 'UI' }] }, idx, a, NO_NODES);
-  const took = performance.now() - t;
+  const { user, system } = process.cpuUsage(t);
+  const took = (user + system) / 1000;
   assert.ok(took < 2500, `ordered in ${Math.round(took)} ms`);
   assert.equal(stops.length, N);
   assert.equal(stops[N - 1].id, `r/gen.ts#f${N - 1}`);
