@@ -12,6 +12,7 @@ import type { ThemeChoice } from '../useTheme.ts';
 import { Account } from './Account.tsx';
 import { Chevron } from './Icon.tsx';
 import { Mark, Wordmark } from './Logo.tsx';
+import { sortSummary, stillUnsorted } from './sorting.ts';
 
 interface Props {
   workspace: Workspace | null;
@@ -207,7 +208,7 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
     return (
       <section className="section">
         {heading}
-        <Sorting workspace={workspace} onSortAgain={onSortAgain} />
+        <Sorting graph={graph} workspace={workspace} onSortAgain={onSortAgain} />
         {problems}
       </section>
     );
@@ -216,7 +217,7 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
   return (
     <section className="section">
       {heading}
-      <Sorting workspace={workspace} onSortAgain={onSortAgain} />
+      <Sorting graph={graph} workspace={workspace} onSortAgain={onSortAgain} />
       {canEdit(workspace) && (
         <div className="setting layer-choice">
           <span className="setting-name small">preset</span>
@@ -243,11 +244,10 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
   );
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
 /** What the model's sort of the project did, or why there isn't one. Sits under the layers heading, folded or not. */
-function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain(): Promise<void> }) {
+function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: Workspace; onSortAgain(): Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
+  const unsorted = useMemo(() => stillUnsorted(graph), [graph]);
   const s = workspace.sorting;
 
   if (!s || s.status === 'idle') return null;
@@ -278,9 +278,7 @@ function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain
   } else if (s.status === 'running') {
     text = <span className="busy">{by} is sorting the code the classifier couldn't place…</span>;
   } else {
-    const domains = [s.renamed && `renamed ${plural(s.renamed, 'domain')}`, s.merged && `merged ${s.merged}`, s.added && `added ${s.added}`].filter(Boolean);
-    const placed = s.placed ? `placed ${plural(s.placed, 'file or symbol', 'files and symbols')} the classifier couldn't` : 'found nothing the classifier left unplaced';
-    text = `${by} ${placed}${domains.length ? `, ${domains.join(', ')}` : ''}.${s.placed ? ' Each says why in its details.' : ''}`;
+    text = sortSummary(s, unsorted);
   }
 
   return (
