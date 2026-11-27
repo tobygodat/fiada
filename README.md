@@ -84,8 +84,8 @@ No key or variable is needed. To change a setting, copy `.env.example` to `.env`
 With `bun run dev` running, import the repository you work in by its absolute local path, so that edits re-index in place. Then run:
 
 ```sh
-bun run agent:setup --write /absolute/path/to/your/repo
-cd /absolute/path/to/your/repo && claude
+bun run agent:setup --write /path/to/your/repo
+cd /path/to/your/repo && claude
 ```
 
 `--write` adds Fiada's hooks, and a rule that lets Claude Code call Fiada's tools without asking, to the repository's `.claude/settings.local.json`. It also registers the `fiada` MCP server with `claude mcp add`. On fiada.tech, **connect an agent** in the sidebar gives one `npx` command with your token, so no checkout of Fiada is needed. [Coding agents](docs/CODING-AGENTS.md) covers Cursor, Codex and scripts.

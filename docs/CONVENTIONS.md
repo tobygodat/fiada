@@ -19,9 +19,9 @@ bun run agent:build  # bundle the agent for npm
 - `bun run test`, not `bun test`: bun's own runner doesn't run `node:test`.
 - The indexer tests run with `--liftoff-only`: on Node 24, V8's optimising compiler runs out of zone memory on the Swift grammar's largest function and kills the process ([nodejs/node#63421](https://github.com/nodejs/node/issues/63421)). Node 22, which CI and the `Dockerfile` use, is not affected.
 - The Postgres store tests run only when `FIADA_TEST_DATABASE_URL` is set. CI sets it with a Postgres service.
-- `node web/e2e/fences.e2e.mjs <scratch clone> --scratch` drives fences and collisions end to end in Chromium against `bun run dev`, with the real agent hook. It edits the clone and puts it back. The other scripts in `web/e2e/` drive one feature each (the review tour, ripples, the sort, an agent session); read each one's header before running it.
+- `node web/e2e/fences.e2e.mjs <scratch clone> --scratch` drives fences and collisions end to end in Chromium against `bun run dev`, with the real agent hook. It edits the clone and puts it back. `review-tour.mjs`, `review-tour-live.mjs`, `ripple.mjs`, `sort.e2e.mjs` and `agent-session.sh` each drive one feature (the review tour, ripples, the sort, an agent session), and `mock-claude.mjs` and `agent-edits.py` are helpers for them; read each one's header before running it.
 - `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium. Set `CHROMIUM_PATH` if Playwright's browser isn't installed.
-- In cloud containers, Playwright's bundled ffmpeg is missing, so the e2e scripts record with a CDP screencast and system ffmpeg, and launch Chromium from `/opt/pw-browsers/chromium`.
+- In cloud containers, Playwright's bundled ffmpeg is missing, so `fences.e2e.mjs`, `sort.e2e.mjs` and `review-tour.mjs` record with a CDP screencast and system ffmpeg (`ripple.mjs --video` uses Playwright's own recorder). Every script launches `CHROMIUM_PATH` when it is set; otherwise `fences.e2e.mjs` and `sort.e2e.mjs` use `/opt/pw-browsers/chromium` when it exists, and the rest Playwright's own browser.
 - CI (`.github/workflows/ci.yml`) runs typecheck, lint, test and build as parallel jobs on every pull request and every push to `main`. `.github/workflows/keepalive.yml` calls the hosted indexer's `/api/health` three times a day so Supabase is unlikely to pause the database.
 - Configuration lives in a gitignored `.env` at the repo root, from `.env.example`. [Configuration](HOSTING.md#configuration) is the full table. Every `FIADA_*` variable is also read as `STRATA_*`, and the old name wins when both are set. Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
 - Deploys: a merge to `main` deploys the map to Cloudflare Workers and the indexer to Render ([ADR 0004](adr/0004-render-and-supabase.md)). [Deploy](HOSTING.md#deploy) has the setup.
@@ -35,7 +35,7 @@ bun run agent:build  # bundle the agent for npm
 - Each module opens with a short comment saying what it is and why. Keep that up when you add one.
 - New code, copy and variables say **Fiada**: `@fiada/*`, `FIADA_*`, `.fiada/`, `fiada.grouping.json`, MCP server id `fiada`. On npm the agent is `@fiadatech/agent`, since the `fiada` scope isn't ours.
 - These keep "strata" on purpose so existing hosts and checkouts keep working. Don't rename them:
-  - the indexer package `@strata/indexer` (the Dockerfile and root scripts name it);
+  - the indexer package `@strata/indexer` (the `Dockerfile` names it);
   - the `STRATA_*` aliases, an existing `.strata/` folder and `strata.grouping.json`;
   - browser `localStorage` keys `strata.*` and `strata-theme`;
   - the `agent/bin/strata-*.mjs` shims.
@@ -44,7 +44,7 @@ bun run agent:build  # bundle the agent for npm
 
 - Missing keys degrade, they don't fail. Without a model key, sorting falls back to the rules and summaries to lines built from the graph. Over the daily model budget, the same.
 - The agent hook never fails the agent: it always exits 0 and gives up on the indexer after 1.5 s.
-- If Postgres can't be reached at startup, the indexer says why and saves under `.fiada/` for that run.
+- If Postgres can't be reached at startup, an indexer on loopback says why and saves under `$FIADA_HOME/projects/` (`.fiada/` by default) for that run. An indexer listening anywhere else refuses to start.
 - Errors a person sees are a sentence, in words as well as colour (see `DESIGN.md`).
 
 ## Tests
@@ -79,4 +79,4 @@ bun run --cwd web bench "$PWD/next.graph.json"   # needs bunx playwright install
 
 - Commit subjects say what changed in plain words ("Map: no hover text over circles").
 - PRs target `main` and merge with a merge commit. Never rewrite `main`.
-- Codex (`chatgpt-codex-connector`) reviews every PR when it opens and after each push, and has found real bugs. Read its comments before merging.
+- No automated reviewer comments on PRs. CI runs on every PR, and before a PR is called ready, a GPT 6.2 Sol review loop (the `sol-loop` skill) reads the diff and its findings are fixed or answered.
