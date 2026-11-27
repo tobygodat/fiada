@@ -380,6 +380,7 @@ test('setup --write takes a relative path from the folder the command was typed 
   } finally {
     await fs.rm(path.join(typedIn, name), { recursive: true, force: true });
     await fs.rm(fileURLToPath(new URL(`../${name}`, import.meta.url)), { recursive: true, force: true });
+    await fs.rm(bin, { recursive: true, force: true });
   }
 });
 
