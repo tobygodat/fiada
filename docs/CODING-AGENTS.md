@@ -7,11 +7,11 @@ How Fiada follows a coding agent, what the agent can ask the map, and how to con
 Import the repository you'll work in by its local path (so edits re-index in place), then:
 
 ```sh
-bun run agent:setup --write /absolute/path/to/your/repo
-cd /absolute/path/to/your/repo && claude
+bun run agent:setup --write /path/to/your/repo
+cd /path/to/your/repo && claude
 ```
 
-Give `--write` an absolute path. The script runs from `agent/`, so a relative path resolves from there.
+A relative path after `--write` counts from the folder you run the command in.
 
 `--write` adds Fiada's hooks, and a rule allowing the Fiada MCP server's tools (`mcp__fiada`), to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. For a map you signed in to, open **agents** in the sidebar and choose **connect an agent**: it gives one command to run in your project, no checkout of Fiada needed, which runs the published [`@fiadatech/agent`](../agent/README.md) package:
 
@@ -48,7 +48,7 @@ The MCP server also gives the agent three read-only tools, so it can use the map
 | `who_uses` | what calls, imports, renders, references or requests a function, class, file or folder | each user with the `file:line` and code behind every link, whether the link is proven or inferred, and whether it is in another repository |
 | `impact` | what an edit to it reaches: its users, their users, and so on (3 links by default, at most 6) | the reached code nearest first, with counts by repository, layer and domain; HTTP requests matched to routes carry it from a server into the clients that call it |
 
-A target is an id from `where_is`, a path (absolute in the agent's checkout, or relative to the repository), `path#symbol`, or a name; a name that fits several things comes back as a short list to pick from. Every answer comes from the graph the map draws, evidence and all, across every repository imported on the map. The tools call the indexer's `GET /api/agent/find?q=`, `/api/agent/dependents?node=` and `/api/agent/impact?node=&depth=` (each with an optional `&limit=`) with the same `FIADA_URL` and token the reports use; on an indexer people sign in to, an agent token may read these three routes and nothing else besides reporting.
+A target is an id from `where_is`, a path (absolute in the agent's checkout, or relative to the repository), `path#symbol`, or a name; a name that fits several things comes back as a short list to pick from. Every answer comes from the graph the map draws, evidence and all, across every repository imported on the map. The tools call the indexer's `GET /api/agent/find?q=`, `/api/agent/dependents?node=` and `/api/agent/impact?node=&depth=` (each with an optional `&limit=`) with the same `FIADA_URL` and token the reports use; on an indexer people sign in to, an agent token may call these three routes, `POST /api/agent/events` to report and `POST /api/agent/check` to ask about fences, and nothing else.
 
 What the agent asked about, and every file it opens with Claude Code's Read tool, is reported as looked at (a `looked` event). The map draws it as a faint dotted ring in `--muted`, apart from the change rings: a changed node shows its change instead, and a closed circle with something looked at inside gets a fainter one. The detail panel says "looked at by Claude Code", and the agent's card lists what it looked at, each a way onto the map.
 
