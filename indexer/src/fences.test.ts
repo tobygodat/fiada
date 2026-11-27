@@ -15,6 +15,7 @@ import { Workspace } from './workspace.ts';
 
 // A fixture's remote is the URL it names, not what this machine's git config rewrites it to (url.<base>.insteadOf).
 process.env.GIT_CONFIG_NOSYSTEM = '1';
+
 process.env.GIT_CONFIG_GLOBAL = os.devNull;
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
