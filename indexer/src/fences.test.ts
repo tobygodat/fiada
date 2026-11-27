@@ -13,6 +13,11 @@ import { cleanFences, covers, Fences, FRESH_MS, verdict } from './fences.ts';
 import { FileProjectStore, type ProjectStore, type SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
 
+// A fixture's remote is the URL it names, not what this machine's git config rewrites it to (url.<base>.insteadOf).
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+
+process.env.GIT_CONFIG_GLOBAL = os.devNull;
+
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 const node = (id: string, kind: GraphNode['kind'], parent: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, kind, name: id.split(/[/#]/).pop()!, parent, repo: 'api', ...extra });
