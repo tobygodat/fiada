@@ -251,7 +251,7 @@ export class MongoProjectStore implements ProjectStore {
 
       if (result.matchedCount === 0 && result.upsertedCount === 0) throw new ProjectConflictError(projectId, field);
     } catch (err) {
-      if ((err as { code?: number }).code === 11000) throw new ProjectConflictError(projectId, field);
+      if (err instanceof Error && 'code' in err && err.code === 11000) throw new ProjectConflictError(projectId, field);
       throw err;
     }
 

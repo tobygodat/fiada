@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import type { Fence, Grouping, RepoKind } from '@fiada/shared';
+import { messageOf, type Fence, type Grouping, type RepoKind } from '@fiada/shared';
 import { MongoProjectStore, redact, unquote } from './mongo-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
@@ -239,7 +239,7 @@ export class FileProjectStore implements ProjectStore {
   }
 
   async usage(): Promise<StoredUsage> {
-    const names = (dir: string) => fsp.readdir(path.join(this.root, dir)).catch(() => [] as string[]);
+    const names = (dir: string) => fsp.readdir(path.join(this.root, dir)).catch((): string[] => []);
     const read = (file: string) => fsp.readFile(path.join(this.root, file), 'utf8').then(JSON.parse).catch(() => null);
     const accounts = await Promise.all((await names('accounts')).filter((n) => n.endsWith('.json')).map((n) => read(`accounts/${n}`)));
     const repos = await Promise.all((await names('projects')).map((n) => read(`projects/${n}/repos.json`)));
@@ -312,7 +312,7 @@ export async function createStore(home: string): Promise<ProjectStore> {
 
       return store;
     } catch (err) {
-      console.error(`[fiada] can't use MongoDB at ${redact(uri)}: ${(err as Error).message}`);
+      console.error(`[fiada] can't use MongoDB at ${redact(uri)}: ${messageOf(err)}`);
       console.error(`[fiada] saving to ${path.join(home, 'projects')} for this run instead`);
     }
   }

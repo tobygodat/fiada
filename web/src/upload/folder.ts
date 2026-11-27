@@ -98,7 +98,7 @@ export function fromFileList(files: ArrayLike<File>): Folder | null {
 }
 
 /** Whether this browser can open a folder without listing all of it first. */
-export const canPickDirectory = () => typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+export const canPickDirectory = () => 'showDirectoryPicker' in globalThis;
 
 /** Asks for a folder with the File System Access API; null when the person cancels. */
 export async function pickDirectory(): Promise<Folder | null> {
@@ -107,7 +107,7 @@ export async function pickDirectory(): Promise<Folder | null> {
   try {
     return fromHandle(await pick({ id: 'fiada-upload', mode: 'read' }));
   } catch (err) {
-    if ((err as Error).name === 'AbortError') return null;
+    if (err instanceof Error && err.name === 'AbortError') return null;
     throw err;
   }
 }

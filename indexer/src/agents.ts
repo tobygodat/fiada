@@ -180,7 +180,12 @@ const sigsOf = (text: string[], symbols: GraphNode[]): Sigs => ({
  * annotations do, not with each method in it.
  */
 function ownText(text: string[], symbols: Pick<GraphNode, 'id' | 'lines'>[]): Map<string, string> {
-  const spans = symbols.flatMap((n) => (n.lines ? [{ id: n.id, from: n.lines[0], to: n.lines[1], inner: [] as [number, number][] }] : []));
+  const spans = symbols.flatMap((n) => {
+    const inner: [number, number][] = [];
+
+    return n.lines ? [{ id: n.id, from: n.lines[0], to: n.lines[1], inner }] : [];
+  });
+
   // Outer before inner; a stack of the spans still open finds each one's direct container.
   spans.sort((x, y) => x.from - y.from || y.to - x.to);
   const open: typeof spans = [];
@@ -955,7 +960,7 @@ export class AgentHub {
       // read (no other edit since), parsed as it is right now.
       const sha = typeof f.sha256 === 'string' ? f.sha256 : null;
       const symbols = lines.length && sha && where.live ? await this.symbolsNow(where.repo, where.rel!, sha) : null;
-      files.push({ repo: where.repo, rel: where.rel!, ...(symbols ? { lines, symbols } : {}) });
+      files.push(symbols ? { repo: where.repo, rel: where.rel!, lines, symbols } : { repo: where.repo, rel: where.rel! });
     }
 
     const v = fences.verdict(files, this.ws.getGraph());
@@ -1302,7 +1307,8 @@ export class AgentHub {
         continue;
       }
 
-      let kind = prev.sig?.split(/[\n@]/)[0] as ChangeKind | undefined;
+      const signed = prev.sig?.split(/[\n@]/)[0];
+      let kind: ChangeKind | undefined = signed === 'added' || signed === 'modified' || signed === 'deleted' ? signed : undefined;
 
       // One this agent added that the other agent took away: no one's now, and new if it comes back.
       if (kind !== 'deleted' && f.base && !f.base.has(id) && !ix.nodes.has(id)) {
@@ -1546,7 +1552,8 @@ export class AgentHub {
 
       const root = rec.ref.root ?? rec.ref.cwd;
       const repo = this.ws.repos.find((r) => r.kind === 'local' && this.realSource(r.source) === root);
-      agents.push({
+
+      const activity: Omit<AgentActivity, 'startedAt' | 'updatedAt'> = {
         id: rec.id,
         client: rec.ref.client,
         name: names.get(rec.id)!,
@@ -1560,10 +1567,10 @@ export class AgentHub {
         steps: rec.steps,
         files,
         filesRev: createHash('sha1').update(JSON.stringify([this.ws.version, files])).digest('base64url').slice(0, 16),
-        ...(lookedHere.length ? { looked: { count: lookedHere.length, nodes: lookedHere.map(([id]) => id).reverse().slice(0, LOOKED_LISTED) } } : {}),
-        startedAt: new Date(rec.startedAt).toISOString(),
-        updatedAt: new Date(rec.updatedAt).toISOString(),
-      });
+      };
+
+      if (lookedHere.length) activity.looked = { count: lookedHere.length, nodes: lookedHere.map(([id]) => id).reverse().slice(0, LOOKED_LISTED) };
+      agents.push({ ...activity, startedAt: new Date(rec.startedAt).toISOString(), updatedAt: new Date(rec.updatedAt).toISOString() });
     }
 
     agents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -1582,7 +1589,9 @@ export class AgentHub {
       for (const e of kept.values()) if (!ix.nodes.has(e.to) && ix.nodes.has(e.from) && nodes[e.to]) lost.push(e);
     }
 
-    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, collisions: collisions(agents, ix.byId), fenced, ...(lost.length ? { lost } : {}) };
+    const state: ActivityState = { version: this.version, graphVersion: this.ws.version, agents, nodes, looked, collisions: collisions(agents, ix.byId), fenced };
+
+    if (lost.length) state.lost = lost;
     this.cached = { version: this.version, graph: this.ws.version, state };
 
     return state;

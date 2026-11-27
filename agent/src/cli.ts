@@ -5,6 +5,7 @@
 // The published package bundles this into dist/cli.js; a checkout runs it from source.
 
 import './env.ts';
+import { messageOf } from '@fiada/shared';
 import { runHook } from './hook.ts';
 import { runMcp } from './mcp.ts';
 import { PACKAGE, runSetup } from './setup.ts';
@@ -25,7 +26,7 @@ export async function cli(command?: string, args = process.argv.slice(2)) {
   switch (cmd) {
     case 'setup':
       return runSetup(rest).catch((err) => {
-        console.error((err as Error).message);
+        console.error(messageOf(err));
         process.exit(1);
       });
     case 'hook':

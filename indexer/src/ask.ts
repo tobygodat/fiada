@@ -38,17 +38,19 @@ const domainName = (gi: GraphIndex, id?: string) => (id && id !== UNSORTED_DOMAI
 export function nodeRef(gi: GraphIndex, n: GraphNode): NodeRef {
   const placed = n.kind === 'file' || n.kind === 'symbol';
 
-  return {
-    id: n.id,
-    kind: n.kind,
-    name: n.name,
-    repo: n.repo,
-    ...(n.path ? { path: n.path } : {}),
-    ...(n.symbolKind ? { symbolKind: n.symbolKind } : {}),
-    ...(n.lines ? { lines: n.lines } : {}),
-    ...(placed ? { layer: layerName(gi, n.layer?.id), domain: domainName(gi, n.domain?.id) } : {}),
-    ...(n.routes?.length ? { routes: n.routes } : {}),
-  };
+  const ref: NodeRef = { id: n.id, kind: n.kind, name: n.name, repo: n.repo };
+
+  if (n.path) ref.path = n.path;
+
+  if (n.symbolKind) ref.symbolKind = n.symbolKind;
+
+  if (n.lines) ref.lines = n.lines;
+
+  if (placed) Object.assign(ref, { layer: layerName(gi, n.layer?.id), domain: domainName(gi, n.domain?.id) });
+
+  if (n.routes?.length) ref.routes = n.routes;
+
+  return ref;
 }
 
 /** A whole number within [lo, hi], or the fallback when it isn't one. */
@@ -122,7 +124,11 @@ export function find(gi: GraphIndex, query: string, limit = 10, summaryOf?: (id:
     hits: top.map(({ n }) => {
       const summary = summaryOf?.(n.id);
 
-      return { ...nodeRef(gi, n), ...(summary ? { summary } : {}) };
+      const hit: FindAnswer['hits'][number] = nodeRef(gi, n);
+
+      if (summary) hit.summary = summary;
+
+      return hit;
     }),
     more: scored.length - top.length,
   };
@@ -226,14 +232,17 @@ export function dependents(gi: GraphIndex, target: GraphNode, limit = 25): Depen
     edges.sort((a, b) => strength(b) - strength(a));
     all.push({
       ...nodeRef(gi, n),
-      links: edges.map((e) => ({
-        kind: e.kind,
-        to: e.to,
-        ...(e.basis ? { basis: e.basis } : {}),
-        ...(e.confidence != null ? { confidence: e.confidence } : {}),
-        ...(e.reason ? { reason: e.reason } : {}),
-        evidence: (e.evidence ?? []).slice(0, 3).map((v) => ({ file: v.file, line: v.line, ...(v.code ? { code: v.code } : {}) })),
-      })),
+      links: edges.map((e) => {
+        const head: Omit<Dependent['links'][number], 'evidence'> = { kind: e.kind, to: e.to };
+
+        if (e.basis) head.basis = e.basis;
+
+        if (e.confidence != null) head.confidence = e.confidence;
+
+        if (e.reason) head.reason = e.reason;
+
+        return { ...head, evidence: (e.evidence ?? []).slice(0, 3).map((v) => (v.code ? { file: v.file, line: v.line, code: v.code } : { file: v.file, line: v.line })) };
+      }),
       crossRepo: n.repo !== target.repo,
     });
   }
@@ -280,7 +289,10 @@ export function impact(gi: GraphIndex, target: GraphNode, depth = 3, limit = 50)
       if (!n) continue;
       seen.add(e.from);
       next.push(e.from);
-      reached.push({ ...nodeRef(gi, n), depth: d, via: e.to, link: e.kind, ...(e.basis ? { basis: e.basis } : {}), crossRepo: n.repo !== target.repo });
+      const head: Omit<Reached, 'crossRepo'> = { ...nodeRef(gi, n), depth: d, via: e.to, link: e.kind };
+
+      if (e.basis) head.basis = e.basis;
+      reached.push({ ...head, crossRepo: n.repo !== target.repo });
     }
 
     frontier = next;

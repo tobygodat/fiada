@@ -36,10 +36,13 @@ export function readConfig(file = configPath()): AgentConfig {
   try {
     const c = JSON.parse(fs.readFileSync(file, 'utf8'));
 
-    return {
-      ...(typeof c?.url === 'string' ? { url: c.url } : {}),
-      ...(typeof c?.token === 'string' ? { token: c.token } : {}),
-    };
+    const config: AgentConfig = {};
+
+    if (typeof c?.url === 'string') config.url = c.url;
+
+    if (typeof c?.token === 'string') config.token = c.token;
+
+    return config;
   } catch {
     return {};
   }

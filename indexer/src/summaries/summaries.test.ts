@@ -12,6 +12,7 @@ import { describe as line, indexGraph } from './describe.ts';
 import { fileDoc, firstSentence, symbolDoc } from './docs.ts';
 import { Summaries } from './index.ts';
 import { hashOf, matchReply, replySchema, takeBatch, type Item } from './items.ts';
+import { dig } from '../json.test-util.ts';
 import type { JsonRequest, LLM } from '../llm.ts';
 
 const FILES = {
@@ -254,8 +255,7 @@ test('replies are matched by number, then by name, then by position', () => {
   assert.deepEqual(matchReply(items, [{ id: 'x', summary: 'p' }, { id: 'y', summary: 'q' }, { id: 'z', summary: '' }]), ['p', 'q', undefined]);
   assert.deepEqual(matchReply(items, [{ id: '1', summary: 'a' }, { id: '1', summary: 'b' }]), ['a', undefined, undefined]);
   assert.deepEqual(matchReply(items, undefined), [undefined, undefined, undefined]);
-  const id = (replySchema(3).properties as any).summaries.items.properties.id;
-  assert.deepEqual(id.enum, ['1', '2', '3']);
+  assert.deepEqual(dig(replySchema(3), 'properties', 'summaries', 'items', 'properties', 'id', 'enum'), ['1', '2', '3']);
 });
 
 test('a model that labels its answers by name still gets a file\'s symbols written', async () => {
@@ -266,7 +266,7 @@ test('a model that labels its answers by name still gets a file\'s symbols writt
   assert.equal((await s.get('shop/backend/app/crud.py#create_item'))?.status, 'pending');
   await s.idle();
   const req = requests.at(-1)!;
-  assert.deepEqual((req.schema as any).properties.summaries.items.properties.id.enum, ['1', '2', '3']);
+  assert.deepEqual(dig(req.schema, 'properties', 'summaries', 'items', 'properties', 'id', 'enum'), ['1', '2', '3']);
 
   for (const name of ['unused', 'list_items', 'create_item']) {
     const got = await s.get(`shop/backend/app/crud.py#${name}`);

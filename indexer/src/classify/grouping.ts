@@ -96,7 +96,14 @@ export function normalizeGrouping(raw: unknown): Grouping {
   const preset = PRESETS.find((p) => p === raw.preset);
   const sorted = normalizeSorted(raw.sorted);
 
-  return { schema: 1, ...(preset ? { preset } : {}), layers, domains, rules, pins, ...(sorted ? { sorted } : {}) };
+  const head: Pick<Grouping, 'schema' | 'preset'> = { schema: 1 };
+
+  if (preset) head.preset = preset;
+  const grouping: Grouping = { ...head, layers, domains, rules, pins };
+
+  if (sorted) grouping.sorted = sorted;
+
+  return grouping;
 }
 
 const user = (source: 'user-rule' | 'user-pin', id: string, detail: string): Placement => ({

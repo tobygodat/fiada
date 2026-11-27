@@ -24,7 +24,13 @@ export interface Item {
 
 export const hashOf = (text: string) => createHash('sha256').update(`v${PROMPT_VERSION}\n${text}`).digest('base64url').slice(0, 22);
 
-const item = (node: string, kind: ItemKind, text: string, group?: string): Item => ({ node, kind, text, hash: hashOf(text), ...(group ? { group } : {}) });
+function item(node: string, kind: ItemKind, text: string, group?: string): Item {
+  const it: Item = { node, kind, text, hash: hashOf(text) };
+
+  if (group) it.group = group;
+
+  return it;
+}
 
 const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
@@ -224,7 +230,8 @@ export function matchReply(items: Item[], entries: readonly { id?: unknown; summ
 
   if (entries.length === items.length) {
     out.forEach((s, i) => {
-      const text = typeof entries[i]?.summary === 'string' ? (entries[i].summary as string).trim() : '';
+      const summary = entries[i]?.summary;
+      const text = typeof summary === 'string' ? summary.trim() : '';
 
       if (s === undefined && !used.has(i) && text) take(i, i, text);
     });

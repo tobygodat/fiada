@@ -210,7 +210,7 @@ export async function unpackUpload(archive: Buffer, dest: string, policy: Upload
   try {
     tar = await gunzip(archive, { maxOutputLength: archiveLimit(policy) });
   } catch (err) {
-    throw (err as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE' ? tooBig(policy) : NOT_AN_ARCHIVE;
+    throw err instanceof Error && 'code' in err && err.code === 'ERR_BUFFER_TOO_LARGE' ? tooBig(policy) : NOT_AN_ARCHIVE;
   }
 
   const wanted = new RegExp(policy.files);

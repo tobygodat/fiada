@@ -211,12 +211,16 @@ async function claudeToolUse(p: Payload, key: string, co: Checkout | null): Prom
   const input = (p.tool_input ?? {}) as Payload;
 
   if (tool === 'TodoWrite' && Array.isArray(input.todos)) {
-    const steps: AgentStep[] = input.todos.map((t: Payload) => ({
-      id: t.id == null ? undefined : String(t.id),
-      text: oneLine(t.content, 200),
-      activeText: t.activeForm ? oneLine(t.activeForm, 200) : undefined,
-      status: TODO_STATUS.get(t.status) === 'removed' ? 'done' : ((TODO_STATUS.get(t.status) ?? 'pending') as StepStatus),
-    }));
+    const steps: AgentStep[] = input.todos.map((t: Payload) => {
+      const status = TODO_STATUS.get(t.status) ?? 'pending';
+
+      return {
+        id: t.id == null ? undefined : String(t.id),
+        text: oneLine(t.content, 200),
+        activeText: t.activeForm ? oneLine(t.activeForm, 200) : undefined,
+        status: status === 'removed' ? 'done' : status,
+      };
+    });
 
     return [{ type: 'task', steps }];
   }
@@ -441,7 +445,7 @@ async function main(argv: string[]) {
 export function runHook(argv: string[]) {
   main(argv)
     .catch((err) => {
-      if (process.env.FIADA_DEBUG) process.stderr.write(`fiada-hook: ${(err as Error).stack}\n`);
+      if (process.env.FIADA_DEBUG) process.stderr.write(`fiada-hook: ${err instanceof Error ? err.stack : err}\n`);
     })
     .finally(() => process.exit(0));
 }

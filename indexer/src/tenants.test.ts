@@ -71,6 +71,7 @@ test('projects open once however many requests arrive, and close when idle', asy
       opened++;
       const idle = { state: () => ({ busy: false }) };
 
+      // SAFETY: Tenants reads only agents.watched, ws.state().busy and close() of a tenant it holds, so the rest is never touched.
       return { projectId, ws: idle, agents: { watched: false }, close: async () => void closed.push(projectId) } as Tenant;
     },
     1000,

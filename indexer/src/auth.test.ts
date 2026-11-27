@@ -89,7 +89,7 @@ test('a sign-in finishes only in the browser that started it, and only once its 
 
 test('sessions expire, and forged or cross-kind tokens are refused', async () => {
   let t = 1_000_000_000_000;
-  const { auth } = await setup(() => t);
+  const { auth, store } = await setup(() => t);
   const { account, session } = await signIn(auth);
   const agent = auth.agentToken(account);
   assert.equal((await auth.agent(agent))?.id, 'gh-42');
@@ -103,7 +103,7 @@ test('sessions expire, and forged or cross-kind tokens are refused', async () =>
   assert.equal(await auth.session(forged), null);
   assert.equal(await auth.session(undefined), null);
   // Another indexer's secret signs nothing here.
-  const other = new Auth((auth as any).store, { ...CONFIG, secret: 'other' }, fakeGitHub(), () => t);
+  const other = new Auth(store, { ...CONFIG, secret: 'other' }, fakeGitHub(), () => t);
   assert.equal(await other.session(session), null);
   t += (SESSION_DAYS + 1) * 86400_000;
   assert.equal(await auth.session(session), null);

@@ -14,9 +14,8 @@
 
 import './env.ts';
 import fs from 'node:fs/promises';
-import type { OutgoingHttpHeaders } from 'node:http';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import type { AccountInfo, AgentConnection, AgentEvent, AuthState, FenceCheck, LayerPreset } from '@fiada/shared';
+import { messageOf, type AccountInfo, type ActivityState, type AgentConnection, type AgentEvent, type AuthState, type FenceCheck, type LayerPreset } from '@fiada/shared';
 import { AGENT_READS, allowLocalPaths, defaultHost, hasKey, isLoopback, originMatcher, RateLimit, READS, whoMayCall } from './access.ts';
 import { answer, QUESTIONS } from './ask.ts';
 import { accountInfo, Auth, authConfigFromEnv, bearer, CALLBACK_PATH, cookie, NONCE_COOKIE, returnAllowed } from './auth.ts';
@@ -85,7 +84,8 @@ const shared = auth
       clones: CLONES,
       githubToken: () => process.env.FIADA_GITHUB_TOKEN,
       // Limits only for an indexer others can reach; your own is yours to fill.
-      ...(isLoopback(HOST) ? {} : { maxRepos: MAX_REPOS, maxCloneBytes: MAX_CLONE_BYTES }),
+      maxRepos: isLoopback(HOST) ? undefined : MAX_REPOS,
+      maxCloneBytes: isLoopback(HOST) ? undefined : MAX_CLONE_BYTES,
     });
 
 /** With sign-in: each person's own project, as they last signed in. */
@@ -249,7 +249,7 @@ app.get<{ Querystring: { code?: string; state?: string; error_description?: stri
 
     return reply.redirect(`${done.returnTo.split('#')[0]}#fiada_session=${encodeURIComponent(done.session)}`);
   } catch (err) {
-    const message = (err as Error).message;
+    const message = messageOf(err);
     const back = auth.returnOf(req.query.state);
 
     if (back && returnAllowed(back, new URL(publicUrl(req)).origin, allowedOrigin)) {
@@ -324,7 +324,7 @@ app.post<{ Body: { source?: string } }>('/api/repos', async (req, reply) => {
   try {
     await req.tenant.ws.add(source);
   } catch (err) {
-    return reply.code(400).send({ error: (err as Error).message });
+    return reply.code(400).send({ error: messageOf(err) });
   }
 
   return reply.code(202).send(req.tenant.ws.state());
@@ -341,7 +341,7 @@ app.post<{ Querystring: { name?: string; replace?: string } }>(
   {
     bodyLimit: UPLOAD_LIMIT,
     errorHandler: (err, _req, reply) => {
-      if ((err as { code?: string }).code === 'FST_ERR_CTP_BODY_TOO_LARGE') return reply.code(413).send({ error: tooBig(UPLOAD).message });
+      if (err.code === 'FST_ERR_CTP_BODY_TOO_LARGE') return reply.code(413).send({ error: tooBig(UPLOAD).message });
       reply.send(err);
     },
   },
@@ -489,9 +489,11 @@ for (const q of QUESTIONS) {
 app.get('/api/agent/stream', (req, reply) => {
   reply.hijack();
   const res = reply.raw;
+
   // Hijacked, so the CORS headers set above go out by hand.
-  res.writeHead(200, { ...(reply.getHeaders() as OutgoingHttpHeaders), 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-  const send = (s: unknown) => res.write(`data: ${JSON.stringify(s)}\n\n`);
+  for (const [name, value] of Object.entries(reply.getHeaders())) if (value !== undefined) res.setHeader(name, value);
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+  const send = (s: ActivityState) => res.write(`data: ${JSON.stringify(s)}\n\n`);
   send(req.tenant.agents.state());
   const off = req.tenant.agents.subscribe(send);
   const ping = setInterval(() => res.write(': ping\n\n'), 20_000);

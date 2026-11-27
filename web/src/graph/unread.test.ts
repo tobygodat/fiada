@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { AgentActivity, AgentFile, GraphNode, NodeChange } from '@fiada/shared';
 import { readWords, rollupActivity } from './activity.ts';
 import { fixtureGraph } from './fixture.test-util.ts';
+import { withStorage } from './storage.test-util.ts';
 import { buildCodeTree } from './tree.ts';
 import { agentRead, agentUnreadIds, forgetRead, loadRead, markAgentRead, markAllRead, markRead, saveRead, unreadIds } from './unread.ts';
 
@@ -15,6 +16,19 @@ const nodes = {
   'web/src/pages/tags.tsx': change('added', 'file', 30, ['b'], 'web/src/pages'),
   'api/app/routes/old.py': change('deleted', 'file', 5, ['a'], 'api/app/routes'),
 } satisfies Record<string, NodeChange>;
+
+const activity = (id: string, files: AgentFile[]): AgentActivity => ({
+  id,
+  client: 'claude-code',
+  name: 'Claude Code',
+  where: 'web',
+  cwd: '/w',
+  state: 'ended',
+  steps: [],
+  files,
+  startedAt: '2026-10-08T10:00:00Z',
+  updatedAt: '2026-10-08T10:00:30Z',
+});
 
 test('every change is unread until something is opened', () => {
   assert.deepEqual([...unreadIds(nodes, {})].sort(), Object.keys(nodes).sort());
@@ -68,13 +82,10 @@ test("marking one agent read leaves another agent's later change to the same fil
 
   const iso = (ms: number) => new Date(ms).toISOString();
 
-  const a = {
-    id: 'a',
-    files: [
-      { repo: 'web', path: 'src/pages/items.tsx', node: 'web/src/pages/items.tsx', kind: 'modified', symbols: [{ id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' }], at: iso(10) },
-      { repo: 'web', path: 'src/pages/tags.tsx', node: 'web/src/pages/tags.tsx', kind: 'added', symbols: [], at: iso(15) },
-    ],
-  } as AgentActivity;
+  const a = activity('a', [
+    { repo: 'web', path: 'src/pages/items.tsx', node: 'web/src/pages/items.tsx', kind: 'modified', symbols: [{ id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' }], at: iso(10), diff: false },
+    { repo: 'web', path: 'src/pages/tags.tsx', node: 'web/src/pages/tags.tsx', kind: 'added', symbols: [], at: iso(15), diff: false },
+  ]);
 
   const marks = markAgentRead({}, a)!;
   const u = unreadIds(shared, marks);
@@ -83,7 +94,7 @@ test("marking one agent read leaves another agent's later change to the same fil
   assert.ok(u.has('web/src/pages/items.tsx#ItemsPage'));
   assert.equal(markAgentRead(marks, a), null, 'nothing new to mark');
   assert.deepEqual(agentRead(a, u, marks, shared), { read: 2, total: 2 }, "a counts its own changes read; b's is b's to read");
-  const b = { id: 'b', files: [{ ...a.files[0], at: iso(20) }] } as AgentActivity;
+  const b = activity('b', [{ ...a.files[0], at: iso(20) }]);
   assert.deepEqual(agentRead(b, u, marks, shared), { read: 0, total: 1 });
   // Lit on the map, each agent shows only what is unread for it.
   assert.deepEqual([...agentUnreadIds(a, u, marks, shared)], []);
@@ -98,22 +109,20 @@ test("a lit agent's function you opened stays read when another agent changes it
     'web/src/pages/items.tsx#useTags': change('added', 'symbol', 10, ['a']),
   } satisfies Record<string, NodeChange>;
 
-  const a = {
-    id: 'a',
-    files: [
-      {
-        repo: 'web',
-        path: 'src/pages/items.tsx',
-        node: 'web/src/pages/items.tsx',
-        kind: 'modified',
-        symbols: [
-          { id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' },
-          { id: 'web/src/pages/items.tsx#useTags', name: 'useTags', kind: 'added' },
-        ],
-        at: new Date(10).toISOString(),
-      },
-    ],
-  } as AgentActivity;
+  const a = activity('a', [
+    {
+      repo: 'web',
+      path: 'src/pages/items.tsx',
+      node: 'web/src/pages/items.tsx',
+      kind: 'modified',
+      symbols: [
+        { id: 'web/src/pages/items.tsx#ItemsPage', name: 'ItemsPage', kind: 'modified' },
+        { id: 'web/src/pages/items.tsx#useTags', name: 'useTags', kind: 'added' },
+      ],
+      at: new Date(10).toISOString(),
+      diff: false,
+    },
+  ]);
 
   const marks = { 'web/src/pages/items.tsx#ItemsPage': 10 };
   const u = unreadIds(two, marks);
@@ -123,7 +132,7 @@ test("a lit agent's function you opened stays read when another agent changes it
 
 test('an agent says how many of its files you have read', () => {
   const file = (path: string, node?: string): AgentFile => ({ repo: 'web', path, node, kind: 'modified', symbols: [], at: '2026-10-08T10:00:00Z', diff: false });
-  const a = { id: 'a', files: [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')] } as AgentActivity;
+  const a = activity('a', [file('src/pages/items.tsx', 'web/src/pages/items.tsx'), file('src/pages/tags.tsx'), file('/elsewhere.ts')]);
   a.files[2].repo = undefined;
   const marks = markRead({}, 'web/src/pages/items.tsx', nodes)!;
   const u = unreadIds(nodes, marks);
@@ -150,17 +159,8 @@ test('closed circles count what is unread inside, and changed nodes say they are
 
 test('read marks are kept per project and survive bad storage', () => {
   const store = new Map<string, string>();
-  (globalThis as { localStorage?: unknown }).localStorage = {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => store.set(k, v),
-    removeItem: (k: string) => store.delete(k),
-    key: (i: number) => [...store.keys()][i] ?? null,
-    get length() {
-      return store.size;
-    },
-  };
 
-  try {
+  withStorage(store, () => {
     saveRead('p1', { 'web/src/a.ts': 10 });
     assert.deepEqual(loadRead('p1'), { 'web/src/a.ts': 10 });
     assert.deepEqual(loadRead('p2'), {}, 'another project starts unread');
@@ -171,9 +171,7 @@ test('read marks are kept per project and survive bad storage', () => {
     store.set('strata-theme', 'dark');
     forgetRead();
     assert.deepEqual([...store.keys()], ['strata-theme'], 'deleting the account forgets every read mark, nothing else');
-  } finally {
-    delete (globalThis as { localStorage?: unknown }).localStorage;
-  }
+  });
 });
 
 test("a lit agent's functions go by its own change time to each, not its latest to the file", () => {
@@ -186,22 +184,20 @@ test("a lit agent's functions go by its own change time to each, not its latest 
 
   const iso = (ms: number) => new Date(ms).toISOString();
 
-  const a = {
-    id: 'a',
-    files: [
-      {
-        repo: 'web',
-        path: 'src/pages/items.tsx',
-        node: 'web/src/pages/items.tsx',
-        kind: 'modified',
-        symbols: [
-          { id: 'web/src/pages/items.tsx#foo', name: 'foo', kind: 'modified', at: iso(10) },
-          { id: 'web/src/pages/items.tsx#bar', name: 'bar', kind: 'modified', at: iso(30) },
-        ],
-        at: iso(30),
-      },
-    ],
-  } as AgentActivity;
+  const a = activity('a', [
+    {
+      repo: 'web',
+      path: 'src/pages/items.tsx',
+      node: 'web/src/pages/items.tsx',
+      kind: 'modified',
+      symbols: [
+        { id: 'web/src/pages/items.tsx#foo', name: 'foo', kind: 'modified', at: iso(10) },
+        { id: 'web/src/pages/items.tsx#bar', name: 'bar', kind: 'modified', at: iso(30) },
+      ],
+      at: iso(30),
+      diff: false,
+    },
+  ]);
 
   const opened = { 'web/src/pages/items.tsx#foo': 20 };
   const u = unreadIds(three, opened);

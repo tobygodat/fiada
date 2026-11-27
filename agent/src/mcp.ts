@@ -21,18 +21,19 @@ import './env.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type {
-  AgentEvent,
-  AgentRef,
-  AgentStep,
-  Ambiguous,
-  ChangeKind,
-  DependentsAnswer,
-  FileChange,
-  FindAnswer,
-  ImpactAnswer,
-  NodeRef,
-  StepStatus,
+import {
+  messageOf,
+  type AgentEvent,
+  type AgentRef,
+  type AgentStep,
+  type Ambiguous,
+  type ChangeKind,
+  type DependentsAnswer,
+  type FileChange,
+  type FindAnswer,
+  type ImpactAnswer,
+  type NodeRef,
+  type StepStatus,
 } from '@fiada/shared';
 import { ask, send, FIADA_URL, whoAndWhere } from './client.ts';
 import { checkout, describe } from './git.ts';
@@ -357,7 +358,7 @@ export class FiadaMcp {
           return void fail(-32601, `Method not found: ${msg.method}`);
       }
     } catch (err) {
-      fail(-32603, (err as Error).message);
+      fail(-32603, messageOf(err));
     }
   }
 
@@ -379,7 +380,7 @@ export class FiadaMcp {
   }
 
   private text(text: string, isError = false) {
-    return { content: [{ type: 'text', text }], ...(isError ? { isError } : {}) };
+    return isError ? { content: [{ type: 'text', text }], isError } : { content: [{ type: 'text', text }] };
   }
 
   async call(name: string, args: Json) {
@@ -508,8 +509,8 @@ export class FiadaMcp {
       if (!res.ok) return this.text(res.error, res.status !== 0 && res.status !== 404);
       const body = res.body;
 
-      if (body.target === null) return this.text(formatAmbiguous(body as Ambiguous));
-      text = name === 'who_uses' ? formatDependents(body as DependentsAnswer) : formatImpact(body as ImpactAnswer);
+      if (body.target === null) return this.text(formatAmbiguous(body));
+      text = 'dependents' in body ? formatDependents(body) : formatImpact(body);
       looked = [body.target.id];
     }
 

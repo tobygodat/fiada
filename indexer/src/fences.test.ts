@@ -63,7 +63,7 @@ test('a fence covers its own circle and everything inside it, and a symbol only 
   // Without lines the edit may rewrite the whole file, the symbol with it.
   assert.ok(covers(sym, file('app/routes/items.py'), nodes));
   // Same-named declarations are told apart by order, which an edit can change: the whole file is covered.
-  const both = { 'api/app/routes/items.py#create_item': [10, 20] as [number, number], 'api/app/routes/items.py#create_item~2': [40, 50] as [number, number] };
+  const both = { 'api/app/routes/items.py#create_item': [10, 20], 'api/app/routes/items.py#create_item~2': [40, 50] } satisfies Record<string, [number, number]>;
   assert.ok(covers(sym, file('app/routes/items.py', [[30, 31]], both), nodes));
   const second = fence('api/app/routes/items.py#create_item~2', 'off');
   const withSecond = new Map([...nodes, [second.node, node(second.node, 'symbol', 'api/app/routes/items.py', { lines: [40, 50] })]]);
@@ -454,8 +454,9 @@ test('a repository imported from inside another is its own: an edit there meets 
 const freePort = () =>
   new Promise<number>((resolve) => {
     const srv = net.createServer().listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close(() => resolve(port));
+      const at = srv.address();
+      assert.ok(at instanceof Object);
+      srv.close(() => resolve(at.port));
     });
   });
 
@@ -471,7 +472,7 @@ test('the fence routes: set and list fences, and an agent checks an edit over HT
   server.stderr.on('data', (c) => (log += c));
   const url = `http://127.0.0.1:${port}`;
 
-  const call = async (method: string, p: string, body?: unknown) => {
+  const call = async <B>(method: string, p: string, body?: B) => {
     const res = await fetch(`${url}${p}`, { method, headers: body === undefined ? {} : { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
 
     return { status: res.status, body: (await res.json()) as any };

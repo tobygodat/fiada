@@ -40,7 +40,7 @@ const VERB = { added: 'added', modified: 'changed', deleted: 'deleted' } as cons
  */
 const MAX_TICKS = 80;
 const MAX_TOUCH_TICKS = 10;
-const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const coarse = () => 'matchMedia' in globalThis && matchMedia('(pointer: coarse)').matches;
 
 export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, ready, cut, behind, onGo, onRead, onEnd }: Props) {
   const stop = stops[at];

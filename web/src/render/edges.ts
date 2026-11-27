@@ -53,8 +53,6 @@ export const EDGE_POLICIES = {
   none: { restMax: 0, perContainer: 0, focusMax: 8, restPower: 0, restMinItems: 1, boost: 3, restTags: false, restLabels: false, restFade: 0, route: true },
 } satisfies Record<string, EdgePolicy>;
 
-export type EdgePreset = keyof typeof EDGE_POLICIES;
-
 export const DEFAULT_EDGE_POLICY: EdgePolicy = EDGE_POLICIES.key;
 
 export const edgeScore = (g: Contract, boost: number) => g.items.length * (g.kinds.has('http') || crossRepo(g) ? boost : 1);

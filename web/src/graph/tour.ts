@@ -452,7 +452,7 @@ function order(stops: TourStop[], graph: Pick<Graph, 'edges' | 'layers'>, graphI
   }
 
   // Each gate is one more node in the walk for loops: callers link to it, it links to the callees.
-  const gatesOf = stops.map(() => [] as number[]);
+  const gatesOf = stops.map((): number[] => []);
   gates.forEach((g, k) => g.from.forEach((a) => gatesOf[a].push(k)));
   const comp = loops([...next.map((n, i) => (gatesOf[i].length ? new Set([...n, ...gatesOf[i].map((k) => stops.length + k)]) : n)), ...gates.map((g) => new Set(g.to))]);
   const loop = comp.slice(0, stops.length);
