@@ -85,9 +85,11 @@ interface Place {
   selectedEdge: string | null;
   focus: string;
   cam: Camera | null;
+  /** The canvas's size when `cam` was taken: panels opening or closing change it. */
+  size: { w: number; h: number } | null;
 }
 
-type CameraIntent = { focus: string; detail: boolean; from?: string | null } | { fit: string[] } | { cam: Camera };
+type CameraIntent = { focus: string; from?: string | null } | { fit: string[] } | { cam: Camera };
 
 export function App() {
   const ws = useWorkspace();
@@ -289,7 +291,7 @@ export function App() {
    * keeps both ends on screen.
    */
   const cameraFor = useCallback(
-    (Lx: Map<string, Circle>, id: string, opts: { detail: boolean; from?: string | null }): Camera | null => {
+    (Lx: Map<string, Circle>, id: string, opts: { from?: string | null }): Camera | null => {
       const root = Lx.get('root');
 
       if (!tree || !root || !size.w) return null;
@@ -336,7 +338,7 @@ export function App() {
       }
 
       // All in one circle: framed the way selecting it would.
-      if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
+      if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], {}) : null;
       // Each with the branch it sits on: the circles just inside the one they all share, so you can tell where they are.
       const chains = [...around].map((id) => ancestors(tree, id));
       let shared = 0;
@@ -352,7 +354,7 @@ export function App() {
   const fitAll = useCallback(
     (anim: boolean) => {
       const r = renderer.current;
-      const cam = cameraFor(L, 'root', { detail: false });
+      const cam = cameraFor(L, 'root', {});
 
       if (!r || !cam) return;
 
@@ -404,13 +406,13 @@ export function App() {
   // ── navigation ──
 
   const remember = useCallback(() => {
-    const place: Place = { view, expanded: expandedBy, selected, selectedEdge, focus, cam: renderer.current?.camera ?? null };
+    const place: Place = { view, expanded: expandedBy, selected, selectedEdge, focus, cam: renderer.current?.camera ?? null, size: renderer.current?.size ?? null };
     setHistory((h) => [...h.slice(-49), place]);
   }, [view, expandedBy, selected, selectedEdge, focus]);
 
   /** Open `next` (click mode), then bring `focusId` into view. */
   const go = useCallback(
-    (next: Set<string> | null, focusId: string, opts: { detail: boolean; from?: string | null }) => {
+    (next: Set<string> | null, focusId: string, opts: { from?: string | null }) => {
       setFocus(focusId);
 
       if (next && !sameSet(next, expanded)) {
@@ -440,7 +442,7 @@ export function App() {
       if (!quiet) remember();
       setSelected(at);
       // Coming from a selection (a dependency or contract end in the detail panel): keep it in view too.
-      const opts = { detail: true, from: selected ?? focus };
+      const opts = { from: selected ?? focus };
 
       // Click mode opens the way to it but not the node itself: that's a second click, as on the map.
       if (mode === 'click') go(withPathOpen(tree, expanded, at, false), at, opts);
@@ -466,7 +468,7 @@ export function App() {
       if (action === 'none') return;
       remember();
 
-      if (action === 'open') return go(withPathOpen(tree, expanded, id, true), id, { detail: true });
+      if (action === 'open') return go(withPathOpen(tree, expanded, id, true), id, {});
       // First click: select it and show its details, moving the view only if the panel would cover it.
       setSelected(id);
       reveal(id);
@@ -482,7 +484,7 @@ export function App() {
       remember();
       setSelectedEdge(null);
       setSelected(id);
-      go(withCollapsed(tree, expanded, id), tree.nodes.get(id)?.parent ?? 'root', { detail: true });
+      go(withCollapsed(tree, expanded, id), tree.nodes.get(id)?.parent ?? 'root', {});
     },
     [tree, mode, expanded, go, select, remember],
   );
@@ -497,7 +499,7 @@ export function App() {
         setSelected(null);
         setSelectedEdge(null);
 
-        if (mode === 'click') return go(defaultExpanded(tree), 'root', { detail: false });
+        if (mode === 'click') return go(defaultExpanded(tree), 'root', {});
         setFocus('root');
 
         return fitAll(true);
@@ -507,7 +509,7 @@ export function App() {
       remember();
       setSelectedEdge(null);
       setSelected(id);
-      go(withPathOpen(tree, withCollapsed(tree, expanded, id), id, true), id, { detail: true });
+      go(withPathOpen(tree, withCollapsed(tree, expanded, id), id, true), id, {});
     },
     [tree, mode, expanded, go, select, fitAll, remember],
   );
@@ -525,9 +527,13 @@ export function App() {
     if (place.view === view && place.expanded !== expandedBy) setFrom(L);
     setExpandedBy(place.expanded);
 
-    if (place.cam) {
-      if (place.view === view && place.expanded === expandedBy) renderer.current?.animateTo(place.cam, 'smooth');
-      else intent.current = { cam: place.cam };
+    const r = renderer.current;
+
+    if (place.cam && r) {
+      const cam = place.size ? r.rebase(place.cam, place.size) : place.cam;
+
+      if (place.view === view && place.expanded === expandedBy) r.animateTo(cam, 'smooth');
+      else intent.current = { cam };
     }
   }, [history, view, expandedBy, L]);
 
@@ -541,7 +547,7 @@ export function App() {
     setFrom(undefined);
     setZoomVis(null);
     setHistory([]);
-    intent.current = { focus: selected && tree?.nodes.has(selected) ? selected : 'root', detail: !!selected };
+    intent.current = { focus: selected && tree?.nodes.has(selected) ? selected : 'root' };
     setModeState(m);
   };
 
@@ -759,13 +765,13 @@ export function App() {
 
           if (!sameSet(next, expanded)) {
             setExpandedBy((e) => ({ ...e, [tree.view]: next }));
-            intent.current = { focus: at, detail: true };
+            intent.current = { focus: at };
 
             return;
           }
         }
 
-        const cam = cameraFor(L, at, { detail: true });
+        const cam = cameraFor(L, at, {});
 
         if (cam) renderer.current?.animateTo(cam, 'smooth');
 

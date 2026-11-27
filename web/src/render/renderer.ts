@@ -115,6 +115,13 @@ interface DrawnEdge {
   maxY: number;
 }
 
+/** What was in the middle of a `from`-sized view stays in the middle of a `to`-sized one, at the same share of it. */
+function rebase({ k, tx, ty }: Camera, from: { w: number; h: number }, to: { w: number; h: number }): Camera {
+  const s = Math.min(to.w, to.h) / Math.min(from.w, from.h);
+
+  return { k: k * s, tx: to.w / 2 - (from.w / 2 - tx) * s, ty: to.h / 2 - (from.h / 2 - ty) * s };
+}
+
 interface Rect {
   x: number;
   y: number;
@@ -279,6 +286,11 @@ export class MapRenderer {
     return this.cam;
   }
 
+  /** `cam`, taken on a canvas of size `from`, as it would look on the canvas now. */
+  rebase(cam: Camera, from: { w: number; h: number }): Camera {
+    return this.w && this.h ? rebase(cam, from, { w: this.w, h: this.h }) : cam;
+  }
+
   /** The canvas's size now, which can be ahead of the last size it reported. */
   get size() {
     return { w: this.w, h: this.h };
@@ -365,18 +377,18 @@ export class MapRenderer {
     const r = this.host.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    if (r.width === this.w && r.height === this.h && dpr === this.dpr) return;
+    // A map squeezed to nothing keeps its last size, so its camera survives until it has room again.
+    if (!r.width || !r.height || (r.width === this.w && r.height === this.h && dpr === this.dpr)) return;
 
     // A panel opening or closing beside the map resizes it: keep what was in the middle in the middle, at the same share of the view.
     if (this.w && this.h) {
-      const s = Math.min(r.width, r.height) / Math.min(this.w, this.h);
-      const [w, h] = [this.w, this.h];
-      const keep = ({ k, tx, ty }: Camera): Camera => ({ k: k * s, tx: r.width / 2 - (w / 2 - tx) * s, ty: r.height / 2 - (h / 2 - ty) * s });
-      this.cam = keep(this.cam);
+      const from = { w: this.w, h: this.h };
+      const to = { w: r.width, h: r.height };
+      this.cam = rebase(this.cam, from, to);
 
       if (this.camAnim) {
         const at = this.camAnim.at;
-        this.camAnim = { ...this.camAnim, at: (t) => keep(at(t)) };
+        this.camAnim = { ...this.camAnim, at: (t) => rebase(at(t), from, to) };
       }
     }
 
@@ -806,7 +818,7 @@ export class MapRenderer {
 
         const apart = (o: Rect) => !(b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
 
-        return this.drawnTags.every(apart) && this.drawnNames.every(apart);
+        return this.drawnTags.every(apart) && this.drawnNames.every(apart) && this.drawnTabs.every(apart);
       };
 
       const half = { w: tw / 2, h: 11 };

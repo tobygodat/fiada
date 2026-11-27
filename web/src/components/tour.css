@@ -1,9 +1,6 @@
 /* The review tour's panel: floating at the foot of the map, between the sidebar and the detail
    panel, while you walk through one agent's changes. Tokens only (DESIGN.md). */
 
-.main { --fiada-tour: 200px; }
-@media (pointer: coarse) { .main { --fiada-tour: 270px; } }
-
 .tour {
   position: absolute; z-index: 3; grid-column: 2 / 3; grid-row: 1 / -1; left: var(--space-md); bottom: var(--space-md);
   width: 440px; max-width: calc(100% - 2 * var(--space-md));

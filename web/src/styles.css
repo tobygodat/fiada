@@ -350,6 +350,9 @@ a { color: inherit; }
 .main:has(> .queue) .detail { grid-row: 2; }
 @media (max-width: 720px) {
   .detail, .main:has(> .queue) .detail { grid-column: 1; grid-row: 3; width: auto; max-height: 46vh; border-left: 0; border-top: 1px solid var(--hairline-strong); animation-name: rise; }
+  /* Both sheets open: they share half the screen, so the map, and a review's panel over it, keep the rest. */
+  .main:has(> .detail) > .queue:not(.queue-folded) { max-height: 20vh; }
+  .main:has(> .queue:not(.queue-folded)) .detail { max-height: 30vh; }
 }
 .detail-head { padding: var(--space-sm) var(--space-md) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .kicker { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
