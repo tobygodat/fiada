@@ -136,7 +136,8 @@
   --width-dialog: 512px;
   --width-command: 560px;
 
-  /* ── Motion. Fiada keeps its own motion; these are the system's, for anything new ── */
+  /* ── Motion. Fiada's transitions and entrances take these, so reduced motion stops them; its ambient loops
+     (the working breath, ripples) stop under reduced motion in their own rules ── */
   --motion-scale: 1;
   --duration-quick: 150ms;
   --duration-fast: 250ms;

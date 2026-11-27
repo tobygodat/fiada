@@ -41,7 +41,8 @@ interface Props {
 }
 
 export function Sidebar(p: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+  // On a phone or a tablet the map comes first; the sidebar opens over it from its button.
+  const [collapsed, setCollapsed] = useState(() => window.matchMedia('(max-width: 1099px)').matches);
 
   if (collapsed) {
     return (
@@ -55,7 +56,6 @@ export function Sidebar(p: Props) {
     <aside className="panel sidebar">
       <header className="sidebar-head">
         <span className="brand"><Wordmark height={20} /></span>
-        <span className="muted small">codebase cartography</span>
         <button className="icon-btn" onClick={() => setCollapsed(true)} title="Hide sidebar" aria-label="Hide sidebar">
           <Chevron dir="left" />
         </button>
@@ -275,7 +275,11 @@ function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: W
   let text: ReactNode;
 
   if (s.status === 'off') {
-    text = `Sorting is unavailable: the indexer has no model API key${s.keyHint ? ` (${s.keyHint})` : ''}, so code the classifier can't place stays Unlayered and Unsorted.`;
+    text = (
+      <span title={`Set a model API key on the indexer${s.keyHint ? ` (${s.keyHint})` : ''} to sort what the rules can't place.`}>
+        sorted by rules · a model key on the indexer sorts the rest
+      </span>
+    );
   } else if (s.status === 'running') {
     text = <span className="busy">{by} is sorting the code the classifier couldn't place…</span>;
   } else {

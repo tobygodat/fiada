@@ -34,10 +34,8 @@ import { useFences } from './useFences.ts';
 import { useTheme } from './useTheme.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
-// What the floating panels cover, from the window's edge: the 16px inset plus
-// --fiada-sidebar and --fiada-detail in styles.css.
-const SIDEBAR = 16 + 312;
-const DETAIL = 16 + 372;
+/** The whole map's radius as a share of the canvas's shorter side: it fills the canvas, with room for its name. */
+const FIT = 0.49;
 
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
 const CLICK_MAX_K = 3.5;
@@ -70,6 +68,13 @@ function defaultExpanded(tree: Tree): Set<string> {
 
 const NO_LAYOUT = new Map<string, Circle>();
 
+/** The circle that is the whole map: the one repository or domain when there is only one, else the root round them all. */
+const whole = (tree: Tree, Lx: Map<string, Circle>) => {
+  const top = tree.root.children;
+
+  return (top.length === 1 && Lx.get(top[0].id)) || Lx.get('root');
+};
+
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((x) => b.has(x));
 
 /** One step of navigation, so Back can return to it. */
@@ -80,9 +85,11 @@ interface Place {
   selectedEdge: string | null;
   focus: string;
   cam: Camera | null;
+  /** The canvas's size when `cam` was taken: panels opening or closing change it. */
+  size: { w: number; h: number } | null;
 }
 
-type CameraIntent = { focus: string; detail: boolean; from?: string | null } | { fit: string[] } | { cam: Camera };
+type CameraIntent = { focus: string; from?: string | null } | { fit: string[] } | { cam: Camera };
 
 export function App() {
   const ws = useWorkspace();
@@ -271,7 +278,9 @@ export function App() {
   // ── camera ──
 
   const viewport = useCallback(
-    (detail: boolean): Viewport => ({ w: size.w, h: size.h, left: size.w > 900 ? SIDEBAR : 0, right: detail && size.w > 1100 ? DETAIL : 0 }),
+    // The panels sit beside the map, not over it (styles.css), so the canvas is all free area. Its size comes
+    // from the renderer, so a camera worked out just after a panel opened fits the canvas as it is now.
+    (): Viewport => ({ ...(renderer.current?.size ?? size), left: 0, right: 0 }),
     [size],
   );
 
@@ -282,12 +291,12 @@ export function App() {
    * keeps both ends on screen.
    */
   const cameraFor = useCallback(
-    (Lx: Map<string, Circle>, id: string, opts: { detail: boolean; from?: string | null }): Camera | null => {
+    (Lx: Map<string, Circle>, id: string, opts: { from?: string | null }): Camera | null => {
       const root = Lx.get('root');
 
       if (!tree || !root || !size.w) return null;
-      const vp = viewport(opts.detail);
-      const all = frame(root, vp, 0.46);
+      const vp = viewport();
+      const all = frame(whole(tree, Lx) ?? root, vp, FIT);
       const n = tree.nodes.get(id);
       const c = Lx.get(id);
 
@@ -329,10 +338,15 @@ export function App() {
       }
 
       // All in one circle: framed the way selecting it would.
-      if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
-      const box = [...around].map((id) => Lx.get(id)!).reduce(enclose);
+      if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], {}) : null;
+      // Each with the branch it sits on: the circles just inside the one they all share, so you can tell where they are.
+      const chains = [...around].map((id) => ancestors(tree, id));
+      let shared = 0;
 
-      return mode === 'zoom' ? frame(box, viewport(true), 0.36) : frame(box, viewport(true), 0.44, CLICK_MAX_K);
+      while (chains.every((c) => c.length > shared + 1 && c[shared].id === chains[0][shared].id)) shared++;
+      const box = chains.map((c) => Lx.get(c[shared].id) ?? Lx.get(c[c.length - 1].id)!).reduce(enclose);
+
+      return mode === 'zoom' ? frame(box, viewport(), 0.44) : frame(box, viewport(), 0.46, CLICK_MAX_K);
     },
     [tree, size, mode, cameraFor, viewport],
   );
@@ -340,7 +354,7 @@ export function App() {
   const fitAll = useCallback(
     (anim: boolean) => {
       const r = renderer.current;
-      const cam = cameraFor(L, 'root', { detail: false });
+      const cam = cameraFor(L, 'root', {});
 
       if (!r || !cam) return;
 
@@ -371,7 +385,7 @@ export function App() {
 
       if (!r || !c) return;
       const cam = r.camera;
-      const f = freeArea(viewport(true));
+      const f = freeArea(viewport());
       const margin = 24;
 
       const shift = (s: number, sr: number, lo: number, hi: number) => {
@@ -392,13 +406,13 @@ export function App() {
   // ── navigation ──
 
   const remember = useCallback(() => {
-    const place: Place = { view, expanded: expandedBy, selected, selectedEdge, focus, cam: renderer.current?.camera ?? null };
+    const place: Place = { view, expanded: expandedBy, selected, selectedEdge, focus, cam: renderer.current?.camera ?? null, size: renderer.current?.size ?? null };
     setHistory((h) => [...h.slice(-49), place]);
   }, [view, expandedBy, selected, selectedEdge, focus]);
 
   /** Open `next` (click mode), then bring `focusId` into view. */
   const go = useCallback(
-    (next: Set<string> | null, focusId: string, opts: { detail: boolean; from?: string | null }) => {
+    (next: Set<string> | null, focusId: string, opts: { from?: string | null }) => {
       setFocus(focusId);
 
       if (next && !sameSet(next, expanded)) {
@@ -428,7 +442,7 @@ export function App() {
       if (!quiet) remember();
       setSelected(at);
       // Coming from a selection (a dependency or contract end in the detail panel): keep it in view too.
-      const opts = { detail: true, from: selected ?? focus };
+      const opts = { from: selected ?? focus };
 
       // Click mode opens the way to it but not the node itself: that's a second click, as on the map.
       if (mode === 'click') go(withPathOpen(tree, expanded, at, false), at, opts);
@@ -454,7 +468,7 @@ export function App() {
       if (action === 'none') return;
       remember();
 
-      if (action === 'open') return go(withPathOpen(tree, expanded, id, true), id, { detail: true });
+      if (action === 'open') return go(withPathOpen(tree, expanded, id, true), id, {});
       // First click: select it and show its details, moving the view only if the panel would cover it.
       setSelected(id);
       reveal(id);
@@ -470,7 +484,7 @@ export function App() {
       remember();
       setSelectedEdge(null);
       setSelected(id);
-      go(withCollapsed(tree, expanded, id), tree.nodes.get(id)?.parent ?? 'root', { detail: true });
+      go(withCollapsed(tree, expanded, id), tree.nodes.get(id)?.parent ?? 'root', {});
     },
     [tree, mode, expanded, go, select, remember],
   );
@@ -485,7 +499,7 @@ export function App() {
         setSelected(null);
         setSelectedEdge(null);
 
-        if (mode === 'click') return go(defaultExpanded(tree), 'root', { detail: false });
+        if (mode === 'click') return go(defaultExpanded(tree), 'root', {});
         setFocus('root');
 
         return fitAll(true);
@@ -495,7 +509,7 @@ export function App() {
       remember();
       setSelectedEdge(null);
       setSelected(id);
-      go(withPathOpen(tree, withCollapsed(tree, expanded, id), id, true), id, { detail: true });
+      go(withPathOpen(tree, withCollapsed(tree, expanded, id), id, true), id, {});
     },
     [tree, mode, expanded, go, select, fitAll, remember],
   );
@@ -513,9 +527,13 @@ export function App() {
     if (place.view === view && place.expanded !== expandedBy) setFrom(L);
     setExpandedBy(place.expanded);
 
-    if (place.cam) {
-      if (place.view === view && place.expanded === expandedBy) renderer.current?.animateTo(place.cam, 'smooth');
-      else intent.current = { cam: place.cam };
+    const r = renderer.current;
+
+    if (place.cam && r) {
+      const cam = place.size ? r.rebase(place.cam, place.size) : place.cam;
+
+      if (place.view === view && place.expanded === expandedBy) r.animateTo(cam, 'smooth');
+      else intent.current = { cam };
     }
   }, [history, view, expandedBy, L]);
 
@@ -529,7 +547,7 @@ export function App() {
     setFrom(undefined);
     setZoomVis(null);
     setHistory([]);
-    intent.current = { focus: selected && tree?.nodes.has(selected) ? selected : 'root', detail: !!selected };
+    intent.current = { focus: selected && tree?.nodes.has(selected) ? selected : 'root' };
     setModeState(m);
   };
 
@@ -747,13 +765,13 @@ export function App() {
 
           if (!sameSet(next, expanded)) {
             setExpandedBy((e) => ({ ...e, [tree.view]: next }));
-            intent.current = { focus: at, detail: true };
+            intent.current = { focus: at };
 
             return;
           }
         }
 
-        const cam = cameraFor(L, at, { detail: true });
+        const cam = cameraFor(L, at, {});
 
         if (cam) renderer.current?.animateTo(cam, 'smooth');
 
@@ -854,10 +872,10 @@ export function App() {
   const empty = !graph || graph.nodes.length === 0;
 
   const fitK = useMemo(() => {
-    const root = L.get('root');
+    const root = tree && whole(tree, L);
 
-    return root && size.w ? frame(root, viewport(false), 0.46).k : 1;
-  }, [L, size.w, viewport]);
+    return root && size.w ? frame(root, viewport(), FIT).k : 1;
+  }, [tree, L, size.w, viewport]);
 
   // Zoom mode has no "opened" place: the breadcrumb follows the camera, to the
   // innermost open circle under the middle of the free area.
@@ -874,7 +892,7 @@ export function App() {
     if (mode !== 'zoom' || !tree || !zoomVis) return null;
 
     return (cam: Camera) => {
-      const f = freeArea(viewport(detailOpen));
+      const f = freeArea(viewport());
       const x = (f.cx - cam.tx) / cam.k;
       const y = (f.cy - cam.ty) / cam.k;
       // The deepest open circle under the middle that is big enough on screen to be where you are.
@@ -912,7 +930,7 @@ export function App() {
           scene={scene}
           from={from}
           renderer={renderer}
-          panels={viewport(!!(selected || contract))}
+          panels={viewport()}
           events={{
             node: onNodeClick,
             tab: collapse,
@@ -1004,7 +1022,6 @@ export function App() {
             at={tourAt}
             marks={marks}
             layers={graph?.layers ?? []}
-            besideDetail={detailOpen}
             showing={showing}
             ready={readyToMark(stop, showing, settled, shownDiff, touring?.agent)}
             cut={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.cut}
@@ -1020,7 +1037,6 @@ export function App() {
             pal={pal}
             layers={graph?.layers ?? []}
             mode={mode}
-            besideDetail={detailOpen}
             lit={spot ? (agents.state?.agents.find((a) => a.id === lit)?.name ?? 'an agent') : null}
           />
         )}
@@ -1034,25 +1050,23 @@ function Legend({
   pal,
   layers,
   mode,
-  besideDetail,
   lit,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
   mode: ExpandMode;
-  besideDetail: boolean;
   /** Name of the agent whose changes, and what it looked at, are lit. */
   lit: string | null;
 }) {
   const hint = lit
     ? `showing what ${lit} changed or looked at · esc for the whole map`
     : mode === 'click'
-      ? 'point at a circle for its links · click for details, again to open it · scroll to zoom'
-      : 'point at a circle for its links · scroll to zoom and open circles';
+      ? 'point at a circle for its links · click it for details, again to open it'
+      : 'point at a circle for its links · scroll to open it';
 
   return (
-    <div className={`legend${besideDetail ? ' beside-detail' : ''}`}>
+    <div className="legend">
       <span>{hint}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo

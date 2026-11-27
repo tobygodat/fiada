@@ -56,7 +56,10 @@ const COLLAPSED_KEY = 'strata.queueCollapsed';
 
 const readCollapsed = () => {
   try {
-    return localStorage.getItem(COLLAPSED_KEY) === '1';
+    const saved = localStorage.getItem(COLLAPSED_KEY);
+
+    // On a phone the window starts as its one line, so the map keeps the screen.
+    return saved === null ? window.matchMedia('(max-width: 720px)').matches : saved === '1';
   } catch {
     return false;
   }

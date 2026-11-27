@@ -115,6 +115,13 @@ interface DrawnEdge {
   maxY: number;
 }
 
+/** What was in the middle of a `from`-sized view stays in the middle of a `to`-sized one, at the same share of it. */
+function rebase({ k, tx, ty }: Camera, from: { w: number; h: number }, to: { w: number; h: number }): Camera {
+  const s = Math.min(to.w, to.h) / Math.min(from.w, from.h);
+
+  return { k: k * s, tx: to.w / 2 - (from.w / 2 - tx) * s, ty: to.h / 2 - (from.h / 2 - ty) * s };
+}
+
 interface Rect {
   x: number;
   y: number;
@@ -175,6 +182,8 @@ export class MapRenderer {
   private drawnNodes: DrawnNode[] = [];
   private drawnEdges: DrawnEdge[] = [];
   private drawnTags: (Rect & { key: string })[] = [];
+  /** Where circles' names were drawn last frame, so link tags keep off them. */
+  private drawnNames: Rect[] = [];
   /** The words drawn on resting links last frame (also in `drawnTags`, so clicking one opens its contract). */
   private drawnLabels: (Rect & { key: string; text: string })[] = [];
   private drawnTabs: (Rect & { id: string })[] = [];
@@ -277,6 +286,16 @@ export class MapRenderer {
     return this.cam;
   }
 
+  /** `cam`, taken on a canvas of size `from`, as it would look on the canvas now. */
+  rebase(cam: Camera, from: { w: number; h: number }): Camera {
+    return this.w && this.h ? rebase(cam, from, { w: this.w, h: this.h }) : cam;
+  }
+
+  /** The canvas's size now, which can be ahead of the last size it reported. */
+  get size() {
+    return { w: this.w, h: this.h };
+  }
+
   /** Subscribe to camera changes, however they happen (for the zoom readout and breadcrumb). */
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -358,7 +377,21 @@ export class MapRenderer {
     const r = this.host.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    if (r.width === this.w && r.height === this.h && dpr === this.dpr) return;
+    // A map squeezed to nothing keeps its last size, so its camera survives until it has room again.
+    if (!r.width || !r.height || (r.width === this.w && r.height === this.h && dpr === this.dpr)) return;
+
+    // A panel opening or closing beside the map resizes it: keep what was in the middle in the middle, at the same share of the view.
+    if (this.w && this.h) {
+      const from = { w: this.w, h: this.h };
+      const to = { w: r.width, h: r.height };
+      this.cam = rebase(this.cam, from, to);
+
+      if (this.camAnim) {
+        const at = this.camAnim.at;
+        this.camAnim = { ...this.camAnim, at: (t) => rebase(at(t), from, to) };
+      }
+    }
+
     this.w = r.width;
     this.h = r.height;
     this.dpr = dpr;
@@ -491,6 +524,7 @@ export class MapRenderer {
     this.drawnNodes = [];
     this.drawnEdges = [];
     this.drawnTags = [];
+    this.drawnNames = [];
     // A resting link that had words last frame keeps them while pointed at, so they don't jump to a tag elsewhere.
     const worded = new Set(this.drawnLabels.map((l) => l.key));
     this.drawnLabels = [];
@@ -744,6 +778,8 @@ export class MapRenderer {
         const lh = Math.round(size * 1.3);
         const total = lines.length * lh + (sub ? subSize * 1.5 : 0);
         let cy = y - total / 2 + lh / 2;
+        const nameW = Math.max(...lines.map((l) => this.textWidth(l, weight, size)), sub ? this.textWidth(sub, 400, subSize) : 0);
+        this.drawnNames.push({ x: x - nameW / 2, y: y - total / 2, w: nameW, h: total });
         ctx.fillStyle = n.id === hoverId ? ink.accent : ink.text;
         this.font(weight, size);
 
@@ -780,7 +816,9 @@ export class MapRenderer {
       const clear = (p: { x: number; y: number }) => {
         const b = box(p);
 
-        return !this.drawnTags.some((o) => b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
+        const apart = (o: Rect) => !(b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2);
+
+        return this.drawnTags.every(apart) && this.drawnNames.every(apart) && this.drawnTabs.every(apart);
       };
 
       const half = { w: tw / 2, h: 11 };

@@ -35,15 +35,23 @@
 
 /* ── The window: a floating panel over the map ── */
 .queue {
-  position: absolute; z-index: 4; top: var(--space-md); right: var(--space-md); width: 340px; max-height: calc(100% - 72px);
+  position: relative; z-index: 4; grid-column: 3; grid-row: 1 / -1; width: var(--fiada-detail); min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
-  background: var(--ground-raised); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
+  background: var(--ground-raised); border-left: 1px solid var(--hairline);
   color: var(--text); font-family: var(--font-serif); font-size: var(--size-small); line-height: var(--leading);
   font-kerning: normal; font-variant-ligatures: common-ligatures;
   animation: queue-rise var(--fast) var(--ease) both;
 }
-/* Opened on purpose over the detail panel: on top of it. */
-.queue.over { z-index: 6; }
+/* Opened on purpose beside the detail panel: above it in the column, sharing the height. */
+.queue.over { grid-row: 1; max-height: 50vh; border-bottom: 1px solid var(--hairline); }
+@media (max-width: 720px) {
+  .queue, .queue.over { grid-column: 1; grid-row: 2; width: auto; max-height: 40vh; border-left: 0; border-top: 1px solid var(--hairline-strong); }
+  /* A short sheet scrolls as one, the key with the list, under a head that stays. */
+  .queue:not(.queue-folded) { overflow-y: auto; scroll-padding-top: 52px; }
+  .queue:not(.queue-folded) > * { flex: none; }
+  .queue .queue-list { overflow: visible; }
+  .queue .queue-head { position: sticky; top: 0; z-index: 1; background: var(--ground-raised); }
+}
 @keyframes queue-rise { from { opacity: 0; transform: translateY(var(--distance-base)); } to { opacity: 1; transform: none; } }
 
 .queue button { font: inherit; color: inherit; text-align: left; }
@@ -166,15 +174,23 @@
 .queue-key > span { display: flex; align-items: center; gap: var(--space-8); }
 
 /* ── Folded: one line at the top of the right column, not a pill ── */
+/* Folded: one line at the head of the right column, over the detail panel; alone, floating at the top right of the map. */
 .queue-folded {
-  flex-direction: row; align-items: center; gap: var(--space-8);
-  height: 44px; padding: 0 var(--space-md); cursor: pointer;
+  grid-row: 1; flex-direction: row; align-items: center; gap: var(--space-8);
+  height: 44px; padding: 0 var(--space-md); cursor: pointer; border-bottom: 1px solid var(--hairline);
+}
+.main:not(:has(> .detail)) > .queue-folded {
+  position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; top: var(--space-md); right: var(--space-md); bottom: auto;
+  width: min(340px, calc(100% - 2 * var(--space-md))); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
+}
+@media (max-width: 720px) {
+  .queue-folded { grid-column: 1; grid-row: 2; width: auto; }
+  /* At the foot of the map, clear of the sidebar's button at its head. */
+  .main:not(:has(> .detail)) > .queue-folded { grid-column: 1 / 2; grid-row: 1 / 2; top: auto; bottom: var(--space-md); left: var(--space-md); width: auto; }
 }
 .queue-folded-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-folded-line .queue-state { margin: 0; font-size: inherit; }
 .queue-folded-more { flex: none; font-size: var(--size-fine); color: var(--muted); }
-/* The detail panel starts below the folded line. */
-.main:has(.queue-folded) .detail { top: calc(var(--space-md) + 44px + var(--space-8)); max-height: calc(100% - 44px - 72px); }
 
 @media (prefers-reduced-motion: reduce) {
   .queue-dot.working::after, .step.active .step-icon, .queue-now { animation: none; }

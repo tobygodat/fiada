@@ -5,7 +5,7 @@
 :root {
   /* Fiada's own layout: panel widths. App.tsx keeps the map clear of them (SIDEBAR, DETAIL). */
   --fiada-sidebar: 312px;
-  --fiada-detail: 372px;
+  --fiada-detail: 352px;
   --fiada-topbar: 48px;
 }
 
@@ -34,6 +34,8 @@ a { color: inherit; }
 ::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: var(--radius-sm); }
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* A docked column comes in from the window's edge it sits on. */
+@keyframes dock-in { from { opacity: 0; transform: translateX(var(--distance-base)); } }
 /* Something is under way: its words breathe. */
 @keyframes waiting { 50% { opacity: 0.45; } }
 
@@ -79,7 +81,7 @@ a { color: inherit; }
 
 /* Choosing one of a few: a row of words; the chosen one is ink over a 2px green line. */
 .choice { display: flex; flex-wrap: wrap; column-gap: var(--space-sm); }
-.choice button { color: var(--muted); border-bottom: 2px solid transparent; border-radius: 0; transition: color var(--quick) var(--ease); }
+.choice button { color: var(--muted); border-bottom: 2px solid transparent; border-radius: 0; transition: color var(--quick) var(--ease), border-color var(--quick) var(--ease); }
 .choice button:hover { color: var(--accent); }
 .choice button.on { color: var(--text); border-bottom-color: var(--accent); cursor: default; }
 @media (pointer: coarse) {
@@ -95,7 +97,16 @@ a { color: inherit; }
 .dot.small { width: 7px; height: 7px; }
 
 .app { position: fixed; inset: 0; display: grid; grid-template-rows: var(--fiada-topbar) 1fr; background: var(--ground); }
-.main { position: relative; min-height: 0; overflow: hidden; }
+/* The sidebar, the map and the right column (the agents window over the detail panel) sit side by
+   side, so no panel covers the map; App.tsx frames the camera on the canvas alone. */
+.main {
+  position: relative; min-height: 0; overflow: hidden;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr);
+}
+@media (max-width: 720px) {
+  /* A phone: the map on top, the agents window or the detail panel as a sheet under it. */
+  .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; }
+}
 
 /* ── top bar: back, the breadcrumb, the altitude you're at ── */
 .topbar {
@@ -157,7 +168,8 @@ a { color: inherit; }
 }
 
 /* ── map ── */
-.stage { position: absolute; inset: 0; background: var(--ground); user-select: none; }
+.stage { position: relative; grid-column: 2; grid-row: 1 / -1; min-width: 0; min-height: 0; background: var(--ground); user-select: none; }
+@media (max-width: 720px) { .stage { grid-column: 1; grid-row: 1; } }
 .map-canvas { position: absolute; inset: 0; display: block; }
 .map-tip {
   position: absolute; left: 0; top: 0; display: none; pointer-events: none; z-index: 3; max-width: 420px;
@@ -177,20 +189,19 @@ a { color: inherit; }
 
 /* Words beside their marks, no box. */
 .legend {
-  position: absolute; right: var(--space-md); bottom: var(--space-sm); z-index: 1; max-width: calc(100% - var(--fiada-sidebar) - 3 * var(--space-md));
+  position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; right: var(--space-md); bottom: var(--space-sm); left: var(--space-md); z-index: 1;
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-xs) var(--space-md);
   font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); pointer-events: none;
 }
-/* With the detail panel open, the legend keeps to the map between the panels. */
-.legend.beside-detail { right: calc(var(--fiada-detail) + 2 * var(--space-md)); max-width: calc(100% - var(--fiada-sidebar) - var(--fiada-detail) - 4 * var(--space-md)); }
+@media (max-width: 720px) { .legend { display: none; } }
 .swatch-line { width: 18px; border-top: 1.5px solid var(--muted); }
 .swatch-line.dashed { border-top-style: dashed; }
 .swatch-line.dotted { border-top-style: dotted; border-top-width: 2px; }
 
 .empty {
   /* Centred in the map beside the sidebar. The rise animation owns transform, so this uses translate. */
-  position: absolute; top: 45%; left: calc(50% + var(--fiada-sidebar) / 2); translate: -50% -50%;
-  width: min(var(--measure), 60vw); pointer-events: none; animation: rise 0.6s ease-out both;
+  position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; top: 45%; left: 50%; translate: -50% -50%;
+  width: min(var(--measure), 60vw); pointer-events: none; animation: rise var(--medium) var(--ease) both;
 }
 .empty-title {
   margin: 0 0 var(--space-sm);
@@ -201,7 +212,7 @@ a { color: inherit; }
 
 /* The sign-in screen: one column on the paper, the one action a button like import's. */
 .sign-in { position: fixed; inset: 0; overflow: auto; display: grid; place-items: center; padding: var(--space-lg) var(--space-md); background: var(--ground); }
-.sign-in-body { width: min(var(--measure), 100%); display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); animation: rise 0.6s ease-out both; }
+.sign-in-body { width: min(var(--measure), 100%); display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); animation: rise var(--medium) var(--ease) both; }
 .sign-in-body svg { display: block; }
 .sign-in-title {
   margin: var(--space-8) 0 0;
@@ -230,13 +241,23 @@ a { color: inherit; }
   position: absolute; z-index: 4; display: flex; flex-direction: column; overflow: hidden;
   background: var(--ground-raised); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
 }
-.sidebar { left: var(--space-md); top: var(--space-md); width: var(--fiada-sidebar); max-height: calc(100% - 2 * var(--space-md)); overflow-y: auto; }
+/* Docked: a column of raised paper the full height of the window, ruled off from the map. */
+.sidebar, .detail { position: relative; top: auto; left: auto; right: auto; border: 0; border-radius: 0; }
+.sidebar { grid-column: 1; grid-row: 1 / -1; width: var(--fiada-sidebar); overflow-y: auto; border-right: 1px solid var(--hairline); }
+/* Under 1100px the map can't spare the sidebar's column beside the right one: it opens over the map. */
+@media (max-width: 1099px) {
+  .sidebar { position: absolute; z-index: 7; top: 0; bottom: 0; left: 0; width: min(var(--fiada-sidebar), 88vw); border-right: 1px solid var(--hairline-strong); }
+}
 .sidebar > * { flex: none; }
 .sidebar-pill {
   left: var(--space-md); top: var(--space-md); flex-direction: row; align-items: center; gap: var(--space-xs);
   height: var(--size-control); padding: 0 var(--space-8) 0 var(--space-sm); font-weight: var(--weight-bold);
+  transition: color var(--quick) var(--ease), transform var(--quick) var(--ease);
 }
 .sidebar-pill:hover { color: var(--accent); }
+/* The two framed buttons give under the finger. */
+.sidebar-pill:active, .import button:active:not(:disabled) { transform: scale(0.97); }
+@media (max-width: 720px) { .sidebar-pill { height: var(--size-hit); min-width: var(--size-hit); } }
 .sidebar-head { display: flex; align-items: baseline; gap: var(--space-8); padding: var(--space-sm) var(--space-8) var(--space-sm) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .sidebar-head .icon-btn { margin-left: auto; align-self: center; }
 .brand { font-size: var(--size-title); line-height: var(--leading-tight); letter-spacing: var(--tracking-title); font-weight: var(--weight-bold); }
@@ -278,7 +299,7 @@ a { color: inherit; }
 .import button {
   flex: none; height: var(--size-control); padding: 0 var(--space-md);
   border: 1px solid var(--accent); border-radius: var(--radius); font-weight: var(--weight-bold); color: var(--text);
-  transition: color var(--quick) var(--ease);
+  transition: color var(--quick) var(--ease), transform var(--quick) var(--ease);
 }
 .import button:hover:not(:disabled) { color: var(--accent); }
 .import button:disabled { border-color: var(--faint); color: var(--faint); cursor: default; }
@@ -325,7 +346,14 @@ a { color: inherit; }
 .outline-row.group .outline-name { font-weight: var(--weight-bold); }
 
 /* ── detail: the selected circle, or the contract behind a link ── */
-.detail { right: var(--space-md); top: var(--space-md); width: var(--fiada-detail); max-height: calc(100% - 64px); overflow: auto; animation: rise 0.25s ease-out both; }
+.detail { grid-column: 3; grid-row: 1 / -1; width: var(--fiada-detail); overflow: auto; border-left: 1px solid var(--hairline); animation: dock-in var(--fast) var(--ease) both; }
+.main:has(> .queue) .detail { grid-row: 2; }
+@media (max-width: 720px) {
+  .detail, .main:has(> .queue) .detail { grid-column: 1; grid-row: 3; width: auto; max-height: 46vh; border-left: 0; border-top: 1px solid var(--hairline-strong); animation-name: rise; }
+  /* Both sheets open: they share half the screen, so the map, and a review's panel over it, keep the rest. */
+  .main:has(> .detail) > .queue:not(.queue-folded) { max-height: 20vh; }
+  .main:has(> .queue:not(.queue-folded)) .detail { max-height: 30vh; }
+}
 .detail-head { padding: var(--space-sm) var(--space-md) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .kicker { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 .kicker .dot { margin-right: var(--space-8); vertical-align: 1px; }
