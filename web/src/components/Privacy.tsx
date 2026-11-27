@@ -58,8 +58,8 @@ export function Privacy() {
         <h2>who else handles it</h2>
         <p>
           GitHub signs you in and hosts the repositories you import. Cloudflare serves this site and counts visits to it with Web Analytics, which sets no cookies and doesn't identify you. It records
-          which pages were loaded and how fast, the page that linked here, your country, and your browser, operating system and kind of device. Railway runs the indexer, which keeps the clones,
-          accounts and projects on its disk. Anthropic (or OpenAI, for an indexer set up with it) writes summaries and sorts.
+          which pages were loaded and how fast, the page that linked here, your country, and your browser, operating system and kind of device. Render runs the indexer, which keeps the clones on
+          its disk while it runs. Supabase keeps the accounts and projects in its database. Anthropic (or OpenAI, for an indexer set up with it) writes summaries and sorts.
           Google Fonts serves the typeface, so Google sees your address when the page loads.
         </p>
 

@@ -1,0 +1,18 @@
+# Supabase pauses a free project after 7 days without activity. Once a week,
+# wake the indexer and have it make one real query through /api/health. The
+# first request after a quiet spell waits for Render to start it, about a minute.
+name: keepalive
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: curl --fail --silent --show-error --retry 5 --retry-delay 30 --retry-all-errors --max-time 120 https://fiada-indexer.onrender.com/api/health
