@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { MongoClient } from 'mongodb';
+import postgres from 'postgres';
 import type { Grouping } from '@fiada/shared';
-import { decodeKeys, encodeKeys, MongoProjectStore, ProjectConflictError, redact, unquote } from './mongo-store.ts';
+import { PostgresProjectStore, ProjectConflictError, redact, unquote } from './postgres-store.ts';
 import { createStore, FileProjectStore, type SavedRepo } from './store.ts';
 
 const repos: SavedRepo[] = [{ id: 'web', name: 'web', source: 'https://github.com/org/web', kind: 'git' }];
@@ -19,48 +19,36 @@ const grouping = {
   pins: { 'web/src/api.ts#Items.fetch': { domain: 'items' }, $odd: { layer: 'ui' } },
 } satisfies Grouping;
 
-test('field names with dots and dollars survive a round trip', () => {
-  const encoded = encodeKeys(grouping) as Pick<Grouping, 'pins'>;
-  assert.ok(Object.keys(encoded.pins).every((k) => !k.includes('.') && !k.includes('$')));
-  assert.deepEqual(decodeKeys(encoded), grouping);
-
-  // Distinct keys stay distinct, including ones that look like escapes.
-  const tricky = { 'api.ts': 1, 'api．ts': 2, 'api%2Ets': 3, 'a%b': 4, $x: 5, 'x$y': 6, '%24x': 7 };
-  const out = encodeKeys(tricky) as Record<string, number>;
-  assert.equal(Object.keys(out).length, Object.keys(tricky).length);
-  assert.deepEqual(decodeKeys(out), tricky);
-});
-
 test('connection strings are logged without credentials', () => {
-  assert.equal(redact('mongodb+srv://toby:s3cret@cluster0.ab12c.mongodb.net/?retryWrites=true&w=majority'), 'mongodb+srv://cluster0.ab12c.mongodb.net');
-  assert.equal(redact('mongodb://127.0.0.1:27017/fiada'), 'mongodb://127.0.0.1:27017');
+  assert.equal(redact('postgresql://postgres.abc:s3cret@aws-0-us-west-1.pooler.supabase.com:5432/postgres'), 'postgresql://aws-0-us-west-1.pooler.supabase.com:5432');
+  assert.equal(redact('postgres://127.0.0.1:5432/fiada'), 'postgres://127.0.0.1:5432');
 });
 
 test('connection strings pasted with their .env quotes still work', () => {
-  const uri = 'mongodb+srv://toby:s3cret@fiada.ab12c.mongodb.net/?appName=fiada';
-  assert.equal(unquote(` "${uri}" `), uri);
-  assert.equal(unquote(`${uri}"`), uri);
-  assert.equal(unquote(`'${uri}'`), uri);
-  assert.equal(unquote(uri), uri);
+  const url = 'postgresql://postgres.abc:s3cret@aws-0-us-west-1.pooler.supabase.com:5432/postgres';
+  assert.equal(unquote(` "${url}" `), url);
+  assert.equal(unquote(`${url}"`), url);
+  assert.equal(unquote(`'${url}'`), url);
+  assert.equal(unquote(url), url);
   assert.equal(unquote(undefined), '');
 });
 
-test('createStore uses files when MONGODB_URI is unset or MongoDB is unusable', async (t) => {
+test('createStore uses files when DATABASE_URL is unset or Postgres is unusable', async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
-  const previous = process.env.MONGODB_URI;
+  const previous = process.env.DATABASE_URL;
 
   try {
-    delete process.env.MONGODB_URI;
+    delete process.env.DATABASE_URL;
     assert.ok((await createStore(home)) instanceof FileProjectStore);
 
-    process.env.MONGODB_URI = 'mongodb+srv://toby:s3cret@cluster0.example.mongodb.net/';
-    t.mock.method(MongoProjectStore, 'connect', async () => {
-      throw new Error('bad auth : authentication failed');
+    process.env.DATABASE_URL = 'postgresql://postgres:s3cret@db.example.supabase.co:5432/postgres';
+    t.mock.method(PostgresProjectStore, 'connect', async () => {
+      throw new Error('password authentication failed for user "postgres"');
     });
     assert.ok((await createStore(home)) instanceof FileProjectStore);
   } finally {
-    if (previous === undefined) delete process.env.MONGODB_URI;
-    else process.env.MONGODB_URI = previous;
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
   }
 });
 
@@ -77,31 +65,30 @@ test('file store counts accounts and repositories for the usage numbers, missing
   assert.deepEqual(await store.usage(), { accounts: [{ createdAt: 't1', updatedAt: 't2' }], reposPerProject: [1, 0] });
 });
 
-// These need a MongoDB to talk to, e.g. FIADA_TEST_MONGODB_URI=mongodb://127.0.0.1:27017
-const mongoUri = process.env.FIADA_TEST_MONGODB_URI;
-const needsMongo = { skip: !mongoUri && 'set FIADA_TEST_MONGODB_URI to run' };
+// These need a Postgres to talk to, e.g. FIADA_TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres
+const dbUrl = process.env.FIADA_TEST_DATABASE_URL;
+const needsPostgres = { skip: !dbUrl && 'set FIADA_TEST_DATABASE_URL to run' };
 
-async function withDb(name: string, run: (open: () => Promise<MongoProjectStore>, raw: MongoClient) => Promise<void>) {
-  const dbName = `fiada_test_${name}_${process.pid}`;
-  const raw = new MongoClient(mongoUri!);
-  const opened: MongoProjectStore[] = [];
+async function withDb(name: string, run: (open: () => Promise<PostgresProjectStore>, raw: postgres.Sql) => Promise<void>) {
+  const schema = `fiada_test_${name}_${process.pid}`;
+  const raw = postgres(dbUrl!, { onnotice: () => {} });
+  const opened: PostgresProjectStore[] = [];
 
   try {
     await run(async () => {
-      const store = await MongoProjectStore.connect(mongoUri!, dbName);
+      const store = await PostgresProjectStore.connect(dbUrl!, schema);
       opened.push(store);
 
       return store;
     }, raw);
   } finally {
-    await raw.db(dbName).dropDatabase().catch(() => {});
-    await raw.close();
-
     for (const s of opened) await s.close();
+    await raw.unsafe(`drop schema if exists ${schema} cascade`).catch(() => {});
+    await raw.end();
   }
 }
 
-test('mongo store keeps repos and grouping in one document per project', needsMongo, () =>
+test('postgres store keeps repos and grouping in one row per project', needsPostgres, () =>
   withDb('roundtrip', async (open, raw) => {
     const store = await open();
     assert.equal(await store.loadRepos('default'), null);
@@ -118,14 +105,12 @@ test('mongo store keeps repos and grouping in one document per project', needsMo
     await store.saveRepos('default', []);
     assert.deepEqual(await store.loadGrouping('default'), grouping);
 
-    const docs = await raw.db(`fiada_test_roundtrip_${process.pid}`).collection('projects').find().sort({ _id: 1 }).toArray();
-    assert.deepEqual(docs.map((d) => d._id), ['default', 'demo']);
-    assert.equal(docs[0].reposRev, 2);
-    assert.equal(docs[0].groupingRev, 1);
+    const rows = await raw.unsafe(`select id, repos_rev, grouping_rev from fiada_test_roundtrip_${process.pid}.projects order by id`);
+    assert.deepEqual(rows.map((r) => [r.id, r.repos_rev, r.grouping_rev]), [['default', 2, 1], ['demo', 1, 0]]);
   }),
 );
 
-test('overlapping saves from one indexer apply in order instead of conflicting', needsMongo, () =>
+test('overlapping saves from one indexer apply in order instead of conflicting', needsPostgres, () =>
   withDb('overlap', async (open) => {
     const store = await open();
     assert.equal(await store.loadRepos('p'), null);
@@ -135,7 +120,7 @@ test('overlapping saves from one indexer apply in order instead of conflicting',
   }),
 );
 
-test('mongo store refuses to overwrite a save from another indexer', needsMongo, () =>
+test('postgres store refuses to overwrite a save from another indexer', needsPostgres, () =>
   withDb('conflict', async (open) => {
     const a = await open();
     const b = await open();
@@ -157,7 +142,8 @@ test('mongo store refuses to overwrite a save from another indexer', needsMongo,
     await assert.rejects(a.saveRepos('p', []), ProjectConflictError);
 
     // Re-saving an unchanged list (every indexer does after indexing) is a
-    // no-op, so it doesn't make the other indexer stale.
+    // no-op, so it doesn't make the other indexer stale, even though jsonb
+    // hands the keys back in another order.
     assert.deepEqual(await a.loadRepos('p'), repos);
     await b.saveRepos('p', repos);
     await a.saveRepos('p', repos);
@@ -168,32 +154,36 @@ test('mongo store refuses to overwrite a save from another indexer', needsMongo,
     assert.equal(await a.loadGrouping('p'), null);
     await a.saveGrouping('p', grouping);
     assert.deepEqual(await b.loadGrouping('p'), grouping);
+    await b.saveGrouping('p', { ...grouping });
+    await a.saveGrouping('p', grouping);
     assert.deepEqual(await b.loadRepos('p'), []);
   }),
 );
 
-test('mongo store changes accounts in one step each, so a sign-in never undoes a reset', needsMongo, () =>
+test('postgres store changes accounts in one step each, so a sign-in never undoes a reset', needsPostgres, () =>
   withDb('accounts', async (open) => {
     const [one, two] = [await open(), await open()];
     const signIn = { id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's1', scopes: 'repo', updatedAt: 't1' };
     assert.equal(await one.loadAccount('gh-1'), null);
     assert.equal(await one.bumpAgentEpoch('gh-1', 't'), null);
     assert.deepEqual(await one.saveSignIn(signIn), { ...signIn, agentEpoch: 0, createdAt: 't1' });
-    await Promise.all([one.bumpAgentEpoch('gh-1', 't2'), two.saveSignIn({ ...signIn, sealedToken: 's2', updatedAt: 't3' })]);
+    await Promise.all([one.bumpAgentEpoch('gh-1', 't2'), two.saveSignIn({ ...signIn, name: 'Ada', sealedToken: 's2', updatedAt: 't3' })]);
     const saved = await two.loadAccount('gh-1');
     assert.equal(saved?.agentEpoch, 1);
     assert.equal(saved?.sealedToken, 's2');
+    assert.equal(saved?.name, 'Ada');
     assert.equal(saved?.createdAt, 't1');
   }),
 );
 
-test('mongo store deletes a project and an account, and a project made again starts afresh', needsMongo, () =>
+test('postgres store deletes a project and an account, and a project made again starts afresh', needsPostgres, () =>
   withDb('delete', async (open) => {
     const store = await open();
     await store.saveRepos('gh-1', repos);
     await store.saveGrouping('gh-1', grouping);
     await store.saveFences('gh-1', [{ node: 'web/src', rule: 'off', at: 't' }]);
     await store.saveSummaries('gh-1', { h: { text: 't', model: 'm', at: 'a' } });
+    await store.saveSummaries('gh-2', { h: { text: 'kept', model: 'm', at: 'a' } });
     await store.saveSignIn({ id: 'gh-1', githubId: 1, login: 'ada', sealedToken: 's', scopes: 'repo', updatedAt: 't' });
     await store.deleteProject('gh-1');
     await store.deleteAccount('gh-1');
@@ -202,12 +192,22 @@ test('mongo store deletes a project and an account, and a project made again sta
     assert.equal(await store.loadFences('gh-1'), null);
     assert.equal(await store.loadSummaries('gh-1'), null);
     assert.equal(await store.loadAccount('gh-1'), null);
+    assert.deepEqual(await store.loadSummaries('gh-2'), { h: { text: 'kept', model: 'm', at: 'a' } });
     await store.saveRepos('gh-1', []);
     assert.deepEqual(await store.loadRepos('gh-1'), []);
   }),
 );
 
-test('mongo store counts accounts and repositories for the usage numbers', needsMongo, () =>
+test('postgres store adds summaries without dropping the ones saved before', needsPostgres, () =>
+  withDb('summaries', async (open) => {
+    const store = await open();
+    await store.saveSummaries('p', { a: { text: 'one', model: 'm', at: '1' } });
+    await store.saveSummaries('p', { a: { text: 'two', model: 'm', at: '2' }, b: { text: 'b', model: 'm', at: '2' } });
+    assert.deepEqual(await store.loadSummaries('p'), { a: { text: 'two', model: 'm', at: '2' }, b: { text: 'b', model: 'm', at: '2' } });
+  }),
+);
+
+test('postgres store counts accounts and repositories for the usage numbers', needsPostgres, () =>
   withDb('usage', async (open) => {
     const store = await open();
     assert.deepEqual(await store.usage(), { accounts: [], reposPerProject: [] });

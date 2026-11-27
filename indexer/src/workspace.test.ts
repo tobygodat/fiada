@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { ProjectStore, SavedRepo } from './store.ts';
+import { UploadError } from './upload.ts';
 import { Workspace } from './workspace.ts';
 
-// A store whose saves can be made to fail, as MongoDB does when another
+// A store whose saves can be made to fail, as Postgres does when another
 // indexer changed the project first.
 function flakyStore(saved: SavedRepo[]) {
   let failSaves = false;
@@ -28,6 +29,17 @@ function flakyStore(saved: SavedRepo[]) {
 
 async function settled(ws: Workspace) {
   for (let i = 0; i < 100 && ws.state().busy; i++) await new Promise((r) => setTimeout(r, 20));
+}
+
+/** A git repository with one committed file, to clone from. */
+async function commitOne() {
+  const src = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-src-'));
+  await fs.writeFile(path.join(src, 'a.ts'), 'export const a = 1;\n');
+  execFileSync('git', ['init', '-q', src]);
+  execFileSync('git', ['-C', src, 'add', '.']);
+  execFileSync('git', ['-C', src, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'a']);
+
+  return src;
 }
 
 test('a rejected save leaves added and removed repos as they were', async () => {
@@ -104,4 +116,36 @@ test('a clone that fails leaves nothing on disk', async () => {
   await settled(ws);
   assert.equal(ws.repos[0].status, 'error');
   assert.deepEqual(await fs.readdir(clones), []);
+});
+
+test('below minFreeBytes, a project takes no imports, clones or uploads', async () => {
+  const src = await commitOne();
+  const clones = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-'));
+  const flaky = flakyStore([{ id: 'saved', name: 'saved', source: `file://${src}`, kind: 'git' }]);
+  const ws = new Workspace(flaky.store, 'default', undefined, undefined, { clones, minFreeBytes: Number.MAX_SAFE_INTEGER });
+  await ws.init();
+  await settled(ws);
+
+  // Saved before the disk filled: not cloned again.
+  assert.equal(ws.repos[0].status, 'error');
+  assert.match(ws.repos[0].error ?? '', /disk is nearly full \(\d+ MB free\)/);
+  assert.deepEqual(await fs.readdir(clones), []);
+
+  await assert.rejects(ws.add(await commitOne()), /disk is nearly full/);
+  assert.deepEqual(flaky.saved().map((r) => r.id), ['saved']);
+
+  await assert.rejects(ws.upload('folder', Buffer.from('not unpacked')), (err) => err instanceof UploadError && err.status === 507);
+  assert.deepEqual(await fs.readdir(clones), []);
+  assert.equal(ws.repos.length, 1);
+});
+
+test('with room above minFreeBytes, a clone goes ahead', async () => {
+  const src = await commitOne();
+  const clones = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-'));
+  const flaky = flakyStore([{ id: 'saved', name: 'saved', source: `file://${src}`, kind: 'git' }]);
+  const ws = new Workspace(flaky.store, 'default', undefined, undefined, { clones, minFreeBytes: 1 });
+  await ws.init();
+  await settled(ws);
+  assert.equal(ws.repos[0].status, 'ready');
+  assert.deepEqual(await fs.readdir(clones), ['saved']);
 });

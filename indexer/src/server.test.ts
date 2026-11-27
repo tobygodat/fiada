@@ -44,7 +44,7 @@ before(async () => {
   base = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(port), HOST: '127.0.0.1', FIADA_HOME: home, FIADA_API_KEY: KEY, FIADA_PROJECT: 'test' };
 
-  for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'FIADA_GITHUB_CLIENT_ID', 'FIADA_GITHUB_CLIENT_SECRET', 'STRATA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_SECRET', 'MONGODB_URI']) delete env[k];
+  for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'FIADA_GITHUB_CLIENT_ID', 'FIADA_GITHUB_CLIENT_SECRET', 'STRATA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_SECRET', 'DATABASE_URL']) delete env[k];
   const entry = fileURLToPath(new URL('./server.ts', import.meta.url));
   server = spawn(process.execPath, ['--import', 'tsx', entry], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   server.stdout!.on('data', (c) => (log += c));
@@ -66,6 +66,10 @@ before(async () => {
 
 after(() => {
   server?.kill();
+});
+
+test('the health route answers without the access key', async () => {
+  assert.deepEqual(await get('/api/health'), { status: 200, body: { ok: true } });
 });
 
 test('the read routes answer without the access key, as every read does', async () => {

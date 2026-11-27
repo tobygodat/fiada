@@ -101,7 +101,7 @@ export function verdict(fences: Fence[], files: FencedFile[], graph: Graph): Fen
 
 /**
  * How stale the fences may be when an agent asks: another indexer sharing the
- * store (MongoDB) may have changed them, so older than this they're read again.
+ * store (Postgres) may have changed them, so older than this they're read again.
  */
 export const FRESH_MS = 2000;
 

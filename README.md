@@ -287,6 +287,7 @@ Fiada used to be called Strata. Every `FIADA_*` variable is also read under its 
 | `FIADA_GIT_HOSTS` | `github.com,gitlab.com,bitbucket.org` | where an indexer others can reach may clone from; `*` for any host, still over https only. Your own indexer clones from anywhere |
 | `FIADA_MAX_REPOS` | `20` | repositories one project may hold, on an indexer others can reach |
 | `FIADA_MAX_CLONE_MB` | `500` | largest clone kept on an indexer others can reach; a larger one is removed and its row says why |
+| `FIADA_MIN_FREE_MB` | `100` | disk an indexer others can reach keeps free for accounts and projects; below it, imports and uploads are refused with a message, and a clone under way is stopped and removed |
 | `FIADA_RATE_LIMIT` | `60` | changes (imports, layers, removals) one person, or one address without sign-in, may make a minute; reads aren't limited, nor is an indexer on loopback |
 | `FIADA_AGENT_RATE_LIMIT` | `600` | agent reports one person may post a minute |
 | `FIADA_LLM_DAILY` | `200` | with sign-in: model requests (sorting and summaries) each person's map may make a UTC day |

@@ -52,14 +52,14 @@
     "anti-slop/no-runtime-typeof": "off",
     // 26 findings: the normalizers and parsers that take raw input (normalizeGrouping, cleanFences, answersIn, hook fields).
     "anti-slop/no-unknown-parameters": "off",
-    // 9 findings: stores return a grouping for normalizeGrouping to check, and the Mongo key escaper maps any stored value.
+    // 8 findings: stores return a grouping for normalizeGrouping to check.
     "anti-slop/no-unknown-returns": "off",
     // 10 findings: the agent reads Claude Code, Cursor and MCP messages as Record<string, any>, and the normalizers' isObj guards.
     "anti-slop/no-unsafe-dictionary-type": "off",
     // 185 findings: most cast parsed JSON or a caught error (`err as Error`); they go when decoders arrive, and a SAFETY line on each would only restate the cast.
     "anti-slop/require-safety-comment-for-type-assertion": "off",
-    // 50 findings: `...(x ? { k } : {})` adds optional fields in expressions. Separate statements reorder keys in written JSON
-    // (fiada.grouping.json, API and MCP replies), and `k: x ? v : undefined` sends undefined to headers and MongoDB.
+    // 52 findings: `...(x ? { k } : {})` adds optional fields in expressions. Separate statements reorder keys in written JSON
+    // (fiada.grouping.json, API and MCP replies), and `k: x ? v : undefined` sends undefined to headers and stored accounts.
     "anti-slop/no-conditional-empty-object-spread": "off"
   }
 }

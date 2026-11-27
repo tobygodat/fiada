@@ -463,7 +463,7 @@ test('the fence routes: set and list fences, and an agent checks an edit over HT
   const dir = await localRepo();
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-fence-routes-'));
   const port = await freePort();
-  const blank = ['MONGODB_URI', 'FIADA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_ID', 'FIADA_API_KEY', 'STRATA_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'];
+  const blank = ['DATABASE_URL', 'FIADA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_ID', 'FIADA_API_KEY', 'STRATA_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'];
   const env = { ...process.env, ...Object.fromEntries(blank.map((k) => [k, ''])), FIADA_HOME: home, STRATA_HOME: home, FIADA_PROJECT: 'routes', STRATA_PROJECT: 'routes', HOST: '127.0.0.1', PORT: String(port) };
   const server = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('./server.ts', import.meta.url))], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
