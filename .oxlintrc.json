@@ -56,18 +56,18 @@
     // and link.ts telling a mount's named router from a function's router argument (`MountDecl['child']`), which
     // needs a tagged type in every parser that emits mounts.
     "anti-slop/no-runtime-typeof": "off",
-    // 22 findings: the normalizers that take raw input (normalizeGrouping, normalizeSorted, cleanFences, cleanRel,
-    // clampInt, setGrouping, hook and MCP fields), and the Mongo store's field save and key escaper.
+    // 21 findings: the normalizers that take raw input (normalizeGrouping, normalizeSorted, cleanFences, cleanRel,
+    // clampInt, setGrouping, hook and MCP fields), and the Postgres store's field save and canonical JSON.
     "anti-slop/no-unknown-parameters": "off",
-    // 6 findings: stores return a grouping for normalizeGrouping to check, and the Mongo store's field load and key
-    // escaper pass stored documents through.
+    // 5 findings: stores return a grouping for normalizeGrouping to check, and the Postgres store's field load passes
+    // stored jsonb through.
     "anti-slop/no-unknown-returns": "off",
-    // 7 findings: the agent reads Claude Code and MCP messages as Record<string, any>, the normalizers' object guards,
+    // 6 findings: the agent reads Claude Code and MCP messages as Record<string, any>, the normalizers' object guards,
     // and the query an agent read route answers.
     "anti-slop/no-unsafe-dictionary-type": "off",
-    // 53 findings: each casts data that was just parsed or received (request bodies, res.json(), JSON.parse of stored
-    // files, tokens, SSE and localStorage, model replies, hook and MCP fields, CLI arguments, and normalizer fields
-    // already checked by str()). Seven are tests reading HTTP JSON or encodeKeys output. They go when decoders arrive.
+    // 52 findings: each casts data that was just parsed or received (request bodies, res.json(), JSON.parse of stored
+    // files, stored jsonb, tokens, SSE and localStorage, model replies, hook and MCP fields, CLI arguments, and
+    // normalizer fields already checked by str()). Five are tests reading HTTP JSON. They go when decoders arrive.
     "anti-slop/require-safety-comment-for-type-assertion": "off"
   }
 }

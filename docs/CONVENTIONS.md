@@ -18,13 +18,13 @@ bun run agent:build  # bundle the agent for npm
 
 - `bun run test`, not `bun test`: bun's own runner doesn't run `node:test`.
 - The indexer tests run with `--liftoff-only`: on Node 24, V8's optimising compiler runs out of zone memory on the Swift grammar's largest function and kills the process ([nodejs/node#63421](https://github.com/nodejs/node/issues/63421)). Node 22, which CI and the `Dockerfile` use, is not affected.
-- The MongoDB store tests run only when `FIADA_TEST_MONGODB_URI` is set.
+- The Postgres store tests run only when `FIADA_TEST_DATABASE_URL` is set. CI sets it with a Postgres service.
 - `node web/e2e/fences.e2e.mjs <scratch clone> --scratch` drives fences and collisions end to end in Chromium against `bun run dev`, with the real agent hook. It edits the clone and puts it back. The other scripts in `web/e2e/` drive one feature each (the review tour, ripples, the sort, an agent session); read each one's header before running it.
 - `bun run --cwd web bench <graph.json>` measures zoom and pan in headless Chromium. Set `CHROMIUM_PATH` if Playwright's browser isn't installed.
 - In cloud containers, Playwright's bundled ffmpeg is missing, so the e2e scripts record with a CDP screencast and system ffmpeg, and launch Chromium from `/opt/pw-browsers/chromium`.
-- CI (`.github/workflows/ci.yml`) runs typecheck, lint, test and build as parallel jobs on every pull request and every push to `main`.
+- CI (`.github/workflows/ci.yml`) runs typecheck, lint, test and build as parallel jobs on every pull request and every push to `main`. `.github/workflows/keepalive.yml` calls the hosted indexer's `/api/health` three times a day so Supabase is unlikely to pause the database.
 - Configuration lives in a gitignored `.env` at the repo root, from `.env.example`. The README's Configuration section is the full table. Every `FIADA_*` variable is also read as `STRATA_*`, and the old name wins when both are set. Never commit `.env`, and never print or copy a key or connection string into code, logs or docs.
-- Deploys: a merge to `main` deploys the map to Cloudflare Workers and the indexer to Railway ([ADR 0002](adr/0002-indexer-in-a-container.md)). The README's Deploy section has the setup.
+- Deploys: a merge to `main` deploys the map to Cloudflare Workers and the indexer to Render ([ADR 0004](adr/0004-render-and-supabase.md)). The README's Deploy section has the setup.
 - Publishing the agent: bump `version` in `agent/package.json`, then `npm publish -w @fiadatech/agent`, which bundles it with esbuild first.
 
 ## Layout and naming
@@ -35,17 +35,16 @@ bun run agent:build  # bundle the agent for npm
 - Each module opens with a short comment saying what it is and why. Keep that up when you add one.
 - New code, copy and variables say **Fiada**: `@fiada/*`, `FIADA_*`, `.fiada/`, `fiada.grouping.json`, MCP server id `fiada`. On npm the agent is `@fiadatech/agent`, since the `fiada` scope isn't ours.
 - These keep "strata" on purpose so existing hosts and checkouts keep working. Don't rename them:
-  - the indexer package `@strata/indexer` (the Dockerfile, root scripts and the Railway service name it);
+  - the indexer package `@strata/indexer` (the Dockerfile and root scripts name it);
   - the `STRATA_*` aliases, an existing `.strata/` folder and `strata.grouping.json`;
-  - the MongoDB database `strata`;
   - browser `localStorage` keys `strata.*` and `strata-theme`;
-  - the `agent/bin/strata-*.mjs` shims and the Railway domain `strataindexer-production.up.railway.app`.
+  - the `agent/bin/strata-*.mjs` shims.
 
 ## Errors
 
 - Missing keys degrade, they don't fail. Without a model key, sorting falls back to the rules and summaries to lines built from the graph. Over the daily model budget, the same.
 - The agent hook never fails the agent: it always exits 0 and gives up on the indexer after 1.5 s.
-- If MongoDB can't be reached at startup, the indexer says why and saves under `.fiada/` for that run.
+- If Postgres can't be reached at startup, the indexer says why and saves under `.fiada/` for that run.
 - Errors a person sees are a sentence, in words as well as colour (see `DESIGN.md`).
 
 ## Tests

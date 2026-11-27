@@ -1,6 +1,6 @@
 # 0002. Run the indexer in a container on Railway, outside Cloudflare
 
-Status: Accepted, 2026-10-27
+Status: Superseded by [0004](0004-render-and-supabase.md), 2026-11-27. Accepted 2026-10-27.
 
 ## Context
 

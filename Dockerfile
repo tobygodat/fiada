@@ -30,9 +30,9 @@ RUN bun install --frozen-lockfile --production --filter @strata/indexer
 COPY shared shared
 COPY indexer indexer
 
-# Clones and (without MONGODB_URI) project files live here. Mount a volume on
-# /data to keep clones across deploys; with MONGODB_URI set the project is in
-# Atlas anyway and a fresh container re-clones its repositories on start.
+# Clones and (without DATABASE_URL) project files live here. Mount a volume on
+# /data to keep clones across deploys; with DATABASE_URL set the project is in
+# Postgres anyway and a fresh container re-clones its repositories on start.
 RUN mkdir -p /data && chown node:node /data
 USER node
 

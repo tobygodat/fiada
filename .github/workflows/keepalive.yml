@@ -1,0 +1,20 @@
+# Supabase pauses a free project that has too few database queries over a
+# week; it says a few a day is typically enough. Three times a day, wake the
+# indexer and have it make one real query through /api/health. That lowers the
+# risk of a pause rather than ruling it out. The first request after a quiet
+# spell waits for Render to start it, about a minute.
+name: keepalive
+
+on:
+  schedule:
+    - cron: '17 1,9,17 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: curl --fail --silent --show-error --retry 5 --retry-delay 30 --retry-all-errors --max-time 120 https://fiada-indexer.onrender.com/api/health

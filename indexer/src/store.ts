@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { messageOf, type Fence, type Grouping, type RepoKind } from '@fiada/shared';
-import { MongoProjectStore, redact, unquote } from './mongo-store.ts';
+import { PostgresProjectStore, redact, unquote } from './postgres-store.ts';
 
 /** A repository as the project remembers it; everything else about it is re-derived on load. */
 export interface SavedRepo {
@@ -69,7 +69,7 @@ export interface StoredUsage {
 }
 
 export interface ProjectStore {
-  /** Where this project's data lives, for display ("…/fiada.grouping.json", "mongodb: fiada.projects"). */
+  /** Where this project's data lives, for display ("…/fiada.grouping.json", "postgres://host fiada.projects"). */
   describe(projectId: string): string;
   /** null when the project has never been saved. */
   loadRepos(projectId: string): Promise<SavedRepo[] | null>;
@@ -106,6 +106,8 @@ export interface ProjectStore {
   deleteAccount?(id: string): Promise<void>;
   /** Optional: every account's sign-up and last sign-in, and every project's repository count. */
   usage?(): Promise<StoredUsage>;
+  /** Optional: one query that proves a database store answers. */
+  ping?(): Promise<void>;
 }
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -297,22 +299,26 @@ export class FileProjectStore implements ProjectStore {
 }
 
 /**
- * The store the server uses: MongoDB (Atlas) when MONGODB_URI is set, else
- * files under `home`. If MongoDB can't be reached or read at startup, says
- * why and uses the files for this run, so the map still works offline.
+ * The store the server uses: Postgres (Supabase) when DATABASE_URL is set,
+ * else files under `home`. If Postgres can't be reached or read at startup,
+ * an indexer on your own machine says why and uses the files for this run, so
+ * the map still works offline. One others reach (`local` false) fails to
+ * start instead: its disk is wiped on restart, so files would lose their saves.
  */
-export async function createStore(home: string): Promise<ProjectStore> {
-  const uri = unquote(process.env.MONGODB_URI);
+export async function createStore(home: string, local = true): Promise<ProjectStore> {
+  const url = unquote(process.env.DATABASE_URL);
 
-  if (uri) {
+  if (url) {
     try {
-      const db = process.env.FIADA_MONGODB_DB?.trim() || 'strata';
-      const store = await MongoProjectStore.connect(uri, db);
-      console.log(`[fiada] saving projects to MongoDB at ${redact(uri)} (${db}.projects)`);
+      const store = await PostgresProjectStore.connect(url);
+      console.log(`[fiada] saving projects to Postgres at ${redact(url)} (fiada.projects)`);
 
       return store;
     } catch (err) {
-      console.error(`[fiada] can't use MongoDB at ${redact(uri)}: ${messageOf(err)}`);
+      console.error(`[fiada] can't use Postgres at ${redact(url)}: ${messageOf(err)}`);
+
+      // Its own message, not err: a malformed URL's error carries the whole string, password and all.
+      if (!local) throw new Error(`Fiada can't start without its database at ${redact(url)}.`);
       console.error(`[fiada] saving to ${path.join(home, 'projects')} for this run instead`);
     }
   }

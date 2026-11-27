@@ -7,7 +7,7 @@
 
 import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk';
 import { request as httpsRequest } from 'node:https';
-import { unquote } from './mongo-store.ts';
+import { unquote } from './postgres-store.ts';
 import { messageOf, type Json, type JsonObject } from '@fiada/shared';
 
 /** One request whose answer must parse as JSON following `schema`. */

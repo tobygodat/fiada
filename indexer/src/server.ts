@@ -47,7 +47,7 @@ const allowedOrigin = originMatcher([MAP_ORIGINS, process.env.FIADA_ALLOWED_ORIG
 /** The indexer's own URL as others reach it, when the request can't be trusted to say (FIADA_PUBLIC_URL). */
 const PUBLIC_URL = process.env.FIADA_PUBLIC_URL?.trim().replace(/\/+$/, '') || undefined;
 
-const store = await createStore(FIADA_HOME);
+const store = await createStore(FIADA_HOME, isLoopback(HOST));
 const sortLlm = llmFromEnv();
 const summaryLlm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv(process.env, 'summaries');
 const authConfig = authConfigFromEnv();
@@ -72,6 +72,9 @@ const budget = new LLMBudget(count('FIADA_LLM_DAILY', 200));
 const MAX_REPOS = count('FIADA_MAX_REPOS', 20);
 const MAX_CLONE_BYTES = count('FIADA_MAX_CLONE_MB', 500) * (1 << 20);
 
+/** Disk kept free, so a clone can't fill the disk the indexer writes its files and clones to. */
+const MIN_FREE_BYTES = count('FIADA_MIN_FREE_MB', 100) * (1 << 20);
+
 /** Without sign-in: the one project everybody shares. */
 async function openShared(): Promise<Tenant> {
   const options: OpenOptions = {
@@ -85,7 +88,7 @@ async function openShared(): Promise<Tenant> {
   };
 
   // Limits only for an indexer others can reach; your own is yours to fill.
-  if (!isLoopback(HOST)) Object.assign(options, { maxRepos: MAX_REPOS, maxCloneBytes: MAX_CLONE_BYTES });
+  if (!isLoopback(HOST)) Object.assign(options, { maxRepos: MAX_REPOS, maxCloneBytes: MAX_CLONE_BYTES, minFreeBytes: MIN_FREE_BYTES });
 
   return openTenant(options);
 }
@@ -109,6 +112,7 @@ const tenants = new Tenants(async (projectId) => {
     clones: clonesOf(FIADA_HOME, projectId),
     maxRepos: MAX_REPOS,
     maxCloneBytes: MAX_CLONE_BYTES,
+    minFreeBytes: MIN_FREE_BYTES,
     githubToken: () => auth!.githubToken(projectId),
     suggestions: () => (recent.length ? recent : null),
     account: () => people.get(projectId),
@@ -179,6 +183,13 @@ app.addHook('onRequest', async (req, reply) => {
     return reply.code(401).send({ error: "This needs the indexer's access key." });
   }
 
+  // Anyone may ask whether the indexer and its store answer. Each ask is one query, so it counts against the limit.
+  if (req.routeOptions.url === '/api/health') {
+    limited(changes, req.ip, reply);
+
+    return;
+  }
+
   const asking = READS.has(req.method) && AGENT_READS.has(route);
 
   if (!auth) {
@@ -212,6 +223,13 @@ app.addHook('onRequest', async (req, reply) => {
   const info = accountInfo(account);
   people.set(account.id, info);
   req.tenant = await tenants.get(account.id, info);
+});
+
+/** Whether the indexer and its store answer: one real query, which also keeps a free database from pausing for want of use. */
+app.get('/api/health', async () => {
+  await store.ping?.();
+
+  return { ok: true };
 });
 
 // ── signing in ──

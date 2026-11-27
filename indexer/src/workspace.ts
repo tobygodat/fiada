@@ -122,6 +122,16 @@ const MB = 1 << 20;
 /** How often a clone's size is checked while git writes it. */
 const CLONE_WATCH_MS = 1000;
 
+/** Bytes free to this process on the disk that holds `dir`. */
+async function freeBytes(dir: string): Promise<number> {
+  const s = await fs.statfs(dir);
+
+  return s.bavail * s.bsize;
+}
+
+const diskFull = (free: number) =>
+  `This indexer's disk is nearly full (${Math.round(free / MB)} MB free), so it takes no new imports for now. Remove a repository to make room.`;
+
 /** Bytes the files under `dir` take, not following links. */
 async function diskUsage(dir: string): Promise<number> {
   let total = 0;
@@ -176,6 +186,8 @@ export interface WorkspaceOptions {
   maxRepos?: number;
   /** How large a clone may be on disk, in bytes; a larger one is removed and reported. Unlimited when unset. */
   maxCloneBytes?: number;
+  /** How many bytes must stay free on the disk the clones are on: below it, imports are refused and a clone under way is stopped. No floor when unset. */
+  minFreeBytes?: number;
   /** The GitHub token to clone and pull with, looked up for each command. */
   githubToken?: () => string | null | undefined | Promise<string | null | undefined>;
   /** The person's own repositories to offer, in place of the defaults; null while there are none. */
@@ -400,35 +412,59 @@ export class Workspace {
    * never fills the disk. The clone is then removed and the limit reported.
    */
   private async bounded<T>(dir: string, run: (signal?: AbortSignal) => Promise<T>) {
-    const max = this.options.maxCloneBytes;
+    const { maxCloneBytes: max, minFreeBytes: min } = this.options;
 
-    if (max === undefined) return run();
+    if (max === undefined && min === undefined) return run();
+    await this.checkDisk();
     const stop = new AbortController();
-    let over = 0;
+    let stopped: (() => Promise<never>) | undefined;
     let checking = false;
 
     const watch = setInterval(async () => {
-      if (checking || over) return;
+      if (checking || stopped) return;
       checking = true;
-      const bytes = await diskUsage(dir).catch(() => 0);
+      const bytes = max === undefined ? 0 : await diskUsage(dir).catch(() => 0);
+      const free = min === undefined ? Infinity : await freeBytes(this.clones).catch(() => Infinity);
       checking = false;
 
-      if (bytes > max) {
-        over = bytes;
-        stop.abort();
-      }
+      if (max !== undefined && bytes > max) stopped = () => this.tooBig(dir, bytes, max);
+      else if (min !== undefined && free < min) stopped = () => this.full(dir, free);
+
+      if (stopped) stop.abort();
     }, CLONE_WATCH_MS);
 
     try {
       await run(stop.signal);
     } catch (err) {
-      if (!over) throw err;
+      if (!stopped) throw err;
     } finally {
       clearInterval(watch);
     }
 
-    if (over) await this.tooBig(dir, over, max);
+    if (stopped) await stopped();
     await this.checkCloneSize(dir);
+
+    if (min === undefined) return;
+    // A clone can finish before the watch first looks.
+    const free = await freeBytes(this.clones);
+
+    if (free < min) await this.full(dir, free);
+  }
+
+  /** Throws when the disk the clones are on has less room left than the project keeps free. */
+  private async checkDisk() {
+    const min = this.options.minFreeBytes;
+
+    if (min === undefined) return;
+    const free = await freeBytes(this.clones);
+
+    if (free < min) throw new Error(diskFull(free));
+  }
+
+  /** Removes a clone the disk had no room for, and says so. */
+  private async full(dir: string, free: number): Promise<never> {
+    await fs.rm(dir, { recursive: true, force: true });
+    throw new Error(diskFull(free));
   }
 
   /** Removes a clone larger than the project allows, and says so. */
@@ -456,6 +492,7 @@ export class Workspace {
   }
 
   async add(input: string): Promise<RepoInfo> {
+    await this.checkDisk();
     const src = await parseSource(input, this.allowLocal);
     const existing = this.repos.find((r) => r.source === src.location);
 
@@ -494,6 +531,13 @@ export class Workspace {
    */
   async upload(rawName: string, archive: Buffer, replace?: string): Promise<RepoInfo> {
     const name = folderName(rawName);
+
+    try {
+      await this.checkDisk();
+    } catch (err) {
+      throw new UploadError(messageOf(err), 507);
+    }
+
     const tmp = path.join(this.clones, `${UPLOAD_TMP}${randomUUID()}`);
     let unpacked;
 
