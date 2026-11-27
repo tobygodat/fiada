@@ -43,8 +43,9 @@
     "anti-slop/require-readable-spacing": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
 
-    // The rules below stay off. What they still find is input at an I/O
-    // boundary, which they want parsed by a decoder into a domain type. The
+    // The rules below stay off. Nearly all they still find is input at an I/O
+    // boundary, which they want parsed by a decoder into a domain type; the
+    // few exceptions are named in each rule's count. The
     // indexer and agent instead check request bodies, agent events, hook
     // payloads, MCP messages, model replies and stored JSON field by field in
     // normalizers that take `unknown`, and the published agent may import only
