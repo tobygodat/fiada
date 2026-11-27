@@ -56,7 +56,7 @@ type HookEntry = { matcher?: string; hooks: { type: 'command'; command: string; 
 type Settings = { hooks?: Record<string, HookEntry[]>; permissions?: { allow?: string[] } };
 
 /** Claude Code's permission rule for every tool of the "fiada" MCP server. */
-export const ALLOW = 'mcp__fiada';
+const ALLOW = 'mcp__fiada';
 
 export function hooksBlock(command = HOOK) {
   const run = [{ type: 'command' as const, command, timeout: 10 }];
