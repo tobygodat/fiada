@@ -356,7 +356,7 @@ The map is an assets-only Worker: `wrangler.jsonc` at the root serves `web/dist`
 
 The Worker's name in the dashboard must be `fiada-web`, the `name` in `wrangler.jsonc`, or the deploy step fails.
 
-With preview builds on, every other branch gets its own Preview of the Worker at `https://<preview-name>-fiada-web.<account>.workers.dev`, where the Preview name is the branch name made URL-safe,, which needs the `previews` block in `wrangler.jsonc`. The preview command must be `npx wrangler preview`: `npx wrangler versions upload` fails on a Preview with "The name in your wrangler.jsonc file (fiada-web) must match the name of your Worker", because Cloudflare pins each Preview build to the Preview's own id.
+With preview builds on, every other branch gets its own Preview of the Worker at `https://<preview-name>-fiada-web.<account>.workers.dev`, where the Preview name is the branch name made URL-safe. Previews need the `previews` block in `wrangler.jsonc`. The preview command must be `npx wrangler preview`: `npx wrangler versions upload` fails on a Preview with "The name in your wrangler.jsonc file (fiada-web) must match the name of your Worker", because Cloudflare pins each Preview build to the Preview's own id.
 
 Every push to `main` then builds and deploys. No build variable is needed: `web/.env.production` sets `VITE_API_URL` to `https://strataindexer-production.up.railway.app`, and Vite writes it into the bundle at build time. If your indexer lives elsewhere, change that file, or set `VITE_API_URL` as a build variable, which wins. Without either, the deployed map calls `/api` on its own origin and gets `index.html` back instead of the indexer's answers.
 
