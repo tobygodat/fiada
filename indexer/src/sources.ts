@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { RepoInfo } from '@fiada/shared';
+import { messageOf, type RepoInfo } from '@fiada/shared';
 import type { PackageManifest, ParsedFile, ParsedRepo, TsConfigPaths } from './model.ts';
 import { linkGoTableNames } from './parse/go.ts';
 import { langOf, parseFile } from './parse/index.ts';
@@ -229,7 +229,7 @@ export async function loadRepo(info: RepoInfo, root: string, opts: LoadOptions =
 
       if (f) files.push(f);
     } catch (err) {
-      console.warn(`[fiada] failed to parse ${info.id}/${rel}:`, (err as Error).message);
+      console.warn(`[fiada] failed to parse ${info.id}/${rel}:`, messageOf(err));
     }
   }
 
@@ -314,7 +314,7 @@ export async function reloadFiles(repo: ParsedRepo, paths: string[], opts: LoadO
       try {
         parsed = await parseFile(rel, text);
       } catch (err) {
-        console.warn(`[fiada] failed to parse ${repo.info.id}/${rel}:`, (err as Error).message);
+        console.warn(`[fiada] failed to parse ${repo.info.id}/${rel}:`, messageOf(err));
       }
     }
 

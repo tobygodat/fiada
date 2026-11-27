@@ -3,13 +3,16 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import type { ActivityState, AgentRef } from '@fiada/shared';
 import { AgentHub, outsideSymbols, remoteKey, sameProcess, statusLine, touches } from './agents.ts';
 import type { ProjectStore, SavedRepo } from './store.ts';
 import { Workspace } from './workspace.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+
+/** Whether ISO time `a` comes after `b`; never when either is missing. */
+const isLater = (a: string | undefined, b: string | undefined) => a !== undefined && b !== undefined && a > b;
 
 function memoryStore(saved: SavedRepo[]): ProjectStore {
   return {
@@ -444,7 +447,7 @@ test("another agent's edit to a function never counts as this agent's next chang
   const timesOf = (session: string) => {
     const f = hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
 
-    return Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) as Record<string, string>;
+    return Object.fromEntries(f.symbols.map((s) => [s.name, s.at]));
   };
 
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -456,7 +459,7 @@ test("another agent's edit to a function never counts as this agent's next chang
   await report(a, two.replace("'/api/items')", "'/api/items?all=1')"), [[2, 2], [6, 6]]);
   const after = timesOf('a');
   assert.equal(after.getItem, before.getItem, 'B’s edit to getItem is not A’s');
-  assert.ok(after.listItems > before.getItem);
+  assert.ok(isLater(after.listItems, before.getItem));
   // B adds an import, then A changes getItem again: the import is B's, not A's to read.
   const three = `import { z } from './z';\n${two.replace("'/api/items')", "'/api/items?all=1')")}`;
   await report(b, three, [[1, 1]]);
@@ -485,7 +488,7 @@ test("a function only another agent changed stays that agent's when this one cha
   };
 
   const of = (session: string) => hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
-  const timesOf = (session: string) => Object.fromEntries(of(session).symbols.map((s) => [s.name, s.at])) as Record<string, string>;
+  const timesOf = (session: string) => Object.fromEntries(of(session).symbols.map((s) => [s.name, s.at]));
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
   await report(a, one, [[6, 6]]);
   // B changes listItems, which A never touched; then A changes getItem again.
@@ -518,7 +521,7 @@ test("another agent's deletion of a function this agent changed, and its added f
   };
 
   const timesOf = (session: string) =>
-    Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, s])) as Record<string, { kind: string; at?: string }>;
+    Object.fromEntries(hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0].symbols.map((s) => [s.name, s]));
 
   const getItem = 'export function getItem(id: string) {\n  return fetch(`/api/items/${id}`);\n}\n';
   const listItems = (q: string) => `export function listItems() {\n  return fetch('/api/items${q}');\n}\n`;
@@ -980,7 +983,7 @@ test("a class's own time moves with its own lines, not with each method in it", 
     await new Promise((r) => setTimeout(r, 100));
   };
 
-  const at = () => Object.fromEntries(hub.state().agents[0].files[0].symbols.map((s) => [s.id.slice(s.id.indexOf('#') + 1), s.at])) as Record<string, string>;
+  const at = () => Object.fromEntries(hub.state().agents[0].files[0].symbols.map((s) => [s.id.slice(s.id.indexOf('#') + 1), s.at]));
   const one = STORE.replace('return 1;', 'return 10;');
   await report(one, [[5, 5]]);
   const first = at();
@@ -992,7 +995,7 @@ test("a class's own time moves with its own lines, not with each method in it", 
   assert.equal(at()['Store.get'], first['Store.get']);
   // A field changes: the class's own change, at its own time.
   await report(two.replace('size = 1', 'size = 2'), [[2, 2], [5, 5], [9, 9]]);
-  assert.ok(at().Store > first['Store.get'], 'its own field is');
+  assert.ok(isLater(at().Store, first['Store.get']), 'its own field is');
   // The field put back, the methods still changed: nothing of the class's own is left to read, so
   // a stop that was read before the field changed isn't unread by a change that's gone.
   await report(two, [[5, 5], [9, 9]]);
@@ -1017,7 +1020,7 @@ test('a class whose own lines are back as HEAD has them, around a method still c
     await new Promise((r) => setTimeout(r, 100));
   };
 
-  const at = () => Object.fromEntries(hub.state().agents[0].files[0].symbols.map((s) => [s.id.slice(s.id.indexOf('#') + 1), s.at])) as Record<string, string>;
+  const at = () => Object.fromEntries(hub.state().agents[0].files[0].symbols.map((s) => [s.id.slice(s.id.indexOf('#') + 1), s.at]));
   const both = STORE.replace('size = 1', 'size = 2').replace('return 1;', 'return 10;');
   await report(both, [[2, 2], [5, 5]]);
   const first = at();
@@ -1027,7 +1030,7 @@ test('a class whose own lines are back as HEAD has them, around a method still c
   assert.equal(at()['Store.get'], first['Store.get']);
   // Changed again: a new change.
   await report(both, [[2, 2], [5, 5]]);
-  assert.ok(at().Store > first.Store);
+  assert.ok(isLater(at().Store, first.Store));
 });
 
 test("a class only round this agent's method change is no one's: another agent's change to its field isn't this agent's", async () => {
@@ -1115,7 +1118,7 @@ test("another agent moving a function's lines doesn't make this agent's change t
   const timesOf = (session: string) => {
     const f = hub.state().agents.find((x) => x.id.endsWith(`#${session}`))!.files[0];
 
-    return Object.fromEntries(f.symbols.map((s) => [s.name, s.at])) as Record<string, string>;
+    return Object.fromEntries(f.symbols.map((s) => [s.name, s.at]));
   };
 
   const one = API.replace("'/api/items/' + id", '`/api/items/${id}`');
@@ -1446,13 +1449,12 @@ test('only source files the indexer reads are kept as text, never a large artifa
   await fs.writeFile(path.join(dir, 'src/api.test.ts'), 'export function testItems() {}\n');
   const files = ['src/api.ts', 'src/big.ts', 'notes.txt', 'dist/api.js', 'src/api.test.ts'];
   // Every file AgentHub reads to compare, before the re-index and after.
-  const reads: string[] = [];
-  const readFile = fs.readFile;
-  fs.readFile = ((p: string, ...rest: unknown[]) => (reads.push(path.relative(dir, String(p))), (readFile as (...a: unknown[]) => unknown)(p, ...rest))) as typeof fs.readFile;
+  const readFile = mock.method(fs, 'readFile');
   const pushed = nextPush(hub, (s) => s.graphVersion > 1);
   await hub.ingest([{ agent, type: 'changes', files: files.map((p) => ({ path: path.join(dir, p), kind: 'modified' as const })) }]);
   await pushed;
-  fs.readFile = readFile;
+  readFile.mock.restore();
+  const reads = readFile.mock.calls.map((c) => path.relative(dir, String(c.arguments[0])));
   assert.deepEqual([...new Set(reads.filter((r) => files.includes(r)))], ['src/api.ts'], 'only the source the indexer takes in is read at all');
   const recs = hub['agents'];
   const text = Object.fromEntries([...[...recs.values()][0].files.values()].map((f) => [f.rel, f.sigs != null]));

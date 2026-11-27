@@ -5,10 +5,10 @@
 // OPENAI_API_KEY. Without either key, llmFromEnv() is null and each
 // feature says it is unavailable rather than failing.
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk';
 import { request as httpsRequest } from 'node:https';
 import { unquote } from './postgres-store.ts';
-import type { Json, JsonObject } from '@fiada/shared';
+import { messageOf, type Json, type JsonObject } from '@fiada/shared';
 
 /** One request whose answer must parse as JSON following `schema`. */
 export interface JsonRequest {
@@ -81,7 +81,10 @@ export const KEY_HINT = 'ANTHROPIC_API_KEY or OPENAI_API_KEY';
  * without. Haiku has none to opt into. `fetch` is for tests.
  */
 export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: typeof fetch } = {}): LLM {
-  const client = new Anthropic({ apiKey, maxRetries: 3, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
+  const options: ClientOptions = { apiKey, maxRetries: 3 };
+
+  if (opts.fetch) options.fetch = opts.fetch;
+  const client = new Anthropic(options);
   let fallbacks = !/haiku/i.test(model);
 
   return {
@@ -92,7 +95,7 @@ export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: type
         model,
         max_tokens: 64000,
         thinking: { type: 'adaptive' as const },
-        system: system.map((text, i) => ({ type: 'text' as const, text, ...(i === system.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}) })),
+        system: system.map((text, i): Anthropic.TextBlockParam => (i === system.length - 1 ? { type: 'text', text, cache_control: { type: 'ephemeral' } } : { type: 'text', text })),
         messages: [{ role: 'user' as const, content: prompt }],
         output_config: { format: { type: 'json_schema' as const, schema } },
       };
@@ -217,7 +220,7 @@ export function openaiLLM(apiKey: string, model?: string | string[], opts: { pos
           continue;
         }
 
-        throw new OpenAIError(`Couldn't reach the OpenAI API: ${(err as Error).message}`, undefined, undefined, model);
+        throw new OpenAIError(`Couldn't reach the OpenAI API: ${messageOf(err)}`, undefined, undefined, model);
       }
 
       let data: ChatCompletion = {};
@@ -336,32 +339,32 @@ export class LLMBudget {
 }
 
 /** A sentence for people about why a request failed. */
-export function describeLLMError(err: unknown): string {
-  if (err instanceof OpenAIError) {
-    if (err.status === undefined) return "Couldn't reach the OpenAI API.";
+export function describeLLMError(cause: unknown): string {
+  if (cause instanceof OpenAIError) {
+    if (cause.status === undefined) return "Couldn't reach the OpenAI API.";
 
-    if (err.status === 401) return 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.';
+    if (cause.status === 401) return 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.';
 
-    if (err.code === 'model_not_found' || err.status === 404) return `The OpenAI API key can't use ${err.model ?? 'this model'}. Set FIADA_LLM_MODEL (or FIADA_SUMMARY_MODEL, for summaries) to a model it has.`;
+    if (cause.code === 'model_not_found' || cause.status === 404) return `The OpenAI API key can't use ${cause.model ?? 'this model'}. Set FIADA_LLM_MODEL (or FIADA_SUMMARY_MODEL, for summaries) to a model it has.`;
 
-    if (err.code === 'insufficient_quota') return "The OpenAI API key's account is out of credit. Add some under Billing on platform.openai.com.";
+    if (cause.code === 'insufficient_quota') return "The OpenAI API key's account is out of credit. Add some under Billing on platform.openai.com.";
 
-    if (err.status === 403) return `The OpenAI API refused this key: ${err.message}`.slice(0, 300);
+    if (cause.status === 403) return `The OpenAI API refused this key: ${cause.message}`.slice(0, 300);
 
-    if (err.status === 429) return 'The OpenAI API is rate limiting this key. Try again in a minute.';
+    if (cause.status === 429) return 'The OpenAI API is rate limiting this key. Try again in a minute.';
 
-    return `The OpenAI API answered ${err.status}: ${err.message}`.slice(0, 300);
+    return `The OpenAI API answered ${cause.status}: ${cause.message}`.slice(0, 300);
   }
 
-  if (err instanceof Anthropic.AuthenticationError) return 'The Anthropic API key was rejected. Check ANTHROPIC_API_KEY on the indexer.';
+  if (cause instanceof Anthropic.AuthenticationError) return 'The Anthropic API key was rejected. Check ANTHROPIC_API_KEY on the indexer.';
 
-  if (err instanceof Anthropic.PermissionDeniedError) return "The Anthropic API key can't use this model.";
+  if (cause instanceof Anthropic.PermissionDeniedError) return "The Anthropic API key can't use this model.";
 
-  if (err instanceof Anthropic.RateLimitError) return 'The Anthropic API is rate limiting this key. Try again in a minute.';
+  if (cause instanceof Anthropic.RateLimitError) return 'The Anthropic API is rate limiting this key. Try again in a minute.';
 
-  if (err instanceof Anthropic.APIConnectionError) return "Couldn't reach the Anthropic API.";
+  if (cause instanceof Anthropic.APIConnectionError) return "Couldn't reach the Anthropic API.";
 
-  if (err instanceof Anthropic.APIError) return `The Anthropic API answered ${err.status ?? 'with an error'}: ${err.message}`.slice(0, 300);
+  if (cause instanceof Anthropic.APIError) return `The Anthropic API answered ${cause.status ?? 'with an error'}: ${cause.message}`.slice(0, 300);
 
-  return ((err as Error)?.message ?? String(err)).slice(0, 300);
+  return messageOf(cause).slice(0, 300);
 }

@@ -5,13 +5,13 @@ import type { ParsedFile } from '../model.ts';
 import { annotationRoutes, capitalized, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
-const TYPE_KIND = {
+const TYPE_KIND = new Map(Object.entries({
   class_declaration: 'class',
   record_declaration: 'class',
   interface_declaration: 'interface',
   annotation_type_declaration: 'interface',
   enum_declaration: 'enum',
-} as const;
+} as const));
 
 const modifiers = (n: SyntaxNode) => n.namedChildren.find((c) => c.type === 'modifiers') ?? null;
 const lastSegment = (s: string) => s.slice(s.lastIndexOf('.') + 1);
@@ -62,7 +62,7 @@ function bases(n: SyntaxNode): string[] {
 
 /** The type declaration a member sits in. */
 const enclosingType = (n: SyntaxNode) => {
-  for (let p = n.parent; p; p = p.parent) if (p.type in TYPE_KIND) return p;
+  for (let p = n.parent; p; p = p.parent) if (TYPE_KIND.has(p.type)) return p;
 
   return null;
 };
@@ -86,14 +86,16 @@ const spec: LangSpec = {
   decl(n): Decl | null {
     if (n.type === 'package_declaration' || n.type === 'import_declaration') return { as: 'skip' };
 
-    if (n.type in TYPE_KIND) {
+    const kind = TYPE_KIND.get(n.type);
+
+    if (kind) {
       const name = n.childForFieldName('name')?.text;
 
       if (!name) return null;
 
       return {
         as: 'type',
-        kind: TYPE_KIND[n.type as keyof typeof TYPE_KIND],
+        kind,
         name,
         body: n.childForFieldName('body'),
         exported: !isPrivate(n),

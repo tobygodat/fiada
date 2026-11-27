@@ -70,7 +70,7 @@ test('OpenAI: a summaries key without gpt-5-mini moves on to the usual models', 
 
 // ── OpenAI, with a mocked transport ──────────────────────────────────
 
-type Answer = { status: number; body: unknown; headers?: Record<string, string> };
+type Answer = { status: number; body: object; headers?: Record<string, string> };
 
 function transport(...answers: (Answer | Error)[]) {
   const calls: { url: string; headers: Record<string, string>; body: any }[] = [];
@@ -83,13 +83,13 @@ function transport(...answers: (Answer | Error)[]) {
 
     if (a instanceof Error) throw a;
 
-    return { status: a.status, headers: a.headers ?? {}, body: typeof a.body === 'string' ? a.body : JSON.stringify(a.body) };
+    return { status: a.status, headers: a.headers ?? {}, body: JSON.stringify(a.body) };
   };
 
   return { post, calls };
 }
 
-const completion = (content: string | null, extra: Record<string, unknown> = {}) => ({
+const completion = (content: string | null, extra: { refusal?: string } = {}) => ({
   status: 200,
   body: { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content, refusal: null, ...extra } }] },
 });
@@ -167,7 +167,7 @@ test('openaiLLM: refusals, cut-off answers and unreachable API read plainly', as
 
 // ── Claude, with a mocked fetch ──────────────────────────────────────
 
-const sse = (events: Record<string, unknown>[]) =>
+const sse = <E extends { type: string }>(events: E[]) =>
   new Response(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
 
 const claudeStream = (text: string, stop = 'end_turn') =>
@@ -183,11 +183,11 @@ const claudeStream = (text: string, stop = 'end_turn') =>
 function claudeFetch(...answers: (() => Response)[]) {
   const calls: { url: string; headers: Headers; body: any }[] = [];
 
-  const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const f: typeof fetch = async (input, init) => {
     calls.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
 
     return answers.shift()!();
-  }) as typeof fetch;
+  };
 
   return { fetch: f, calls };
 }

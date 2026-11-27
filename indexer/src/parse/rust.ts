@@ -6,7 +6,7 @@ import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
 import { capitalized, enclosingFunction, literal, outline, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
-const ITEM_KIND = {
+const ITEM_KIND = new Map(Object.entries({
   struct_item: 'class',
   union_item: 'class',
   enum_item: 'enum',
@@ -17,7 +17,7 @@ const ITEM_KIND = {
   const_item: 'variable',
   static_item: 'variable',
   macro_definition: 'function',
-} as const;
+} as const));
 
 const ROUTE_ATTR = new Map(Object.entries({ get: 'GET', post: 'POST', put: 'PUT', delete: 'DELETE', patch: 'PATCH', head: 'HEAD', options: 'OPTIONS' }));
 
@@ -166,11 +166,12 @@ const spec: LangSpec = {
 
     if (n.type === 'impl_item') return { as: 'scope', body: n.childForFieldName('body'), owner: within(typeName(n.childForFieldName('type'))) };
 
-    if (n.type in ITEM_KIND) {
+    const kind = ITEM_KIND.get(n.type);
+
+    if (kind) {
       const name = n.childForFieldName('name')?.text;
 
       if (!name) return null;
-      const kind = ITEM_KIND[n.type as keyof typeof ITEM_KIND];
       const as = kind === 'function' ? 'function' : kind === 'variable' ? 'variable' : 'type';
 
       return { as, kind, name, body: n.childForFieldName('body'), exported: isPub(n), routes: as === 'function' ? attributeRoutes(n) : undefined };

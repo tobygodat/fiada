@@ -7,7 +7,7 @@ test('map labels use only the design system sizes, never under 13px', () => {
 
   for (let px = 0; px <= 60; px += 0.5) {
     const s = typeSize(px);
-    assert.ok((TYPE as readonly number[]).includes(s), `${px}px → ${s}px`);
+    assert.ok(TYPE.some((t) => t === s), `${px}px → ${s}px`);
     assert.ok(s >= 13 && s <= 24);
 
     if (px >= 13) assert.ok(s <= px, `${px}px grew to ${s}px`);

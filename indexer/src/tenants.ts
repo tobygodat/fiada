@@ -9,7 +9,7 @@
 // frees its parsed repositories. Opening it again re-indexes from its clones.
 
 import path from 'node:path';
-import type { AccountInfo, Workspace as WorkspaceState } from '@fiada/shared';
+import { messageOf, type AccountInfo, type Workspace as WorkspaceState } from '@fiada/shared';
 import { AgentHub } from './agents.ts';
 import { Fences } from './fences.ts';
 import type { LLM } from './llm.ts';
@@ -135,7 +135,7 @@ export class Tenants {
 
       if (!t || this.open.get(id) !== e || e.used > cutoff || t.agents.watched || t.ws.state().busy) continue;
       this.open.delete(id);
-      await t.close().catch((err) => console.error(`[fiada] closing project ${id}: ${(err as Error).message}`));
+      await t.close().catch((err) => console.error(`[fiada] closing project ${id}: ${messageOf(err)}`));
     }
   }
 

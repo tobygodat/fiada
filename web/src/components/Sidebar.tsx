@@ -2,7 +2,7 @@
 // project's layers, and an outline of whichever hierarchy the map is showing.
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
-import { UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@fiada/shared';
+import { messageOf, UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@fiada/shared';
 import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
 import type { ExpandMode } from '../graph/view.ts';
@@ -12,6 +12,7 @@ import type { ThemeChoice } from '../useTheme.ts';
 import { Account } from './Account.tsx';
 import { Chevron } from './Icon.tsx';
 import { Mark, Wordmark } from './Logo.tsx';
+import { sortSummary, stillUnsorted } from './sorting.ts';
 
 interface Props {
   workspace: Workspace | null;
@@ -142,6 +143,7 @@ function Problem({ text }: { text: string }) {
 }
 
 const PRESET_LABEL: Record<LayerPreset, string> = { roles: 'roles', 'by-repo': 'by repo', empty: 'empty' };
+const PRESET_OPTIONS = (['roles', 'by-repo', 'empty'] as const).map((p): [LayerPreset, string] => [p, PRESET_LABEL[p]]);
 
 const LAYERS_OPEN = 'strata.layersOpen';
 
@@ -207,7 +209,7 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
     return (
       <section className="section">
         {heading}
-        <Sorting workspace={workspace} onSortAgain={onSortAgain} />
+        <Sorting graph={graph} workspace={workspace} onSortAgain={onSortAgain} />
         {problems}
       </section>
     );
@@ -216,11 +218,11 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
   return (
     <section className="section">
       {heading}
-      <Sorting workspace={workspace} onSortAgain={onSortAgain} />
+      <Sorting graph={graph} workspace={workspace} onSortAgain={onSortAgain} />
       {canEdit(workspace) && (
         <div className="setting layer-choice">
           <span className="setting-name small">preset</span>
-          <Choice label="layer preset" value={graph.preset ?? ('' as LayerPreset)} options={Object.entries(PRESET_LABEL) as [LayerPreset, string][]} onChange={choose} />
+          <Choice label="layer preset" value={graph.preset ?? ''} options={PRESET_OPTIONS} onChange={(p) => p && choose(p)} />
         </div>
       )}
       <div className="layer-list">
@@ -243,11 +245,10 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
   );
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
 /** What the model's sort of the project did, or why there isn't one. Sits under the layers heading, folded or not. */
-function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain(): Promise<void> }) {
+function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: Workspace; onSortAgain(): Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
+  const unsorted = useMemo(() => stillUnsorted(graph), [graph]);
   const s = workspace.sorting;
 
   if (!s || s.status === 'idle') return null;
@@ -278,9 +279,7 @@ function Sorting({ workspace, onSortAgain }: { workspace: Workspace; onSortAgain
   } else if (s.status === 'running') {
     text = <span className="busy">{by} is sorting the code the classifier couldn't place…</span>;
   } else {
-    const domains = [s.renamed && `renamed ${plural(s.renamed, 'domain')}`, s.merged && `merged ${s.merged}`, s.added && `added ${s.added}`].filter(Boolean);
-    const placed = s.placed ? `placed ${plural(s.placed, 'file or symbol', 'files and symbols')} the classifier couldn't` : 'found nothing the classifier left unplaced';
-    text = `${by} ${placed}${domains.length ? `, ${domains.join(', ')}` : ''}.${s.placed ? ' Each says why in its details.' : ''}`;
+    text = sortSummary(s, unsorted);
   }
 
   return (
@@ -332,7 +331,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
       setProgress(`uploading ${picked.name}… ${picked.sources.toLocaleString()} files, ${size(archive.size)}`);
       await onUpload(picked.name, archive, replace.current);
     } catch (err) {
-      onError((err as Error).message);
+      onError(messageOf(err));
     } finally {
       setProgress(null);
     }
@@ -348,7 +347,7 @@ function useFolderUpload(workspace: Workspace | null, onUpload: Props['onUpload'
 
       if (folder) await send(folder);
     } catch (err) {
-      onError((err as Error).message);
+      onError(messageOf(err));
     }
   };
 
@@ -392,7 +391,7 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
       await onAdd(source.trim());
       setInput('');
     } catch (err) {
-      setError((err as Error).message);
+      setError(messageOf(err));
     } finally {
       setPending(false);
     }

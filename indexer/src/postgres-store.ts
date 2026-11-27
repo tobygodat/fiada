@@ -112,8 +112,10 @@ export class PostgresProjectStore implements ProjectStore {
     // TLS everywhere but this machine, since a hosted pooler such as Supabase's also takes plain connections.
     // A non-empty sslmode in the URL decides instead.
     const u = parse(url);
-    const ssl = u?.searchParams.get('sslmode') ? {} : /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u?.hostname ?? '') ? { ssl: false } : { ssl: 'require' as const };
-    const sql = postgres(url, { max: 4, connect_timeout: 8, prepare: false, ...ssl, onnotice: () => {} });
+    const options = { max: 4, connect_timeout: 8, prepare: false, onnotice: () => {} };
+
+    if (!u?.searchParams.get('sslmode')) Object.assign(options, { ssl: /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u?.hostname ?? '') ? false : 'require' });
+    const sql = postgres(url, options);
 
     try {
       await sql.unsafe(tables(schema));
@@ -308,18 +310,23 @@ export class PostgresProjectStore implements ProjectStore {
 }
 
 function fromRow(r: AccountRow): StoredAccount {
-  return {
+  const account: StoredAccount = {
     id: r.id,
     githubId: Number(r.github_id),
     login: r.login,
-    ...(r.name == null ? {} : { name: r.name }),
-    ...(r.avatar == null ? {} : { avatar: r.avatar }),
     sealedToken: r.sealed_token,
     scopes: r.scopes,
     agentEpoch: r.agent_epoch,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
+
+  // Left out rather than undefined when unset, as the file store keeps them.
+  if (r.name != null) account.name = r.name;
+
+  if (r.avatar != null) account.avatar = r.avatar;
+
+  return account;
 }
 
 /** JSON with every object's keys sorted, since jsonb doesn't keep the order they were saved in. */

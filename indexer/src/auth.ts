@@ -16,8 +16,8 @@
 // secret signs everyone out; they sign in again and their projects are kept.
 
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { AccountInfo } from '@fiada/shared';
-import type { ProjectStore, StoredAccount } from './store.ts';
+import { messageOf, type AccountInfo } from '@fiada/shared';
+import type { ProjectStore, SignedIn, StoredAccount } from './store.ts';
 
 /** How long a sign-in lasts in one browser. */
 export const SESSION_DAYS = 30;
@@ -161,6 +161,7 @@ export class Auth {
     try {
       const claims = JSON.parse(unb64(body.slice(PREFIX[kind].length)).toString('utf8')) as Claims;
 
+      // SAFETY: claims.k equals kind, whose type is K, so claims is the Claims member keyed K; TypeScript can't narrow a union by a generic.
       return claims.k === kind ? (claims as Extract<Claims, { k: K }>) : null;
     } catch {
       return null;
@@ -253,7 +254,7 @@ export class Auth {
   async deleteAccount(account: StoredAccount): Promise<void> {
     const token = this.unseal(account.sealedToken);
 
-    if (token) await this.github.revoke(token).catch((err) => console.warn(`[fiada] couldn't revoke ${account.login}'s GitHub grant: ${(err as Error).message}`));
+    if (token) await this.github.revoke(token).catch((err) => console.warn(`[fiada] couldn't revoke ${account.login}'s GitHub grant: ${messageOf(err)}`));
     await this.store.deleteAccount!(account.id);
     this.accounts.set(account.id, { account: Promise.resolve(null), at: this.now() });
   }
@@ -296,12 +297,14 @@ export class Auth {
     const user = await this.github.user(token);
 
     // The store keeps the agent epoch as it is: signing in never revokes or restores an agent token.
+    const who: Pick<SignedIn, 'id' | 'githubId' | 'login' | 'name' | 'avatar'> = { id: accountId(user.id), githubId: user.id, login: user.login };
+
+    if (user.name) who.name = user.name;
+
+    if (user.avatar) who.avatar = user.avatar;
+
     const account = await this.store.saveSignIn!({
-      id: accountId(user.id),
-      githubId: user.id,
-      login: user.login,
-      ...(user.name ? { name: user.name } : {}),
-      ...(user.avatar ? { avatar: user.avatar } : {}),
+      ...who,
       sealedToken: this.seal(token),
       scopes: user.scopes ?? scopes,
       updatedAt: new Date(this.now()).toISOString(),

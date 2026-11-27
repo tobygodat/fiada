@@ -13,7 +13,7 @@ export interface FencesHandle {
 }
 
 /** `rev` changes when the project might have: a new graph, a reconnect. */
-export function useFences(rev: unknown): FencesHandle {
+export function useFences(rev: string | undefined): FencesHandle {
   const [fences, setFences] = useState<Fence[]>([]);
   // Every load and change takes a number; an answer counts only if nothing started after it,
   // so a load still on its way can't put back the fences a change just replaced.

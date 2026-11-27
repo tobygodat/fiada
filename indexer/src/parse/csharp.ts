@@ -6,7 +6,7 @@ import type { ImportSpec, ParsedFile, RouteDecl } from '../model.ts';
 import { annotationRoutes, capitalized, innermost, joinPath, keywords, literal, methodsIn, outline, type Ann, type Decl, type LangSpec, type RefSink } from './outline.ts';
 import { line, type SyntaxNode } from './treesitter.ts';
 
-const TYPE_KIND = {
+const TYPE_KIND = new Map(Object.entries({
   class_declaration: 'class',
   record_declaration: 'class',
   record_struct_declaration: 'class',
@@ -14,7 +14,7 @@ const TYPE_KIND = {
   interface_declaration: 'interface',
   enum_declaration: 'enum',
   delegate_declaration: 'type',
-} as const;
+} as const));
 
 const MAP_VERB = new Map(Object.entries({ MapGet: 'GET', MapPost: 'POST', MapPut: 'PUT', MapDelete: 'DELETE', MapPatch: 'PATCH', Map: '*', MapMethods: '*' }));
 
@@ -37,7 +37,7 @@ function attributes(n: SyntaxNode): Ann[] {
 }
 
 const enclosingType = (n: SyntaxNode) => {
-  for (let p = n.parent; p; p = p.parent) if (p.type in TYPE_KIND) return p;
+  for (let p = n.parent; p; p = p.parent) if (TYPE_KIND.has(p.type)) return p;
 
   return null;
 };
@@ -69,7 +69,9 @@ const spec: LangSpec = {
 
     if (n.type === 'file_scoped_namespace_declaration') return { as: 'scope' };
 
-    if (n.type in TYPE_KIND) {
+    const kind = TYPE_KIND.get(n.type);
+
+    if (kind) {
       const name = n.childForFieldName('name')?.text;
 
       if (!name) return null;
@@ -77,7 +79,7 @@ const spec: LangSpec = {
 
       return {
         as: 'type',
-        kind: TYPE_KIND[n.type as keyof typeof TYPE_KIND],
+        kind,
         name,
         body: n.childForFieldName('body'),
         exported: !isPrivate(n),
@@ -262,8 +264,13 @@ export function extractCSharp(root: SyntaxNode, file: ParsedFile) {
   });
 
   if (spans.length) file.namespaces = [...new Set(spans.map((s) => s.name))];
+
   // A using inside a namespace block is seen only by the code in that block.
-  const blocks = root.descendantsOfType('namespace_declaration').map((n) => ({ start: line(n), end: n.endPosition.row + 1, specs: [] as ImportSpec[] }));
+  const blocks = root.descendantsOfType('namespace_declaration').map((n) => {
+    const specs: ImportSpec[] = [];
+
+    return { start: line(n), end: n.endPosition.row + 1, specs };
+  });
 
   for (const u of root.descendantsOfType('using_directive')) {
     const target = u.namedChildren.find((c) => c.type === 'qualified_name' || c.type === 'identifier');

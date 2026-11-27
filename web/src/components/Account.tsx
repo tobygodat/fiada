@@ -4,7 +4,7 @@
 // variables to set by hand.
 
 import { useState } from 'react';
-import type { AgentConnection, Workspace } from '@fiada/shared';
+import { messageOf, type AgentConnection, type Workspace } from '@fiada/shared';
 import { api, sharedKey, signOut } from '../api.ts';
 import { forgetRead } from '../graph/unread.ts';
 import { setupCommand } from '../connect.ts';
@@ -26,7 +26,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     try {
       setConn(await api.agentConnection());
     } catch (err) {
-      setError((err as Error).message);
+      setError(messageOf(err));
     }
   };
 
@@ -53,7 +53,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
       forgetMarks();
       signOut();
     } catch (err) {
-      setDeleteError((err as Error).message);
+      setDeleteError(messageOf(err));
     }
   };
 
@@ -62,7 +62,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
       setConn(await api.resetAgentToken());
       setSaid('new token: agents set up with the old one have stopped reporting');
     } catch (err) {
-      setError((err as Error).message);
+      setError(messageOf(err));
     }
   };
 
