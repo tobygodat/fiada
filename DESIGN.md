@@ -9,7 +9,7 @@ Source: the [Toby Godat design system](https://claude.ai/artifact/XoJ7FUqR1v7ZKf
 Toby's direction for Fiada (27 Sep 2026):
 
 - **Fixed: colour and type.** Only the colour tokens below, both themes, and Literata in the seven styles at 400 and 600. No colour is written anywhere but `tokens.css`.
-- **Free: everything else.** Layout, panel widths, density, motion and component shapes are Fiada's to choose, inside the Don'ts at the end. Fiada keeps its own motion (panels rising in, change pulses, the working breath).
+- **Free: everything else.** Layout, panel widths, density, motion and component shapes are Fiada's to choose, inside the Don'ts at the end. Fiada keeps its own motion (panels coming in from their edge, change pulses, the working breath).
 
 ## Colour
 
@@ -18,7 +18,7 @@ Dark is the default; light is the same roles on light paper. Set `data-theme="da
 | token | dark | light | in Fiada |
 | --- | --- | --- | --- |
 | `--ground` | `#1b1a19` | `#f4f1eb` | the app and the map's paper, flat: no gradient |
-| `--ground-raised` | `#252422` | `#fbf9f5` | what floats over the map: sidebar, detail panel, agent window, tooltip, menus; the inside of fields |
+| `--ground-raised` | `#252422` | `#fbf9f5` | the columns docked beside the map (sidebar, agent window, detail panel) and what floats over it (tooltip, menus, the sidebar on a narrow window); the inside of fields |
 | `--text` | `#e8e5df` | `#1b1a19` | names, values, the selected thing, the current crumb |
 | `--muted` | `#a39e96` | `#6b665e` | labels, paths, counts, metadata, unselected words, legend |
 | `--faint` | `#6f6b65` | `#9a948a` | disabled only |
@@ -33,7 +33,7 @@ Dark is the default; light is the same roles on light paper. Set `data-theme="da
 
 **The one green** means "you can act here", "you are here", or "now". It draws link underlines, a hovered word, the 2px line under the selected word, the focus ring (2px, 3px offset, 2px corners), the `// ` before section headings, and on the map the agent working now. It is lines and words, never a filled area, never a status. There is no success colour: success is said in `--text` and gets out of the way.
 
-**Two surfaces.** The map is `--ground`. Everything that floats over it is `--ground-raised` with a 1px `--hairline-strong` border and `--radius` corners. No shadow, no blur, no translucency.
+**Two surfaces.** The map is `--ground`. The columns docked beside it are `--ground-raised`, ruled off from the map by a 1px `--hairline`. Anything that floats over the map is `--ground-raised` with a 1px `--hairline-strong` border and `--radius` corners. No shadow, no blur, no translucency.
 
 ## The map's three palettes (Fiada)
 
@@ -102,7 +102,10 @@ Literata throughout, from Google Fonts with its optical-size axis (loaded in `we
 
 ## Idioms
 
-- **Floating panel**: `--ground-raised`, 1px `--hairline-strong`, `--radius`, `--space-md` padding, sections divided by `--hairline`, each headed `// word`.
+- **Layout (Fiada)**: three columns side by side: the sidebar (`--fiada-sidebar`, 312px), the map, and the right column (`--fiada-detail`, 352px), which holds the agent window over the detail panel. No panel covers the map, and the camera frames the map's own canvas. Under 1100px the sidebar opens over the map from its F button. Under 720px the map takes the screen, and the agent window or the detail panel sits under it as a sheet. Both widths live at the top of `web/src/styles.css`.
+- **Docked column**: `--ground-raised`, edge to edge, ruled off by `--hairline`, sections divided by `--hairline`, each headed `// word` with `--space-md` padding.
+- **Floating panel** (the sidebar on a narrow window, menus): `--ground-raised`, 1px `--hairline-strong`, `--radius`, `--space-md` padding.
+- **Motion (Fiada)**: durations and the curve come from the motion tokens (`--quick`, `--fast`, `--medium`, `--ease`), so reduced motion stops them. A docked column comes in from its edge (`--distance-base` and a fade, `--fast`); a phone sheet rises from below. The two framed buttons (import, the sidebar's F button) scale to 0.97 under a press (`--quick`). Choosing a word moves its colour and its line together.
 - **Actions are words**: underlined in `--accent`, turning `--accent` on hover. The one action that completes a group (import) is a button: `--size-control` tall, 1px `--accent` border, 600, no fill. Never two borders in one group.
 - **Choosing one of a few** (code / by function, colour by repo / layer, links key / all / none): a row of words; the chosen one is `--text` over a 2px `--accent` line, the rest `--muted`. No segmented boxes.
 - **Suggestions** (repos to import): words joined by ` · `, underlined like links. No chips.

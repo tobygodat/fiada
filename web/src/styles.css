@@ -34,6 +34,8 @@ a { color: inherit; }
 ::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: var(--radius-sm); }
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* A docked column comes in from the window's edge it sits on. */
+@keyframes dock-in { from { opacity: 0; transform: translateX(var(--distance-base)); } }
 /* Something is under way: its words breathe. */
 @keyframes waiting { 50% { opacity: 0.45; } }
 
@@ -79,7 +81,7 @@ a { color: inherit; }
 
 /* Choosing one of a few: a row of words; the chosen one is ink over a 2px green line. */
 .choice { display: flex; flex-wrap: wrap; column-gap: var(--space-sm); }
-.choice button { color: var(--muted); border-bottom: 2px solid transparent; border-radius: 0; transition: color var(--quick) var(--ease); }
+.choice button { color: var(--muted); border-bottom: 2px solid transparent; border-radius: 0; transition: color var(--quick) var(--ease), border-color var(--quick) var(--ease); }
 .choice button:hover { color: var(--accent); }
 .choice button.on { color: var(--text); border-bottom-color: var(--accent); cursor: default; }
 @media (pointer: coarse) {
@@ -199,7 +201,7 @@ a { color: inherit; }
 .empty {
   /* Centred in the map beside the sidebar. The rise animation owns transform, so this uses translate. */
   position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; top: 45%; left: 50%; translate: -50% -50%;
-  width: min(var(--measure), 60vw); pointer-events: none; animation: rise 0.6s ease-out both;
+  width: min(var(--measure), 60vw); pointer-events: none; animation: rise var(--medium) var(--ease) both;
 }
 .empty-title {
   margin: 0 0 var(--space-sm);
@@ -210,7 +212,7 @@ a { color: inherit; }
 
 /* The sign-in screen: one column on the paper, the one action a button like import's. */
 .sign-in { position: fixed; inset: 0; overflow: auto; display: grid; place-items: center; padding: var(--space-lg) var(--space-md); background: var(--ground); }
-.sign-in-body { width: min(var(--measure), 100%); display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); animation: rise 0.6s ease-out both; }
+.sign-in-body { width: min(var(--measure), 100%); display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); animation: rise var(--medium) var(--ease) both; }
 .sign-in-body svg { display: block; }
 .sign-in-title {
   margin: var(--space-8) 0 0;
@@ -250,8 +252,11 @@ a { color: inherit; }
 .sidebar-pill {
   left: var(--space-md); top: var(--space-md); flex-direction: row; align-items: center; gap: var(--space-xs);
   height: var(--size-control); padding: 0 var(--space-8) 0 var(--space-sm); font-weight: var(--weight-bold);
+  transition: color var(--quick) var(--ease), transform var(--quick) var(--ease);
 }
 .sidebar-pill:hover { color: var(--accent); }
+/* The two framed buttons give under the finger. */
+.sidebar-pill:active, .import button:active:not(:disabled) { transform: scale(0.97); }
 @media (max-width: 720px) { .sidebar-pill { height: var(--size-hit); min-width: var(--size-hit); } }
 .sidebar-head { display: flex; align-items: baseline; gap: var(--space-8); padding: var(--space-sm) var(--space-8) var(--space-sm) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .sidebar-head .icon-btn { margin-left: auto; align-self: center; }
@@ -294,7 +299,7 @@ a { color: inherit; }
 .import button {
   flex: none; height: var(--size-control); padding: 0 var(--space-md);
   border: 1px solid var(--accent); border-radius: var(--radius); font-weight: var(--weight-bold); color: var(--text);
-  transition: color var(--quick) var(--ease);
+  transition: color var(--quick) var(--ease), transform var(--quick) var(--ease);
 }
 .import button:hover:not(:disabled) { color: var(--accent); }
 .import button:disabled { border-color: var(--faint); color: var(--faint); cursor: default; }
@@ -341,10 +346,10 @@ a { color: inherit; }
 .outline-row.group .outline-name { font-weight: var(--weight-bold); }
 
 /* ── detail: the selected circle, or the contract behind a link ── */
-.detail { grid-column: 3; grid-row: 1 / -1; width: var(--fiada-detail); overflow: auto; border-left: 1px solid var(--hairline); animation: rise 0.25s ease-out both; }
+.detail { grid-column: 3; grid-row: 1 / -1; width: var(--fiada-detail); overflow: auto; border-left: 1px solid var(--hairline); animation: dock-in var(--fast) var(--ease) both; }
 .main:has(> .queue) .detail { grid-row: 2; }
 @media (max-width: 720px) {
-  .detail, .main:has(> .queue) .detail { grid-column: 1; grid-row: 3; width: auto; max-height: 46vh; border-left: 0; border-top: 1px solid var(--hairline-strong); }
+  .detail, .main:has(> .queue) .detail { grid-column: 1; grid-row: 3; width: auto; max-height: 46vh; border-left: 0; border-top: 1px solid var(--hairline-strong); animation-name: rise; }
 }
 .detail-head { padding: var(--space-sm) var(--space-md) var(--space-md); border-bottom: 1px solid var(--hairline); }
 .kicker { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }

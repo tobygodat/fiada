@@ -6,14 +6,14 @@ Fiada is a map of your codebase that sorts itself, explains itself, and lights u
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/map-dark.png">
-  <img alt="The FastAPI full-stack template on fiada.tech. The backend is open down to its routes, items.py is selected, and the detail panel shows its generated summary, its layer and domain, and the routes it serves." src="docs/screenshots/map-light.png">
+  <img alt="The FastAPI full-stack template. The backend is open down to its routes, items.py is selected, and the detail panel shows what it serves, who calls it, and the lines an agent changed in it." src="docs/screenshots/map-light.png">
 </picture>
 
-The map above is [`fastapi/full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template) on fiada.tech. Circles nest from repository to folder to file to function. The selected file's panel says what it does and why it sits in the API layer and the Items domain.
+The map above is [`fastapi/full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template). Circles nest from repository to folder to file to function. The selected file's panel says what it does, what calls it, and what an agent changed in it.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/contract-dark.png">
-  <img alt="The by function view of the Items domain on fiada.tech. The link from Client to API is selected, and the contract panel lists 5 HTTP requests, with the request, route, router mounts and constant behind the first one." src="docs/screenshots/contract-light.png">
+  <img alt="The by function view of the Items domain. The link from Client to API is selected, and the contract panel lists 5 HTTP requests, with the request, route, router mounts and constant behind the first one." src="docs/screenshots/contract-light.png">
 </picture>
 
 The second picture shows the same code **by function**, with the Items feature split into layers. The link from Client to API stands for 5 HTTP requests, and **why** shows the code behind the first one.
