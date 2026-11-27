@@ -317,7 +317,8 @@ export async function createStore(home: string, local = true): Promise<ProjectSt
     } catch (err) {
       console.error(`[fiada] can't use Postgres at ${redact(url)}: ${(err as Error).message}`);
 
-      if (!local) throw err;
+      // Its own message, not err: a malformed URL's error carries the whole string, password and all.
+      if (!local) throw new Error(`Fiada can't start without its database at ${redact(url)}.`);
       console.error(`[fiada] saving to ${path.join(home, 'projects')} for this run instead`);
     }
   }

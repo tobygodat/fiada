@@ -1,12 +1,13 @@
-# Supabase pauses a free project after 7 days without activity. Once a day,
-# so a late or skipped scheduled run still leaves days to spare, wake the
-# indexer and have it make one real query through /api/health. The first
-# request after a quiet spell waits for Render to start it, about a minute.
+# Supabase pauses a free project that has too few database queries over a
+# week; it says a few a day is typically enough. Three times a day, wake the
+# indexer and have it make one real query through /api/health. That lowers the
+# risk of a pause rather than ruling it out. The first request after a quiet
+# spell waits for Render to start it, about a minute.
 name: keepalive
 
 on:
   schedule:
-    - cron: '17 9 * * *'
+    - cron: '17 1,9,17 * * *'
   workflow_dispatch:
 
 permissions: {}

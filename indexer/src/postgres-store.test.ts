@@ -50,7 +50,7 @@ test('createStore uses files when DATABASE_URL is unset, or on this machine when
     assert.ok((await createStore(home)) instanceof FileProjectStore);
 
     // An indexer others reach would lose those files on restart, so it doesn't start.
-    await assert.rejects(createStore(home, false), /password authentication failed/);
+    await assert.rejects(createStore(home, false), { message: "Fiada can't start without its database at postgresql://db.example.supabase.co:5432." });
   } finally {
     if (previous === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previous;
