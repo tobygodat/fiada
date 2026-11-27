@@ -5,7 +5,8 @@
 // MCP server command and the hooks block. From a checkout or an installed
 // package they run this copy by its absolute path; from npx's cache, which
 // npm may clear, they run `npx --package=@fiadatech/agent@<version> fiada` instead.
-// With --write it merges the hooks into <project>/.claude/settings.local.json
+// With --write it merges the hooks, and a rule allowing the MCP server's
+// tools, into <project>/.claude/settings.local.json
 // (Claude Code's per-user, git-ignored settings) and registers the MCP server
 // for that project with `claude mcp add`.
 //
@@ -51,8 +52,11 @@ export const EDIT_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 
 type HookEntry = { matcher?: string; hooks: { type: 'command'; command: string; timeout?: number }[] };
 
-/** The part of Claude Code's settings this reads; mergeHooks keeps every other field as it was. */
-type Settings = { hooks?: Record<string, HookEntry[]> };
+/** The part of Claude Code's settings this reads; mergeHooks and allowTools keep every other field as it was. */
+type Settings = { hooks?: Record<string, HookEntry[]>; permissions?: { allow?: string[] } };
+
+/** Claude Code's permission rule for every tool of the "fiada" MCP server. */
+const ALLOW = 'mcp__fiada';
 
 export function hooksBlock(command = HOOK) {
   const run = [{ type: 'command' as const, command, timeout: 10 }];
@@ -80,6 +84,17 @@ export function mergeHooks<S extends Settings>(settings: S, block = hooksBlock()
   }
 
   return { ...settings, hooks };
+}
+
+/**
+ * Lets the agent call the MCP server's tools without asking each time: they
+ * only report to the map or read it, and the status brief asks for a status
+ * call at every step.
+ */
+export function allowTools<S extends Settings>(settings: S) {
+  const allow = settings.permissions?.allow ?? [];
+
+  return { ...settings, permissions: { ...settings.permissions, allow: allow.includes(ALLOW) ? allow : [...allow, ALLOW] } };
 }
 
 /**
@@ -153,9 +168,10 @@ export async function runSetup(args: string[]) {
 
    claude mcp add fiada -- ${MCP.map(q).join(' ')}
 
-2. The hooks, in your project's .claude/settings.local.json (or .claude/settings.json to share them, or ~/.claude/settings.json for every project):
+2. The hooks, and the rule that lets the agent call Fiada's tools without asking each time, in your project's
+   .claude/settings.local.json (or .claude/settings.json to share them, or ~/.claude/settings.json for every project):
 
-${JSON.stringify({ hooks: hooksBlock() }, null, 2).replace(/^/gm, '   ')}
+${JSON.stringify({ hooks: hooksBlock(), permissions: { allow: [ALLOW] } }, null, 2).replace(/^/gm, '   ')}
 
 The MCP server's tools: status and flag_changes report what the agent is doing; where_is, who_uses and impact let it ask the map
 where code lives, what uses it and what an edit reaches.
@@ -182,8 +198,8 @@ To report to a hosted map, add --url <indexer> --token <token>; the map's "conne
   }
 
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, `${JSON.stringify(mergeHooks(settings), null, 2)}\n`);
-  console.log(`Hooks written to ${file}`);
+  await fs.writeFile(file, `${JSON.stringify(allowTools(mergeHooks(settings)), null, 2)}\n`);
+  console.log(`Hooks, and the rule allowing Fiada's tools, written to ${file}`);
 
   try {
     // Before the rename the server was registered as "strata"; replace it.

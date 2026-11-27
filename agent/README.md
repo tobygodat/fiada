@@ -13,7 +13,7 @@ npx -y --package=@fiadatech/agent fiada setup --write . --url=https://<indexer> 
 That does three things:
 
 - saves where to report, and your token, in `~/.config/fiada/agent.json` (readable only by you), and checks that the indexer accepts the token;
-- adds Fiada's hooks to `.claude/settings.local.json` in the project (your own git-ignored settings; other hooks are kept);
+- adds Fiada's hooks to `.claude/settings.local.json` in the project (your own git-ignored settings; other hooks are kept), with a rule allowing the `fiada` MCP server's tools, so Claude Code doesn't ask before each one;
 - registers the `fiada` MCP server for the project with `claude mcp add`.
 
 Then start `claude` there. Nothing else to set.

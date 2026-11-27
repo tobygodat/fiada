@@ -57,7 +57,7 @@ bun run agent:setup --write /path/to/your/repo
 cd /path/to/your/repo && claude
 ```
 
-`--write` adds Fiada's hooks to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. For a map you signed in to, open **agents** in the sidebar and choose **connect an agent**: it gives one command to run in your project, no checkout of Fiada needed, which runs the published [`@fiadatech/agent`](agent/README.md) package:
+`--write` adds Fiada's hooks, and a rule allowing the Fiada MCP server's tools (`mcp__fiada`), to that repo's `.claude/settings.local.json` and registers the Fiada MCP server with `claude mcp add`. For a map you signed in to, open **agents** in the sidebar and choose **connect an agent**: it gives one command to run in your project, no checkout of Fiada needed, which runs the published [`@fiadatech/agent`](agent/README.md) package:
 
 ```sh
 npx -y --package=@fiadatech/agent fiada setup --write . --url=https://<indexer> --token=<token>
@@ -195,13 +195,13 @@ bun run agent:setup                                   # prints the two snippets 
 bun run agent:setup --write /path/to/your/project  # or writes them for you
 ```
 
-`--write` merges the hooks into `/path/to/your/project/.claude/settings.local.json` (your own, git-ignored settings; other hooks there are kept) and registers the MCP server for that project with `claude mcp add`. To do it by hand, add the server:
+`--write` merges the hooks into `/path/to/your/project/.claude/settings.local.json` (your own, git-ignored settings; other hooks and rules there are kept), adds `mcp__fiada` to its `permissions.allow` so Claude Code doesn't ask before each call to Fiada's tools, which only report to the map and read it, and registers the MCP server for that project with `claude mcp add`. To do it by hand, add the server:
 
 ```sh
 claude mcp add fiada -- node /path/to/fiada/agent/bin/fiada-mcp.mjs
 ```
 
-and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared with your team) or `~/.claude/settings.json` (every project):
+and the hooks and the rule, in `.claude/settings.local.json`, `.claude/settings.json` (shared with your team) or `~/.claude/settings.json` (every project):
 
 ```json
 {
@@ -222,7 +222,8 @@ and the hooks, in `.claude/settings.local.json`, `.claude/settings.json` (shared
     ],
     "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }] }],
     "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/fiada/agent/bin/fiada-hook.mjs", "timeout": 10 }] }]
-  }
+  },
+  "permissions": { "allow": ["mcp__fiada"] }
 }
 ```
 
