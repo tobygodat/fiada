@@ -175,12 +175,12 @@
   height: 44px; padding: 0 var(--space-md); cursor: pointer; border-bottom: 1px solid var(--hairline);
 }
 .main:not(:has(> .detail)) > .queue-folded {
-  position: absolute; grid-column: 2; grid-row: 1 / -1; top: var(--space-md); right: var(--space-md); bottom: auto;
+  position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; top: var(--space-md); right: var(--space-md); bottom: auto;
   width: min(340px, calc(100% - 2 * var(--space-md))); border: 1px solid var(--hairline-strong); border-radius: var(--radius);
 }
 @media (max-width: 720px) {
   .queue-folded { grid-column: 1; grid-row: 2; width: auto; }
-  .main:not(:has(> .detail)) > .queue-folded { grid-column: 1; grid-row: 1; left: var(--space-md); width: auto; }
+  .main:not(:has(> .detail)) > .queue-folded { grid-column: 1 / 2; grid-row: 1 / 2; left: var(--space-md); width: auto; }
 }
 .queue-folded-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-folded-line .queue-state { margin: 0; font-size: inherit; }

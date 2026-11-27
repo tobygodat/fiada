@@ -266,8 +266,9 @@ export function App() {
   // ── camera ──
 
   const viewport = useCallback(
-    // The panels sit beside the map, not over it (styles.css), so the canvas is all free area.
-    (): Viewport => ({ w: size.w, h: size.h, left: 0, right: 0 }),
+    // The panels sit beside the map, not over it (styles.css), so the canvas is all free area. Its size comes
+    // from the renderer, so a camera worked out just after a panel opened fits the canvas as it is now.
+    (): Viewport => ({ ...(renderer.current?.size ?? size), left: 0, right: 0 }),
     [size],
   );
 
@@ -328,7 +329,7 @@ export function App() {
       if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
       const box = [...around].map((id) => Lx.get(id)!).reduce(enclose);
 
-      return mode === 'zoom' ? frame(box, viewport(), 0.36) : frame(box, viewport(), 0.44, CLICK_MAX_K);
+      return mode === 'zoom' ? frame(box, viewport(), 0.36) : frame(box, viewport(), 0.36, CLICK_MAX_K);
     },
     [tree, size, mode, cameraFor, viewport],
   );

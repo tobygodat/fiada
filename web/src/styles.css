@@ -187,7 +187,7 @@ a { color: inherit; }
 
 /* Words beside their marks, no box. */
 .legend {
-  position: absolute; grid-column: 2; grid-row: 1 / -1; right: var(--space-md); bottom: var(--space-sm); left: var(--space-md); z-index: 1;
+  position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; right: var(--space-md); bottom: var(--space-sm); left: var(--space-md); z-index: 1;
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-xs) var(--space-md);
   font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); pointer-events: none;
 }
@@ -198,7 +198,7 @@ a { color: inherit; }
 
 .empty {
   /* Centred in the map beside the sidebar. The rise animation owns transform, so this uses translate. */
-  position: absolute; grid-column: 2; grid-row: 1 / -1; top: 45%; left: 50%; translate: -50% -50%;
+  position: absolute; grid-column: 2 / 3; grid-row: 1 / -1; top: 45%; left: 50%; translate: -50% -50%;
   width: min(var(--measure), 60vw); pointer-events: none; animation: rise 0.6s ease-out both;
 }
 .empty-title {

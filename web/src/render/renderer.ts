@@ -279,6 +279,11 @@ export class MapRenderer {
     return this.cam;
   }
 
+  /** The canvas's size now, which can be ahead of the last size it reported. */
+  get size() {
+    return { w: this.w, h: this.h };
+  }
+
   /** Subscribe to camera changes, however they happen (for the zoom readout and breadcrumb). */
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
