@@ -46,6 +46,11 @@
 .queue.over { grid-row: 1; max-height: 50vh; border-bottom: 1px solid var(--hairline); }
 @media (max-width: 720px) {
   .queue, .queue.over { grid-column: 1; grid-row: 2; width: auto; max-height: 40vh; border-left: 0; border-top: 1px solid var(--hairline-strong); }
+  /* A short sheet scrolls as one, the key with the list, under a head that stays. */
+  .queue:not(.queue-folded) { overflow-y: auto; }
+  .queue:not(.queue-folded) > * { flex: none; }
+  .queue .queue-list { overflow: visible; }
+  .queue .queue-head { position: sticky; top: 0; z-index: 1; background: var(--ground-raised); }
 }
 @keyframes queue-rise { from { opacity: 0; transform: translateY(var(--distance-base)); } to { opacity: 1; transform: none; } }
 
