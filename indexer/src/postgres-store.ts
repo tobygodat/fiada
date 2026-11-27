@@ -110,9 +110,9 @@ export class PostgresProjectStore implements ProjectStore {
   static async connect(url: string, schema = 'fiada'): Promise<PostgresProjectStore> {
     if (!SCHEMA_NAME.test(schema)) throw new Error(`Invalid schema name "${schema}"`);
     // TLS everywhere but this machine, since a hosted pooler such as Supabase's also takes plain connections.
-    // An sslmode in the URL decides instead.
+    // A non-empty sslmode in the URL decides instead.
     const u = parse(url);
-    const ssl = u?.searchParams.has('sslmode') ? {} : /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u?.hostname ?? '') ? { ssl: false } : { ssl: 'require' as const };
+    const ssl = u?.searchParams.get('sslmode') ? {} : /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u?.hostname ?? '') ? { ssl: false } : { ssl: 'require' as const };
     const sql = postgres(url, { max: 4, connect_timeout: 8, prepare: false, ...ssl, onnotice: () => {} });
 
     try {
