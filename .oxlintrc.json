@@ -50,9 +50,10 @@
     // normalizers that take `unknown`, and the published agent may import only
     // Node's built-ins. Moving to decoders changes what malformed input does,
     // so it is its own piece of work.
-    // 71 findings: those field checks (request bodies, agent events, hook and MCP fields, model replies, package.json,
-    // the agent's config file, localStorage), plus link.ts telling a mount's named router from a function's router
-    // argument (`MountDecl['child']`), which needs a tagged type in every parser that emits mounts.
+    // 74 findings: those field checks (request bodies, agent events, hook and MCP fields, model replies, package.json,
+    // the agent's config file, localStorage), three browser feature probes such as `typeof matchMedia === 'function'`,
+    // and link.ts telling a mount's named router from a function's router argument (`MountDecl['child']`), which
+    // needs a tagged type in every parser that emits mounts.
     "anti-slop/no-runtime-typeof": "off",
     // 22 findings: the normalizers that take raw input (normalizeGrouping, normalizeSorted, cleanFences, cleanRel,
     // clampInt, setGrouping, hook and MCP fields), and the Mongo store's field save and key escaper.
@@ -63,7 +64,7 @@
     // 7 findings: the agent reads Claude Code and MCP messages as Record<string, any>, the normalizers' object guards,
     // and the query an agent read route answers.
     "anti-slop/no-unsafe-dictionary-type": "off",
-    // 50 findings: each casts data that was just parsed or received (request bodies, res.json(), JSON.parse of stored
+    // 53 findings: each casts data that was just parsed or received (request bodies, res.json(), JSON.parse of stored
     // files, tokens, SSE and localStorage, model replies, hook and MCP fields, CLI arguments, and normalizer fields
     // already checked by str()). Seven are tests reading HTTP JSON or encodeKeys output. They go when decoders arrive.
     "anti-slop/require-safety-comment-for-type-assertion": "off"

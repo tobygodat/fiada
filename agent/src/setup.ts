@@ -20,7 +20,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { messageOf } from '@fiada/shared';
 import { configPath, readConfig, type AgentConfig } from './env.ts';
 
 const exec = promisify(execFile);
@@ -124,13 +123,9 @@ async function connect(url: string, token?: string) {
 
   // An empty batch is a no-op the indexer answers only for a good token.
   try {
-    const headers = new Headers({ 'content-type': 'application/json' });
-
-    if (config.token) headers.set('authorization', `Bearer ${config.token}`);
-
     const res = await fetch(`${config.url}/api/agent/events`, {
       method: 'POST',
-      headers,
+      headers: config.token ? { 'content-type': 'application/json', authorization: `Bearer ${config.token}` } : { 'content-type': 'application/json' },
       body: '[]',
       signal: AbortSignal.timeout(8000),
     });
@@ -183,7 +178,7 @@ To report to a hosted map, add --url <indexer> --token <token>; the map's "conne
   try {
     settings = JSON.parse(await fs.readFile(file, 'utf8'));
   } catch (err) {
-    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw new Error(`Couldn't read ${file}: ${messageOf(err)}`);
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw new Error(`Couldn't read ${file}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   await fs.mkdir(path.dirname(file), { recursive: true });

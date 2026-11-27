@@ -98,7 +98,7 @@ export function fromFileList(files: ArrayLike<File>): Folder | null {
 }
 
 /** Whether this browser can open a folder without listing all of it first. */
-export const canPickDirectory = () => 'showDirectoryPicker' in globalThis;
+export const canPickDirectory = () => typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 
 /** Asks for a folder with the File System Access API; null when the person cancels. */
 export async function pickDirectory(): Promise<Folder | null> {

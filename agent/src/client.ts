@@ -15,13 +15,8 @@ export const FIADA_URL = (process.env.FIADA_URL ?? `http://127.0.0.1:${process.e
 
 /** The person's agent token for an indexer people sign in to, or a shared indexer's access key. */
 const KEY = process.env.FIADA_TOKEN || process.env.FIADA_API_KEY;
-const AUTH = new Headers();
-
-if (KEY) AUTH.set('authorization', `Bearer ${KEY}`);
-
-const JSON_HEADERS = new Headers(AUTH);
-
-JSON_HEADERS.set('content-type', 'application/json');
+const AUTH: HeadersInit = KEY ? { authorization: `Bearer ${KEY}` } : {};
+const JSON_HEADERS: HeadersInit = KEY ? { 'content-type': 'application/json', authorization: `Bearer ${KEY}` } : { 'content-type': 'application/json' };
 
 /** What the indexer made of the files in a batch. */
 export interface IngestReply {

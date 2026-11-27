@@ -92,13 +92,8 @@ test('what the agent looked at goes through the events route, which still needs 
   const agent = { client: 'claude-code', session: 'x', cwd: '/elsewhere' };
   const events = [{ agent, type: 'looked', nodes: ['shop/src/cart.ts#addToCart'] }];
 
-  const post = (key?: string) => {
-    const headers = new Headers({ 'content-type': 'application/json' });
-
-    if (key) headers.set('authorization', `Bearer ${key}`);
-
-    return fetch(`${base}/api/agent/events`, { method: 'POST', headers, body: JSON.stringify(events) });
-  };
+  const post = (key?: string) =>
+    fetch(`${base}/api/agent/events`, { method: 'POST', headers: key ? { 'content-type': 'application/json', authorization: `Bearer ${key}` } : { 'content-type': 'application/json' }, body: JSON.stringify(events) });
 
   assert.equal((await post()).status, 401);
   assert.equal((await post(KEY)).status, 200);

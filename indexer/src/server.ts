@@ -25,7 +25,7 @@ import { KEY_HINT, LLMBudget, llmFromEnv } from './llm.ts';
 import { indexGraph, type GraphIndex } from './summaries/describe.ts';
 import { usageStats, type UsageStats } from './stats.ts';
 import { checkProjectId, createStore } from './store.ts';
-import { clonesOf, openTenant, Tenants, type Tenant } from './tenants.ts';
+import { clonesOf, openTenant, Tenants, type OpenOptions, type Tenant } from './tenants.ts';
 import { archiveLimit, tooBig, UPLOAD, UploadError } from './upload.ts';
 import { CLONES, FIADA_HOME } from './workspace.ts';
 
@@ -73,20 +73,24 @@ const MAX_REPOS = count('FIADA_MAX_REPOS', 20);
 const MAX_CLONE_BYTES = count('FIADA_MAX_CLONE_MB', 500) * (1 << 20);
 
 /** Without sign-in: the one project everybody shares. */
-const shared = auth
-  ? null
-  : await openTenant({
-      store,
-      projectId: checkProjectId(process.env.FIADA_PROJECT ?? 'default'),
-      access: { localPaths: allowLocalPaths(HOST), keyRequired: !!KEY },
-      sortLlm,
-      summaryLlm,
-      clones: CLONES,
-      githubToken: () => process.env.FIADA_GITHUB_TOKEN,
-      // Limits only for an indexer others can reach; your own is yours to fill.
-      maxRepos: isLoopback(HOST) ? undefined : MAX_REPOS,
-      maxCloneBytes: isLoopback(HOST) ? undefined : MAX_CLONE_BYTES,
-    });
+async function openShared(): Promise<Tenant> {
+  const options: OpenOptions = {
+    store,
+    projectId: checkProjectId(process.env.FIADA_PROJECT ?? 'default'),
+    access: { localPaths: allowLocalPaths(HOST), keyRequired: !!KEY },
+    sortLlm,
+    summaryLlm,
+    clones: CLONES,
+    githubToken: () => process.env.FIADA_GITHUB_TOKEN,
+  };
+
+  // Limits only for an indexer others can reach; your own is yours to fill.
+  if (!isLoopback(HOST)) Object.assign(options, { maxRepos: MAX_REPOS, maxCloneBytes: MAX_CLONE_BYTES });
+
+  return openTenant(options);
+}
+
+const shared = auth ? null : await openShared();
 
 /** With sign-in: each person's own project, as they last signed in. */
 const people = new Map<string, AccountInfo>();

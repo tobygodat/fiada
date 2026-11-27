@@ -7,7 +7,7 @@ import { getTheme, onThemeChange, setTheme, type Theme } from './theme/tokens.ts
 export type ThemeChoice = Theme | 'system';
 
 const KEY = 'strata-theme';
-const prefersLight = () => 'matchMedia' in globalThis && matchMedia('(prefers-color-scheme: light)').matches;
+const prefersLight = () => typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches;
 
 function saved(): Theme | null {
   try {

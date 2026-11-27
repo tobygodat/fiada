@@ -5,7 +5,7 @@
 // OPENAI_API_KEY. Without either key, llmFromEnv() is null and each
 // feature says it is unavailable rather than failing.
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk';
 import { request as httpsRequest } from 'node:https';
 import { unquote } from './mongo-store.ts';
 import { messageOf, type Json, type JsonObject } from '@fiada/shared';
@@ -81,7 +81,10 @@ export const KEY_HINT = 'ANTHROPIC_API_KEY or OPENAI_API_KEY';
  * without. Haiku has none to opt into. `fetch` is for tests.
  */
 export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: typeof fetch } = {}): LLM {
-  const client = new Anthropic({ apiKey, maxRetries: 3, fetch: opts.fetch });
+  const options: ClientOptions = { apiKey, maxRetries: 3 };
+
+  if (opts.fetch) options.fetch = opts.fetch;
+  const client = new Anthropic(options);
   let fallbacks = !/haiku/i.test(model);
 
   return {
