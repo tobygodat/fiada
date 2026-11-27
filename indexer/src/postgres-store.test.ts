@@ -22,6 +22,8 @@ const grouping = {
 test('connection strings are logged without credentials', () => {
   assert.equal(redact('postgresql://postgres.abc:s3cret@aws-0-us-west-1.pooler.supabase.com:5432/postgres'), 'postgresql://aws-0-us-west-1.pooler.supabase.com:5432');
   assert.equal(redact('postgres://127.0.0.1:5432/fiada'), 'postgres://127.0.0.1:5432');
+  assert.equal(redact('postgresql://postgres:p@ss@db.example.supabase.co:5432/postgres'), 'postgresql://db.example.supabase.co:5432');
+  assert.equal(redact('not a url'), 'the configured server');
 });
 
 test('connection strings pasted with their .env quotes still work', () => {
@@ -33,7 +35,7 @@ test('connection strings pasted with their .env quotes still work', () => {
   assert.equal(unquote(undefined), '');
 });
 
-test('createStore uses files when DATABASE_URL is unset or Postgres is unusable', async (t) => {
+test('createStore uses files when DATABASE_URL is unset, or on this machine when Postgres is unusable', async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-store-'));
   const previous = process.env.DATABASE_URL;
 
@@ -46,6 +48,9 @@ test('createStore uses files when DATABASE_URL is unset or Postgres is unusable'
       throw new Error('password authentication failed for user "postgres"');
     });
     assert.ok((await createStore(home)) instanceof FileProjectStore);
+
+    // An indexer others reach would lose those files on restart, so it doesn't start.
+    await assert.rejects(createStore(home, false), /password authentication failed/);
   } finally {
     if (previous === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previous;

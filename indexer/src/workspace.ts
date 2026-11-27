@@ -439,6 +439,12 @@ export class Workspace {
 
     if (stopped) await stopped();
     await this.checkCloneSize(dir);
+
+    if (min === undefined) return;
+    // A clone can finish before the watch first looks.
+    const free = await freeBytes(this.clones);
+
+    if (free < min) await this.full(dir, free);
   }
 
   /** Throws when the disk the clones are on has less room left than the project keeps free. */
@@ -482,6 +488,7 @@ export class Workspace {
   }
 
   async add(input: string): Promise<RepoInfo> {
+    await this.checkDisk();
     const src = await parseSource(input, this.allowLocal);
     const existing = this.repos.find((r) => r.source === src.location);
 
@@ -492,7 +499,6 @@ export class Workspace {
     }
 
     this.checkRoom();
-    await this.checkDisk();
     let id = slug(src.name);
 
     for (let n = 2; this.repos.some((r) => r.id === id); n++) id = `${slug(src.name)}-${n}`;

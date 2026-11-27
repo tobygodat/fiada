@@ -109,7 +109,9 @@ export class PostgresProjectStore implements ProjectStore {
    */
   static async connect(url: string, schema = 'fiada'): Promise<PostgresProjectStore> {
     if (!SCHEMA_NAME.test(schema)) throw new Error(`Invalid schema name "${schema}"`);
-    const sql = postgres(url, { max: 4, connect_timeout: 8, prepare: false, onnotice: () => {} });
+    // TLS everywhere but this machine, since a hosted pooler such as Supabase's also takes plain connections.
+    const ssl = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostOf(url)) ? false : 'require';
+    const sql = postgres(url, { max: 4, connect_timeout: 8, prepare: false, ssl, onnotice: () => {} });
 
     try {
       await sql.unsafe(tables(schema));
@@ -333,9 +335,19 @@ export function unquote(value: string | undefined): string {
   return (value ?? '').trim().replace(/^["']+|["']+$/g, '').trim();
 }
 
-/** Scheme and hosts of a connection string: no user, password or options. */
-export function redact(uri: string): string {
-  const m = /^([a-z+]+:\/\/)(?:[^@/]*@)?([^/?]*)/i.exec(uri);
+function parse(uri: string): URL | null {
+  try {
+    return new URL(uri);
+  } catch {
+    return null;
+  }
+}
 
-  return m ? m[1] + m[2] : 'the configured server';
+const hostOf = (uri: string) => parse(uri)?.hostname ?? '';
+
+/** Scheme, host and port of a connection string: no user, password or options. */
+export function redact(uri: string): string {
+  const u = parse(uri);
+
+  return u?.host ? `${u.protocol}//${u.host}` : 'the configured server';
 }

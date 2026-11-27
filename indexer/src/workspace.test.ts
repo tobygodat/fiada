@@ -139,6 +139,15 @@ test('below minFreeBytes, a project takes no imports, clones or uploads', async 
   assert.equal(ws.repos.length, 1);
 });
 
+test('two adds of one repository at once count it once, disk check and all', async () => {
+  const src = await commitOne();
+  const ws = new Workspace(flakyStore([]).store, 'default', undefined, undefined, { clones: await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-')), maxRepos: 1, minFreeBytes: 1 });
+  await ws.init();
+  await Promise.all([ws.add(src), ws.add(src)]);
+  assert.equal(ws.repos.length, 1);
+  await settled(ws);
+});
+
 test('with room above minFreeBytes, a clone goes ahead', async () => {
   const src = await commitOne();
   const clones = await fs.mkdtemp(path.join(os.tmpdir(), 'fiada-clones-'));

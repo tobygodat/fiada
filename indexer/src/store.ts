@@ -301,9 +301,11 @@ export class FileProjectStore implements ProjectStore {
 /**
  * The store the server uses: Postgres (Supabase) when DATABASE_URL is set,
  * else files under `home`. If Postgres can't be reached or read at startup,
- * says why and uses the files for this run, so the map still works offline.
+ * an indexer on your own machine says why and uses the files for this run, so
+ * the map still works offline. One others reach (`local` false) fails to
+ * start instead: its disk is wiped on restart, so files would lose their saves.
  */
-export async function createStore(home: string): Promise<ProjectStore> {
+export async function createStore(home: string, local = true): Promise<ProjectStore> {
   const url = unquote(process.env.DATABASE_URL);
 
   if (url) {
@@ -314,6 +316,8 @@ export async function createStore(home: string): Promise<ProjectStore> {
       return store;
     } catch (err) {
       console.error(`[fiada] can't use Postgres at ${redact(url)}: ${(err as Error).message}`);
+
+      if (!local) throw err;
       console.error(`[fiada] saving to ${path.join(home, 'projects')} for this run instead`);
     }
   }

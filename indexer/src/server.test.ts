@@ -44,7 +44,9 @@ before(async () => {
   base = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(port), HOST: '127.0.0.1', FIADA_HOME: home, FIADA_API_KEY: KEY, FIADA_PROJECT: 'test' };
 
-  for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'FIADA_GITHUB_CLIENT_ID', 'FIADA_GITHUB_CLIENT_SECRET', 'STRATA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_SECRET', 'DATABASE_URL']) delete env[k];
+  for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'FIADA_GITHUB_CLIENT_ID', 'FIADA_GITHUB_CLIENT_SECRET', 'STRATA_GITHUB_CLIENT_ID', 'STRATA_GITHUB_CLIENT_SECRET']) delete env[k];
+  // Empty rather than deleted, so the indexer can't load one from the repo's .env and write this fixture to it.
+  env.DATABASE_URL = '';
   const entry = fileURLToPath(new URL('./server.ts', import.meta.url));
   server = spawn(process.execPath, ['--import', 'tsx', entry], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   server.stdout!.on('data', (c) => (log += c));

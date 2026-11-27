@@ -89,7 +89,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'fiada-home-'));
 
 // Left out, not blanked: a legacy STRATA_* name wins over its FIADA_* one even when empty. The map gets the same,
 // so neither STRATA_INDEXER_PORT nor VITE_API_URL sends it to another indexer.
-const bare = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^MONGODB_URI$|^VITE_API_URL$/.test(k)));
+const bare = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(FIADA|STRATA)_|^(OPENAI|ANTHROPIC)_|^DATABASE_URL$|^VITE_API_URL$/.test(k)));
 
 start('node', ['--import', 'tsx', 'src/server.ts'], path.join(checkout, 'indexer'), { PORT: String(INDEXER_PORT), HOST: '127.0.0.1', FIADA_HOME: home, ANTHROPIC_API_KEY: 'mock', ANTHROPIC_BASE_URL: mockUrl }, path.join(out, 'indexer.log'), bare);
 

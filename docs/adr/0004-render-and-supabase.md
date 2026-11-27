@@ -22,7 +22,7 @@ A free host has an ephemeral disk, so what a project keeps has to live elsewhere
 
 - Render's free service sleeps after 15 minutes without a request and takes about a minute to wake, so the first visit after a quiet spell waits for it. Nothing keeps it awake on purpose.
 - Render's disk is ephemeral: every wake, restart and deploy starts with no clones, so the first open of a project re-clones its repositories. Uploaded folders live only on that disk, so after a restart their rows say to upload the folder again.
-- Supabase pauses a free project after 7 days without activity. `.github/workflows/keepalive.yml` calls the indexer's `/api/health` every Monday, which wakes it and makes one real query.
+- Supabase pauses a free project after 7 days without activity. `.github/workflows/keepalive.yml` calls the indexer's `/api/health` every day, which wakes it and makes one real query.
 - Free Supabase gives 500 MB of database, far more than accounts, repository lists, groupings, fences and summaries take.
 - Anything new a project keeps gets a method on `ProjectStore`, implemented in both stores and deleted by `deleteProject` in both.
 - The Postgres store tests run when `FIADA_TEST_DATABASE_URL` is set. CI sets it with a Postgres service, so CI exercises both stores.

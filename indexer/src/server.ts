@@ -48,7 +48,7 @@ const allowedOrigin = originMatcher([MAP_ORIGINS, process.env.FIADA_ALLOWED_ORIG
 /** The indexer's own URL as others reach it, when the request can't be trusted to say (FIADA_PUBLIC_URL). */
 const PUBLIC_URL = process.env.FIADA_PUBLIC_URL?.trim().replace(/\/+$/, '') || undefined;
 
-const store = await createStore(FIADA_HOME);
+const store = await createStore(FIADA_HOME, isLoopback(HOST));
 const sortLlm = llmFromEnv();
 const summaryLlm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv(process.env, 'summaries');
 const authConfig = authConfigFromEnv();

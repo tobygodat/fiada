@@ -336,7 +336,7 @@ In the Render dashboard, **New > Web Service**, pick this repository (a public o
 
 The container starts with `HOST=0.0.0.0` and `FIADA_HOME=/data`, runs as the `node` user, and turns local folder imports off. With `DATABASE_URL` set, a fresh container re-clones a project's repositories when the project opens, so no volume is needed; a host with one can mount it on `/data` to skip that. Uploaded folders are the exception: their files live only on the indexer's disk, so without a volume every restart loses them, and their rows say to upload the folder again. It idles at about 100 MB and used about 200 MB with the FastAPI template and Excalidraw indexed, so Render's free 512 MB is enough.
 
-Render's free service sleeps after 15 minutes without a request and takes about a minute to wake. Supabase pauses a free project after 7 days without activity, so `.github/workflows/keepalive.yml` calls `/api/health`, which makes one query, every Monday. `curl https://<indexer>/api/health` answers `{"ok":true}` once the database does.
+Render's free service sleeps after 15 minutes without a request and takes about a minute to wake. Supabase pauses a free project after 7 days without activity, so `.github/workflows/keepalive.yml` calls `/api/health`, which makes one query, every day. `curl https://<indexer>/api/health` answers `{"ok":true}` once the database does.
 
 Check it: `curl https://<indexer>/api/auth` answers `{"mode":"github"}` with sign-in on; without it, `curl https://<indexer>/api/workspace` should answer with `"access":{"localPaths":false,"keyRequired":true}`.
 
