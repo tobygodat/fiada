@@ -2,6 +2,14 @@
 
 How to import code, read the map, and change how Fiada sorts it. The [README](../README.md) has the short version.
 
+## A first tour
+
+Import `fastapi/full-stack-fastapi-template`, then:
+
+1. Click a circle to see what it is. Click it again to open it.
+2. Under **view**, switch to **by function** and open the **Items** domain.
+3. Click the **HTTP** tag between Client and API to read the contract, and click either end of an interaction to jump to its code.
+
 ## Using the map
 
 Open http://localhost:5178 and add a repository in the sidebar. Anything git can clone works (`org/repo`, `github.com/org/repo`, an https or ssh URL), and so does an absolute path to a local checkout, which is read in place. For a private repository, or any folder the indexer can't reach, **upload a folder** under the import box: the browser walks it and sends only the source the indexer reads (up to 50 MB), leaving behind whatever its `.gitignore` files ignore, `node_modules` and the other dependency and build folders, and the git history. The indexer unpacks that into its own storage and indexes it like a clone, keeping the folder's `origin` remote, branch and HEAD from its `.git` so agents working in the real checkout still find it. Uploading the same folder again (same remote, else same name, or **upload again** on its row) replaces it. Add several and they share one map; imports, calls and HTTP requests that cross repositories become dashed edges.
@@ -43,12 +51,12 @@ The grouping lives in `.fiada/projects/default/fiada.grouping.json`. Edit it to 
 
 Domains (the features that cut across layers and repos) come from the classification design's seed-and-propagate strategy (`indexer/src/classify/propagate.ts`). Routes (`GET /items/{id}`), ORM entities (`class Item`), page routes, and files in structural folders (`routes/items.py`, `components/Items/`) seed a domain when two or more files agree on it. Everything else takes the domain of the code it's connected to through calls, HTTP requests, renders and imports. A close split goes to **Shared**, and so does code that three or more features use directly. Code with no path to any seed joins the majority of its file, and anything left over is **Unsorted**. Domain pins in the grouping file act as seeds too, so they pull their unclaimed neighbours along. The older `feature-tokens` strategy is still available; strategies are swappable in `indexer/src/classify/index.ts`.
 
-To see classification results without the UI:
+To see classification results without the UI (the script runs from `indexer/`, so give absolute paths):
 
 ```sh
-bun run index ../some-repo org/other-repo --layers --domains
-bun run index ../some-repo --preset by-repo
-bun run index ../some-repo --grouping my.grouping.json --layers
+bun run index /path/to/some-repo org/other-repo --layers --domains
+bun run index /path/to/some-repo --preset by-repo
+bun run index /path/to/some-repo --grouping /path/to/my.grouping.json --layers
 ```
 
 ### Sorted on import

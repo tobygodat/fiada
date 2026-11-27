@@ -36,7 +36,7 @@ Everything that depends on an agent's change gets a quiet ring of paired dots, a
 
 Changes you haven't opened are unread: a dot on the ring, "N unread" on count badges, and "12 of 19 changes read" with **mark read** and **mark all read** in the agents window. Each changed function keeps its own change time, so editing one function marks only that one unread. Read marks live in your browser, counted per agent.
 
-**review** on an agent's entry steps through its changes one function at a time, in data-flow order (page, client, route, table, shared types). The map opens to each stop and the detail panel shows its diff; ← and → move, and `r` marks a stop read.
+**review** on an agent's entry steps through its changes one function or file at a time, in data-flow order (page, client, route, table, shared types). The map opens to each stop and the detail panel shows its diff; ← and → move, and `r` marks a stop read.
 
 ### Asking the map
 

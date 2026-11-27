@@ -22,11 +22,11 @@ Fiada was built at HackGT 13, where it won first place in ML/AI Visualization.
 
 ## What it does
 
-- **Sorts the code on import.** Rules put every file and function in a layer (UI, Client, API, Service, Data and others) and a feature domain. Domains start from routes, ORM models and folder names and spread along the call graph. With a model key, Claude Haiku then names the domains and places what the rules left over, with a one-line reason for each. In the FastAPI template on fiada.tech, the model placed 140 files and symbols and added 4 domains.
-- **Shows the evidence for every link.** Each import, call, route match and HTTP request is an edge marked evidenced (the code names its target) or inferred (a heuristic matched it), with a confidence, a reason and the lines of code behind it. Inferred links are dotted.
-- **Shows the contract between two parts.** Click a link to list every interaction it stands for. HTTP requests are matched to the routes they call, through router prefixes and mounts, within a repository or across repositories.
-- **Shows Claude Code working.** Its hooks report each edit from git, and the map rings what it added, changed or deleted, with the diff one click away. Mark a circle **ask first** or **off limits**, and Claude Code asks you or refuses before an edit inside it lands.
-- **Answers the agent's questions, then walks you through its work.** The MCP server gives Claude Code three read tools, `where_is`, `who_uses` and `impact`, answered from the map with file and line evidence. **review** steps through the agent's changes one function at a time, in the order data flows: page, client, route, table.
+- **Sorts the code on import.** Rules place each file and function they can in a layer (UI, Client, API, Service, Data and others) and a feature domain. Domains start from routes, ORM models and folder names and spread along the call graph. With a model key, the model names the domains and places what the rules left over, with a one-line reason for each. On fiada.tech, Claude Haiku placed 140 files and symbols in the FastAPI template and added 4 domains.
+- **Shows the evidence for each link.** Each import, call, route match and HTTP request that Fiada records is marked evidenced (the code names its target) or inferred (a heuristic matched it), with a confidence, a reason and the lines of code behind it. A link that is only inferred is dotted.
+- **Shows the contract between two parts.** Click a link to open its contract, which lists the interactions behind it. HTTP requests are matched to the routes they call, through router prefixes and mounts, within a repository or across repositories.
+- **Shows Claude Code working.** Its hooks report each edit from git, and the map rings what it added, changed or deleted, with the diff one click away. Mark a circle **ask first** or **off limits**, and Claude Code asks you or refuses before one of its edit tools changes code inside it. Shell commands are not checked ([fences](docs/CODING-AGENTS.md#fences-and-collisions)).
+- **Answers the agent's questions, then walks you through its work.** The MCP server gives Claude Code three read tools, `where_is`, `who_uses` and `impact`, answered from the map with file and line evidence. **review** steps through the functions and files the agent changed, in the order data flows: page, client, route, table.
 
 ![A Claude Code session on a local map: rings on the files it changed, the review tour at its first stop, and the diff of the function it added](docs/screenshots/agent-review.png)
 
@@ -55,11 +55,11 @@ flowchart LR
   agent -- "edits, plans, fence checks,<br/>read-tool queries" --> indexer
 ```
 
-The indexer parses 12 languages with tree-sitter compiled to WebAssembly, then resolves imports, router mounts and URL templates into edges. That is how the generated client's `GET /api/v1/items/` finds FastAPI's `@router.get("/")` under `APIRouter(prefix="/items")` and an `/api/v1` mount. The map draws to a canvas, and React hands it a new scene only when what is open or selected changes, so zooming and panning never re-render React. The agent hook reads changes from git rather than from the tool input, so it also catches files that a shell command deletes or moves. Render's free disk is wiped on every restart, so projects live in Postgres and the indexer clones repositories again when a project opens ([ADR 0004](docs/adr/0004-render-and-supabase.md)).
+The indexer parses 12 languages with tree-sitter compiled to WebAssembly, then resolves imports, router mounts and URL templates into edges. That is how the generated client's `GET /api/v1/items/` finds FastAPI's `@router.get("/")` under `APIRouter(prefix="/items")` and an `/api/v1` mount. The map draws to a canvas that owns the camera, so in the default click mode, zooming and panning never re-render React. The agent hook reads changes from git rather than from the tool input, so it also catches files that a shell command deletes or moves. Render's free disk is wiped on every restart, so projects live in Postgres and the indexer clones repositories again when a project opens ([ADR 0004](docs/adr/0004-render-and-supabase.md)).
 
 ## Run it locally
 
-You need Node 20.19 or later, [bun](https://bun.sh) 1.4 or later, and git.
+You need Node 22 or later (the version CI and the container use), [bun](https://bun.sh) 1.4 or later, and git.
 
 ```sh
 git clone https://github.com/tobygodat/fiada && cd fiada
@@ -67,7 +67,7 @@ bun install
 bun run dev    # indexer on :4178, map on http://localhost:5178
 ```
 
-Open http://localhost:5178, choose **fastapi/full-stack-fastapi-template** under the import box, and press **import**. Any `org/repo`, git URL or local path works too.
+Open http://localhost:5178 and click **fastapi/full-stack-fastapi-template** under the import box to import it. To import something else, type an `org/repo`, a git URL or a local path and press **import**. [A first tour](docs/USING.md#a-first-tour) says what to try next.
 
 No key or variable is needed. To change a setting, copy `.env.example` to `.env` at the repository root. These are the variables that matter most:
 
