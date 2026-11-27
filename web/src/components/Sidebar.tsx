@@ -41,7 +41,8 @@ interface Props {
 }
 
 export function Sidebar(p: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+  // On a phone the map comes first; the sidebar opens over it from its button.
+  const [collapsed, setCollapsed] = useState(() => window.matchMedia('(max-width: 720px)').matches);
 
   if (collapsed) {
     return (

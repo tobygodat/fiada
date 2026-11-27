@@ -16,8 +16,6 @@ interface Props {
   at: number;
   marks: ReadMarks;
   layers: readonly { id: string; name: string }[];
-  /** Detail panel open on the right: keep to the map between the panels. */
-  besideDetail: boolean;
   /** The change you're on is what the map has selected; else you've gone to look at something else. */
   showing: boolean;
   /** The change's own diff is on screen: not still loading, nor an older one of it standing in. */
@@ -42,7 +40,7 @@ const MAX_TICKS = 80;
 const MAX_TOUCH_TICKS = 10;
 const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
-export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing, ready, cut, behind, onGo, onRead, onEnd }: Props) {
+export function TourBar({ agent, stops, at, marks, layers, showing, ready, cut, behind, onGo, onRead, onEnd }: Props) {
   const stop = stops[at];
   const read = stops.filter((s) => isRead(marks, s)).length;
   const here = !!stop && isRead(marks, stop);
@@ -74,7 +72,7 @@ export function TourBar({ agent, stops, at, marks, layers, besideDetail, showing
   const layer = layerName(layers, stop.layer);
 
   return (
-    <section className={`tour${besideDetail ? ' beside-detail' : ''}`} aria-label="Review tour">
+    <section className="tour" aria-label="Review tour">
       <div className="tour-head">
         <h2 className="tour-title">review</h2>
         <span className="tour-who">{agent}’s changes, in the order data flows</span>

@@ -34,11 +34,6 @@ import { useFences } from './useFences.ts';
 import { useTheme } from './useTheme.ts';
 import { useWorkspace } from './useWorkspace.ts';
 
-// What the floating panels cover, from the window's edge: the 16px inset plus
-// --fiada-sidebar and --fiada-detail in styles.css.
-const SIDEBAR = 16 + 312;
-const DETAIL = 16 + 372;
-
 /** Click mode never zooms past this for you (a symbol is then about 30px across); scroll goes further. */
 const CLICK_MAX_K = 3.5;
 
@@ -271,7 +266,8 @@ export function App() {
   // ── camera ──
 
   const viewport = useCallback(
-    (detail: boolean): Viewport => ({ w: size.w, h: size.h, left: size.w > 900 ? SIDEBAR : 0, right: detail && size.w > 1100 ? DETAIL : 0 }),
+    // The panels sit beside the map, not over it (styles.css), so the canvas is all free area.
+    (): Viewport => ({ w: size.w, h: size.h, left: 0, right: 0 }),
     [size],
   );
 
@@ -286,7 +282,7 @@ export function App() {
       const root = Lx.get('root');
 
       if (!tree || !root || !size.w) return null;
-      const vp = viewport(opts.detail);
+      const vp = viewport();
       const all = frame(root, vp, 0.46);
       const n = tree.nodes.get(id);
       const c = Lx.get(id);
@@ -332,7 +328,7 @@ export function App() {
       if (around.size <= 1) return around.size ? cameraFor(Lx, [...around][0], { detail: true }) : null;
       const box = [...around].map((id) => Lx.get(id)!).reduce(enclose);
 
-      return mode === 'zoom' ? frame(box, viewport(true), 0.36) : frame(box, viewport(true), 0.44, CLICK_MAX_K);
+      return mode === 'zoom' ? frame(box, viewport(), 0.36) : frame(box, viewport(), 0.44, CLICK_MAX_K);
     },
     [tree, size, mode, cameraFor, viewport],
   );
@@ -371,7 +367,7 @@ export function App() {
 
       if (!r || !c) return;
       const cam = r.camera;
-      const f = freeArea(viewport(true));
+      const f = freeArea(viewport());
       const margin = 24;
 
       const shift = (s: number, sr: number, lo: number, hi: number) => {
@@ -856,7 +852,7 @@ export function App() {
   const fitK = useMemo(() => {
     const root = L.get('root');
 
-    return root && size.w ? frame(root, viewport(false), 0.46).k : 1;
+    return root && size.w ? frame(root, viewport(), 0.46).k : 1;
   }, [L, size.w, viewport]);
 
   // Zoom mode has no "opened" place: the breadcrumb follows the camera, to the
@@ -874,7 +870,7 @@ export function App() {
     if (mode !== 'zoom' || !tree || !zoomVis) return null;
 
     return (cam: Camera) => {
-      const f = freeArea(viewport(detailOpen));
+      const f = freeArea(viewport());
       const x = (f.cx - cam.tx) / cam.k;
       const y = (f.cy - cam.ty) / cam.k;
       // The deepest open circle under the middle that is big enough on screen to be where you are.
@@ -912,7 +908,7 @@ export function App() {
           scene={scene}
           from={from}
           renderer={renderer}
-          panels={viewport(!!(selected || contract))}
+          panels={viewport()}
           events={{
             node: onNodeClick,
             tab: collapse,
@@ -1004,7 +1000,6 @@ export function App() {
             at={tourAt}
             marks={marks}
             layers={graph?.layers ?? []}
-            besideDetail={detailOpen}
             showing={showing}
             ready={readyToMark(stop, showing, settled, shownDiff, touring?.agent)}
             cut={!!stops[tourAt] && shownDiff?.node === stops[tourAt].id && !!shownDiff.cut}
@@ -1020,7 +1015,6 @@ export function App() {
             pal={pal}
             layers={graph?.layers ?? []}
             mode={mode}
-            besideDetail={detailOpen}
             lit={spot ? (agents.state?.agents.find((a) => a.id === lit)?.name ?? 'an agent') : null}
           />
         )}
@@ -1034,14 +1028,12 @@ function Legend({
   pal,
   layers,
   mode,
-  besideDetail,
   lit,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
   mode: ExpandMode;
-  besideDetail: boolean;
   /** Name of the agent whose changes, and what it looked at, are lit. */
   lit: string | null;
 }) {
@@ -1052,7 +1044,7 @@ function Legend({
       : 'point at a circle for its links · scroll to zoom and open circles';
 
   return (
-    <div className={`legend${besideDetail ? ' beside-detail' : ''}`}>
+    <div className="legend">
       <span>{hint}</span>
       <span className="row gap">
         <span className="swatch-line" /> in-repo
