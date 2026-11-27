@@ -326,7 +326,8 @@ In the Render dashboard, **New > Web Service**, pick this repository (a public o
 | Variable | Value |
 | --- | --- |
 | `PORT` | `4178` |
-| `DATABASE_URL` | the Postgres connection string, as in `.env`; for Supabase, the **Session pooler** one, which works over IPv4 |
+| `DATABASE_URL` | the Postgres connection string, as in `.env`; for Supabase, the **Session pooler** one, which works over IPv4, ending in `?sslmode=verify-full` |
+| `NODE_EXTRA_CA_CERTS` | `/etc/secrets/supabase-ca.crt`: Supabase's root certificate (**Database > SSL Configuration**), added under Render's **Secret Files**, so `verify-full` can check the pooler's certificate. Without an `sslmode`, the indexer still uses TLS to any host but this machine, without checking the certificate |
 | `FIADA_PROJECT` | a project of its own, e.g. `demo`, so it doesn't share (and fight over) the repo list with the indexer on your laptop, whose local folders it can't read |
 | `FIADA_ALLOWED_ORIGINS` | `https://fiada.tech,https://fiada-web.<account>.workers.dev,https://*-fiada-web.<account>.workers.dev` (production, the Worker's own address, and its preview versions) |
 | `FIADA_GITHUB_CLIENT_ID`, `FIADA_GITHUB_CLIENT_SECRET` | a GitHub OAuth app with the callback `https://<indexer>/api/auth/github/callback`: everyone signs in and gets a project of their own (see [Signing in with GitHub](#signing-in-with-github)); `FIADA_PROJECT` is then unused, and `FIADA_API_KEY` opens only `/api/admin/stats` |
