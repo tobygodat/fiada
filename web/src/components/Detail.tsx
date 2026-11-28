@@ -22,7 +22,7 @@ import {
   type PlacementSource,
   type RepoInfo,
 } from '@fiada/shared';
-import { api, heldModelKey, type SourceText } from '../api.ts';
+import { api, heldModelKey, modelKeyRev, type SourceText } from '../api.ts';
 import { AgentChange } from './AgentChange.tsx';
 import { ownerOf, type HunkOwner, type Theirs } from './diff.ts';
 import { ago } from './ago.ts';
@@ -109,7 +109,7 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
         {path && <div className="detail-path">{path}</div>}
       </div>
 
-      <Summary id={n.id} rev={`${graph.generatedAt} ${heldModelKey()?.end ?? ''}`} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
+      <Summary id={n.id} rev={`${graph.generatedAt} ${modelKeyRev} ${heldModelKey()?.end ?? ''}`} fallback={n.kind === 'domain' || n.kind === 'layer' || n.kind === 'folder' ? summary(n) : null} />
 
       {g && <Changed g={g} graph={graph} graphIndex={graphIndex} activity={activity} shown={shownChanges} reviewing={reviewing} />}
       {g && <Looked id={g.id} activity={activity} />}

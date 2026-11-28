@@ -341,18 +341,30 @@ test('personalLLM: once the key is removed, nothing more goes out, retries and f
 
   live = true;
   let fetches = 0;
+  const hostHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
+  // A host's own credentials in the SDK's environment never ride along with a person's key.
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-api-key: host-key\nauthorization: Bearer host-token';
 
-  const claude = personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', () => live, {}, {
-    fetch: (async (url: string | URL | Request) => {
-      fetches++;
-      live = false;
-      assert.match(String(url), /^https:\/\/api\.anthropic\.com\//);
+  try {
+    const claude = personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', () => live, {}, {
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+        fetches++;
+        live = false;
+        assert.match(String(url), /^https:\/\/api\.anthropic\.com\//);
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.get('x-api-key'), ANTHROPIC_KEY);
+        assert.equal(headers.get('authorization'), null);
 
-      return new Response('{}', { status: 529 });
-    }) as typeof fetch,
-  });
+        return new Response('{}', { status: 529 });
+      }) as typeof fetch,
+    });
 
-  await assert.rejects(claude.json(req), /Your model key was removed/);
+    await assert.rejects(claude.json(req), /Your model key was removed/);
+  } finally {
+    if (hostHeaders === undefined) delete process.env.ANTHROPIC_CUSTOM_HEADERS;
+    else process.env.ANTHROPIC_CUSTOM_HEADERS = hostHeaders;
+  }
+
   assert.equal(fetches, 1);
 });
 

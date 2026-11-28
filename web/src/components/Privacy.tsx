@@ -35,7 +35,7 @@ export function Privacy() {
         <h2>summaries and sorting</h2>
         <p>
           Without a model key, rules sort your code into layers, the summaries are lines built from the map, and none of your code goes to a
-          model. A sort or summaries written while you had a key stay with your project until you delete your account. If you add your own Anthropic or OpenAI API key under "model key" in the sidebar, Fiada sends parts of your code (file paths, names
+          model. Removing your key stops new model requests; a sort and summaries it already wrote stay with your project. If you add your own Anthropic or OpenAI API key under "model key" in the sidebar, Fiada sends parts of your code (file paths, names
           and file contents) to that provider with your key, to sort what the rules couldn't place and to write the summaries. Those requests are
           on your account with that provider, under its terms for API data. Summaries are kept so the same code isn't sent twice.
         </p>

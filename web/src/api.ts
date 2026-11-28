@@ -94,8 +94,22 @@ let session: string | null = (() => {
 
 const MODEL_KEY_ITEM = 'fiada.modelKey';
 
-/** The key, and the session it was saved under, when local storage is blocked: this tab only. */
+/** The key, and the session it was saved under, when local storage couldn't take it: this tab only. */
 let unstored: { session: string; key: string } | null = null;
+
+/** Bumps whenever this tab saves or removes the key, for what has to ask the indexer again. */
+export let modelKeyRev = 0;
+
+/** The session this browser is signed in with now: another tab may have signed out since this one loaded. */
+function currentSession(): string | null {
+  try {
+    const stored = window.localStorage.getItem(SESSION_ITEM);
+
+    return stored === session ? session : null;
+  } catch {
+    return session;
+  }
+}
 
 /**
  * A signed-in person's own Anthropic or OpenAI key, kept in this browser with
@@ -105,25 +119,29 @@ let unstored: { session: string; key: string } | null = null;
  * of them, and another sign-in never sends it.
  */
 function modelKey(): string | null {
+  const now = currentSession();
   let held = unstored;
 
   try {
-    held = JSON.parse(window.localStorage.getItem(MODEL_KEY_ITEM) ?? 'null');
+    held = JSON.parse(window.localStorage.getItem(MODEL_KEY_ITEM) ?? 'null') ?? unstored;
   } catch {
     // storage blocked, or not ours to read: this tab's own
   }
 
-  return session && held?.session === session ? held.key : null;
+  return now && held?.session === now ? held.key : null;
 }
 
 function keepModelKey(key: string | null) {
-  unstored = key && session ? { session, key } : null;
+  const value = key && session ? { session, key } : null;
+  unstored = null;
+  modelKeyRev++;
 
   try {
-    if (unstored) window.localStorage.setItem(MODEL_KEY_ITEM, JSON.stringify(unstored));
+    if (value) window.localStorage.setItem(MODEL_KEY_ITEM, JSON.stringify(value));
     else window.localStorage.removeItem(MODEL_KEY_ITEM);
   } catch {
-    // storage blocked: the key lasts until the page is reloaded
+    // storage blocked or full: the key lasts in this tab until the page is reloaded
+    unstored = value;
   }
 }
 
@@ -257,8 +275,8 @@ export const api = {
     const from = session;
     await call<{ ok: boolean }>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
 
-    // Signed out, or in as someone else, while the provider answered: not theirs to keep.
-    if (session !== from) throw new Error('You signed out while the key was being checked.');
+    // Signed out here or in another tab, or in as someone else, while the provider answered: not theirs to keep.
+    if (!from || currentSession() !== from) throw new Error('You signed out while the key was being checked.');
     keepModelKey(key.trim());
   },
   /** Forgets the person's own key here first, then at the indexer. */

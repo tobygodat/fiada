@@ -121,7 +121,15 @@ export function personalLLM(k: ModelKey, use: 'sort' | 'summaries', live: () => 
 
   const wire: Wire = {
     own: true,
-    fetch: (input, init) => (live() ? (base.fetch ?? fetch)(input, init) : Promise.reject(removed())),
+    fetch: (input, init) => {
+      if (!live()) return Promise.reject(removed());
+      // The person's key and no other credentials, whatever the host's ANTHROPIC_CUSTOM_HEADERS add.
+      const headers = new Headers(init?.headers);
+      headers.delete('authorization');
+      headers.set('x-api-key', k.key);
+
+      return (base.fetch ?? fetch)(input, { ...init, headers });
+    },
     post: (url, headers, body) => (live() ? send(url, headers, body) : Promise.reject(removed())),
   };
 

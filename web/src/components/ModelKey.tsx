@@ -9,7 +9,8 @@ import { messageOf } from '@fiada/shared';
 import { heldModelKey } from '../api.ts';
 
 export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promise<void> }) {
-  const [held, setHeld] = useState(heldModelKey);
+  // Read on every render, which each poll of the workspace brings, so a key added or removed in another tab shows here too.
+  const held = heldModelKey();
   const [replacing, setReplacing] = useState(false);
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
@@ -26,7 +27,6 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
     } catch (err) {
       setError(messageOf(err));
     } finally {
-      setHeld(heldModelKey());
       setPending(false);
     }
   };
