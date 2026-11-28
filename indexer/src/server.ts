@@ -55,7 +55,6 @@ const summariesOn = !/^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.tri
 // The indexer's own key serves only the shared project: with sign-in, each person brings theirs (llm.ts, docs/adr/0005).
 const sortLlm = auth ? null : llmFromEnv();
 const summaryLlm = auth || !summariesOn ? null : llmFromEnv(process.env, 'summaries');
-const envKey = !!llmFromEnv();
 
 /** A whole number from the environment, or the fallback when it is unset or not one. */
 const count = (name: string, fallback: number) => {
@@ -431,8 +430,8 @@ app.post('/api/grouping/sort', async (req, reply) => {
 });
 
 // Fences: circles marked "ask first" or "off limits". PUT one { node, rule } at a time; rule null takes it down.
-// A signed-in person's own model key, checked once with its provider. The map keeps it and sends it with
-// each request; the indexer holds it in memory for this person's open project only and never stores it.
+// A signed-in person's own model key, checked once with its provider and not kept: the map keeps it and
+// sends it with each request, and that is what puts it to use (onRequest). The indexer never stores it.
 app.put<{ Body: { key?: unknown } }>('/api/model-key', async (req, reply) => {
   if (!auth) return reply.code(404).send({ error: `This indexer sorts with its own key (${KEY_HINT}).` });
   const key = modelKeyOf(req.body?.key);
@@ -441,9 +440,8 @@ app.put<{ Body: { key?: unknown } }>('/api/model-key', async (req, reply) => {
   const problem = await checkModelKey(key);
 
   if (problem) return reply.code(400).send({ error: problem });
-  req.tenant.useModelKey(key);
 
-  return req.tenant.ws.state();
+  return { ok: true };
 });
 
 app.delete('/api/model-key', async (req, reply) => {
@@ -592,7 +590,7 @@ if (auth) {
 if (process.env.FIADA_ALLOWED_ORIGINS) console.log(`[fiada] browsers may call the API from ${process.env.FIADA_ALLOWED_ORIGINS}`);
 
 if (auth) {
-  console.log(`[fiada] sorting and node summaries use each person's own model key${envKey ? `; the indexer's ${KEY_HINT} is unused` : ''}`);
+  console.log(`[fiada] sorting and node summaries use each person's own model key; the indexer's ${KEY_HINT} is unused`);
 } else {
   console.log(sortLlm ? `[fiada] sorting imports with ${sortLlm.label} (${sortLlm.model})` : `[fiada] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
 

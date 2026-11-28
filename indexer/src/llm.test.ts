@@ -324,6 +324,38 @@ test("describeLLMError: never quotes anything shaped like a key, the indexer's o
   assert.equal(describeLLMError(new OpenAIError('x', 401)), 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.');
 });
 
+test('personalLLM: once the key is removed, nothing more goes out, retries and fallbacks included', async () => {
+  let live = true;
+  let posts = 0;
+
+  const post: Post = async () => {
+    posts++;
+    live = false;
+
+    return { status: 503, headers: {}, body: '{}' };
+  };
+
+  const llm = personalLLM(modelKeyOf(OPENAI_KEY)!, 'sort', () => live, {}, { post });
+  await assert.rejects(llm.json(req), /Your model key was removed/);
+  assert.equal(posts, 1, 'the retry after a 503 never went out');
+
+  live = true;
+  let fetches = 0;
+
+  const claude = personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', () => live, {}, {
+    fetch: (async (url: string | URL | Request) => {
+      fetches++;
+      live = false;
+      assert.match(String(url), /^https:\/\/api\.anthropic\.com\//);
+
+      return new Response('{}', { status: 529 });
+    }) as typeof fetch,
+  });
+
+  await assert.rejects(claude.json(req), /Your model key was removed/);
+  assert.equal(fetches, 1);
+});
+
 test("checkModelKey: lists the provider's models with the key, and never repeats what the provider answered", async () => {
   const asked: { url: string; headers: Record<string, string> }[] = [];
   let status = 200;

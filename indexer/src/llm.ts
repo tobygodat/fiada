@@ -58,22 +58,30 @@ const providerOf = (model: string) => (/^claude/i.test(model) ? 'anthropic' : /^
  * provider's is ignored, so a leftover FIADA_LLM_MODEL=gpt-… doesn't break
  * an Anthropic key.
  */
-export function llmFromEnv(env: NodeJS.ProcessEnv = process.env, use: 'sort' | 'summaries' = 'sort'): LLM | null {
+export function llmFromEnv(env: NodeJS.ProcessEnv = process.env, use: 'sort' | 'summaries' = 'sort', wire: Wire = {}): LLM | null {
   const openai = unquote(env.OPENAI_API_KEY);
   const anthropic = unquote(env.ANTHROPIC_API_KEY);
   const own = (use === 'summaries' && env.FIADA_SUMMARY_MODEL?.trim()) || undefined;
   const model = own ?? (env.FIADA_LLM_MODEL?.trim() || undefined);
   const wants = model && providerOf(model);
 
-  if (anthropic && !(wants === 'openai' && openai)) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL);
+  if (anthropic && !(wants === 'openai' && openai)) return anthropicLLM(anthropic, (wants !== 'openai' && model) || DEFAULT_MODEL, wire);
 
   if (openai) {
-    if (use === 'summaries' && !own) return openaiLLM(openai, SUMMARY_OPENAI_MODELS);
+    if (use === 'summaries' && !own) return openaiLLM(openai, SUMMARY_OPENAI_MODELS, { post: wire.post });
 
-    return openaiLLM(openai, wants === 'anthropic' ? undefined : model);
+    return openaiLLM(openai, wants === 'anthropic' ? undefined : model, { post: wire.post });
   }
 
   return null;
+}
+
+/** How a model's requests go out: `fetch` for Claude, `post` for OpenAI, and for a person's own key, only to the provider itself. */
+export interface Wire {
+  fetch?: typeof fetch;
+  post?: Post;
+  /** The provider's own endpoint and nothing from the host's environment: no ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN or SDK logging. */
+  own?: boolean;
 }
 
 /** Where to set a key, for messages that say a feature is unavailable. */
@@ -104,13 +112,23 @@ export function modelKeyOf(raw: unknown): ModelKey | null {
 /**
  * The model a person's key answers with, picked as llmFromEnv picks it for
  * the indexer's own key. Its errors tell the person to fix their key, and once
- * `live` turns false (the key was replaced or removed) it sends nothing more.
+ * `live` turns false (the key was replaced or removed) nothing more goes out,
+ * retries included; a request already sent finishes. `base` is for tests.
  */
-export function personalLLM(k: ModelKey, use: 'sort' | 'summaries', live: () => boolean, env: NodeJS.ProcessEnv = process.env): LLM {
+export function personalLLM(k: ModelKey, use: 'sort' | 'summaries', live: () => boolean, env: NodeJS.ProcessEnv = process.env, base: Pick<Wire, 'fetch' | 'post'> = {}): LLM {
   const name = k.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+  const send = base.post ?? httpsPost();
 
-  return asYours(llmFromEnv({ FIADA_LLM_MODEL: env.FIADA_LLM_MODEL, FIADA_SUMMARY_MODEL: env.FIADA_SUMMARY_MODEL, [name]: k.key }, use)!, live);
+  const wire: Wire = {
+    own: true,
+    fetch: (input, init) => (live() ? (base.fetch ?? fetch)(input, init) : Promise.reject(removed())),
+    post: (url, headers, body) => (live() ? send(url, headers, body) : Promise.reject(removed())),
+  };
+
+  return asYours(llmFromEnv({ FIADA_LLM_MODEL: env.FIADA_LLM_MODEL, FIADA_SUMMARY_MODEL: env.FIADA_SUMMARY_MODEL, [name]: k.key }, use, wire)!, live);
 }
+
+const removed = () => new Error('Your model key was removed.');
 
 /** `llm` answering on a person's own key: see personalLLM. */
 export function asYours(llm: LLM, live: () => boolean): LLM {
@@ -122,11 +140,13 @@ export function asYours(llm: LLM, live: () => boolean): LLM {
       return llm.model;
     },
     async json(req) {
-      if (!live()) throw new Error('Your model key was removed.');
+      if (!live()) throw removed();
 
       try {
         return await llm.json(req);
       } catch (err) {
+        if (!live()) throw removed();
+
         if (err instanceof OpenAIError || err instanceof Anthropic.APIError) throw new Error(describeLLMError(err, 'yours'));
         throw err;
       }
@@ -176,12 +196,14 @@ export const redactKeys = (text: string) => text.replace(/sk-[A-Za-z0-9_*.-]{4,}
  * parses against the request's schema; streamed, since answers can be long.
  * Opts into server-side fallbacks, so a declined request is retried on
  * another model; if the key's organisation can't use them, it asks again
- * without. Haiku has none to opt into. `fetch` is for tests.
+ * without. Haiku has none to opt into. `opts` is how a person's own key goes out (personalLLM), or a test's `fetch`.
  */
-export function anthropicLLM(apiKey: string, model: string, opts: { fetch?: typeof fetch } = {}): LLM {
+export function anthropicLLM(apiKey: string, model: string, opts: Pick<Wire, 'fetch' | 'own'> = {}): LLM {
   const options: ClientOptions = { apiKey, maxRetries: 3 };
 
   if (opts.fetch) options.fetch = opts.fetch;
+
+  if (opts.own) Object.assign(options, { baseURL: 'https://api.anthropic.com', authToken: null, logLevel: 'off' });
   const client = new Anthropic(options);
   let fallbacks = !/haiku/i.test(model);
 

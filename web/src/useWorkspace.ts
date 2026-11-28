@@ -73,7 +73,11 @@ export function useWorkspace(): WorkspaceHandle {
       await sync();
     },
     sortAgain: async () => sync(await api.sortAgain()),
-    setModelKey: async (key) => sync(await (key ? api.saveModelKey(key) : api.removeModelKey())),
+    setModelKey: async (key) => {
+      if (key) await api.saveModelKey(key);
+      else await api.removeModelKey();
+      await sync();
+    },
     reload: () => sync(),
   };
 }

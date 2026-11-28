@@ -394,7 +394,7 @@ export class Summaries {
       for (const it of batch.items) this.claimed.delete(it.hash);
 
       if (missing.length && missing.length < batch.items.length) await this.run({ ...batch, items: missing });
-      else if (missing.length) this.fail(missing, 'The model left these out of its reply.');
+      else if (missing.length && this.o.llm === llm) this.fail(missing, 'The model left these out of its reply.');
     } catch (err) {
       for (const it of batch.items) this.claimed.delete(it.hash);
 
@@ -407,7 +407,8 @@ export class Summaries {
         return;
       }
 
-      this.fail(batch.items, describeLLMError(err));
+      // A key replaced or removed meanwhile: its failures aren't the next key's.
+      if (this.o.llm === llm) this.fail(batch.items, describeLLMError(err));
     }
   }
 

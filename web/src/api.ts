@@ -94,28 +94,33 @@ let session: string | null = (() => {
 
 const MODEL_KEY_ITEM = 'fiada.modelKey';
 
+/** The key, and the session it was saved under, when local storage is blocked: this tab only. */
+let unstored: { session: string; key: string } | null = null;
+
 /**
- * A signed-in person's own Anthropic or OpenAI key, kept in this browser and
- * sent with each request to the indexer, which holds it in memory for their
- * open project only. A new sign-in starts without one.
+ * A signed-in person's own Anthropic or OpenAI key, kept in this browser with
+ * the session it was saved under and sent with each request to the indexer,
+ * which holds it in memory for their open project only. Read from storage on
+ * every use, so a key saved, replaced or removed in one tab is the key in all
+ * of them, and another sign-in never sends it.
  */
-let modelKey: string | null = (() => {
-  if (typeof window === 'undefined') return null;
+function modelKey(): string | null {
+  let held = unstored;
 
   try {
-    if (returned.session) window.localStorage.removeItem(MODEL_KEY_ITEM);
-
-    return window.localStorage.getItem(MODEL_KEY_ITEM);
+    held = JSON.parse(window.localStorage.getItem(MODEL_KEY_ITEM) ?? 'null');
   } catch {
-    return null;
+    // storage blocked, or not ours to read: this tab's own
   }
-})();
+
+  return session && held?.session === session ? held.key : null;
+}
 
 function keepModelKey(key: string | null) {
-  modelKey = key;
+  unstored = key && session ? { session, key } : null;
 
   try {
-    if (key) window.localStorage.setItem(MODEL_KEY_ITEM, key);
+    if (unstored) window.localStorage.setItem(MODEL_KEY_ITEM, JSON.stringify(unstored));
     else window.localStorage.removeItem(MODEL_KEY_ITEM);
   } catch {
     // storage blocked: the key lasts until the page is reloaded
@@ -124,7 +129,9 @@ function keepModelKey(key: string | null) {
 
 /** What the map shows of this browser's model key: whose it is and its last four characters, never the rest. */
 export function heldModelKey(): { provider: 'Anthropic' | 'OpenAI'; end: string } | null {
-  return modelKey ? { provider: modelKey.startsWith('sk-ant-') ? 'Anthropic' : 'OpenAI', end: modelKey.slice(-4) } : null;
+  const key = modelKey();
+
+  return key ? { provider: key.startsWith('sk-ant-') ? 'Anthropic' : 'OpenAI', end: key.slice(-4) } : null;
 }
 
 /** Told when the indexer says this browser has to sign in (again). */
@@ -138,8 +145,8 @@ export const onSignedOut = (fn: () => void) => {
 
 /** Forgets the session in this browser, without saying so: an indexer without sign-in has no use for one. */
 export function dropSession() {
-  session = null;
   keepModelKey(null);
+  session = null;
 
   try {
     window.localStorage.removeItem(SESSION_ITEM);
@@ -165,7 +172,9 @@ export function authHeaders(method = 'GET') {
   if (session) {
     headers.authorization = `Bearer ${session}`;
 
-    if (modelKey) headers[MODEL_KEY_HEADER] = modelKey;
+    const key = modelKey();
+
+    if (key) headers[MODEL_KEY_HEADER] = key;
   }
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   else if (accessKey && method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
@@ -243,12 +252,14 @@ export const api = {
   summary: (node: string) => call<NodeSummary>(`/api/summary?node=${encodeURIComponent(node)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
   sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
-  /** Checks the person's own key with its provider, then keeps it in this browser. */
+  /** Checks the person's own key with its provider, then keeps it in this browser; the next request puts it to use. */
   saveModelKey: async (key: string) => {
-    const ws = await call<Workspace>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
-    keepModelKey(key.trim());
+    const from = session;
+    await call<{ ok: boolean }>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
 
-    return ws;
+    // Signed out, or in as someone else, while the provider answered: not theirs to keep.
+    if (session !== from) throw new Error('You signed out while the key was being checked.');
+    keepModelKey(key.trim());
   },
   /** Forgets the person's own key here first, then at the indexer. */
   removeModelKey: () => {
