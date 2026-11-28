@@ -1,4 +1,4 @@
-import type { ActivityState, AgentConnection, AuthState, ChangeKind, Fence, FenceRule, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
+import { MODEL_KEY_HEADER, type ActivityState, type AgentConnection, type AuthState, type ChangeKind, type Fence, type FenceRule, type Graph, type Grouping, type LayerPreset, type NodeSummary, type Workspace } from '@fiada/shared';
 import { apiBase } from './apiBase.ts';
 
 /**
@@ -92,6 +92,41 @@ let session: string | null = (() => {
   }
 })();
 
+const MODEL_KEY_ITEM = 'fiada.modelKey';
+
+/**
+ * A signed-in person's own Anthropic or OpenAI key, kept in this browser and
+ * sent with each request to the indexer, which holds it in memory for their
+ * open project only. A new sign-in starts without one.
+ */
+let modelKey: string | null = (() => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    if (returned.session) window.localStorage.removeItem(MODEL_KEY_ITEM);
+
+    return window.localStorage.getItem(MODEL_KEY_ITEM);
+  } catch {
+    return null;
+  }
+})();
+
+function keepModelKey(key: string | null) {
+  modelKey = key;
+
+  try {
+    if (key) window.localStorage.setItem(MODEL_KEY_ITEM, key);
+    else window.localStorage.removeItem(MODEL_KEY_ITEM);
+  } catch {
+    // storage blocked: the key lasts until the page is reloaded
+  }
+}
+
+/** What the map shows of this browser's model key: whose it is and its last four characters, never the rest. */
+export function heldModelKey(): { provider: 'Anthropic' | 'OpenAI'; end: string } | null {
+  return modelKey ? { provider: modelKey.startsWith('sk-ant-') ? 'Anthropic' : 'OpenAI', end: modelKey.slice(-4) } : null;
+}
+
 /** Told when the indexer says this browser has to sign in (again). */
 const signedOutListeners = new Set<() => void>();
 
@@ -104,6 +139,7 @@ export const onSignedOut = (fn: () => void) => {
 /** Forgets the session in this browser, without saying so: an indexer without sign-in has no use for one. */
 export function dropSession() {
   session = null;
+  keepModelKey(null);
 
   try {
     window.localStorage.removeItem(SESSION_ITEM);
@@ -122,11 +158,15 @@ export function signOut() {
 /** Where the browser goes to sign in with GitHub; the indexer brings it back to this page. */
 export const signInUrl = () => apiUrl(`/api/auth/github/login?return=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`);
 
-/** Headers that say who is asking: the session for everything, else the access key for changes. */
+/** Headers that say who is asking: the session (and the person's model key) for everything, else the access key for changes. */
 export function authHeaders(method = 'GET') {
   const headers: Record<string, string> = {};
 
-  if (session) headers.authorization = `Bearer ${session}`;
+  if (session) {
+    headers.authorization = `Bearer ${session}`;
+
+    if (modelKey) headers[MODEL_KEY_HEADER] = modelKey;
+  }
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   else if (accessKey && method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
 
@@ -203,6 +243,19 @@ export const api = {
   summary: (node: string) => call<NodeSummary>(`/api/summary?node=${encodeURIComponent(node)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
   sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
+  /** Checks the person's own key with its provider, then keeps it in this browser. */
+  saveModelKey: async (key: string) => {
+    const ws = await call<Workspace>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
+    keepModelKey(key.trim());
+
+    return ws;
+  },
+  /** Forgets the person's own key here first, then at the indexer. */
+  removeModelKey: () => {
+    keepModelKey(null);
+
+    return call<Workspace>('/api/model-key', { method: 'DELETE' });
+  },
   fences: () => call<{ fences: Fence[] }>('/api/fences'),
   /** Puts up or changes the fence round a node; null takes it down. */
   setFence: (node: string, rule: FenceRule | null) => call<{ fences: Fence[] }>('/api/fences', { method: 'PUT', body: JSON.stringify({ node, rule }) }),

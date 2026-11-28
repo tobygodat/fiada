@@ -975,6 +975,7 @@ export function App() {
           onRefresh={ws.refresh}
           onPreset={ws.applyPreset}
           onSortAgain={ws.sortAgain}
+          onModelKey={ws.setModelKey}
         />
         {graph && tree && (selected || contract) && (
           <Detail

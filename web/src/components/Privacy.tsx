@@ -34,10 +34,17 @@ export function Privacy() {
 
         <h2>summaries and sorting</h2>
         <p>
-          To sort files into layers and write the one-line summaries, Fiada sends parts of your code (file paths, names and file contents) to
-          the model provider its indexer is set up with, under that provider's terms for API data. On fiada.tech that is Anthropic (Claude); an indexer
-          set up with OpenAI sends them to OpenAI instead, and one with neither sends them nowhere. Summaries are kept so the same code isn't sent
-          twice.
+          Without a model key, rules sort your code into layers and the summaries are lines built from the map, and none of your code goes to a
+          model. If you add your own Anthropic or OpenAI API key under "model key" in the sidebar, Fiada sends parts of your code (file paths, names
+          and file contents) to that provider with your key, to sort what the rules couldn't place and to write the summaries. Those requests are
+          on your account with that provider, under its terms for API data. Summaries are kept so the same code isn't sent twice.
+        </p>
+        <p>
+          Your key is kept in your browser, not by Fiada. It goes with each request your map makes to the indexer, over HTTPS. The indexer
+          holds it in memory for your own map only. It is never written to disk, to the database or to a log, and nobody else's map uses it.
+          When you save a key, the indexer asks the provider once to list its models, to check the key. The indexer forgets the key when you
+          remove it or sign out, when a request comes without it, when your map has sat unused for 30 minutes, or when the indexer restarts.
+          An indexer that you run yourself without sign-in uses its own key instead, if it has one.
         </p>
 
         <h2>coding agents</h2>
@@ -49,9 +56,10 @@ export function Privacy() {
 
         <h2>in your browser</h2>
         <p>
-          Your browser keeps your sign-in, a few preferences (the theme, which panels are open), which agent changes you have opened and
-          which you have marked read in a review in local storage. The sign-in goes with each request to the indexer; the preferences and
-          those marks stay in the browser, and deleting your account clears the marks. Signing in sets one cookie
+          Your browser keeps these in local storage: your sign-in, your model key if you add one, a few preferences (the theme, which panels
+          are open), and which agent changes you have opened or marked read in a review. The sign-in and the model key go with each request to
+          the indexer. The preferences and those marks stay in the browser. Signing out clears the key, and deleting your account clears the
+          key and the marks. Signing in sets one cookie
           for the few minutes it takes. There is no advertising and nothing is sold.
         </p>
 
@@ -59,7 +67,7 @@ export function Privacy() {
         <p>
           GitHub signs you in and hosts the repositories you import. Cloudflare serves this site and counts visits to it with Web Analytics, which sets no cookies and doesn't identify you. It records
           which pages were loaded and how fast, the page that linked here, your country, and your browser, operating system and kind of device. Render runs the indexer, which keeps the clones on
-          its disk while it runs. Supabase keeps the accounts and projects in its database. Anthropic (or OpenAI, for an indexer set up with it) writes summaries and sorts.
+          its disk while it runs. Supabase keeps the accounts and projects in its database. If you add a model key, Anthropic or OpenAI (whichever the key is for) sorts your code and writes the summaries.
           Google Fonts serves the typeface, so Google sees your address when the page loads.
         </p>
 

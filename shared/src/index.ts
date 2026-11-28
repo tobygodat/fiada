@@ -99,6 +99,9 @@ export interface LayerDef {
 /** Where code no matcher or neighbour places goes, so it's visible rather than guessed. */
 export const UNLAYERED = 'unlayered';
 
+/** The request header the map sends a signed-in person's own model key in (indexer/src/llm.ts). */
+export const MODEL_KEY_HEADER = 'x-fiada-model-key';
+
 /** Domains for code split evenly between several domains, and for code with no signal at all. */
 export const SHARED_DOMAIN = 'shared';
 export const UNSORTED_DOMAIN = 'unsorted';

@@ -21,7 +21,7 @@ import { answer, QUESTIONS } from './ask.ts';
 import { accountInfo, Auth, authConfigFromEnv, bearer, CALLBACK_PATH, cookie, NONCE_COOKIE, returnAllowed } from './auth.ts';
 import { GroupingError, PRESETS } from './classify/index.ts';
 import { FenceError } from './fences.ts';
-import { KEY_HINT, LLMBudget, llmFromEnv } from './llm.ts';
+import { checkModelKey, KEY_HINT, LLMBudget, llmFromEnv, MODEL_KEY_HEADER, modelKeyOf, OWN_KEY_HINT } from './llm.ts';
 import { indexGraph, type GraphIndex } from './summaries/describe.ts';
 import { usageStats, type UsageStats } from './stats.ts';
 import { checkProjectId, createStore } from './store.ts';
@@ -48,10 +48,14 @@ const allowedOrigin = originMatcher([MAP_ORIGINS, process.env.FIADA_ALLOWED_ORIG
 const PUBLIC_URL = process.env.FIADA_PUBLIC_URL?.trim().replace(/\/+$/, '') || undefined;
 
 const store = await createStore(FIADA_HOME, isLoopback(HOST));
-const sortLlm = llmFromEnv();
-const summaryLlm = /^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '') ? null : llmFromEnv(process.env, 'summaries');
 const authConfig = authConfigFromEnv();
 const auth = authConfig ? new Auth(store, authConfig) : null;
+const summariesOn = !/^(off|0|false|no)$/i.test(process.env.FIADA_SUMMARIES?.trim() ?? '');
+
+// The indexer's own key serves only the shared project: with sign-in, each person brings theirs (llm.ts, docs/adr/0005).
+const sortLlm = auth ? null : llmFromEnv();
+const summaryLlm = auth || !summariesOn ? null : llmFromEnv(process.env, 'summaries');
+const envKey = !!llmFromEnv();
 
 /** A whole number from the environment, or the fallback when it is unset or not one. */
 const count = (name: string, fallback: number) => {
@@ -107,8 +111,9 @@ const tenants = new Tenants(async (projectId) => {
     projectId,
     // Local folders would be the indexer's own disk, which is nobody's project.
     access: { localPaths: false, keyRequired: false },
-    sortLlm: sortLlm && budget.for(projectId, sortLlm),
-    summaryLlm: summaryLlm && budget.for(projectId, summaryLlm),
+    sortLlm: null,
+    summaryLlm: null,
+    ownKey: { budget: (llm) => budget.for(projectId, llm), summaries: summariesOn },
     clones: clonesOf(FIADA_HOME, projectId),
     maxRepos: MAX_REPOS,
     maxCloneBytes: MAX_CLONE_BYTES,
@@ -130,7 +135,7 @@ const AGENT_SIGN_IN = 'This agent token is not valid (it may have been reset). C
 const publicUrl = (req: FastifyRequest) => PUBLIC_URL ?? `${req.protocol}://${req.host}`;
 
 // Behind a host's proxy (and the dev server's), the forwarded headers say the scheme and host the browser used.
-const app = Fastify({ logger: { level: 'warn' }, trustProxy: true });
+const app = Fastify({ logger: { level: 'warn', redact: ['req.headers.authorization', `req.headers["${MODEL_KEY_HEADER}"]`] }, trustProxy: true });
 
 // SAFETY: the onRequest hook sets req.tenant before any handler reads it.
 app.decorateRequest('tenant', null as never);
@@ -158,7 +163,7 @@ app.addHook('onRequest', async (req, reply) => {
 
   if (req.method === 'OPTIONS') {
     reply.header('access-control-allow-methods', 'GET, POST, PUT, DELETE');
-    reply.header('access-control-allow-headers', 'content-type, authorization');
+    reply.header('access-control-allow-headers', `content-type, authorization, ${MODEL_KEY_HEADER}`);
     reply.header('access-control-max-age', '600');
 
     return reply.code(204).send();
@@ -223,6 +228,12 @@ app.addHook('onRequest', async (req, reply) => {
   const info = accountInfo(account);
   people.set(account.id, info);
   req.tenant = await tenants.get(account.id, info);
+
+  // The map sends the person's own model key, if this browser has one, with every request; none means none.
+  if (who === 'person') {
+    const sent = req.headers[MODEL_KEY_HEADER];
+    req.tenant.useModelKey(typeof sent === 'string' ? modelKeyOf(sent) : null);
+  }
 });
 
 /** Whether the indexer and its store answer: one real query, which also keeps a free database from pausing for want of use. */
@@ -414,12 +425,34 @@ app.post<{ Body: { preset?: string } }>('/api/grouping/preset', async (req, repl
 
 // Sorts the project's leftovers with the model again. Answers at once; the map picks the result up when it lands.
 app.post('/api/grouping/sort', async (req, reply) => {
-  if (!req.tenant.ws.sortAgain()) return reply.code(409).send({ error: `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
+  if (!req.tenant.ws.sortAgain()) return reply.code(409).send({ error: auth ? `Sorting needs ${OWN_KEY_HINT}.` : `Sorting is unavailable: the indexer has no ${KEY_HINT}.` });
 
   return reply.code(202).send(req.tenant.ws.state());
 });
 
 // Fences: circles marked "ask first" or "off limits". PUT one { node, rule } at a time; rule null takes it down.
+// A signed-in person's own model key, checked once with its provider. The map keeps it and sends it with
+// each request; the indexer holds it in memory for this person's open project only and never stores it.
+app.put<{ Body: { key?: unknown } }>('/api/model-key', async (req, reply) => {
+  if (!auth) return reply.code(404).send({ error: `This indexer sorts with its own key (${KEY_HINT}).` });
+  const key = modelKeyOf(req.body?.key);
+
+  if (!key) return reply.code(400).send({ error: "That isn't an Anthropic key (sk-ant-…) or an OpenAI key (sk-…)." });
+  const problem = await checkModelKey(key);
+
+  if (problem) return reply.code(400).send({ error: problem });
+  req.tenant.useModelKey(key);
+
+  return req.tenant.ws.state();
+});
+
+app.delete('/api/model-key', async (req, reply) => {
+  if (!auth) return reply.code(404).send({ error: `This indexer sorts with its own key (${KEY_HINT}).` });
+  req.tenant.useModelKey(null);
+
+  return req.tenant.ws.state();
+});
+
 app.get('/api/fences', async (req) => {
   await req.tenant.fences.fresh();
 
@@ -558,9 +591,13 @@ if (auth) {
 
 if (process.env.FIADA_ALLOWED_ORIGINS) console.log(`[fiada] browsers may call the API from ${process.env.FIADA_ALLOWED_ORIGINS}`);
 
-console.log(sortLlm ? `[fiada] sorting imports with ${sortLlm.label} (${sortLlm.model})` : `[fiada] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
+if (auth) {
+  console.log(`[fiada] sorting and node summaries use each person's own model key${envKey ? `; the indexer's ${KEY_HINT} is unused` : ''}`);
+} else {
+  console.log(sortLlm ? `[fiada] sorting imports with ${sortLlm.label} (${sortLlm.model})` : `[fiada] no ${KEY_HINT}: imports keep the classifier's sort, with leftovers in Unlayered and Unsorted`);
 
-console.log(summaryLlm ? `[fiada] node summaries: written by ${summaryLlm.label} (${summaryLlm.model})` : `[fiada] no ${KEY_HINT}: node summaries are lines from the graph`);
+  console.log(summaryLlm ? `[fiada] node summaries: written by ${summaryLlm.label} (${summaryLlm.model})` : `[fiada] no ${KEY_HINT}: node summaries are lines from the graph`);
+}
 
 if (!auth) {
   if (KEY) console.log('[fiada] changes need the access key (FIADA_API_KEY)');

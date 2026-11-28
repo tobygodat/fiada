@@ -15,6 +15,7 @@ import { messageOf, type AccountInfo, type Graph, type Grouping, type LayerPrese
 import { remoteKey } from './agents.ts';
 import { buildBase, classifyGraph, type BaseGraph } from './build.ts';
 import { defaultGrouping, GroupingError, normalizeGrouping, presetLayers } from './classify/index.ts';
+import type { LLM } from './llm.ts';
 import type { ParsedRepo } from './model.ts';
 import { Sorter, type SortHost } from './sorter.ts';
 import { fileWithin, loadRepo, reloadFiles } from './sources.ts';
@@ -726,6 +727,12 @@ export class Workspace {
     this.base = buildBase(ordered);
     console.log(`[fiada] linked ${this.base.nodes.length} nodes, ${this.base.edges.length} edges in ${Date.now() - started}ms`);
     this.reclassify();
+    this.sorter.request(this.sortHost());
+  }
+
+  /** Sorts with `llm` from now on, or by rules only; with a model, sorts at once what the last sort didn't cover. */
+  useModel(llm: LLM | null) {
+    this.sorter.use(llm);
     this.sorter.request(this.sortHost());
   }
 

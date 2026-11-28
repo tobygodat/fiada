@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { messageOf, type AgentConnection, type Workspace } from '@fiada/shared';
-import { api, sharedKey, signOut } from '../api.ts';
+import { api, heldModelKey, sharedKey, signOut } from '../api.ts';
 import { forgetRead } from '../graph/unread.ts';
 import { setupCommand } from '../connect.ts';
 import { forgetMarks } from '../graph/tour.ts';
@@ -55,6 +55,12 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     } catch (err) {
       setDeleteError(messageOf(err));
     }
+  };
+
+  // The indexer forgets the model key now, rather than when the project next closes.
+  const leave = async () => {
+    if (heldModelKey()) await api.removeModelKey().catch(() => undefined);
+    signOut();
   };
 
   const reset = async () => {
@@ -108,7 +114,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
         <p className="small muted account-line">
           signed in as <span className="account-name">{account.login}</span>
           {!account.privateRepos && ' (public repositories only)'} ·{' '}
-          <button className="link" onClick={signOut}>
+          <button className="link" onClick={leave}>
             sign out
           </button>
           {' · '}

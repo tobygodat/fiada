@@ -18,6 +18,8 @@ export interface SummariesOptions {
   projectId: string;
   /** Null when no model key is set: lines only. */
   llm: LLM | null;
+  /** Where a key goes, for a summary that is lines only: KEY_HINT on the indexer by default. */
+  keyHint?: string;
   /** An indexed file's text, or null. */
   read(repo: string, path: string): Promise<string | null>;
   /** True while repositories are still cloning or indexing; the eager pass waits for them. */
@@ -65,6 +67,16 @@ export class Summaries {
     return !!this.o.llm;
   }
 
+  /** Writes with `llm` from now on, or stops writing: what failed with the last one may be tried again. */
+  use(llm: LLM | null) {
+    this.o.llm = llm;
+    this.failed.clear();
+
+    if (!llm || !this.gi) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.startEager(), this.o.debounceMs ?? 1500);
+  }
+
   async init() {
     try {
       const saved = (await this.o.store.loadSummaries?.(this.o.projectId)) ?? {};
@@ -102,14 +114,15 @@ export class Summaries {
     if (doc) head.doc = doc;
     const base: NodeSummary = { ...head, status: 'off' };
 
-    if (!this.o.llm) return { ...base, off: `set ${KEY_HINT} on the indexer for generated summaries` };
-
     const it = await this.itemFor(gi, id);
+    const hit = it && this.cache.get(it.hash);
+
+    // One written before the key was removed is still shown.
+    if (hit) return { ...base, generated: hit, status: 'ready' };
+
+    if (!this.o.llm) return { ...base, off: this.o.keyHint ? `generated summaries need ${this.o.keyHint}` : `set ${KEY_HINT} on the indexer for generated summaries` };
 
     if (!it) return { ...base, status: 'error', error: "Couldn't read this code from the indexer's checkout." };
-    const hit = this.cache.get(it.hash);
-
-    if (hit) return { ...base, generated: hit, status: 'ready' };
     const failure = this.failed.get(it.hash);
 
     if (failure && Date.now() - failure.at < RETRY_MS) return { ...base, status: 'error', error: failure.message };
@@ -345,7 +358,10 @@ export class Summaries {
 
   /** One request. A reply that was cut off or unreadable is retried as two halves; one that failed outright marks its items. */
   private async run(batch: Batch): Promise<void> {
-    const llm = this.o.llm!;
+    const llm = this.o.llm;
+
+    // The key was removed while these waited their turn.
+    if (!llm) return;
 
     for (const it of batch.items) this.claimed.add(it.hash);
 

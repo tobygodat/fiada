@@ -12,7 +12,7 @@ import path from 'node:path';
 import { messageOf, type AccountInfo, type Workspace as WorkspaceState } from '@fiada/shared';
 import { AgentHub } from './agents.ts';
 import { Fences } from './fences.ts';
-import type { LLM } from './llm.ts';
+import { OWN_KEY_HINT, personalLLM, type LLM, type ModelKey } from './llm.ts';
 import { Sorter } from './sorter.ts';
 import type { ProjectStore } from './store.ts';
 import { Summaries } from './summaries/index.ts';
@@ -25,6 +25,12 @@ export interface Tenant {
   agents: AgentHub;
   /** Where agents must ask first or keep out. */
   fences: Fences;
+  /**
+   * Sorts and summarises with the person's own key from now on, or with none.
+   * Held in memory only, and only while the project is open; a key replaced or
+   * removed sends nothing more. Does nothing for a project without `ownKey`.
+   */
+  useModelKey(key: ModelKey | null): void;
   close(): Promise<void>;
 }
 
@@ -36,16 +42,20 @@ export interface OpenOptions extends WorkspaceOptions {
   sortLlm: LLM | null;
   /** Writes node summaries; null gives the lines built from the graph. */
   summaryLlm: LLM | null;
+  /** With sign-in: the person brings their own key (useModelKey), each model request counted by `budget`. */
+  ownKey?: { budget(llm: LLM): LLM; summaries: boolean };
 }
 
 /** Opens one project: its workspace, summaries, fences and agent hub, wired together as the server uses them. */
 export async function openTenant(o: OpenOptions): Promise<Tenant> {
-  const ws = new Workspace(o.store, o.projectId, o.access, new Sorter(o.sortLlm), o);
+  const hint = o.ownKey ? OWN_KEY_HINT : undefined;
+  const ws = new Workspace(o.store, o.projectId, o.access, new Sorter(o.sortLlm, hint), o);
 
   const summaries = new Summaries({
     store: o.store,
     projectId: o.projectId,
     llm: o.summaryLlm,
+    keyHint: hint,
     read: (repo, p) => ws.readSource(repo, p).then((s) => s?.text ?? null),
     busy: () => ws.state().busy,
   });
@@ -57,6 +67,7 @@ export async function openTenant(o: OpenOptions): Promise<Tenant> {
   const fences = new Fences(o.store, o.projectId);
   await fences.init();
   const agents = new AgentHub(ws);
+  let held: ModelKey | null = null;
 
   return {
     projectId: o.projectId,
@@ -64,7 +75,17 @@ export async function openTenant(o: OpenOptions): Promise<Tenant> {
     summaries,
     agents,
     fences,
+    useModelKey(key) {
+      const own = o.ownKey;
+
+      if (!own || held?.key === key?.key) return;
+      held = key;
+      const live = () => held === key;
+      ws.useModel(key && own.budget(personalLLM(key, 'sort', live)));
+      summaries.use(key && own.summaries ? own.budget(personalLLM(key, 'summaries', live)) : null);
+    },
     async close() {
+      held = null;
       off();
       agents.close();
       ws.close();
