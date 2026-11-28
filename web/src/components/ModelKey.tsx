@@ -37,26 +37,37 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
     if (input.trim()) change(input.trim());
   };
 
+  const keyNotice = 'Billed to your provider account. Stored in this browser only; held in indexer memory, never on disk.';
+
   return (
     <section className="section">
-      <div className="section-title">model key</div>
-      {held && !replacing ? (
-        <p className="small muted account-line">
-          <span className="account-name">{held.provider}</span> …<span className="account-name num">{held.end}</span> ·{' '}
-          <button className="link" onClick={() => setReplacing(true)}>
-            replace
+      <div className="section-head">
+        <div className="section-title">model key</div>
+        {held && !replacing ? (
+          <>
+            <span className="tag" title={keyNotice}>
+              {held.provider} …{held.end}
+            </span>
+            <button className="link" onClick={() => setReplacing(true)}>
+              replace
+            </button>
+            <button className="link danger" disabled={pending} onClick={() => change(null)}>
+              remove
+            </button>
+          </>
+        ) : replacing ? (
+          <button className="link" onClick={() => setReplacing(false)}>
+            cancel
           </button>
-          {' · '}
-          <button className="link danger" disabled={pending} onClick={() => change(null)}>
-            remove
-          </button>
-        </p>
-      ) : (
+        ) : (
+          <span className="tag" title="Anthropic or OpenAI key for sorting and summaries">
+            optional
+          </span>
+        )}
+      </div>
+      {(!held || replacing) && (
         <>
-          <p className="small muted account-line">
-            Optional Anthropic or OpenAI key for sorting and summaries, billed to your provider account.
-          </p>
-          <form className="import key-form" onSubmit={save}>
+          <form className="import" onSubmit={save}>
             <input
               type="text"
               className="key-input"
@@ -64,6 +75,7 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
               onChange={(e) => setInput(e.target.value)}
               placeholder="sk-ant-… or sk-…"
               aria-label="Anthropic or OpenAI API key"
+              title={keyNotice}
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"
@@ -77,16 +89,9 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
               {pending ? 'checking…' : 'save'}
             </button>
           </form>
-          {replacing && (
-            <p className="small muted account-line">
-              <button className="link" onClick={() => setReplacing(false)}>
-                cancel
-              </button>
-            </p>
-          )}
+          <p className="small muted account-line">Browser only, never on disk · billed to your provider account.</p>
         </>
       )}
-      <p className="small muted account-line">Stored in this browser only; held in indexer memory, never on disk.</p>
       {error && (
         <p className="notice" role="alert">
           <span className="lead">Couldn't {held && !replacing ? 'remove' : 'save'} the key.</span> {error}

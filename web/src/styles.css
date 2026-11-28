@@ -62,6 +62,12 @@ a { color: inherit; }
 }
 .section-title::before, .block-title::before { content: '// '; color: var(--accent); }
 .section-title .muted, .block-title .muted { font-weight: var(--weight-regular); }
+/* A heading row with its pill, toggle or actions on the same line. */
+.section-head, .block-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-xs) var(--space-8); margin-bottom: var(--space-8); }
+.section-head > .section-title, .block-head > .block-title { margin: 0 auto 0 0; }
+.section-head > .section-title.fold { width: auto; }
+.section-head:last-child, .block-head:last-child { margin-bottom: 0; }
+.section:has(> .section-head:last-child) { padding-bottom: var(--space-sm); }
 
 /* An action is a word: underlined in the green, turning green on hover. */
 .link {
@@ -291,9 +297,8 @@ a { color: inherit; }
 
 /* Import: a field with the one button that completes it. */
 .import { display: flex; gap: var(--space-8); }
-.key-form { margin-top: var(--space-8); }
 .key-input { -webkit-text-security: disc; }
-.key-form + .account-line { margin-top: var(--space-sm); }
+.import + .account-line { margin-top: var(--space-8); }
 .import input {
   flex: 1; min-width: 0; height: var(--size-control); padding: 0 var(--space-sm);
   background: var(--ground-raised); border: 1px solid var(--outline); border-radius: var(--radius); color: var(--text);
@@ -332,8 +337,6 @@ a { color: inherit; }
 .layer-row .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-row.muted .grow { color: var(--muted); }
 .count { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
-.layer-file { font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
-.sorting { margin: var(--space-8) 0; }
 
 /* The outline: a dense tree. Hover turns the name green; the selected row takes the selection. */
 .sidebar > .outline-section { flex: 1 0 240px; }
@@ -419,8 +422,6 @@ a { color: inherit; }
 .contract-ends button { overflow-wrap: anywhere; transition: color var(--quick) var(--ease); }
 .contract-ends button:hover { color: var(--accent); }
 .contract-ends .muted { font-weight: var(--weight-regular); }
-.call-grid { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: var(--space-8) var(--space-sm); align-items: baseline; padding: var(--space-sm) var(--space-md) var(--space-md); border-bottom: 1px solid var(--hairline); }
-.call-grid > span:nth-child(even) { overflow-wrap: anywhere; }
 
 /* Quoted source code: the one monospace, set off by a rule, the line you came for on the selection. */
 .code-head { display: flex; align-items: baseline; gap: var(--space-sm); }
@@ -435,8 +436,7 @@ a { color: inherit; }
 .code .ln { display: inline-block; width: 44px; padding-right: var(--space-sm); text-align: right; color: var(--muted); user-select: none; }
 
 
-/* The fence block in the detail panel: the choice, then what it means in a sentence. */
-.fence-block .choice { margin-bottom: var(--space-xs); }
+/* The fence block in the detail panel: the choice on its heading row, and what it means when active. */
 .fence-rule { color: var(--text); }
 .fence-words { margin: var(--space-xs) 0 0; font-size: var(--size-small); color: var(--muted); }
 .fence-words.off, .fence-words.ask { color: var(--text); }

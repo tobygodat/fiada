@@ -74,15 +74,20 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
 
   return (
     <section className="section">
-      <div className="section-title">agents</div>
-      <p className="small muted account-line">
+      <div className="section-head">
+        <div className="section-title">agents</div>
         <button className="link" aria-expanded={open} onClick={show}>
-          {open ? 'hide setup' : 'connect an agent'}
+          {open ? 'hide' : 'connect'}
         </button>
-      </p>
+        {!account && (
+          <a className="link" href="/privacy">
+            privacy
+          </a>
+        )}
+      </div>
       {open && (
         <div className="connect">
-          <p className="small muted">Run in your project folder, then start Claude:</p>
+          <p className="small muted">Run in project folder, then start Claude:</p>
           {command ? <div className="setup-command">{command}</div> : !error && <p className="small muted busy">loading…</p>}
           {command && (
             <p className="small muted">
@@ -100,7 +105,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
               {said && <> · {said}</>}
             </p>
           )}
-          {account && <p className="small muted">Keep this token private. It only grants agent access to your map.</p>}
+          {account && <p className="small muted">Keep this token private; map access only.</p>}
           {error && (
             <p className="notice" role="alert">
               <span className="lead">Couldn't load setup.</span> {error}
@@ -119,6 +124,10 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
           <button className="link danger" onClick={remove}>
             delete account
           </button>
+          {' · '}
+          <a className="link" href="/privacy">
+            privacy
+          </a>
         </p>
       )}
       {deleteError && (
@@ -126,11 +135,6 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
           <span className="lead">Couldn't delete account.</span> {deleteError}
         </p>
       )}
-      <p className="small muted account-line">
-        <a className="link" href="/privacy">
-          privacy
-        </a>
-      </p>
     </section>
   );
 }

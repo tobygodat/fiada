@@ -148,7 +148,7 @@ try {
   await page.waitForFunction(() => {
     const t = document.querySelector('.sorting')?.textContent ?? '';
 
-    return t && !/is sorting/.test(t);
+    return t && !/sorting/.test(t);
   }, null, { timeout: 120_000 });
   await pause(800);
   const said = (await sorting.textContent()).trim();

@@ -29,3 +29,14 @@ export function sortSummary(s: SortingState, unsorted: number): string {
 
   return parts.join(' · ');
 }
+
+/** Short label for the layers header tag; `sortSummary` gives the full tooltip. */
+export function sortTag(s: SortingState, unsorted: number): string {
+  if (s.placed) return `placed ${s.placed}`;
+
+  if (unsorted) return `${unsorted} unsorted`;
+
+  if (s.renamed || s.merged || s.added) return s.by ?? 'model';
+
+  return 'rules';
+}

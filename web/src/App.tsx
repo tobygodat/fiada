@@ -947,7 +947,7 @@ export function App() {
         {empty && (
           <div className="empty">
             <div className="empty-title">map a codebase</div>
-            <p>Import a repository from the sidebar to map it.</p>
+            <p>Import a repository from the sidebar.</p>
           </div>
         )}
         <Sidebar
@@ -1034,7 +1034,6 @@ export function App() {
             colorBy={colorBy}
             pal={pal}
             layers={graph?.layers ?? []}
-            mode={mode}
             lit={spot ? (agents.state?.agents.find((a) => a.id === lit)?.name ?? 'an agent') : null}
           />
         )}
@@ -1047,25 +1046,17 @@ function Legend({
   colorBy,
   pal,
   layers,
-  mode,
   lit,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
-  mode: ExpandMode;
   /** Name of the agent whose changes, and what it looked at, are lit. */
   lit: string | null;
 }) {
-  const hint = lit
-    ? `showing ${lit}'s work · esc for all`
-    : mode === 'click'
-      ? 'hover for links · click to select, again to open'
-      : 'hover for links · scroll to open';
-
   return (
     <div className="legend">
-      <span>{hint}</span>
+      {lit && <span>showing {lit}'s work · esc for all</span>}
       <span className="row gap">
         <span className="swatch-line" /> in-repo
       </span>

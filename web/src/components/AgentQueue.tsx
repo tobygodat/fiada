@@ -333,14 +333,12 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
               )}
             </span>
           </button>
-          {read && (
-            <div className={`queue-read${read.read < read.total ? ' some' : ''}`}>
+          {read && read.read < read.total && (
+            <div className="queue-read some">
               <span>{readWords(read.read, read.total)}</span>
-              {read.read < read.total && (
-                <button className="queue-act" onClick={onMarkRead} title="Mark agent changes read">
-                  mark read
-                </button>
-              )}
+              <button className="queue-act" onClick={onMarkRead} title="Mark agent changes read">
+                mark read
+              </button>
             </div>
           )}
           {showFiles && (

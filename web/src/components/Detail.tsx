@@ -160,8 +160,8 @@ type FenceChoice = FenceRule | 'none';
 
 const FENCE_OPTIONS: [FenceChoice, string, string][] = [
   ['none', 'none', 'No restriction.'],
-  ['ask', 'ask first', 'Ask before agent edit tools change it.'],
-  ['off', 'off limits', 'Block agent edit tools.'],
+  ['ask', 'ask first', "Ask before agent edit tools change this. Shell commands aren't checked."],
+  ['off', 'off limits', "Block agent edit tools here. Shell commands aren't checked."],
 ];
 
 const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
@@ -204,12 +204,14 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
 
   return (
     <div className="detail-block fence-block" aria-busy={busy}>
-      <div className="block-title">fence</div>
-      {onFence ? (
-        <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
-      ) : (
-        <div className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</div>
-      )}
+      <div className="block-head">
+        <div className="block-title">fence</div>
+        {onFence ? (
+          <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
+        ) : (
+          <span className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</span>
+        )}
+      </div>
       {sentence && <p className={`fence-words ${value}`}>{sentence}</p>}
       {around && (
         <p className="fence-words">
@@ -675,12 +677,6 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
 
   if (types.length) call.push(plural(types.length, 'shared type'));
 
-  const response = http.length
-    ? 'JSON from matched routes.'
-    : types.length && !code.length
-      ? 'Compile-time only.'
-      : 'Direct return values and thrown errors.';
-
   return (
     <aside className="panel detail">
       <div className="detail-head">
@@ -698,12 +694,7 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
           <button onClick={() => onSelect(B.id)}>{B.name}</button>
         </div>
       </div>
-      <div className="call-grid">
-        <span className="fact-k">call</span>
-        <span>{call.join('; ')}.</span>
-        <span className="fact-k">response</span>
-        <span>{response}</span>
-      </div>
+      {call.length > 0 && <div className="detail-block small muted">{call.join('; ')}</div>}
       {unproven > 0 && (
         <div className="detail-block no-evidence">
           {unproven === c.items.length ? (

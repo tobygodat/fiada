@@ -136,7 +136,6 @@ export function TourBar({ agent, stops, at, marks, layers, showing, ready, cut, 
           </button>
         </span>
       </div>
-      <div className="tour-keys">← → step · r read · esc end</div>
     </section>
   );
 }

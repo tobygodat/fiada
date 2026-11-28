@@ -1,7 +1,7 @@
 // Floating sidebar: repository import, the Code / By-function toggle, the
 // project's layers, and an outline of whichever hierarchy the map is showing.
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { messageOf, UNLAYERED, type Graph, type LayerPreset, type RepoInfo, type Workspace } from '@fiada/shared';
 import { canEdit } from '../api.ts';
 import { ancestors, type TNode, type Tree, type View } from '../graph/tree.ts';
@@ -13,7 +13,7 @@ import { Account } from './Account.tsx';
 import { Chevron } from './Icon.tsx';
 import { Mark, Wordmark } from './Logo.tsx';
 import { ModelKey } from './ModelKey.tsx';
-import { sortSummary, stillUnsorted } from './sorting.ts';
+import { sortSummary, sortTag, stillUnsorted } from './sorting.ts';
 
 interface Props {
   workspace: Workspace | null;
@@ -65,16 +65,18 @@ export function Sidebar(p: Props) {
       </header>
       <Repos {...p} />
       <section className="section">
-        <div className="section-title">view</div>
-        <Choice
-          label="view"
-          value={p.view}
-          options={[
-            ['code', 'code', 'Repositories, folders, files, symbols.'],
-            ['function', 'by function', 'Symbols grouped by domain and layer.'],
-          ]}
-          onChange={p.onView}
-        />
+        <div className="section-head">
+          <div className="section-title">view</div>
+          <Choice
+            label="view"
+            value={p.view}
+            options={[
+              ['code', 'code', 'Repositories, folders, files, symbols.'],
+              ['function', 'by function', 'Symbols grouped by domain and layer.'],
+            ]}
+            onChange={p.onView}
+          />
+        </div>
         <div className="setting">
           <span className="setting-name small">colour by</span>
           <Choice
@@ -157,6 +159,7 @@ const LAYERS_OPEN = 'strata.layersOpen';
  */
 function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { graph: Graph; workspace: Workspace }) {
   const [error, setError] = useState<string | null>(null);
+  const [sortError, setSortError] = useState<string | null>(null);
 
   const [open, setOpen] = useState(() => {
     try {
@@ -184,6 +187,8 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
     return m;
   }, [graph]);
 
+  const unsorted = useMemo(() => stillUnsorted(graph), [graph]);
+
   const choose = async (preset: LayerPreset) => {
     if (preset === graph.preset) return;
 
@@ -194,26 +199,65 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
 
   const file = workspace.project.groupingLocation;
   const rows = [...graph.layers, ...(counts.get(UNLAYERED) ? [{ id: UNLAYERED, name: 'Unlayered' }] : [])];
+  const s = workspace.sorting;
+  const by = s?.by ?? 'The model';
+
+  const sortPill =
+    !s || s.status === 'idle' || s.status === 'error' ? null : s.status === 'off' ? (
+      <span
+        className="tag sorting"
+        title={
+          workspace.account
+            ? 'Sorted by rules. Add a model key below to sort the rest.'
+            : `Sorted by rules. Set a model API key${s.keyHint ? ` (${s.keyHint})` : ''} on the indexer to sort the rest.`
+        }
+      >
+        rules
+      </span>
+    ) : s.status === 'running' ? (
+      <span className="tag sorting busy" title={`${by} is sorting…`}>
+        sorting…
+      </span>
+    ) : (
+      <span className="tag sorting" title={sortSummary(s, unsorted)}>
+        {sortTag(s, unsorted)}
+      </span>
+    );
+
+  const sortAgain = s && s.status !== 'idle' && canEdit(workspace) && s.available && s.status !== 'running' && (
+    <button
+      className="link"
+      title={`Sort remaining items with ${by}`}
+      onClick={() => onSortAgain().then(() => setSortError(null), (err: Error) => setSortError(err.message))}
+    >
+      sort again
+    </button>
+  );
 
   const problems = (
     <>
+      {s?.status === 'error' && <Problem text={`${by} sort failed. ${s.error ?? ''}`} />}
+      {sortError && <Problem text={sortError} />}
       {workspace.project.groupingError && <Problem text={`Grouping not applied: ${workspace.project.groupingError}`} />}
       {error && <Problem text={error} />}
     </>
   );
 
   const heading = (
-    <button className="section-title fold" onClick={fold} aria-expanded={open}>
-      layers <span className="muted num">· {graph.layers.length}</span>
-      <Chevron dir={open ? 'down' : 'right'} size={16} />
-    </button>
+    <div className="section-head">
+      <button className="section-title fold" onClick={fold} aria-expanded={open} title={canEdit(workspace) ? `Edit layers and rules in ${file}` : undefined}>
+        layers <span className="muted num">· {graph.layers.length}</span>
+        <Chevron dir={open ? 'down' : 'right'} size={16} />
+      </button>
+      {sortPill}
+      {sortAgain}
+    </div>
   );
 
   if (!open) {
     return (
       <section className="section">
         {heading}
-        <Sorting graph={graph} workspace={workspace} onSortAgain={onSortAgain} />
         {problems}
       </section>
     );
@@ -222,10 +266,11 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
   return (
     <section className="section">
       {heading}
-      <Sorting graph={graph} workspace={workspace} onSortAgain={onSortAgain} />
       {canEdit(workspace) && (
         <div className="setting layer-choice">
-          <span className="setting-name small">preset</span>
+          <span className="setting-name small" title={`Edit layers and rules in ${file}`}>
+            preset
+          </span>
           <Choice label="layer preset" value={graph.preset ?? ''} options={PRESET_OPTIONS} onChange={(p) => p && choose(p)} />
         </div>
       )}
@@ -239,65 +284,8 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
         ))}
         {!rows.length && <div className="muted small">No layers.</div>}
       </div>
-      {canEdit(workspace) && (
-        <div className="layer-file" title={file}>
-          Edit in {file.split(/[\\/]/).pop()}
-        </div>
-      )}
       {problems}
     </section>
-  );
-}
-
-/** What the model's sort of the project did, or why there isn't one. Sits under the layers heading, folded or not. */
-function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: Workspace; onSortAgain(): Promise<void> }) {
-  const [error, setError] = useState<string | null>(null);
-  const unsorted = useMemo(() => stillUnsorted(graph), [graph]);
-  const s = workspace.sorting;
-
-  if (!s || s.status === 'idle') return null;
-  const by = s.by ?? 'The model';
-
-  const again = canEdit(workspace) && s.available && s.status !== 'running' && (
-    <>
-      {' '}
-      <button className="link" title={`Sort remaining items with ${by}`} onClick={() => onSortAgain().then(() => setError(null), (err: Error) => setError(err.message))}>
-        sort again
-      </button>
-    </>
-  );
-
-  if (s.status === 'error') {
-    return (
-      <>
-        <Problem text={`${by} sort failed. ${s.error ?? ''}`} />
-        <div className="layer-file sorting">{again}</div>
-      </>
-    );
-  }
-
-  let text: ReactNode;
-
-  if (s.status === 'off' && workspace.account) {
-    text = <span>sorted by rules · add a model key below for the rest</span>;
-  } else if (s.status === 'off') {
-    text = (
-      <span title={`Set a model API key${s.keyHint ? ` (${s.keyHint})` : ''} on the indexer to sort the rest.`}>
-        sorted by rules · set an indexer key for the rest
-      </span>
-    );
-  } else if (s.status === 'running') {
-    text = <span className="busy">{by} is sorting…</span>;
-  } else {
-    text = sortSummary(s, unsorted);
-  }
-
-  return (
-    <div className="layer-file sorting">
-      {text}
-      {again}
-      {error && <Problem text={error} />}
-    </div>
   );
 }
 
@@ -419,7 +407,20 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
 
   return (
     <section className="section">
-      <div className="section-title">repositories</div>
+      <div className="section-head">
+        <div className="section-title">repositories</div>
+        {editable && folder.available && (
+          <button
+            className="link"
+            disabled={!!folder.progress}
+            onClick={() => folder.start()}
+            title={`Upload source files only (up to ${Math.round(workspace!.upload!.maxBytes / (1 << 20))} MB). Ignored files, dependencies and git history stay local.`}
+          >
+            upload folder
+          </button>
+        )}
+      </div>
+      {editable && folder.available && folder.field}
       {offline && <Problem text={offline} />}
       {!!repos.length && (
         <div className="repo-list">
@@ -481,23 +482,9 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
           </button>
         </form>
       )}
-      {editable && folder.available && (
+      {editable && folder.progress && (
         <div className="upload-line" aria-live="polite">
-          {folder.progress ? (
-            <span className="busy">{folder.progress}</span>
-          ) : (
-            <>
-              or{' '}
-              <button
-                className="link"
-                onClick={() => folder.start()}
-                title={`Upload source files only (up to ${Math.round(workspace!.upload!.maxBytes / (1 << 20))} MB). Ignored files, dependencies and git history stay local.`}
-              >
-                upload a folder
-              </button>
-            </>
-          )}
-          {folder.field}
+          <span className="busy">{folder.progress}</span>
         </div>
       )}
       {error && <Problem text={error} />}

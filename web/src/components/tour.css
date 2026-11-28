@@ -57,9 +57,7 @@
 .tour-next:hover:not(:disabled) { color: var(--accent); }
 .tour-next:disabled { border-color: var(--hairline-strong); color: var(--faint); cursor: default; }
 
-.tour-keys { margin-top: var(--space-xs); font-size: var(--size-fine); line-height: var(--leading-fine); color: var(--muted); }
 @media (pointer: coarse) {
-  .tour-keys { display: none; }
   /* The same thin rules, with a hit area a finger can find. */
   .tour-tick { flex-basis: var(--size-hit); max-width: none; height: var(--size-hit); padding: 21px 0; }
   .tour-tick.here { padding: 20px 0; }
