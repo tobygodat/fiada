@@ -341,6 +341,7 @@ test('personalLLM: once the key is removed, nothing more goes out, retries and f
 
   live = true;
   let fetches = 0;
+  let sent = new Headers();
   const hostHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
   // A host's own credentials in the SDK's environment never ride along with a person's key.
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-api-key: host-key\nauthorization: Bearer host-token\ncookie: host=1\nproxy-authorization: Basic host';
@@ -351,10 +352,7 @@ test('personalLLM: once the key is removed, nothing more goes out, retries and f
         fetches++;
         live = false;
         assert.match(String(url), /^https:\/\/api\.anthropic\.com\//);
-        const headers = new Headers(init?.headers);
-        assert.equal(headers.get('x-api-key'), ANTHROPIC_KEY);
-        assert.deepEqual([...headers.keys()].filter((h) => !/^(content-type|accept|user-agent|anthropic-.+|x-stainless-.+|x-api-key)$/.test(h)), []);
-        assert.ok(headers.get('anthropic-version'));
+        sent = new Headers(init?.headers);
 
         return new Response('{}', { status: 529 });
       }) as typeof fetch,
@@ -367,6 +365,9 @@ test('personalLLM: once the key is removed, nothing more goes out, retries and f
   }
 
   assert.equal(fetches, 1);
+  assert.equal(sent.get('x-api-key'), ANTHROPIC_KEY);
+  assert.deepEqual([...sent.keys()].filter((h) => !/^(content-type|accept|user-agent|anthropic-.+|x-stainless-.+|x-api-key)$/.test(h)), []);
+  assert.ok(sent.get('anthropic-version'));
 });
 
 test("checkModelKey: lists the provider's models with the key, and never repeats what the provider answered", async () => {
