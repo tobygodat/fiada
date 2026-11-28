@@ -123,9 +123,10 @@ export function personalLLM(k: ModelKey, use: 'sort' | 'summaries', live: () => 
     own: true,
     fetch: (input, init) => {
       if (!live()) return Promise.reject(removed());
-      // The person's key and no other credentials, whatever the host's ANTHROPIC_CUSTOM_HEADERS add.
-      const headers = new Headers(init?.headers);
-      headers.delete('authorization');
+      // The SDK's own protocol headers and the person's key, and nothing the host's ANTHROPIC_CUSTOM_HEADERS add.
+      const headers = new Headers();
+
+      for (const [name, value] of new Headers(init?.headers)) if (/^(content-type|accept|user-agent|anthropic-.+|x-stainless-.+)$/.test(name)) headers.set(name, value);
       headers.set('x-api-key', k.key);
 
       return (base.fetch ?? fetch)(input, { ...init, headers });

@@ -78,6 +78,9 @@ const returned = ((): Returned => {
 /** Why the last sign-in failed, to show on the sign-in screen. */
 export const signInError = returned.error ?? null;
 
+/** Whether the session is in local storage, where another tab signing out removes it. */
+let sessionStored = true;
+
 /** The signed-in session, on an indexer people sign in to; remembered in this browser. */
 let session: string | null = (() => {
   if (typeof window === 'undefined') return null;
@@ -88,6 +91,8 @@ let session: string | null = (() => {
     return returned.session ?? window.localStorage.getItem(SESSION_ITEM);
   } catch {
     // storage blocked: the session lasts until the page is reloaded
+    sessionStored = false;
+
     return returned.session ?? null;
   }
 })();
@@ -97,15 +102,12 @@ const MODEL_KEY_ITEM = 'fiada.modelKey';
 /** The key, and the session it was saved under, when local storage couldn't take it: this tab only. */
 let unstored: { session: string; key: string } | null = null;
 
-/** Bumps whenever this tab saves or removes the key, for what has to ask the indexer again. */
-export let modelKeyRev = 0;
-
 /** The session this browser is signed in with now: another tab may have signed out since this one loaded. */
 function currentSession(): string | null {
-  try {
-    const stored = window.localStorage.getItem(SESSION_ITEM);
+  if (!sessionStored) return session;
 
-    return stored === session ? session : null;
+  try {
+    return window.localStorage.getItem(SESSION_ITEM) === session ? session : null;
   } catch {
     return session;
   }
@@ -123,7 +125,8 @@ function modelKey(): string | null {
   let held = unstored;
 
   try {
-    held = JSON.parse(window.localStorage.getItem(MODEL_KEY_ITEM) ?? 'null') ?? unstored;
+    // This tab's own, when storage couldn't take it, over whatever storage still holds.
+    held = unstored ?? JSON.parse(window.localStorage.getItem(MODEL_KEY_ITEM) ?? 'null');
   } catch {
     // storage blocked, or not ours to read: this tab's own
   }
@@ -134,7 +137,6 @@ function modelKey(): string | null {
 function keepModelKey(key: string | null) {
   const value = key && session ? { session, key } : null;
   unstored = null;
-  modelKeyRev++;
 
   try {
     if (value) window.localStorage.setItem(MODEL_KEY_ITEM, JSON.stringify(value));
@@ -145,11 +147,19 @@ function keepModelKey(key: string | null) {
   }
 }
 
-/** What the map shows of this browser's model key: whose it is and its last four characters, never the rest. */
-export function heldModelKey(): { provider: 'Anthropic' | 'OpenAI'; end: string } | null {
+/**
+ * What the map shows of this browser's model key: whose it is and its last four characters, never the rest,
+ * and a short tag that changes with the key, for what has to ask the indexer again when it does.
+ */
+export function heldModelKey(): { provider: 'Anthropic' | 'OpenAI'; end: string; tag: number } | null {
   const key = modelKey();
 
-  return key ? { provider: key.startsWith('sk-ant-') ? 'Anthropic' : 'OpenAI', end: key.slice(-4) } : null;
+  if (!key) return null;
+  let tag = 0;
+
+  for (let i = 0; i < key.length; i++) tag = (tag * 31 + key.charCodeAt(i)) | 0;
+
+  return { provider: key.startsWith('sk-ant-') ? 'Anthropic' : 'OpenAI', end: key.slice(-4), tag };
 }
 
 /** Told when the indexer says this browser has to sign in (again). */
@@ -272,11 +282,13 @@ export const api = {
   sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
   /** Checks the person's own key with its provider, then keeps it in this browser; the next request puts it to use. */
   saveModelKey: async (key: string) => {
-    const from = session;
+    const from = currentSession();
+
+    if (!from) throw new Error('Sign in again to save a key.');
     await call<{ ok: boolean }>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
 
     // Signed out here or in another tab, or in as someone else, while the provider answered: not theirs to keep.
-    if (!from || currentSession() !== from) throw new Error('You signed out while the key was being checked.');
+    if (currentSession() !== from) throw new Error('You signed out while the key was being checked.');
     keepModelKey(key.trim());
   },
   /** Forgets the person's own key here first, then at the indexer. */

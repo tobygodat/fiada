@@ -343,7 +343,7 @@ test('personalLLM: once the key is removed, nothing more goes out, retries and f
   let fetches = 0;
   const hostHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
   // A host's own credentials in the SDK's environment never ride along with a person's key.
-  process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-api-key: host-key\nauthorization: Bearer host-token';
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-api-key: host-key\nauthorization: Bearer host-token\ncookie: host=1\nproxy-authorization: Basic host';
 
   try {
     const claude = personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', () => live, {}, {
@@ -353,7 +353,8 @@ test('personalLLM: once the key is removed, nothing more goes out, retries and f
         assert.match(String(url), /^https:\/\/api\.anthropic\.com\//);
         const headers = new Headers(init?.headers);
         assert.equal(headers.get('x-api-key'), ANTHROPIC_KEY);
-        assert.equal(headers.get('authorization'), null);
+        assert.deepEqual([...headers.keys()].filter((h) => !/^(content-type|accept|user-agent|anthropic-.+|x-stainless-.+|x-api-key)$/.test(h)), []);
+        assert.ok(headers.get('anthropic-version'));
 
         return new Response('{}', { status: 529 });
       }) as typeof fetch,
