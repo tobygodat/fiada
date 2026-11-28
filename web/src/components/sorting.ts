@@ -17,18 +17,26 @@ export function stillUnsorted(graph: Graph): number {
 }
 
 export function sortSummary(s: SortingState, unsorted: number): string {
-  const by = s.by ?? 'The model';
+  const by = s.by ?? 'Model';
   const domains: string[] = [];
 
-  for (const [verb, n] of Object.entries({ renamed: s.renamed, merged: s.merged, added: s.added })) if (n) domains.push(`${verb} ${domains.length ? n : plural(n, 'domain')}`);
+  for (const [verb, n] of Object.entries({ renamed: s.renamed, merged: s.merged, added: s.added })) {
+    if (n) domains.push(`${verb} ${domains.length ? n : plural(n, 'domain')}`);
+  }
 
-  const placed = s.placed
-    ? `placed ${plural(s.placed, 'file or symbol', 'files and symbols')} the classifier couldn't`
-    : unsorted
-      ? 'placed nothing'
-      : 'found nothing the classifier left unplaced';
+  const head = s.placed || unsorted || domains.length ? `${by} placed ${s.placed ?? 0}` : 'All sorted by rules';
+  const parts = [[head, ...domains].join(', '), ...(unsorted ? [`${unsorted} unsorted`] : [])];
 
-  const left = unsorted ? ` ${plural(unsorted, 'file or symbol is', 'files and symbols are')} still Unlayered or Unsorted.` : '';
+  return parts.join(' · ');
+}
 
-  return `${by} ${placed}${domains.length ? `, ${domains.join(', ')}` : ''}.${s.placed ? ' Each says why in its details.' : ''}${left}`;
+/** Short label for the layers header tag; `sortSummary` gives the full tooltip. */
+export function sortTag(s: SortingState, unsorted: number): string {
+  if (s.placed) return unsorted ? `placed ${s.placed} · ${unsorted} unsorted` : `placed ${s.placed}`;
+
+  if (unsorted) return `${unsorted} unsorted`;
+
+  if (s.renamed || s.merged || s.added) return s.by ?? 'model';
+
+  return 'rules';
 }

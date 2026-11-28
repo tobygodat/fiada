@@ -374,26 +374,26 @@ function hereIds(f: AgentFile, tree: Tree): string[] {
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-/** "12 of 19 changes read". */
-export const readWords = (read: number, total: number) => `${read} of ${plural(total, 'change')} read`;
+/** "12/19 read". */
+export const readWords = (read: number, total: number) => `${read}/${total} read`;
 
 /** "2 files changed: 1 added, 1 modified" for a tooltip. */
 export function describeMarks(m: Marks, view: Tree['view']): string {
   const parts: string[] = [];
 
-  if (m.here) parts.push(m.here === 'self' ? 'an agent is working here' : 'an agent is working inside');
+  if (m.here) parts.push(m.here === 'self' ? 'working here' : 'working inside');
 
   if (m.self) parts.push(m.self);
-  else if (m.looked) parts.push(m.looked === 'self' ? 'an agent looked at this' : 'an agent looked inside');
+  else if (m.looked) parts.push(m.looked === 'self' ? 'looked at' : 'looked inside');
   const n = changeCount(m);
 
   if (n) {
     const kinds = (['added', 'modified', 'deleted'] as const).flatMap((k) => (m[k] ? [`${m[k]} ${k}`] : []));
-    parts.push(`${plural(n, view === 'code' ? 'file' : 'symbol')} changed inside: ${kinds.join(', ')}`);
+    parts.push(`${plural(n, view === 'code' ? 'file' : 'symbol')} changed: ${kinds.join(', ')}`);
     parts.push(readWords(n - m.unread, n));
   }
 
-  if (m.selfUnread) parts.push('changed since you last looked');
+  if (m.selfUnread) parts.push('unread');
 
   return parts.join(' · ');
 }
@@ -482,7 +482,7 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
     return andList(groups.map(([repo, n], i) => `${n}${i ? '' : ` ${noun[n === 1 ? 0 : 1]}`} ${prep} ${repo}`));
   };
 
-  const guessed = (n: number, total: number) => (n ? (n === total ? (total === 1 ? ', inferred' : ', all inferred') : `, ${n} of them inferred`) : '');
+  const guessed = (n: number, total: number) => (n ? (n === total ? ', inferred' : `, ${n} inferred`) : '');
 
   const out: string[] = [];
 
@@ -515,7 +515,7 @@ export function reachSentences(g: GraphNode, edges: readonly GraphEdge[], graphI
     out.push(`${byRepo(ids, noun, 'in')} ${verb} this ${thing(g)}${guessed(unsure, users.size)}.`);
   }
 
-  if (!out.length && (g.routes?.length || g.exported)) out.push(`Nothing in the imported repositories reaches this ${g.routes?.length ? 'route' : thing(g)} yet.`);
+  if (!out.length && (g.routes?.length || g.exported)) out.push('No callers in imported repos.');
 
   // Sentences start with a capital.
   return out.map((s) => s[0].toUpperCase() + s.slice(1));

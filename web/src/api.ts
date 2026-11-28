@@ -11,10 +11,10 @@ export const API_BASE = apiBase(import.meta.env.VITE_API_URL);
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
 /** Said when nothing answers at the indexer's address. */
-const UNREACHABLE = API_BASE ? `Can't reach the indexer at ${API_BASE}.` : "Can't reach the indexer. Start it with bun run dev.";
+const UNREACHABLE = API_BASE ? `Indexer unreachable at ${API_BASE}.` : 'Indexer unreachable. Run bun run dev.';
 
 /** Said when /api on the page's own host is a plain 404: a deployed build without VITE_API_URL. */
-const NOT_SET_UP = 'No indexer is set up for this deployment. Set VITE_API_URL to the hosted indexer and redeploy (see Deploy in docs/HOSTING.md).';
+const NOT_SET_UP = 'No indexer configured. Set VITE_API_URL and redeploy (see docs/HOSTING.md).';
 
 const KEY_ITEM = 'strata.key';
 
@@ -237,7 +237,7 @@ async function call<T>(path: string, init?: Omit<RequestInit, 'body'> & { body?:
     if (body.error) throw new Error(body.error);
 
     if (res.status === 404) throw new Error(API_BASE ? UNREACHABLE : NOT_SET_UP);
-    throw new Error(`The indexer answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
+    throw new Error(`Indexer error ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
   }
 
   return body as T;
@@ -288,7 +288,7 @@ export const api = {
     await call<{ ok: boolean }>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
 
     // Signed out here or in another tab, or in as someone else, while the provider answered: not theirs to keep.
-    if (currentSession() !== from) throw new Error('You signed out while the key was being checked.');
+    if (currentSession() !== from) throw new Error('Signed out while checking the key. Sign in again.');
     keepModelKey(key.trim());
   },
   /** Forgets the person's own key here first, then at the indexer. */

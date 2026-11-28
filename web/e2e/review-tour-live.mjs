@@ -58,7 +58,7 @@ const goTo = async (name) => {
 };
 
 const count = async () => {
-  const m = /change (\d+) of (\d+)/.exec(await page.locator('.tour-count').innerText());
+  const m = /(\d+)\/(\d+)/.exec(await page.locator('.tour-count').innerText());
   assert.ok(m, 'the tour says where you are');
 
   return { at: +m[1], of: +m[2] };
@@ -152,7 +152,7 @@ try {
   assert.equal(await page.locator('.tour-name').innerText(), 'update_user', 'still the same change');
   await page.waitForTimeout(600);
   assert.equal(await page.locator('.detail-title').innerText(), 'crud.py', 'a deleted function is read on its file');
-  assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by an agent · update_user/);
+  assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by agent · update_user/);
   assert.equal(await page.locator('.agent-diff').count(), 1);
   assert.match(await page.locator('.agent-diff').innerText(), /def update_user\(/, 'the hunk that takes it away');
   assert.doesNotMatch(await page.locator('.agent-diff').innerText(), /def items_by_priority/, 'and not another function’s');
@@ -178,7 +178,7 @@ try {
   await page.waitForTimeout(1500);
   await goTo('utils.py');
   assert.equal(await page.locator('.detail-title').innerText(), 'backend/app', 'a deleted file is read on its folder');
-  assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by an agent · backend\/app\/utils\.py/);
+  assert.match(await page.locator('.agent-change .block-title').innerText(), /deleted by agent · backend\/app\/utils\.py/);
   assert.equal(await page.locator('.agent-diff').count(), 1);
   assert.ok((await page.locator('.agent-diff .del').count()) > 10, 'the deleted lines are shown');
   execFileSync('git', ['-C', repo, 'checkout', 'HEAD', '--', GONE]);
@@ -228,7 +228,7 @@ try {
   hook('demo-review', BIG);
   await page.waitForTimeout(1500);
   await page.locator('.tour-cut').waitFor();
-  assert.match(await page.locator('.tour-cut').innerText(), /cut this diff short/);
+  assert.match(await page.locator('.tour-cut').innerText(), /Diff truncated by agent/);
 
   if (shots) await page.locator('.tour').screenshot({ path: join(shots, 'tour-cut.png') });
   execFileSync('git', ['-C', repo, 'rm', '-q', '--cached', BIG]);

@@ -137,8 +137,8 @@ test('an agent says how many of its files you have read', () => {
   const marks = markRead({}, 'web/src/pages/items.tsx', nodes)!;
   const u = unreadIds(nodes, marks);
   assert.deepEqual(agentRead(a, u, marks, nodes), { read: 2, total: 3 }, 'a file off the map has nothing to read');
-  assert.equal(readWords(12, 19), '12 of 19 changes read');
-  assert.equal(readWords(1, 1), '1 of 1 change read');
+  assert.equal(readWords(12, 19), '12/19 read');
+  assert.equal(readWords(1, 1), '1/1 read');
 });
 
 test('closed circles count what is unread inside, and changed nodes say they are unread', () => {

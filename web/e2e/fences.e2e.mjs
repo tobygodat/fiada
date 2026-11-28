@@ -218,12 +218,12 @@ try {
   await fence.getByRole('radio', { name: 'off limits' }).click();
   await until('the off-limits fence', async () => (await api('GET', '/api/fences')).fences.some((f) => f.node === CORE && f.rule === 'off'));
   await fence.locator('.fence-words.off').waitFor();
-  assert.match(await fence.locator('.fence-words.off').innerText(), /Agents can't change anything in this module with their edit tools/);
+  assert.match(await fence.locator('.fence-words.off').innerText(), /Agent edit tools can't change anything in this module/);
   await pause(800);
   await shot('after-fence-off');
   step('a file inside says which fence it is in');
   await open(R, 'backend/app', 'core', 'config.py');
-  assert.match(await page.locator('.fence-block').innerText(), new RegExp(`Inside the off-limits fence round ${CORE.replace(/\//g, '\\/')}`));
+  assert.match(await page.locator('.fence-block').innerText(), new RegExp(`Inside off-limits fence: ${CORE.replace(/\//g, '\\/')}`));
   step('…and from the by-function view, its link switches to code to show the fence');
   await page.keyboard.press('Escape');
   await views.getByRole('radio', { name: 'by function' }).click();
@@ -265,7 +265,7 @@ try {
   await page.keyboard.press('Escape');
   const stopped = page.locator('.queue-fenced.deny');
   await stopped.waitFor();
-  assert.equal(await stopped.innerText(), `stopped at the off-limits fence round ${CORE}: config.py stays as it is`);
+  assert.equal(await stopped.innerText(), `blocked edit to config.py: off-limits (${CORE})`);
   await pause(1200);
   await shot('after-blocked');
 

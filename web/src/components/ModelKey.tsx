@@ -37,50 +37,61 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
     if (input.trim()) change(input.trim());
   };
 
+  const keyNotice = 'Billed to your provider account. Stored in this browser only; held in indexer memory, never on disk.';
+
   return (
     <section className="section">
-      <div className="section-title">model key</div>
-      {held && !replacing ? (
-        <p className="small muted account-line">
-          <span className="account-name">{held.provider}</span> key ending <span className="account-name num">{held.end}</span> sorts and summarises your map ·{' '}
-          <button className="link" onClick={() => setReplacing(true)}>
-            replace
+      <div className="section-head">
+        <div className="section-title">model key</div>
+        {held && !replacing ? (
+          <>
+            <span className="tag" title={keyNotice}>
+              {held.provider} …{held.end}
+            </span>
+            <button className="link" onClick={() => setReplacing(true)}>
+              replace
+            </button>
+            <button className="link danger" disabled={pending} onClick={() => change(null)}>
+              remove
+            </button>
+          </>
+        ) : replacing ? (
+          <button className="link" onClick={() => setReplacing(false)}>
+            cancel
           </button>
-          {' · '}
-          <button className="link danger" disabled={pending} onClick={() => change(null)}>
-            remove
-          </button>
-        </p>
-      ) : (
+        ) : (
+          <span className="tag" title="Anthropic or OpenAI key for sorting and summaries">
+            optional
+          </span>
+        )}
+      </div>
+      {(!held || replacing) && (
         <>
-          <p className="small muted account-line">
-            Without one, the rules sort your map. Add your own Anthropic or OpenAI API key to sort the rest and write summaries, on your account
-            with that provider.
-          </p>
-          <form className="import key-form" onSubmit={save}>
+          <form className="import" onSubmit={save}>
             <input
-              type="password"
+              type="text"
+              className="key-input"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="sk-ant-… or sk-…"
-              aria-label="Your Anthropic or OpenAI API key"
+              aria-label="Anthropic or OpenAI API key"
+              title={keyNotice}
               autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
+              data-form-type="other"
               spellCheck={false}
             />
             <button type="submit" disabled={pending || !input.trim()}>
               {pending ? 'checking…' : 'save'}
             </button>
           </form>
-          {replacing && (
-            <p className="small muted account-line">
-              <button className="link" onClick={() => setReplacing(false)}>
-                keep the current key
-              </button>
-            </p>
-          )}
+          <p className="small muted account-line">Stored in this browser; the indexer keeps it in memory only · billed to your provider account.</p>
         </>
       )}
-      <p className="small muted account-line">It stays in this browser. The indexer holds it in memory for your map alone, never on disk.</p>
       {error && (
         <p className="notice" role="alert">
           <span className="lead">Couldn't {held && !replacing ? 'remove' : 'save'} the key.</span> {error}

@@ -138,7 +138,7 @@ const check = (ok, what) => {
 try {
   await page.goto(app);
   await pause(0);
-  await page.getByLabel('Repository to import: org/repo, a git URL, or a local path').pressSequentially(path.resolve(repo), { delay: pace ? 12 : 0 });
+  await page.getByLabel('Repository to import').pressSequentially(path.resolve(repo), { delay: pace ? 12 : 0 });
   await pause(400);
   await page.getByRole('button', { name: 'import', exact: true }).click();
 
@@ -148,7 +148,7 @@ try {
   await page.waitForFunction(() => {
     const t = document.querySelector('.sorting')?.textContent ?? '';
 
-    return t && !/is sorting/.test(t);
+    return t && !/sorting/.test(t);
   }, null, { timeout: 120_000 });
   await pause(800);
   const said = (await sorting.textContent()).trim();
@@ -178,7 +178,7 @@ try {
   } else {
     check(unsorted === 0, `every symbol has a domain (${unsorted} of ${leaves.length} unsorted)`);
     check(byModel === leaves.length, `the model placed all ${leaves.length} (${byModel})`);
-    check(/placed \d+ files and symbols the classifier couldn't/.test(said), 'the sidebar says what the sort placed');
+    check(/placed \d+/.test(said), 'the sidebar says what the sort placed');
     check(!sortLines.some((l) => /asking again/.test(l)), 'no file needed a second ask');
 
     // A domain in the outline, then one of its symbols, then why it's there.

@@ -121,11 +121,11 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
           <Facts
             rows={[
               ['source', repo.source],
-              ['commit', repo.commit ?? '—'],
+              ['commit', repo.commit ?? 'none'],
               ['files', `${repo.fileCount ?? 0}${repo.truncated ? ` (${repo.truncated} skipped)` : ''}`],
               ['symbols', String(repo.symbolCount ?? 0)],
-              ['languages', Object.entries(repo.languages ?? {}).map(([l, c]) => `${l} ${c}`).join(', ') || '—'],
-              ['frameworks', repo.frameworks?.join(', ') || '—'],
+              ['languages', Object.entries(repo.languages ?? {}).map(([l, c]) => `${l} ${c}`).join(', ') || 'none'],
+              ['frameworks', repo.frameworks?.join(', ') || 'none'],
             ]}
           />
         </div>
@@ -159,9 +159,9 @@ function NodeDetail({ graph, graphIndex, tree, pal, colorBy, n, activity, shownC
 type FenceChoice = FenceRule | 'none';
 
 const FENCE_OPTIONS: [FenceChoice, string, string][] = [
-  ['none', 'none', 'Agents change it as usual.'],
-  ['ask', 'ask first', "Before an agent's file edit inside lands, you're asked."],
-  ['off', 'off limits', "Agents' file edits inside are refused."],
+  ['none', 'none', 'No restriction.'],
+  ['ask', 'ask first', "Ask before agent edit tools change this. Shell commands aren't checked."],
+  ['off', 'off limits', "Block agent edit tools here. Shell commands aren't checked."],
 ];
 
 const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
@@ -197,27 +197,31 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
 
   const sentence =
     value === 'off'
-      ? `Agents can't change anything ${inside} with their edit tools: the edit is refused before it lands. Shell commands aren't checked.`
+      ? `Agent edit tools can't change anything ${inside}. Shell commands aren't checked.`
       : value === 'ask'
-        ? `Agents ask you before they change anything ${inside} with their edit tools. Shell commands aren't checked.`
-        : 'Agents change it as usual.';
+        ? `Agents ask you before their edit tools change anything ${inside}. Shell commands aren't checked.`
+        : onFence && !around
+          ? 'A fence covers agent edit tools, not shell commands.'
+          : null;
 
   return (
     <div className="detail-block fence-block" aria-busy={busy}>
-      <div className="block-title">fence</div>
-      {onFence ? (
-        <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
-      ) : (
-        <div className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</div>
-      )}
-      <p className={`fence-words${value === 'none' ? '' : ' ' + value}`}>{sentence}</p>
+      <div className="block-head">
+        <div className="block-title">fence</div>
+        {onFence ? (
+          <Choice label="fence" value={value} options={FENCE_OPTIONS} onChange={(v) => void choose(v)} />
+        ) : (
+          <span className="fence-rule">{FENCE_OPTIONS.find(([v]) => v === value)![1]}</span>
+        )}
+      </div>
+      {sentence && <p className={`fence-words ${value}`}>{sentence}</p>}
       {around && (
         <p className="fence-words">
-          Inside the {FENCE_WORDS[around.rule]} fence round{' '}
+          Inside {FENCE_WORDS[around.rule]} fence:{' '}
           <button className="link" onClick={() => onSelect(around.node)}>
             {around.node}
           </button>
-          {around.rule === 'off' && value !== 'off' ? ", so agents' edits to it are refused too." : '.'}
+          {around.rule === 'off' && value !== 'off' ? ' (edits blocked).' : '.'}
         </p>
       )}
       {error && (
@@ -270,13 +274,13 @@ function Summary({ id, rev, fallback }: { id: string; rev: string; fallback: str
   const text = generated ? generated.text : s.doc ? (s.doc.length < 90 ? `${s.doc} ${s.line}` : s.doc) : s.line;
 
   const note = generated ? (
-    <span title={`Written ${new Date(generated.at).toLocaleString()} from the code and its neighbours`}>generated · {generated.model}</span>
+    <span title={`Generated ${new Date(generated.at).toLocaleString()}`}>generated · {generated.model}</span>
   ) : s.status === 'pending' ? (
-    <span className="busy">writing a summary…</span>
+    <span className="busy">summarising…</span>
   ) : s.status === 'error' ? (
-    <span>Couldn't write a summary: {s.error}</span>
+    <span>Summary failed: {s.error}</span>
   ) : (
-    <span title={s.off}>{s.doc ? 'its doc comment and the map' : 'from the map'}</span>
+    <span title={s.off}>{s.doc ? 'doc comment' : 'from map'}</span>
   );
 
   return (
@@ -452,18 +456,18 @@ function Code({ g, repo, rev }: { g: GraphNode; repo?: RepoInfo; rev: number }) 
         <span className="block-title">code</span>
         {g.kind === 'symbol' && all && (
           <button className="link" onClick={() => setWhole((w) => !w)}>
-            {whole ? 'just this symbol' : 'whole file'}
+            {whole ? 'symbol only' : 'whole file'}
           </button>
         )}
         {web && (
           <a className="link" href={web} target="_blank" rel="noreferrer">
-            open on GitHub ↗
+            GitHub ↗
           </a>
         )}
       </div>
       {error && (
         <div className="small muted">
-          <span className="err-lead">Couldn't load the source.</span> {error}
+          <span className="err-lead">Couldn't load source.</span> {error}
         </div>
       )}
       {!all && !error && <div className="muted small busy">loading…</div>}
@@ -493,8 +497,8 @@ function webUrl(repo: RepoInfo, path: string, lines: [number, number] | null): s
 }
 
 const SOURCE: Record<PlacementSource, string> = {
-  'user-pin': 'your pin',
-  'user-rule': 'your rule',
+  'user-pin': 'pin',
+  'user-rule': 'rule',
   fact: 'code',
   import: 'import',
   path: 'path',
@@ -503,7 +507,7 @@ const SOURCE: Record<PlacementSource, string> = {
   seed: 'seed',
   propagated: 'neighbours',
   cohesion: 'file',
-  model: 'inferred by a model',
+  model: 'inferred',
   fallback: 'no signal',
 };
 
@@ -511,7 +515,7 @@ const SOURCE: Record<PlacementSource, string> = {
 const decidedBy = (p: Placement) => (p.source === 'model' && p.inferredBy ? `inferred by ${modelLabel(p.inferredBy)}` : SOURCE[p.source]);
 
 const explain = (p: Placement) =>
-  [p.evidence[0]?.detail, ...p.evidence.slice(1).map((e) => `also ${e.detail}`), `${decidedBy(p)} · ${p.confidence.toFixed(2)}`].filter(Boolean).join(' · ');
+  [...p.evidence.map((e) => e.detail), `${decidedBy(p)} · ${p.confidence.toFixed(2)}`].filter(Boolean).join(' · ');
 
 /** "Why is this here?": the winning evidence for its layer and domain, and what the detectors saw. */
 function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; layer: Placement; domain: Placement }) {
@@ -527,7 +531,7 @@ function WhyHere({ graph, g, layer, domain }: { graph: Graph; g: GraphNode; laye
 
   return (
     <div className="detail-block">
-      <div className="block-title">why it's here</div>
+      <div className="block-title">placement</div>
       <Facts
         rows={[
           ['layer', layerName, explain(layer)],
@@ -569,8 +573,8 @@ function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void
   if (!items.length) {
     return (
       <div className="dep-col">
-        <div className="block-title fold-none" title="The indexer links imports, calls, renders, type uses and HTTP requests it can match to a route. Anything else won't show here.">
-          {title} <span className="muted">· none found</span>
+        <div className="block-title fold-none" title="Links from imports, calls, renders, types and matched HTTP routes.">
+          {title} <span className="muted">· 0</span>
         </div>
       </div>
     );
@@ -597,7 +601,7 @@ function DepList(p: { title: string; items: Dep[]; open: boolean; onFold(): void
           </button>
         );
       })}
-      {p.open && items.length > 40 && <div className="muted small">and {items.length - 40} more</div>}
+      {p.open && items.length > 40 && <div className="muted small">+{items.length - 40} more</div>}
     </div>
   );
 }
@@ -675,12 +679,6 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
 
   if (types.length) call.push(plural(types.length, 'shared type'));
 
-  const response = http.length
-    ? 'JSON from the matched route handlers.'
-    : types.length && !code.length
-      ? 'Compile-time only, no runtime traffic.'
-      : 'Return values of the called symbols; exceptions propagate to the caller.';
-
   return (
     <aside className="panel detail">
       <div className="detail-head">
@@ -692,27 +690,22 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
         </div>
         <div className="contract-ends">
           <button onClick={() => onSelect(A.id)}>{A.name}</button>
-          <span className="muted" title={both ? 'Interactions run both ways' : undefined}>
+          <span className="muted" title={both ? 'Bidirectional' : undefined}>
             {both ? '⇄' : '→'}
           </span>
           <button onClick={() => onSelect(B.id)}>{B.name}</button>
         </div>
       </div>
-      <div className="call-grid">
-        <span className="fact-k">call</span>
-        <span>{call.join('; ')}.</span>
-        <span className="fact-k">response</span>
-        <span>{response}</span>
-      </div>
+      {call.length > 0 && <div className="detail-block small muted">{call.join('; ')}</div>}
       {unproven > 0 && (
         <div className="detail-block no-evidence">
           {unproven === c.items.length ? (
             <>
-              <span className="lead">No evidence found.</span> The indexer recorded this link without the lines of code behind it, so treat it as unverified.
+              <span className="lead">Unverified.</span> No source lines recorded for this link.
             </>
           ) : (
             <>
-              <span className="lead">No evidence found</span> for {unproven} of these {c.items.length} interactions; they are marked below.
+              <span className="lead">Unverified:</span> {unproven} of {c.items.length} links lack source lines.
             </>
           )}
         </div>
@@ -736,7 +729,7 @@ function ContractDetail({ graph, graphIndex, tree, contract: c, activity, onSele
             onSelect={onSelect}
           />
         ))}
-        {c.items.length > 80 && <div className="muted small">and {c.items.length - 80} more</div>}
+        {c.items.length > 80 && <div className="muted small">+{c.items.length - 80} more</div>}
       </div>
     </aside>
   );
@@ -794,7 +787,7 @@ function Interaction(p: {
         </span>
         {guess && <span className="guess">inferred</span>}
         {!proven && p.markUnproven && (
-          <span className="guess" title="The indexer recorded this interaction without the code behind it">
+          <span className="guess" title="No source lines recorded">
             no evidence
           </span>
         )}
@@ -859,7 +852,7 @@ function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, Gr
     return at && at !== 'root' ? id : null;
   }, [graph, graphIndex, tree, ev]);
 
-  if (!file?.path) return <div className="muted small snippet">That file isn't in the map.</div>;
+  if (!file?.path) return <div className="muted small snippet">File not in map.</div>;
   const a = Math.max(1, ev.line - CONTEXT);
   const b = lines ? Math.min(lines.length, ev.line + CONTEXT) : a;
   const web = repo && webUrl(repo, file.path, [ev.line, ev.line]);
@@ -868,7 +861,7 @@ function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, Gr
     <div className="snippet">
       {error && (
         <div className="small muted">
-          <span className="err-lead">Couldn't load the source.</span> {error}
+          <span className="err-lead">Couldn't load source.</span> {error}
         </div>
       )}
       {!lines && !error && <div className="muted small busy">loading…</div>}
@@ -885,13 +878,13 @@ function Snippet(p: { ev: EdgeEvidence; graph: Graph; graphIndex: Map<string, Gr
       <div className="row gap">
         {target && (
           <button className="link" onClick={() => onSelect(target)}>
-            show {short(target)} on the map
+            show {short(target)}
           </button>
         )}
         <span className="grow" />
         {web && (
           <a className="link" href={web} target="_blank" rel="noreferrer">
-            open on GitHub ↗
+            GitHub ↗
           </a>
         )}
       </div>

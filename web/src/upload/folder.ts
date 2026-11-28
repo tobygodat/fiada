@@ -179,11 +179,11 @@ export async function collect(root: Folder, policy: UploadPolicy, onProgress?: (
         picked.bytes += file.size;
 
         if (picked.bytes > policy.maxBytes) {
-          throw new Error(`${root.name} has more than ${megabytes(policy.maxBytes)} of source files, the upload limit. Upload a smaller folder, or add generated code to its .gitignore.`);
+          throw new Error(`${root.name} exceeds the ${megabytes(policy.maxBytes)} upload limit. Upload a smaller folder or ignore generated files in .gitignore.`);
         }
 
         if (picked.sources > policy.maxFiles) {
-          throw new Error(`${root.name} has more than ${policy.maxFiles.toLocaleString('en-US')} source files, the upload limit. Upload a smaller folder.`);
+          throw new Error(`${root.name} exceeds the ${policy.maxFiles.toLocaleString('en-US')} file limit. Upload a smaller folder.`);
         }
 
         if (picked.sources % 200 === 0) onProgress?.(picked.sources, picked.bytes);
@@ -194,7 +194,7 @@ export async function collect(root: Folder, policy: UploadPolicy, onProgress?: (
   await walk(root, '', []);
   onProgress?.(picked.sources, picked.bytes);
 
-  if (!picked.sources) throw new Error(`Nothing to map in ${root.name}: it has no source files the indexer reads, or .gitignore ignores them all.`);
+  if (!picked.sources) throw new Error(`No supported source files in ${root.name} (or all are gitignored).`);
 
   return picked;
 }

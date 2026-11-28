@@ -28,10 +28,10 @@ const RULE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
 /** "two agents in fastapi/backend/app/api/routes": where agents' changes meet, as the map names it; `short` names only the last part. */
 export const collisionWords = (c: Collision, short = false) => `${count(c.agents.length)} agents in ${short ? c.node.slice(c.node.lastIndexOf('/') + 1) : c.node}`;
 
-/** What happened at a fence, in words: "stopped at the off-limits fence round …", "asked you first: …". */
+/** What happened at a fence, in words: "blocked edit to config.py: off-limits (api/app/core)". */
 export function fenceWords(h: FenceHit): string {
   const base = h.file.slice(h.file.lastIndexOf('/') + 1);
-  const round = h.node === h.file ? 'on it' : `round ${h.node}`;
+  const where = h.node === h.file ? '' : ` (${h.node})`;
 
-  return h.decision === 'deny' ? `stopped at the ${RULE_WORDS[h.rule]} fence ${round}: ${base} stays as it is` : `asked you before changing ${base}, for the ${RULE_WORDS[h.rule]} fence ${round}`;
+  return h.decision === 'deny' ? `blocked edit to ${base}: ${RULE_WORDS[h.rule]}${where}` : `asked before editing ${base}: ${RULE_WORDS[h.rule]}${where}`;
 }

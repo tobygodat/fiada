@@ -947,10 +947,7 @@ export function App() {
         {empty && (
           <div className="empty">
             <div className="empty-title">map a codebase</div>
-            <p>
-              Import one or more repositories from the sidebar. Fiada parses them, links imports, calls and HTTP routes across repos, and
-              draws one map you can open from systems down to symbols.
-            </p>
+            <p>Import a repository from the sidebar.</p>
           </div>
         )}
         <Sidebar
@@ -1037,7 +1034,6 @@ export function App() {
             colorBy={colorBy}
             pal={pal}
             layers={graph?.layers ?? []}
-            mode={mode}
             lit={spot ? (agents.state?.agents.find((a) => a.id === lit)?.name ?? 'an agent') : null}
           />
         )}
@@ -1050,25 +1046,17 @@ function Legend({
   colorBy,
   pal,
   layers,
-  mode,
   lit,
 }: {
   colorBy: ColorBy;
   pal: ReturnType<typeof palette>;
   layers: { id: string; name: string }[];
-  mode: ExpandMode;
   /** Name of the agent whose changes, and what it looked at, are lit. */
   lit: string | null;
 }) {
-  const hint = lit
-    ? `showing what ${lit} changed or looked at · esc for the whole map`
-    : mode === 'click'
-      ? 'point at a circle for its links · click it for details, again to open it'
-      : 'point at a circle for its links · scroll to open it';
-
   return (
     <div className="legend">
-      <span>{hint}</span>
+      {lit && <span>showing {lit}'s work · esc for all</span>}
       <span className="row gap">
         <span className="swatch-line" /> in-repo
       </span>

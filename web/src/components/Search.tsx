@@ -83,7 +83,7 @@ export function Search({ nodes, onPick }: Props) {
         ref={input}
         type="search"
         role="combobox"
-        aria-label="Search the map"
+        aria-label="Search map"
         aria-expanded={shown}
         aria-controls={list}
         aria-activedescendant={shown && hits[at] ? `${list}-${at}` : undefined}
@@ -103,7 +103,7 @@ export function Search({ nodes, onPick }: Props) {
       />
       {shown && (
         <ul className="search-hits" id={list} role="listbox" aria-label="Matches">
-          {hits.length === 0 && <li className="search-none">nothing called that</li>}
+          {hits.length === 0 && <li className="search-none">no matches</li>}
           {hits.map((h, i) => (
             <li
               key={h.id}

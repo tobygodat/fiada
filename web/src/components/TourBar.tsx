@@ -75,8 +75,8 @@ export function TourBar({ agent, stops, at, marks, layers, showing, ready, cut, 
     <section className="tour" aria-label="Review tour">
       <div className="tour-head">
         <h2 className="tour-title">review</h2>
-        <span className="tour-who">{agent}’s changes, in the order data flows</span>
-        <button className="queue-act" onClick={onEnd} title="End the review (esc)">
+        <span className="tour-who">{agent}</span>
+        <button className="queue-act" onClick={onEnd} title="End review (Esc)">
           end
         </button>
       </div>
@@ -104,43 +104,38 @@ export function TourBar({ agent, stops, at, marks, layers, showing, ready, cut, 
       <div className="tour-path" title={`${stop.repo}/${stop.path}`}>
         <bdi>{stop.path}</bdi>
       </div>
-      {showing && cut && <div className="tour-cut">the agent cut this diff short: part of the change isn't shown</div>}
-      {showing && behind && <div className="tour-cut">its latest change came without a diff: what's shown is from before it</div>}
+      {showing && cut && <div className="tour-cut">Diff truncated by agent.</div>}
+      {showing && behind && <div className="tour-cut">Showing previous diff; latest edit had none.</div>}
       {showing && (stop.shared || stop.topShared) && (
-        <div className="tour-cut">
-          another agent changed {stop.shared ? 'this' : 'the file’s other code'} too: some of its rows here may be theirs
-        </div>
+        <div className="tour-cut">Shared with another agent; some lines may be theirs.</div>
       )}
       <div className="tour-row">
         <span className="tour-count">
-          change {at + 1} of {stops.length}
-          {' · '}
-          {read === stops.length ? `all ${read} read` : `${read} read`}
+          {at + 1}/{stops.length} · {read} read
           {here && <span className="tour-read-word"> · read</span>}
         </span>
         <span className="tour-acts">
-          <button className="queue-act" onClick={() => onGo(at - 1)} disabled={at === 0} title="Previous change (←)">
-            previous
+          <button className="queue-act" onClick={() => onGo(at - 1)} disabled={at === 0} title="Previous (←)">
+            prev
           </button>
           {showing && !here && !ready ? (
-            <button className="queue-act" disabled title="The change is still loading">
-              loading the change
+            <button className="queue-act" disabled title="Loading diff">
+              loading…
             </button>
           ) : showing ? (
-            <button className="queue-act" onClick={readOrBack} title={here ? 'Mark this change unread (r)' : 'Mark this change read and go on (r)'}>
+            <button className="queue-act" onClick={readOrBack} title={here ? 'Mark unread (r)' : 'Mark read (r)'}>
               {here ? 'mark unread' : 'mark read'}
             </button>
           ) : (
-            <button className="queue-act" onClick={readOrBack} title="Show this change again (r)">
-              back to it
+            <button className="queue-act" onClick={readOrBack} title="Return to change (r)">
+              return
             </button>
           )}
-          <button className="tour-next" onClick={() => onGo(at + 1)} disabled={at === stops.length - 1} title="Next change (→)">
+          <button className="tour-next" onClick={() => onGo(at + 1)} disabled={at === stops.length - 1} title="Next (→)">
             next
           </button>
         </span>
       </div>
-      <div className="tour-keys">← → to step · r to mark read · esc to end</div>
     </section>
   );
 }

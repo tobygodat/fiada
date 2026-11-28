@@ -40,12 +40,12 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
       await navigator.clipboard.writeText(command);
       setSaid('copied');
     } catch {
-      setSaid('select the command and copy it');
+      setSaid('select and copy it');
     }
   };
 
   const remove = async () => {
-    if (!window.confirm('Delete your Fiada account? Your map, its imports, clones and summaries go too, and GitHub stops listing Fiada as an app you use. This cannot be undone.')) return;
+    if (!window.confirm('Delete your Fiada account? This permanently removes your map, imports, clones and summaries, and asks GitHub to revoke access.')) return;
 
     try {
       await api.deleteAccount();
@@ -66,7 +66,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
   const reset = async () => {
     try {
       setConn(await api.resetAgentToken());
-      setSaid('new token: agents set up with the old one have stopped reporting');
+      setSaid('token rotated; old agents disconnected');
     } catch (err) {
       setError(messageOf(err));
     }
@@ -74,16 +74,20 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
 
   return (
     <section className="section">
-      <div className="section-title">agents</div>
-      <p className="small muted account-line">
-        Let Claude Code show its work here.{' '}
-        <button className="link" aria-expanded={open} onClick={show}>
-          {open ? 'hide the setup' : 'connect an agent'}
+      <div className="section-head">
+        <div className="section-title">agents</div>
+        <button className="link" aria-expanded={open} aria-label={open ? 'hide setup' : undefined} onClick={show}>
+          {open ? 'hide' : 'connect an agent'}
         </button>
-      </p>
+        {!account && (
+          <a className="link" href="/privacy">
+            privacy
+          </a>
+        )}
+      </div>
       {open && (
         <div className="connect">
-          <p className="small muted">In your project's folder, run this, then start claude there:</p>
+          <p className="small muted">Run in project folder, then start Claude:</p>
           {command ? <div className="setup-command">{command}</div> : !error && <p className="small muted busy">loading…</p>}
           {command && (
             <p className="small muted">
@@ -93,7 +97,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
               {account && (
                 <>
                   {' · '}
-                  <button className="link" onClick={reset} title="Stop agents set up with the current token from reporting">
+                  <button className="link" onClick={reset} title="Revoke the current token and generate a new one">
                     new token
                   </button>
                 </>
@@ -101,19 +105,18 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
               {said && <> · {said}</>}
             </p>
           )}
-          <p className="small muted">Claude can then ask the map where code lives, what uses it and what an edit reaches; what it looked at shows as a faint dotted ring.</p>
-          {account && <p className="small muted">The token lets agents report to your map and ask it about your code, and nothing else. Keep it to yourself.</p>}
+          {account && <p className="small muted">Keep this token private; map access only.</p>}
           {error && (
             <p className="notice" role="alert">
-              <span className="lead">Couldn't get the setup.</span> {error}
+              <span className="lead">Couldn't load setup.</span> {error}
             </p>
           )}
         </div>
       )}
       {account && (
         <p className="small muted account-line">
-          signed in as <span className="account-name">{account.login}</span>
-          {!account.privateRepos && ' (public repositories only)'} ·{' '}
+          <span className="account-name">{account.login}</span>
+          {!account.privateRepos && ' (public only)'} ·{' '}
           <button className="link" onClick={leave}>
             sign out
           </button>
@@ -121,18 +124,17 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
           <button className="link danger" onClick={remove}>
             delete account
           </button>
+          {' · '}
+          <a className="link" href="/privacy">
+            privacy
+          </a>
         </p>
       )}
       {deleteError && (
         <p className="notice" role="alert">
-          <span className="lead">Couldn't delete your account.</span> {deleteError}
+          <span className="lead">Couldn't delete account.</span> {deleteError}
         </p>
       )}
-      <p className="small muted account-line">
-        <a className="link" href="/privacy">
-          privacy
-        </a>
-      </p>
     </section>
   );
 }

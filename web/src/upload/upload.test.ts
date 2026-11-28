@@ -132,12 +132,12 @@ test('a folder is walked for its source and packed into a tar the indexer can re
 
 test('a folder over the limit stops with the reason', async () => {
   const root = await repo();
-  await assert.rejects(collect(fromDisk(root), { ...POLICY, maxBytes: 40 }), /private-app has more than 0 MB of source files, the upload limit/);
-  await assert.rejects(collect(fromDisk(root), { ...POLICY, maxFiles: 2 }), /more than 2 source files/);
+  await assert.rejects(collect(fromDisk(root), { ...POLICY, maxBytes: 40 }), /private-app exceeds the 0 MB upload limit/);
+  await assert.rejects(collect(fromDisk(root), { ...POLICY, maxFiles: 2 }), /exceeds the 2 file limit/);
   const empty = path.join(path.dirname(root), 'empty');
   await fs.mkdir(empty);
   await fs.writeFile(path.join(empty, 'notes.md'), '# notes');
-  await assert.rejects(collect(fromDisk(empty), POLICY), /Nothing to map in empty/);
+  await assert.rejects(collect(fromDisk(empty), POLICY), /No supported source files in empty/);
 });
 
 test('an <input webkitdirectory> file list becomes the same folder', async () => {
