@@ -21,8 +21,8 @@ test('the fence round a node: off limits beats ask first, then the nearest; neve
 test('fences and meeting places in words', () => {
   assert.equal(collisionWords({ node: 'api/app/routes', unit: 'folder', agents: ['a', 'b'], files: {} }), 'two agents in api/app/routes');
   assert.equal(collisionWords({ node: 'api/app/routes', unit: 'folder', agents: ['a', 'b', 'c'], files: {} }, true), 'three agents in routes');
-  assert.equal(fenceWords({ node: 'api/app/core', rule: 'off', decision: 'deny', file: 'api/app/core/config.py', at: '' }), 'stopped at the off-limits fence round api/app/core: config.py stays as it is');
-  assert.equal(fenceWords({ node: 'api/main.py', rule: 'ask', decision: 'ask', file: 'api/main.py', at: '' }), 'asked you before changing main.py, for the ask-first fence on it');
+  assert.equal(fenceWords({ node: 'api/app/core', rule: 'off', decision: 'deny', file: 'api/app/core/config.py', at: '' }), 'blocked edit to config.py: off-limits (api/app/core)');
+  assert.equal(fenceWords({ node: 'api/main.py', rule: 'ask', decision: 'ask', file: 'api/main.py', at: '' }), 'asked before editing main.py: ask-first');
 });
 
 test('a fence line sits inside the rim, and a meeting place rolls up onto the closed circle round it', () => {

@@ -138,7 +138,7 @@ const check = (ok, what) => {
 try {
   await page.goto(app);
   await pause(0);
-  await page.getByLabel('Repository to import: org/repo, a git URL, or a local path').pressSequentially(path.resolve(repo), { delay: pace ? 12 : 0 });
+  await page.getByLabel('Repository to import').pressSequentially(path.resolve(repo), { delay: pace ? 12 : 0 });
   await pause(400);
   await page.getByRole('button', { name: 'import', exact: true }).click();
 

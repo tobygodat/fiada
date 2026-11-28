@@ -221,7 +221,7 @@ test('a file another agent changed at its top level stays whole, however narrowl
   // Agent a touched only the top level, so the guessed request to create_item is reached too.
   const a = rollupActivity(buildCodeTree(graph), graphIndex, both, [], null, {}, edges);
   assert.equal(a.get('web/src/client/api.ts#ItemsService')?.reached, 'evidenced');
-  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, both), ['2 requests from web call these routes, 1 of them inferred.']);
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, both), ['2 requests from web call these routes, 1 inferred.']);
   // With agent a's change gone, b's is narrowed to read_items.
   const onlyB = { ...both, 'api/app/routes/items.py': by('modified', 'file', ['b']) };
   assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, onlyB), ['1 request from web calls this route.']);
@@ -231,7 +231,7 @@ test('a file another agent changed at its top level stays whole, however narrowl
   assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, spotB), ['1 request from web calls this route.']);
   // One agent that changed read_items and also the file's top level (an import, say) changed the whole file.
   const mixed = { ...onlyB, 'api/app/routes/items.py': { ...by('modified', 'file', ['b']), whole: ['b'] } };
-  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, mixed), ['2 requests from web call these routes, 1 of them inferred.']);
+  assert.deepEqual(reachSentences(graphIndex.get('api/app/routes/items.py')!, edges, graphIndex, mixed), ['2 requests from web call these routes, 1 inferred.']);
   // Spotlit, an agent keeps its own top-level edit and drops the other's.
   const twoWhole = { ...both, 'api/app/routes/items.py': { ...by('modified', 'file', ['a', 'b']), whole: ['a'] } };
   assert.equal(agentNodes(twoWhole, 'b')['api/app/routes/items.py'].whole, undefined);
@@ -251,12 +251,12 @@ test('what reaches a changed route, type or file, in a sentence', () => {
   assert.deepEqual(reachSentences(node('api/app/models.py#Item', { symbolKind: 'class' }), edges, graphIndex), ['2 functions in api use this class.']);
   assert.deepEqual(reachSentences(node('api/app/models.py'), edges, graphIndex), ['2 functions in api use this file.']);
   // A file serving routes: requests to any of them, and calls to its symbols from outside it.
-  assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex), ['2 requests from web call these routes, 1 of them inferred.']);
+  assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex), ['2 requests from web call these routes, 1 inferred.']);
   // Narrowed to read_items, the file counts only what reaches it, as the map does.
   const narrowed = { 'api/app/routes/items.py': change('modified', 'file', 10), 'api/app/routes/items.py#read_items': change('modified', 'symbol', 10) };
   assert.deepEqual(reachSentences(node('api/app/routes/items.py'), edges, graphIndex, narrowed), ['1 request from web calls this route.']);
   // An exported file nothing reaches says so; an unexported one says nothing.
-  assert.deepEqual(reachSentences(node('web/src/pages/about.tsx', { exported: true }), edges, graphIndex), ['Nothing in the imported repositories reaches this file yet.']);
+  assert.deepEqual(reachSentences(node('web/src/pages/about.tsx', { exported: true }), edges, graphIndex), ['No callers in imported repos.']);
   assert.deepEqual(reachSentences(node('web/src/pages/about.tsx'), edges, graphIndex), []);
 });
 
@@ -295,7 +295,7 @@ test('what an agent looked at marks the node, and every circle round it as looke
   assert.equal(a.get('root')?.looked ?? null, null, 'not on the workspace');
   // Looking is not changing: no counts, no change mark.
   assert.deepEqual(pick(a.get('web')), { self: null, added: 0, modified: 0, deleted: 0, at: 0 });
-  assert.match(describeMarks(a.get('web/src/pages/items.tsx#useItems')!, 'code'), /an agent looked at this/);
+  assert.match(describeMarks(a.get('web/src/pages/items.tsx#useItems')!, 'code'), /looked at/);
   // A node the graph no longer has isn't marked anywhere.
   assert.equal(a.get('api/app/routes')?.looked ?? null, null);
 

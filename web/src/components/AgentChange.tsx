@@ -81,7 +81,7 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
   return (
     <div className="detail-block agent-change">
       <div className="block-title">
-        {VERB[kind]} by an agent
+        {VERB[kind]} by agent
         {what && <bdi> · {what}</bdi>}
       </div>
       {reach.length > 0 && (
@@ -90,16 +90,16 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
           <span>{reach.join(' ')}</span>
         </p>
       )}
-      {!mine && <div className="agent-note">loading the diff…</div>}
+      {!mine && <div className="agent-note">loading diff…</div>}
       {ours?.failed && (
         <div className="agent-note">
-          The diff couldn't be loaded{list.length ? '; this is the one from before' : ''}.{' '}
+          Diff failed to load{list.length ? ' (showing previous)' : ''}.{' '}
           <button className="link" onClick={() => setAttempt((n) => n + 1)}>
-            try again
+            retry
           </button>
         </div>
       )}
-      {mine && !list.length && !ours?.failed && <div className="agent-note">No diff was recorded for this change.</div>}
+      {mine && !list.length && !ours?.failed && <div className="agent-note">No diff recorded.</div>}
       {list.map((d, k) => {
         const shown = diffRows(picked[k]);
         const n = ownCounts(d, peer, [...(own ? [own] : []), ...(rest ?? [])]);
@@ -109,9 +109,9 @@ export function AgentChange({ node, own, rest, peer, what, rev, kind, agent, onS
             <div className="agent-diff-head">
               <span className={`swatch-ring ${d.kind}`} aria-hidden />
               <span>
-                <b>{d.name}</b> {VERB[d.kind]} this file
+                <b>{d.name}</b> · {VERB[d.kind]}
                 {n?.additions || n?.deletions ? ` · ${[n.additions ? `+${n.additions}` : '', n.deletions ? `−${n.deletions}` : ''].filter(Boolean).join(' ')}` : ''} · {ago(d.at)}
-                {behind(d) && ' · this diff is from before its latest change, which came without one'}
+                {behind(d) && ' · outdated diff'}
               </span>
             </div>
             {!!shown.length && (

@@ -112,7 +112,7 @@ try {
   const queue = page.locator('.queue');
   await queue.getByText('Adding a tag filter to the items list').waitFor();
   // The key says what the dotted ring means.
-  await queue.locator('.queue-key').getByText('depends on a change').waitFor();
+  await queue.locator('.queue-key').getByText('dependent').waitFor();
   await pause(1500);
   await shot('1-map');
 
@@ -144,7 +144,7 @@ try {
   // The agent puts the files back: the change, and with it the ripple, is gone.
   execFileSync('git', ['checkout', '--', '.'], { cwd: repos.backend });
   report('changed', 'app/models.py', 'app/api/routes/items.py');
-  await queue.locator('.queue-key').getByText('depends on a change').waitFor();
+  await queue.locator('.queue-key').getByText('dependent').waitFor();
 
   for (let i = 0; i < 40 && Object.keys((await api('GET', '/api/agent/state')).nodes).length; i++) await pause(250);
   assert.deepEqual(Object.keys((await api('GET', '/api/agent/state')).nodes), [], 'reverted: nothing marked');

@@ -70,8 +70,8 @@ export function Sidebar(p: Props) {
           label="view"
           value={p.view}
           options={[
-            ['code', 'code', 'The code as it is: repositories, folders, files, symbols. Read-only.'],
-            ['function', 'by function', 'The same symbols grouped by domain, then by layer.'],
+            ['code', 'code', 'Repositories, folders, files, symbols.'],
+            ['function', 'by function', 'Symbols grouped by domain and layer.'],
           ]}
           onChange={p.onView}
         />
@@ -87,7 +87,7 @@ export function Sidebar(p: Props) {
             onChange={p.onColorBy}
           />
         </div>
-        <div className="setting" title="On click: the first click on a circle shows its details, a second click opens it, and scrolling only zooms. On zoom: circles open as you zoom into them.">
+        <div className="setting" title="Click: select, then click again to open. Zoom: circles open as you zoom in.">
           <span className="setting-name small">open</span>
           <Choice
             label="open circles"
@@ -105,7 +105,7 @@ export function Sidebar(p: Props) {
             label="theme"
             value={p.theme}
             options={[
-              ['system', 'system', "Follow the system's light or dark setting"],
+              ['system', 'system', 'Match system theme'],
               ['dark', 'dark'],
               ['light', 'light'],
             ]}
@@ -187,7 +187,7 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
   const choose = async (preset: LayerPreset) => {
     if (preset === graph.preset) return;
 
-    if (!window.confirm(`Replace this project's layers with the ${PRESET_LABEL[preset]} preset? Your rules and pins are kept.`)) return;
+    if (!window.confirm(`Switch to the ${PRESET_LABEL[preset]} preset? Your rules and pins stay.`)) return;
     setError(null);
     await onPreset(preset).catch((err: Error) => setError(err.message));
   };
@@ -237,11 +237,11 @@ function Layers({ graph, workspace, pal, onPreset, onSortAgain }: Props & { grap
             <span className="count">{counts.get(l.id) ?? 0}</span>
           </div>
         ))}
-        {!rows.length && <div className="muted small">No layers yet. Everything is Unlayered.</div>}
+        {!rows.length && <div className="muted small">No layers.</div>}
       </div>
       {canEdit(workspace) && (
         <div className="layer-file" title={file}>
-          Rename layers and add rules in {file.split(/[\\/]/).pop()}; edits apply live.
+          Edit in {file.split(/[\\/]/).pop()}
         </div>
       )}
       {problems}
@@ -261,7 +261,7 @@ function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: W
   const again = canEdit(workspace) && s.available && s.status !== 'running' && (
     <>
       {' '}
-      <button className="link" title={`Ask ${by} to sort the leftovers again`} onClick={() => onSortAgain().then(() => setError(null), (err: Error) => setError(err.message))}>
+      <button className="link" title={`Sort remaining items with ${by}`} onClick={() => onSortAgain().then(() => setError(null), (err: Error) => setError(err.message))}>
         sort again
       </button>
     </>
@@ -270,7 +270,7 @@ function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: W
   if (s.status === 'error') {
     return (
       <>
-        <Problem text={`${by} couldn't sort this project. ${s.error ?? ''}`} />
+        <Problem text={`${by} sort failed. ${s.error ?? ''}`} />
         <div className="layer-file sorting">{again}</div>
       </>
     );
@@ -279,15 +279,15 @@ function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: W
   let text: ReactNode;
 
   if (s.status === 'off' && workspace.account) {
-    text = <span>sorted by rules · add your model key below to sort the rest</span>;
+    text = <span>sorted by rules · add a model key below for the rest</span>;
   } else if (s.status === 'off') {
     text = (
-      <span title={`Set a model API key on the indexer${s.keyHint ? ` (${s.keyHint})` : ''} to sort what the rules can't place.`}>
-        sorted by rules · a model key on the indexer sorts the rest
+      <span title={`Set a model API key${s.keyHint ? ` (${s.keyHint})` : ''} on the indexer to sort the rest.`}>
+        sorted by rules · set an indexer key for the rest
       </span>
     );
   } else if (s.status === 'running') {
-    text = <span className="busy">{by} is sorting the code the classifier couldn't place…</span>;
+    text = <span className="busy">{by} is sorting…</span>;
   } else {
     text = sortSummary(s, unsorted);
   }
@@ -306,7 +306,7 @@ const STATUS: Record<RepoInfo['status'], string> = {
   cloning: 'cloning…',
   indexing: 'indexing…',
   ready: '',
-  error: "couldn't index it",
+  error: 'index failed',
 };
 
 const size = (bytes: number) => (bytes < 1 << 20 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1 << 20)).toFixed(1)} MB`);
@@ -316,7 +316,7 @@ function uploadedFrom(r: RepoInfo): string {
   const at = r.uploadedAt ? new Date(r.uploadedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
   const rev = [r.branch, r.commit].filter(Boolean).join(' @ ');
 
-  return [`Uploaded folder ${r.source}`, rev, r.remote, at && `uploaded ${at}`].filter(Boolean).join(' · ');
+  return [`Uploaded ${r.source}`, rev, r.remote, at].filter(Boolean).join(' · ');
 }
 
 /**
@@ -445,8 +445,8 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
                       <>
                         {uploaded ? (
                           folder.available && (
-                            <button className="link" title="Pick this folder again to update it" disabled={working || !!folder.progress} onClick={() => folder.start(r.id)}>
-                              upload again
+                            <button className="link" title="Upload folder again" disabled={working || !!folder.progress} onClick={() => folder.start(r.id)}>
+                              re-upload
                             </button>
                           )
                         ) : (
@@ -454,7 +454,7 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
                             refresh
                           </button>
                         )}
-                        <button className="link danger" title="Remove from this project" onClick={() => onRemove(r.id).catch((err: Error) => setError(err.message))}>
+                        <button className="link danger" title="Remove repository" onClick={() => onRemove(r.id).catch((err: Error) => setError(err.message))}>
                           remove
                         </button>
                       </>
@@ -473,7 +473,7 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={workspace?.access?.localPaths === false ? 'org/repo or git URL' : 'org/repo, URL or path'}
-            aria-label="Repository to import: org/repo, a git URL, or a local path"
+            aria-label="Repository to import"
             spellCheck={false}
           />
           <button type="submit" disabled={pending || !input.trim()}>
@@ -491,11 +491,10 @@ function Repos({ workspace, offline, pal, onAdd, onUpload, onRemove, onRefresh }
               <button
                 className="link"
                 onClick={() => folder.start()}
-                title={`Pick a folder on this computer, like a checkout of a private repository. Only its source is sent (up to ${Math.round(workspace!.upload!.maxBytes / (1 << 20))} MB): what .gitignore ignores, dependencies and git history stay behind.`}
+                title={`Upload source files only (up to ${Math.round(workspace!.upload!.maxBytes / (1 << 20))} MB). Ignored files, dependencies and git history stay local.`}
               >
                 upload a folder
               </button>
-              , private repositories too
             </>
           )}
           {folder.field}

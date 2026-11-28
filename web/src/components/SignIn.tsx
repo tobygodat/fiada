@@ -48,23 +48,19 @@ function SignIn({ error }: { error: string | null }) {
       <div className="sign-in-body">
         <Wordmark height={28} />
         <h1 className="sign-in-title">a map of your codebase</h1>
-        <p>
-          Sign in with GitHub to import your repositories, private ones too. Your map is yours alone: what you import, and what your agents do,
-          shows on no one else's.
-        </p>
+        <p>Sign in with GitHub to map your public or private repositories privately.</p>
         {error && (
           <p className="notice" role="alert">
-            <span className="lead">Couldn't sign you in.</span> {error}
+            <span className="lead">Sign-in failed.</span> {error}
           </p>
         )}
         <a className="sign-in-button" href={signInUrl()}>
           sign in with github
         </a>
         <p className="small muted">
-          GitHub asks you to let Fiada read your repositories. Fiada clones only the ones you import, and keeps your GitHub token encrypted on
-          the indexer.{' '}
+          Fiada only clones repositories you import and stores your GitHub token encrypted.{' '}
           <a className="link" href="/privacy">
-            what fiada keeps
+            privacy
           </a>
         </p>
       </div>

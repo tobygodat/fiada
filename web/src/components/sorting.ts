@@ -17,18 +17,15 @@ export function stillUnsorted(graph: Graph): number {
 }
 
 export function sortSummary(s: SortingState, unsorted: number): string {
-  const by = s.by ?? 'The model';
+  const by = s.by ?? 'Model';
   const domains: string[] = [];
 
-  for (const [verb, n] of Object.entries({ renamed: s.renamed, merged: s.merged, added: s.added })) if (n) domains.push(`${verb} ${domains.length ? n : plural(n, 'domain')}`);
+  for (const [verb, n] of Object.entries({ renamed: s.renamed, merged: s.merged, added: s.added })) {
+    if (n) domains.push(`${verb} ${domains.length ? n : plural(n, 'domain')}`);
+  }
 
-  const placed = s.placed
-    ? `placed ${plural(s.placed, 'file or symbol', 'files and symbols')} the classifier couldn't`
-    : unsorted
-      ? 'placed nothing'
-      : 'found nothing the classifier left unplaced';
+  const head = s.placed ? `${by} placed ${s.placed}` : unsorted ? `${by} placed 0` : 'All sorted by rules';
+  const parts = [[head, ...domains].join(', '), ...(unsorted ? [`${unsorted} unsorted`] : [])];
 
-  const left = unsorted ? ` ${plural(unsorted, 'file or symbol is', 'files and symbols are')} still Unlayered or Unsorted.` : '';
-
-  return `${by} ${placed}${domains.length ? `, ${domains.join(', ')}` : ''}.${s.placed ? ' Each says why in its details.' : ''}${left}`;
+  return parts.join(' · ');
 }

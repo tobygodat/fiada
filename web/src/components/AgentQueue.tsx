@@ -44,10 +44,10 @@ interface Props {
 }
 
 const SIGN = { added: '+', modified: '~', deleted: '−' } as const;
-const STATE_LABEL = { working: 'working', waiting: 'waiting for you', ended: 'session ended' } as const;
+const STATE_LABEL = { working: 'working', waiting: 'waiting for you', ended: 'ended' } as const;
 
 /** Said for a status line the agent didn't write itself. */
-const DERIVED = { plan: 'from the plan', prompt: 'from your prompt' } as const;
+const DERIVED = { plan: 'plan', prompt: 'prompt' } as const;
 const MAX_STEPS = 6;
 
 /** Changed functions listed under a file before "and N more". */
@@ -98,7 +98,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
     const { state: word, text } = currentLine(lead);
 
     return (
-      <button className="queue queue-folded" onClick={() => setCollapsed(false)} aria-expanded={false} title={`${agents.length > 1 ? `${agents.length} agents. ` : ''}Show what the agents are doing`}>
+      <button className="queue queue-folded" onClick={() => setCollapsed(false)} aria-expanded={false} title={`${agents.length > 1 ? `${agents.length} agents · ` : ''}Show agents`}>
         <StateDot a={lead} />
         <span className="queue-folded-line">
           {word && <span className={`queue-state ${lead.state}`}>{word}</span>}
@@ -128,7 +128,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
         <h2 className="queue-title">agents</h2>
         <span className="queue-acts">
           {anyUnread && (
-            <button className="queue-act" onClick={() => onMarkRead()} title="Mark every agent's changes read, without opening them">
+            <button className="queue-act" onClick={() => onMarkRead()} title="Mark all changes read">
               mark all read
             </button>
           )}
@@ -164,7 +164,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
           />
         ))}
       </div>
-      <div className="queue-key" title="How the map marks what agents changed">
+      <div className="queue-key" title="Map legend">
         <span>
           <span className="swatch-ring added" /> added
         </span>
@@ -175,11 +175,11 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
           <span className="swatch-ring deleted" /> deleted
         </span>
         <span>
-          <span className="swatch-ring reached" /> depends on a change
+          <span className="swatch-ring reached" /> dependent
         </span>
         {working && (
           <span>
-            <span className="swatch-ring working" /> working here
+            <span className="swatch-ring working" /> working
           </span>
         )}
         {looked && (
@@ -212,16 +212,16 @@ function currentLine(a: AgentActivity): CurrentLine {
   return { state: STATE_LABEL[a.state], text: now ?? a.task ?? a.prompt ?? '' };
 }
 
-/** Where the plan is, in words: "step 2 of 4", "4 steps done". */
+/** Where the plan is, in words: "2/4", "4 done". */
 function planWords(steps: AgentStep[]): string {
   const active = steps.findIndex((s) => s.status === 'active');
 
-  if (active >= 0) return `step ${active + 1} of ${steps.length}`;
+  if (active >= 0) return `${active + 1}/${steps.length}`;
   const done = steps.filter((s) => s.status === 'done').length;
 
-  if (done === steps.length) return `${steps.length} step${steps.length === 1 ? '' : 's'} done`;
+  if (done === steps.length) return `${steps.length} done`;
 
-  return `${done} of ${steps.length} done`;
+  return `${done}/${steps.length} done`;
 }
 
 function StateDot({ a }: { a: AgentActivity }) {
@@ -267,7 +267,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
   // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
   const asked = a.task ?? a.prompt;
   const now: AgentNow | null = a.now ?? (asked ? { text: asked, from: a.task ? 'agent' : 'prompt', at: a.updatedAt } : null);
-  const context = now?.from === 'prompt' ? null : (a.task ?? (a.prompt ? `asked: ${a.prompt}` : null));
+  const context = now?.from === 'prompt' ? null : (a.task ?? a.prompt ?? null);
   const from = now && now.from !== 'agent' ? DERIVED[now.from] : null;
 
   return (
@@ -320,7 +320,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
           <button className="queue-fold-toggle" onClick={() => setShowFiles((s) => !s)} aria-expanded={showFiles}>
             <Chevron open={showFiles} />
             <span className="queue-fold-words">
-              {a.files.length} file{a.files.length === 1 ? '' : 's'} changed
+              {a.files.length} file{a.files.length === 1 ? '' : 's'}
             </span>
             <span className="queue-fold-count">
               {(['added', 'modified', 'deleted'] as const).map((k) =>
@@ -337,7 +337,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
             <div className={`queue-read${read.read < read.total ? ' some' : ''}`}>
               <span>{readWords(read.read, read.total)}</span>
               {read.read < read.total && (
-                <button className="queue-act" onClick={onMarkRead} title="Mark this agent's changes read, without opening them">
+                <button className="queue-act" onClick={onMarkRead} title="Mark agent changes read">
                   mark read
                 </button>
               )}
@@ -356,16 +356,14 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
         <div className="queue-fold">
           <button className="queue-fold-toggle" onClick={() => setShowLooked((s) => !s)} aria-expanded={showLooked}>
             <Chevron open={showLooked} />
-            <span className="queue-fold-words">
-              looked at {a.looked.count} place{a.looked.count === 1 ? '' : 's'}
-            </span>
+            <span className="queue-fold-words">looked at {a.looked.count}</span>
           </button>
           {showLooked && (
             <div className="queue-file-list">
               {a.looked.nodes.map((id) => (
                 <LookedRow key={id} id={id} onSelect={onSelect} />
               ))}
-              {a.looked.count > a.looked.nodes.length && <span className="queue-sym-more">and {a.looked.count - a.looked.nodes.length} earlier</span>}
+              {a.looked.count > a.looked.nodes.length && <span className="queue-sym-more">+{a.looked.count - a.looked.nodes.length} earlier</span>}
             </div>
           )}
         </div>
@@ -376,17 +374,17 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
         </span>
         <span className="queue-acts">
           {onReview && (
-            <button className="queue-act" onClick={onReview} title="Walk through what this agent changed, one change at a time, in the order data flows">
+            <button className="queue-act" onClick={onReview} title="Review changes in data-flow order">
               review
             </button>
           )}
           {onShow && (
-            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show the whole map again' : 'Light up what this agent changed or looked at on the map'}>
+            <button className="queue-act" onClick={onShow} aria-pressed={lit} title={lit ? 'Show full map' : 'Highlight agent on map'}>
               {lit ? 'show all' : 'show on map'}
             </button>
           )}
           {onClear && (
-            <button className="queue-act" onClick={onClear} title="Dismiss this agent and clear its changes from the map">
+            <button className="queue-act" onClick={onClear} title="Dismiss agent">
               dismiss
             </button>
           )}
@@ -425,7 +423,7 @@ function Steps({ steps }: { steps: AgentStep[] }) {
           <span>{s.status === 'active' ? (s.activeText ?? s.text) : s.text}</span>
         </li>
       ))}
-      {hidden > 0 && <li className="step-more">and {hidden} more</li>}
+      {hidden > 0 && <li className="step-more">+{hidden} more</li>}
     </ol>
   );
 }
@@ -438,7 +436,7 @@ function LookedRow({ id, onSelect }: { id: string; onSelect(id: string): void })
 
   return (
     <div className="queue-file-item">
-      <button className="queue-file" onClick={() => onSelect(id)} title={`${id}\nlooked at, not changed`}>
+      <button className="queue-file" onClick={() => onSelect(id)} title={`${id}\nlooked at`}>
         <span className="swatch-ring looked" aria-hidden />
         <span className="queue-file-name">
           <span className="queue-file-base">{name}</span>
@@ -463,11 +461,11 @@ function FileRow({ f, unread, onSelect }: { f: AgentFile; unread: boolean; onSel
         className="queue-file"
         disabled={!target}
         onClick={() => target && onSelect(target)}
-        title={`${f.path}${f.symbols.length ? `\n${f.symbols.map((s) => `${SIGN[s.kind]} ${s.name}`).join('\n')}` : ''}\n${ago(f.at)}${unread ? '\nunread: changed since you last opened it' : ''}`}
+        title={`${f.path}${f.symbols.length ? `\n${f.symbols.map((s) => `${SIGN[s.kind]} ${s.name}`).join('\n')}` : ''}\n${ago(f.at)}${unread ? '\nunread' : ''}`}
       >
         <span className={`chg ${f.kind}`}>{SIGN[f.kind]}</span>
         {unread && (
-          <span className="queue-unread" title="unread: changed since you last opened it">
+          <span className="queue-unread" title="unread">
             <span className="queue-hidden">unread</span>
           </span>
         )}
@@ -497,7 +495,7 @@ function FileRow({ f, unread, onSelect }: { f: AgentFile; unread: boolean; onSel
               </button>
             );
           })}
-          {f.symbols.length > symbols.length && <span className="queue-sym-more">and {f.symbols.length - symbols.length} more</span>}
+          {f.symbols.length > symbols.length && <span className="queue-sym-more">+{f.symbols.length - symbols.length} more</span>}
         </div>
       )}
     </div>

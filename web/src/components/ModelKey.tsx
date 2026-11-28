@@ -42,7 +42,7 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
       <div className="section-title">model key</div>
       {held && !replacing ? (
         <p className="small muted account-line">
-          <span className="account-name">{held.provider}</span> key ending <span className="account-name num">{held.end}</span> sorts and summarises your map ·{' '}
+          <span className="account-name">{held.provider}</span> …<span className="account-name num">{held.end}</span> ·{' '}
           <button className="link" onClick={() => setReplacing(true)}>
             replace
           </button>
@@ -54,8 +54,7 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
       ) : (
         <>
           <p className="small muted account-line">
-            Without one, the rules sort your map. Add your own Anthropic or OpenAI API key to sort the rest and write summaries, on your account
-            with that provider.
+            Optional Anthropic or OpenAI key for sorting and summaries, billed to your provider account.
           </p>
           <form className="import key-form" onSubmit={save}>
             <input
@@ -63,7 +62,7 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="sk-ant-… or sk-…"
-              aria-label="Your Anthropic or OpenAI API key"
+              aria-label="Anthropic or OpenAI API key"
               autoComplete="off"
               spellCheck={false}
             />
@@ -74,13 +73,13 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
           {replacing && (
             <p className="small muted account-line">
               <button className="link" onClick={() => setReplacing(false)}>
-                keep the current key
+                cancel
               </button>
             </p>
           )}
         </>
       )}
-      <p className="small muted account-line">It stays in this browser. The indexer holds it in memory for your map alone, never on disk.</p>
+      <p className="small muted account-line">Stored in this browser only; held in indexer memory, never on disk.</p>
       {error && (
         <p className="notice" role="alert">
           <span className="lead">Couldn't {held && !replacing ? 'remove' : 'save'} the key.</span> {error}

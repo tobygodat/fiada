@@ -6,9 +6,9 @@ import { sortSummary, stillUnsorted } from './sorting.ts';
 
 const done: SortingState = { available: true, status: 'done', by: 'Claude', placed: 0 };
 
-test('a sort that placed nothing, with nothing left, says the classifier left nothing unplaced', () => {
+test('a sort that placed nothing, with nothing left, says all sorted by rules', () => {
   assert.equal(stillUnsorted(fixtureGraph()), 0);
-  assert.equal(sortSummary(done, 0), 'Claude found nothing the classifier left unplaced.');
+  assert.equal(sortSummary(done, 0), 'All sorted by rules');
 });
 
 test('a sort that placed nothing while code is still unsorted says how much is left', () => {
@@ -21,15 +21,12 @@ test('a sort that placed nothing while code is still unsorted says how much is l
   delete models.domain;
 
   assert.equal(stillUnsorted(graph), 2, 'a file with symbols is not a leaf; its symbols count instead');
-  assert.equal(sortSummary(done, 2), 'Claude placed nothing. 2 files and symbols are still Unlayered or Unsorted.');
-  assert.equal(sortSummary({ ...done, renamed: 1, added: 5 }, 1), 'Claude placed nothing, renamed 1 domain, added 5. 1 file or symbol is still Unlayered or Unsorted.');
-  assert.equal(sortSummary({ ...done, added: 5 }, 2), 'Claude placed nothing, added 5 domains. 2 files and symbols are still Unlayered or Unsorted.');
+  assert.equal(sortSummary(done, 2), 'Claude placed 0 · 2 unsorted');
+  assert.equal(sortSummary({ ...done, renamed: 1, added: 5 }, 1), 'Claude placed 0, renamed 1 domain, added 5 · 1 unsorted');
+  assert.equal(sortSummary({ ...done, added: 5 }, 2), 'Claude placed 0, added 5 domains · 2 unsorted');
 });
 
 test('a sort that placed code says so, and what is still left', () => {
-  assert.equal(sortSummary({ ...done, placed: 12, merged: 2 }, 0), "Claude placed 12 files and symbols the classifier couldn't, merged 2 domains. Each says why in its details.");
-  assert.equal(
-    sortSummary({ ...done, placed: 1 }, 3),
-    "Claude placed 1 file or symbol the classifier couldn't. Each says why in its details. 3 files and symbols are still Unlayered or Unsorted.",
-  );
+  assert.equal(sortSummary({ ...done, placed: 12, merged: 2 }, 0), 'Claude placed 12, merged 2 domains');
+  assert.equal(sortSummary({ ...done, placed: 1 }, 3), 'Claude placed 1 · 3 unsorted');
 });

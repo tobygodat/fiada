@@ -947,10 +947,7 @@ export function App() {
         {empty && (
           <div className="empty">
             <div className="empty-title">map a codebase</div>
-            <p>
-              Import one or more repositories from the sidebar. Fiada parses them, links imports, calls and HTTP routes across repos, and
-              draws one map you can open from systems down to symbols.
-            </p>
+            <p>Import a repository from the sidebar to map it.</p>
           </div>
         )}
         <Sidebar
@@ -1061,10 +1058,10 @@ function Legend({
   lit: string | null;
 }) {
   const hint = lit
-    ? `showing what ${lit} changed or looked at · esc for the whole map`
+    ? `${lit} · esc for all`
     : mode === 'click'
-      ? 'point at a circle for its links · click it for details, again to open it'
-      : 'point at a circle for its links · scroll to open it';
+      ? 'hover for links · click to select, again to open'
+      : 'hover for links · scroll to open';
 
   return (
     <div className="legend">

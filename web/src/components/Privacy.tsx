@@ -11,76 +11,65 @@ export function Privacy() {
         <a href="/" aria-label="Fiada">
           <Wordmark height={28} />
         </a>
-        <h1 className="sign-in-title">what fiada keeps</h1>
+        <h1 className="sign-in-title">privacy</h1>
+        <p>What Fiada stores, where it goes, how long it is kept, and how to delete it.</p>
+
+        <h2>sign-in</h2>
         <p>
-          Fiada draws a map of the repositories you import. To do that it has to read your code, and to let you back in it has to remember who you
-          are. This page says what it keeps, where, and how to make it forget.
+          Fiada stores your GitHub user id, login, name, avatar URL, granted scopes, sign-in time, and encrypted GitHub access token (to clone
+          imported private repositories). GitHub's private-repo scope includes write access, but Fiada only reads repositories you import. The
+          operator can see aggregate counts (accounts, sign-in timestamps, repository counts), not who owns them.
         </p>
 
-        <h2>when you sign in</h2>
+        <h2>repositories</h2>
         <p>
-          You sign in with GitHub. Fiada keeps your GitHub user id, login, name, the address of your avatar, the permissions you granted and when
-          you signed in. It also keeps the access token GitHub gives it, encrypted, so it can clone the private repositories you import. GitHub's
-          permission for private repositories covers reading and writing them; Fiada only reads, and only the repositories you import. Whoever runs the indexer can see totals drawn from these records (how many
-          accounts, when they were made and last signed in, how many repositories) but not who they belong to.
-        </p>
-
-        <h2>when you import a repository</h2>
-        <p>
-          Fiada clones it, or unpacks the folder you upload, on the server that runs the indexer, and reads its source files to draw the map. It
-          keeps the list of what you imported, the layers and rules you set, the fences you put round parts of the map, and the summaries it wrote, so your map is there when you come back.
-          The map itself is worked out again from the code each time and never stored. Nobody else's map shows your repositories.
+          Imported repositories are cloned (or uploaded folders unpacked) on the indexer server and parsed to build your map. Fiada saves your
+          import list, layers, rules, fences, and summaries. The graph itself is rebuilt from source and never stored. Only you can see your
+          repositories.
         </p>
 
         <h2>summaries and sorting</h2>
         <p>
-          Without a model key, rules sort your code into layers, the summaries are lines built from the map, and none of your code goes to a
-          model. Removing your key stops new model requests; a sort and summaries it already wrote stay with your project. If you add your own Anthropic or OpenAI API key under "model key" in the sidebar, Fiada sends parts of your code (file paths, names
-          and file contents) to that provider with your key, to sort what the rules couldn't place and to write the summaries. Those requests are
-          on your account with that provider, under its terms for API data. Summaries are kept so the same code isn't sent twice.
+          Without a model key, rules sort your code, summaries come from the map, and no code is sent to a model. If you add an Anthropic or OpenAI
+          API key, Fiada sends file paths, names, and contents to that provider on your account under its API terms. Summaries are cached so code
+          is not sent twice; removing your key stops new requests while keeping existing results.
         </p>
         <p>
-          Your key is kept in your browser, not by Fiada. It goes with each request your map makes to the indexer, over HTTPS. The indexer
-          holds it in memory for your own map only. It is never written to disk, to the database or to a log, and nobody else's map uses it.
-          When you save a key, the indexer asks the provider once to list its models, to check the key. The indexer forgets the key when you
-          remove it or sign out, when a request comes without it, when your map has sat unused for 30 minutes, or when the indexer restarts.
-          An indexer that you run yourself without sign-in uses its own key instead, if it has one.
+          Your model key stays in your browser and goes over HTTPS with each request. On save, the indexer lists provider models once to verify it.
+          The indexer holds it in memory for your map only, never on disk, in the database, or in logs, and forgets it on removal, sign-out, a
+          request without it, 30 minutes idle, or restart. Self-hosted indexers without sign-in use their own configured key instead.
         </p>
 
         <h2>coding agents</h2>
         <p>
-          If you connect a coding agent, it reports the files it changes, their diffs, what it says it is doing, the first line of your latest
-          prompt, and the files it reads or asks your map about. Fiada holds these in memory to draw them on your map, never on disk, and forgets
-          them when you clear them or the indexer restarts. Its questions are answered from your own map only.
+          Connected agents send changed files, diffs, status text, the first line of your latest prompt, and files read or queried. The indexer
+          holds this in memory only, never on disk, until dismissed or restarted. Agent queries read your map only.
         </p>
 
-        <h2>in your browser</h2>
+        <h2>browser storage</h2>
         <p>
-          Your browser keeps these in local storage: your sign-in, your model key if you add one, a few preferences (the theme, which panels
-          are open), and which agent changes you have opened or marked read in a review. The sign-in and the model key go with each request to
-          the indexer. The preferences and those marks stay in the browser. Signing out clears the key, and deleting your account clears the
-          key and the marks. Signing in sets one cookie
-          for the few minutes it takes. There is no advertising and nothing is sold.
+          Local storage holds your session, optional model key, preferences (theme, open panels), and review read marks. The session and model key
+          are sent to the indexer; preferences and marks stay local. Signing out clears the key; deleting your account clears the key and marks.
+          Sign-in sets one short-lived cookie for a few minutes. No ads; nothing is sold.
         </p>
 
-        <h2>who else handles it</h2>
+        <h2>third parties</h2>
         <p>
-          GitHub signs you in and hosts the repositories you import. Cloudflare serves this site and counts visits to it with Web Analytics, which sets no cookies and doesn't identify you. It records
-          which pages were loaded and how fast, the page that linked here, your country, and your browser, operating system and kind of device. Render runs the indexer, which keeps the clones on
-          its disk while it runs. Supabase keeps the accounts and projects in its database. If you add a model key, Anthropic or OpenAI (whichever the key is for) sorts your code and writes the summaries.
-          Google Fonts serves the typeface, so Google sees your address when the page loads.
+          GitHub handles sign-in and repository hosting. Cloudflare serves the site and runs cookie-free Web Analytics (pages, load speed,
+          referrer, country, browser, OS, device type; no personal tracking). Render hosts the indexer and holds clones on disk while running.
+          Supabase stores accounts and projects. Anthropic or OpenAI processes code only if you add a key. Google Fonts serves the typeface and
+          sees your IP on page load.
         </p>
 
-        <h2>making fiada forget</h2>
+        <h2>deleting your data</h2>
         <p>
-          Sign in and choose "delete account" at the foot of the sidebar. That deletes your account, your project, its clones and summaries, and
-          withdraws Fiada's access at GitHub. You can also withdraw that access yourself on GitHub, under Settings, Applications, Authorized OAuth
-          Apps; Fiada can then no longer clone your repositories.
+          Sign in and click "delete account" in the sidebar to delete your account, project, clones, and summaries, and revoke GitHub access. You
+          can also revoke access under GitHub Settings, Applications, Authorized OAuth Apps.
         </p>
 
         <p className="small muted">
           <a className="link" href="/">
-            back to the map
+            back to map
           </a>
         </p>
       </article>

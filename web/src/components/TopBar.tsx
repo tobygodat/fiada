@@ -55,7 +55,7 @@ export function TopBar({ crumbs: given, crumbsAt, view, altitude, renderer, fitK
       <div className="topbar-right">
         {search}
         {busy && <span className="muted small busy">indexing…</span>}
-        <div className="altitudes" title="How far down the map is open">
+        <div className="altitudes" title="Current map depth">
           {alts.map((a, i) => (
             <span key={a} className={i === idx ? 'on' : ''}>
               {a}

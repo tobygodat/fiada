@@ -64,7 +64,7 @@ const shot = async (name) => shots && (await page.screenshot({ path: `${shots}/$
 const pause = (ms) => page.waitForTimeout(video ? ms : 150);
 
 const count = async () => {
-  const m = /change (\d+) of (\d+) · (?:all )?(\d+) read/.exec(await page.locator('.tour-count').innerText());
+  const m = /(\d+)\/(\d+) · (\d+) read/.exec(await page.locator('.tour-count').innerText());
   assert.ok(m, 'the tour says where you are');
 
   return { at: +m[1], of: +m[2], read: +m[3] };
@@ -125,7 +125,7 @@ try {
   await page.keyboard.press('ArrowLeft');
   await pause(700);
   assert.equal((await count()).at, first.of - 1);
-  await page.getByRole('button', { name: 'previous' }).click();
+  await page.getByRole('button', { name: 'prev' }).click();
   await pause(700);
   assert.equal((await count()).at, first.of - 2);
 
@@ -159,12 +159,12 @@ try {
   const onStop = await page.locator('.detail-title').innerText();
   await page.locator('.outline-name', { hasText: /^backend\/app$/ }).first().click();
   await page.locator('.detail-title', { hasText: /^backend\/app$/ }).waitFor({ timeout: 4000 });
-  assert.equal(await page.getByRole('button', { name: 'back to it', exact: true }).count(), 1, 'the panel offers the way back');
+  assert.equal(await page.getByRole('button', { name: 'return', exact: true }).count(), 1, 'the panel offers the way back');
   await page.keyboard.press('r');
   await pause(900);
   assert.deepEqual(await count(), atBefore, 'nothing marked, still on the same change');
   assert.equal(await page.locator('.detail-title').innerText(), onStop, 'and it is shown again');
-  assert.equal(await page.getByRole('button', { name: 'back to it', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'return', exact: true }).count(), 0);
 
   // Clicking one of the changes on the map's outline moves the tour there too: covered by selecting a tick; Esc ends the tour and keeps the selection.
   await page.keyboard.press('Escape');
