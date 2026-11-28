@@ -200,6 +200,13 @@ test('the eager pass writes containers in few requests, children before parents,
   await fresh.idle();
   assert.equal(again.requests.length, 0);
   assert.equal((await fresh.get('shop/backend/app/crud.py'))?.status, 'ready');
+
+  // A person removes their key: what it wrote stays, and nothing new is asked for.
+  s.use(null);
+  assert.equal((await s.get('shop/backend/app/crud.py'))?.generated?.model, 'fake-model');
+  const symbol = await s.get('shop/backend/app/api/items.py#read_items');
+  assert.equal(symbol?.status, 'off');
+  assert.equal(requests.length, calls);
 });
 
 test('changing one file rewrites it and what contains it, nothing else', async () => {

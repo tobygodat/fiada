@@ -35,7 +35,11 @@ export class Sorter {
   /** The repositories a sort failed for: not retried on its own until they change. */
   private failed?: string;
 
-  constructor(private llm: LLM | null = null) {
+  constructor(
+    private llm: LLM | null = null,
+    /** Where a key goes, for a map that sorts by rules only. */
+    private keyHint = KEY_HINT,
+  ) {
     this.status = llm ? 'idle' : 'off';
   }
 
@@ -46,6 +50,16 @@ export class Sorter {
 
   get available(): boolean {
     return !!this.llm;
+  }
+
+  /** Sorts with `llm` from now on, or with nothing; a sort under way finishes with the model it started with. */
+  use(llm: LLM | null) {
+    this.llm = llm;
+    this.failed = undefined;
+
+    if (this.status === 'running') return;
+    this.status = llm ? 'idle' : 'off';
+    this.error = undefined;
   }
 
   /** "Claude (claude-haiku-5-5)" or "OpenAI (gpt-5.5)", for logs. */
@@ -62,7 +76,7 @@ export class Sorter {
 
     const state: SortingState = { available: this.available, status };
 
-    if (status === 'off') state.keyHint = KEY_HINT;
+    if (status === 'off') state.keyHint = this.keyHint;
 
     if (by) state.by = by;
 
@@ -127,10 +141,19 @@ export class Sorter {
       this.status = 'done';
       console.log(`[fiada] sorted in ${((Date.now() - started) / 1000).toFixed(0)}s: ${Object.keys(sorted.placements).length} placements, ${sorted.domains.length} domain decisions`);
     } catch (err) {
+      const error = describeLLMError(err);
+      console.error(`[fiada] sorting failed: ${error}`);
+
+      // The model changed while it ran (a person replaced or removed their key): that one's failure isn't the next one's.
+      if (this.llm !== llm) {
+        this.status = this.llm ? 'idle' : 'off';
+
+        return;
+      }
+
       this.failed = key;
       this.status = 'error';
-      this.error = describeLLMError(err);
-      console.error(`[fiada] sorting failed: ${this.error}`);
+      this.error = error;
     }
   }
 }

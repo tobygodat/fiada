@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { anthropicLLM, describeLLMError, LLMBudget, llmFromEnv, OpenAIError, openaiLLM, type JsonRequest, type Post } from './llm.ts';
+import { anthropicLLM, asYours, checkModelKey, describeLLMError, LLMBudget, llmFromEnv, modelKeyOf, OpenAIError, openaiLLM, personalLLM, type JsonRequest, type Post } from './llm.ts';
 
 const req: JsonRequest = {
   label: 'leftovers 1/1',
@@ -256,4 +256,152 @@ test('a budget allows each account so many model requests a day', async () => {
   t += 2 * 3600_000;
   await a.json(req);
   assert.equal(calls, 4);
+});
+
+// ── a person's own key ───────────────────────────────────────────────
+
+// Shaped like real keys, and nobody's.
+const ANTHROPIC_KEY = `sk-ant-api03-${'a1'.repeat(24)}`;
+const OPENAI_KEY = `sk-proj-${'b2'.repeat(24)}`;
+
+test("modelKeyOf: an Anthropic or OpenAI key as pasted, and nothing else", () => {
+  assert.deepEqual(modelKeyOf(`  ${ANTHROPIC_KEY}\n`), { provider: 'anthropic', key: ANTHROPIC_KEY });
+  assert.deepEqual(modelKeyOf(OPENAI_KEY), { provider: 'openai', key: OPENAI_KEY });
+
+  for (const bad of [undefined, 42, '', 'sk-short', `Bearer ${OPENAI_KEY}`, `${OPENAI_KEY} extra`, `sk-${'x'.repeat(600)}`]) assert.equal(modelKeyOf(bad), null, String(bad));
+});
+
+test("personalLLM: the key picks the provider, and the indexer's model choices still apply", () => {
+  const live = () => true;
+  const claude = personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', live, {});
+  assert.deepEqual([claude.label, claude.model], ['Claude', 'claude-haiku-5-5']);
+  assert.equal(personalLLM(modelKeyOf(OPENAI_KEY)!, 'sort', live, {}).model, 'gpt-5.5');
+  assert.equal(personalLLM(modelKeyOf(OPENAI_KEY)!, 'summaries', live, {}).model, 'gpt-5-mini');
+  // The indexer's own key never stands in for the person's.
+  assert.equal(personalLLM(modelKeyOf(OPENAI_KEY)!, 'sort', live, { ANTHROPIC_API_KEY: ANTHROPIC_KEY }).label, 'OpenAI');
+  assert.equal(personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', live, { FIADA_LLM_MODEL: 'claude-sonnet-5' }).model, 'claude-sonnet-5');
+});
+
+test("asYours: a removed key sends nothing more, and a provider's error tells the person what to do without quoting the key", async () => {
+  let live = true;
+  let calls = 0;
+  let fail = new OpenAIError(`Incorrect API key provided: ${OPENAI_KEY.slice(0, 8)}****${OPENAI_KEY.slice(-4)}.`, 401);
+
+  const llm = asYours(
+    {
+      label: 'OpenAI',
+      model: 'gpt-5.5',
+      json: async () => {
+        calls++;
+        throw fail;
+      },
+    },
+    () => live,
+  );
+
+  await assert.rejects(llm.json(req), { message: 'The OpenAI API key was rejected. Replace it under model key in the sidebar.' });
+  fail = new OpenAIError(`Your key ${OPENAI_KEY} can't do that.`, 400);
+  const err: Error = await llm.json(req).catch((e) => e);
+  assert.ok(!err.message.includes(OPENAI_KEY.slice(8)), err.message);
+  assert.match(err.message, /The OpenAI API answered 400: Your key sk-… can't do that\./);
+
+  live = false;
+  await assert.rejects(llm.json(req), /Your model key was removed/);
+  assert.equal(calls, 2);
+});
+
+test("describeLLMError: never quotes anything shaped like a key, the indexer's or a person's", async () => {
+  const t = claudeFetch(() => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: `bad key ${ANTHROPIC_KEY}` } }), { status: 400, headers: { 'content-type': 'application/json' } }));
+  const err = await anthropicLLM('k', 'claude-haiku-5-5', { fetch: t.fetch }).json(req).catch((e) => e);
+
+  for (const whose of ['indexer', 'yours'] as const) {
+    const said = describeLLMError(err, whose);
+    assert.match(said, /The Anthropic API answered 400/);
+    assert.ok(!said.includes(ANTHROPIC_KEY.slice(7, 20)), said);
+  }
+
+  assert.equal(describeLLMError(new OpenAIError('x', 401), 'yours'), 'The OpenAI API key was rejected. Replace it under model key in the sidebar.');
+  assert.equal(describeLLMError(new OpenAIError('x', 401)), 'The OpenAI API key was rejected. Check OPENAI_API_KEY on the indexer.');
+});
+
+test('personalLLM: once the key is removed, nothing more goes out, retries and fallbacks included', async () => {
+  let live = true;
+  let posts = 0;
+
+  const post: Post = async () => {
+    posts++;
+    live = false;
+
+    return { status: 503, headers: {}, body: '{}' };
+  };
+
+  const llm = personalLLM(modelKeyOf(OPENAI_KEY)!, 'sort', () => live, {}, { post });
+  await assert.rejects(llm.json(req), /Your model key was removed/);
+  assert.equal(posts, 1, 'the retry after a 503 never went out');
+
+  live = true;
+  let fetches = 0;
+  let sent = new Headers();
+  const hostHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
+  // A host's own credentials in the SDK's environment never ride along with a person's key.
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-api-key: host-key\nauthorization: Bearer host-token\ncookie: host=1\nproxy-authorization: Basic host';
+
+  try {
+    const claude = personalLLM(modelKeyOf(ANTHROPIC_KEY)!, 'sort', () => live, {}, {
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+        fetches++;
+        live = false;
+        assert.match(String(url), /^https:\/\/api\.anthropic\.com\//);
+        sent = new Headers(init?.headers);
+
+        return new Response('{}', { status: 529 });
+      }) as typeof fetch,
+    });
+
+    await assert.rejects(claude.json(req), /Your model key was removed/);
+  } finally {
+    if (hostHeaders === undefined) delete process.env.ANTHROPIC_CUSTOM_HEADERS;
+    else process.env.ANTHROPIC_CUSTOM_HEADERS = hostHeaders;
+  }
+
+  assert.equal(fetches, 1);
+  assert.equal(sent.get('x-api-key'), ANTHROPIC_KEY);
+  assert.deepEqual([...sent.keys()].filter((h) => !/^(content-type|accept|user-agent|anthropic-.+|x-stainless-.+|x-api-key)$/.test(h)), []);
+  assert.ok(sent.get('anthropic-version'));
+});
+
+test("checkModelKey: lists the provider's models with the key, and never repeats what the provider answered", async () => {
+  const asked: { url: string; headers: Record<string, string> }[] = [];
+  let status = 200;
+
+  const fake = (async (url: string, init?: RequestInit) => {
+    asked.push({ url, headers: init?.headers as Record<string, string> });
+
+    return new Response(JSON.stringify({ error: { message: `Incorrect API key provided: ${OPENAI_KEY}` } }), { status });
+  }) as typeof fetch;
+
+  assert.equal(await checkModelKey(modelKeyOf(ANTHROPIC_KEY)!, fake), null);
+  assert.equal(asked[0].url, 'https://api.anthropic.com/v1/models?limit=1');
+  assert.equal(asked[0].headers['x-api-key'], ANTHROPIC_KEY);
+  assert.equal(await checkModelKey(modelKeyOf(OPENAI_KEY)!, fake), null);
+  assert.equal(asked[1].url, 'https://api.openai.com/v1/models');
+  assert.equal(asked[1].headers.authorization, `Bearer ${OPENAI_KEY}`);
+
+  for (const [code, want] of [
+    [401, /OpenAI didn't accept that key/],
+    [403, /won't let it be used/],
+    [429, /rate limiting/],
+    [500, /OpenAI answered 500/],
+  ] as const) {
+    status = code;
+    const said = await checkModelKey(modelKeyOf(OPENAI_KEY)!, fake);
+    assert.match(said ?? '', want);
+    assert.ok(!said?.includes('sk-'), said ?? '');
+  }
+
+  const down = (async () => {
+    throw new Error(`connect ECONNREFUSED with ${ANTHROPIC_KEY}`);
+  }) as typeof fetch;
+
+  assert.equal(await checkModelKey(modelKeyOf(ANTHROPIC_KEY)!, down), "Couldn't reach Anthropic to check the key. Try again in a minute.");
 });

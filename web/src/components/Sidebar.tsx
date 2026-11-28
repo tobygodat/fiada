@@ -12,6 +12,7 @@ import type { ThemeChoice } from '../useTheme.ts';
 import { Account } from './Account.tsx';
 import { Chevron } from './Icon.tsx';
 import { Mark, Wordmark } from './Logo.tsx';
+import { ModelKey } from './ModelKey.tsx';
 import { sortSummary, stillUnsorted } from './sorting.ts';
 
 interface Props {
@@ -38,6 +39,8 @@ interface Props {
   onRefresh(id: string): Promise<void>;
   onPreset(preset: LayerPreset): Promise<void>;
   onSortAgain(): Promise<void>;
+  /** Saves the signed-in person's own model key, or removes it with null. */
+  onModelKey(key: string | null): Promise<void>;
 }
 
 export function Sidebar(p: Props) {
@@ -111,6 +114,7 @@ export function Sidebar(p: Props) {
         </div>
       </section>
       {p.graph && p.workspace && <Layers {...p} graph={p.graph} workspace={p.workspace} />}
+      {p.workspace?.account && <ModelKey onModelKey={p.onModelKey} />}
       <Account workspace={p.workspace} />
       {p.tree && p.tree.root.children.length > 0 && <Outline {...p} tree={p.tree} />}
     </aside>
@@ -274,7 +278,9 @@ function Sorting({ graph, workspace, onSortAgain }: { graph: Graph; workspace: W
 
   let text: ReactNode;
 
-  if (s.status === 'off') {
+  if (s.status === 'off' && workspace.account) {
+    text = <span>sorted by rules · add your model key below to sort the rest</span>;
+  } else if (s.status === 'off') {
     text = (
       <span title={`Set a model API key on the indexer${s.keyHint ? ` (${s.keyHint})` : ''} to sort what the rules can't place.`}>
         sorted by rules · a model key on the indexer sorts the rest

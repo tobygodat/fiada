@@ -1,4 +1,4 @@
-import type { ActivityState, AgentConnection, AuthState, ChangeKind, Fence, FenceRule, Graph, Grouping, LayerPreset, NodeSummary, Workspace } from '@fiada/shared';
+import { MODEL_KEY_HEADER, type ActivityState, type AgentConnection, type AuthState, type ChangeKind, type Fence, type FenceRule, type Graph, type Grouping, type LayerPreset, type NodeSummary, type Workspace } from '@fiada/shared';
 import { apiBase } from './apiBase.ts';
 
 /**
@@ -78,6 +78,9 @@ const returned = ((): Returned => {
 /** Why the last sign-in failed, to show on the sign-in screen. */
 export const signInError = returned.error ?? null;
 
+/** Whether the session is in local storage, where another tab signing out removes it. */
+let sessionStored = true;
+
 /** The signed-in session, on an indexer people sign in to; remembered in this browser. */
 let session: string | null = (() => {
   if (typeof window === 'undefined') return null;
@@ -88,9 +91,76 @@ let session: string | null = (() => {
     return returned.session ?? window.localStorage.getItem(SESSION_ITEM);
   } catch {
     // storage blocked: the session lasts until the page is reloaded
+    sessionStored = false;
+
     return returned.session ?? null;
   }
 })();
+
+const MODEL_KEY_ITEM = 'fiada.modelKey';
+
+/** The key, and the session it was saved under, when local storage couldn't take it: this tab only. */
+let unstored: { session: string; key: string } | null = null;
+
+/** The session this browser is signed in with now: another tab may have signed out since this one loaded. */
+function currentSession(): string | null {
+  if (!sessionStored) return session;
+
+  try {
+    return window.localStorage.getItem(SESSION_ITEM) === session ? session : null;
+  } catch {
+    return session;
+  }
+}
+
+/**
+ * A signed-in person's own Anthropic or OpenAI key, kept in this browser with
+ * the session it was saved under and sent with each request to the indexer,
+ * which holds it in memory for their open project only. Read from storage on
+ * every use, so a key saved, replaced or removed in one tab is the key in all
+ * of them, and another sign-in never sends it.
+ */
+function modelKey(): string | null {
+  const now = currentSession();
+  let held = unstored;
+
+  try {
+    // This tab's own, when storage couldn't take it, over whatever storage still holds.
+    held = unstored ?? JSON.parse(window.localStorage.getItem(MODEL_KEY_ITEM) ?? 'null');
+  } catch {
+    // storage blocked, or not ours to read: this tab's own
+  }
+
+  return now && held?.session === now ? held.key : null;
+}
+
+function keepModelKey(key: string | null) {
+  const value = key && session ? { session, key } : null;
+  unstored = null;
+
+  try {
+    if (value) window.localStorage.setItem(MODEL_KEY_ITEM, JSON.stringify(value));
+    else window.localStorage.removeItem(MODEL_KEY_ITEM);
+  } catch {
+    // storage blocked or full: the key lasts in this tab until the page is reloaded
+    unstored = value;
+  }
+}
+
+/**
+ * What the map shows of this browser's model key: whose it is and its last four characters, never the rest,
+ * and a short tag that changes with the key, for what has to ask the indexer again when it does.
+ */
+export function heldModelKey(): { provider: 'Anthropic' | 'OpenAI'; end: string; tag: number } | null {
+  const key = modelKey();
+
+  if (!key) return null;
+  let tag = 0;
+
+  for (let i = 0; i < key.length; i++) tag = (tag * 31 + key.charCodeAt(i)) | 0;
+
+  return { provider: key.startsWith('sk-ant-') ? 'Anthropic' : 'OpenAI', end: key.slice(-4), tag };
+}
 
 /** Told when the indexer says this browser has to sign in (again). */
 const signedOutListeners = new Set<() => void>();
@@ -103,6 +173,7 @@ export const onSignedOut = (fn: () => void) => {
 
 /** Forgets the session in this browser, without saying so: an indexer without sign-in has no use for one. */
 export function dropSession() {
+  keepModelKey(null);
   session = null;
 
   try {
@@ -122,11 +193,17 @@ export function signOut() {
 /** Where the browser goes to sign in with GitHub; the indexer brings it back to this page. */
 export const signInUrl = () => apiUrl(`/api/auth/github/login?return=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`);
 
-/** Headers that say who is asking: the session for everything, else the access key for changes. */
+/** Headers that say who is asking: the session (and the person's model key) for everything, else the access key for changes. */
 export function authHeaders(method = 'GET') {
   const headers: Record<string, string> = {};
 
-  if (session) headers.authorization = `Bearer ${session}`;
+  if (session) {
+    headers.authorization = `Bearer ${session}`;
+
+    const key = modelKey();
+
+    if (key) headers[MODEL_KEY_HEADER] = key;
+  }
   // Only changes need the key; leaving it off reads keeps them free of CORS preflights.
   else if (accessKey && method !== 'GET') headers.authorization = `Bearer ${accessKey}`;
 
@@ -203,6 +280,23 @@ export const api = {
   summary: (node: string) => call<NodeSummary>(`/api/summary?node=${encodeURIComponent(node)}`),
   applyPreset: (preset: LayerPreset) => call<{ grouping: Grouping }>('/api/grouping/preset', { method: 'POST', body: JSON.stringify({ preset }) }),
   sortAgain: () => call<Workspace>('/api/grouping/sort', { method: 'POST' }),
+  /** Checks the person's own key with its provider, then keeps it in this browser; the next request puts it to use. */
+  saveModelKey: async (key: string) => {
+    const from = currentSession();
+
+    if (!from) throw new Error('Sign in again to save a key.');
+    await call<{ ok: boolean }>('/api/model-key', { method: 'PUT', body: JSON.stringify({ key }) });
+
+    // Signed out here or in another tab, or in as someone else, while the provider answered: not theirs to keep.
+    if (currentSession() !== from) throw new Error('You signed out while the key was being checked.');
+    keepModelKey(key.trim());
+  },
+  /** Forgets the person's own key here first, then at the indexer. */
+  removeModelKey: () => {
+    keepModelKey(null);
+
+    return call<Workspace>('/api/model-key', { method: 'DELETE' });
+  },
   fences: () => call<{ fences: Fence[] }>('/api/fences'),
   /** Puts up or changes the fence round a node; null takes it down. */
   setFence: (node: string, rule: FenceRule | null) => call<{ fences: Fence[] }>('/api/fences', { method: 'PUT', body: JSON.stringify({ node, rule }) }),

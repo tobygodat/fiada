@@ -22,6 +22,8 @@ export interface WorkspaceHandle {
   applyPreset(preset: LayerPreset): Promise<void>;
   /** Asks the model to sort the project's leftovers again. */
   sortAgain(): Promise<void>;
+  /** Saves the signed-in person's own model key, or removes it with null. */
+  setModelKey(key: string | null): Promise<void>;
   /** Checks with the indexer now instead of at the next poll (it said the graph changed). */
   reload(): Promise<void>;
 }
@@ -71,6 +73,11 @@ export function useWorkspace(): WorkspaceHandle {
       await sync();
     },
     sortAgain: async () => sync(await api.sortAgain()),
+    setModelKey: async (key) => {
+      if (key) await api.saveModelKey(key);
+      else await api.removeModelKey();
+      await sync();
+    },
     reload: () => sync(),
   };
 }

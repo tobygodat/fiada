@@ -119,3 +119,21 @@ test('the usage numbers answer only with the access key, and say counts, not who
   const stats = (await res.json()) as UsageStats;
   assert.deepEqual({ ...stats, at: '' }, { at: '', people: 0, signUpsByMonth: {}, signedInWithin: { days7: 0, days30: 0 }, projectsWithRepos: 1, repos: 1 });
 });
+
+test('a model key goes nowhere on an indexer without sign-in, and never into its log', async () => {
+  const secret = `sk-ant-api03-${'q'.repeat(48)}`;
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${KEY}`, 'x-fiada-model-key': secret };
+
+  const put = await fetch(`${base}/api/model-key`, { method: 'PUT', headers, body: JSON.stringify({ key: secret }) });
+  assert.equal(put.status, 404);
+  assert.ok(!JSON.stringify(await put.json()).includes(secret));
+  assert.equal((await fetch(`${base}/api/model-key`, { method: 'DELETE', headers: { authorization: headers.authorization, 'x-fiada-model-key': secret } })).status, 404);
+  assert.equal((await fetch(`${base}/api/grouping`, { method: 'PUT', headers, body: '{' })).status, 400);
+
+  const preflight = await fetch(`${base}/api/model-key`, { method: 'OPTIONS' });
+  assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /x-fiada-model-key/);
+
+  const ws = await get<{ sorting: { available: boolean } }>('/api/workspace');
+  assert.equal(ws.body.sorting.available, false);
+  assert.ok(!log.includes(secret.slice(12)), 'the log holds the key');
+});
