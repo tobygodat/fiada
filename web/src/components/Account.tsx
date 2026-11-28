@@ -76,7 +76,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
     <section className="section">
       <div className="section-head">
         <div className="section-title">agents</div>
-        <button className="link" aria-expanded={open} onClick={show}>
+        <button className="link" aria-expanded={open} aria-label={open ? 'hide setup' : undefined} onClick={show}>
           {open ? 'hide' : 'connect an agent'}
         </button>
         {!account && (

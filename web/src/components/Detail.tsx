@@ -200,7 +200,9 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
       ? `Agent edit tools can't change anything ${inside}. Shell commands aren't checked.`
       : value === 'ask'
         ? `Agents ask you before their edit tools change anything ${inside}. Shell commands aren't checked.`
-        : null;
+        : onFence && !around
+          ? 'A fence covers agent edit tools, not shell commands.'
+          : null;
 
   return (
     <div className="detail-block fence-block" aria-busy={busy}>

@@ -32,7 +32,7 @@ export function sortSummary(s: SortingState, unsorted: number): string {
 
 /** Short label for the layers header tag; `sortSummary` gives the full tooltip. */
 export function sortTag(s: SortingState, unsorted: number): string {
-  if (s.placed) return `placed ${s.placed}`;
+  if (s.placed) return unsorted ? `placed ${s.placed} · ${unsorted} unsorted` : `placed ${s.placed}`;
 
   if (unsorted) return `${unsorted} unsorted`;
 

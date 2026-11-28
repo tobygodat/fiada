@@ -89,7 +89,7 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
               {pending ? 'checking…' : 'save'}
             </button>
           </form>
-          <p className="small muted account-line">Kept in this browser, never on disk · billed to your provider account.</p>
+          <p className="small muted account-line">Stored in this browser; the indexer keeps it in memory only · billed to your provider account.</p>
         </>
       )}
       {error && (

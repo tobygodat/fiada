@@ -37,5 +37,5 @@ test('the layers header tag compresses sort status to a short label', () => {
   assert.equal(sortTag({ ...done, renamed: 1 }, 0), 'Claude');
   assert.equal(sortTag(done, 2), '2 unsorted');
   assert.equal(sortTag({ ...done, placed: 12, merged: 2 }, 0), 'placed 12');
-  assert.equal(sortTag({ ...done, placed: 1 }, 3), 'placed 1');
+  assert.equal(sortTag({ ...done, placed: 1 }, 3), 'placed 1 · 3 unsorted');
 });
