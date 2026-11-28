@@ -9,6 +9,7 @@ const done: SortingState = { available: true, status: 'done', by: 'Claude', plac
 test('a sort that placed nothing, with nothing left, says all sorted by rules', () => {
   assert.equal(stillUnsorted(fixtureGraph()), 0);
   assert.equal(sortSummary(done, 0), 'All sorted by rules');
+  assert.equal(sortSummary({ ...done, renamed: 1 }, 0), 'Claude placed 0, renamed 1 domain');
 });
 
 test('a sort that placed nothing while code is still unsorted says how much is left', () => {
