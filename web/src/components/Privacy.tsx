@@ -23,9 +23,9 @@ export function Privacy() {
 
         <h2>repositories</h2>
         <p>
-          Imported repositories are cloned (or uploaded folders unpacked) on the indexer server and parsed to build your map. Fiada saves your
-          import list, layers, rules, fences, and summaries. The graph itself is rebuilt from source and never stored. Only you can see your
-          repositories.
+          Fiada clones each repository you import, or unpacks the folder you upload, on the indexer server and reads its source to draw your map.
+          It keeps your import list, layers, rules, fences and summaries. The map itself is rebuilt from the code each time and never stored.
+          Nobody else's map shows your repositories.
         </p>
 
         <h2>summaries and sorting</h2>
@@ -43,20 +43,20 @@ export function Privacy() {
         <h2>coding agents</h2>
         <p>
           Connected agents send changed files, diffs, status text, the first line of your latest prompt, and files read or queried. The indexer
-          holds this in memory only, never on disk, until dismissed or restarted. Agent queries read your map only.
+          holds this in memory only, never on disk, until you clear it or the indexer restarts. Agent queries read your map only.
         </p>
 
         <h2>browser storage</h2>
         <p>
           Local storage holds your session, optional model key, preferences (theme, open panels), and review read marks. The session and model key
           are sent to the indexer; preferences and marks stay local. Signing out clears the key; deleting your account clears the key and marks.
-          Sign-in sets one short-lived cookie for a few minutes. No ads; nothing is sold.
+          Signing in sets one cookie for a few minutes. No ads; nothing is sold.
         </p>
 
         <h2>third parties</h2>
         <p>
           GitHub handles sign-in and repository hosting. Cloudflare serves the site and runs cookie-free Web Analytics (pages, load speed,
-          referrer, country, browser, OS, device type; no personal tracking). Render hosts the indexer and holds clones on disk while running.
+          referrer, country, browser, OS, device type; it doesn't identify you). Render hosts the indexer and holds clones on disk while running.
           Supabase stores accounts and projects. Anthropic or OpenAI processes code only if you add a key. Google Fonts serves the typeface and
           sees your IP on page load.
         </p>

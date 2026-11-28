@@ -1058,7 +1058,7 @@ function Legend({
   lit: string | null;
 }) {
   const hint = lit
-    ? `${lit} · esc for all`
+    ? `showing ${lit}'s work · esc for all`
     : mode === 'click'
       ? 'hover for links · click to select, again to open'
       : 'hover for links · scroll to open';

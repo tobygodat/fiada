@@ -40,7 +40,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
       await navigator.clipboard.writeText(command);
       setSaid('copied');
     } catch {
-      setSaid('copy manually');
+      setSaid('select and copy it');
     }
   };
 

@@ -175,7 +175,7 @@ export function AgentQueue({ state, compact, lit, read, reviewing, reviewable, o
           <span className="swatch-ring deleted" /> deleted
         </span>
         <span>
-          <span className="swatch-ring reached" /> dependent
+          <span className="swatch-ring reached" /> depends on a change
         </span>
         {working && (
           <span>
@@ -267,7 +267,7 @@ function AgentCard({ a, fenced, onPlace, lit, unreadFor, onMarkRead, onShow, onR
   // The headline says what it's doing now; under it, what it was asked, unless the headline is that already.
   const asked = a.task ?? a.prompt;
   const now: AgentNow | null = a.now ?? (asked ? { text: asked, from: a.task ? 'agent' : 'prompt', at: a.updatedAt } : null);
-  const context = now?.from === 'prompt' ? null : (a.task ?? a.prompt ?? null);
+  const context = now?.from === 'prompt' ? null : (a.task ?? (a.prompt ? `asked: ${a.prompt}` : null));
   const from = now && now.from !== 'agent' ? DERIVED[now.from] : null;
 
   return (

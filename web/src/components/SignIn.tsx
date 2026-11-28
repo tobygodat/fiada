@@ -48,7 +48,7 @@ function SignIn({ error }: { error: string | null }) {
       <div className="sign-in-body">
         <Wordmark height={28} />
         <h1 className="sign-in-title">a map of your codebase</h1>
-        <p>Sign in with GitHub to map your public or private repositories privately.</p>
+        <p>Sign in with GitHub to map your repositories, private ones too. Your map is yours alone.</p>
         {error && (
           <p className="notice" role="alert">
             <span className="lead">Sign-in failed.</span> {error}

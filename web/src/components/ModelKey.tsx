@@ -58,12 +58,17 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
           </p>
           <form className="import key-form" onSubmit={save}>
             <input
-              type="password"
+              type="text"
+              className="key-input"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="sk-ant-… or sk-…"
               aria-label="Anthropic or OpenAI API key"
               autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
+              data-form-type="other"
               spellCheck={false}
             />
             <button type="submit" disabled={pending || !input.trim()}>

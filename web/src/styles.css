@@ -292,6 +292,7 @@ a { color: inherit; }
 /* Import: a field with the one button that completes it. */
 .import { display: flex; gap: var(--space-8); }
 .key-form { margin-top: var(--space-8); }
+.key-input { -webkit-text-security: disc; }
 .key-form + .account-line { margin-top: var(--space-sm); }
 .import input {
   flex: 1; min-width: 0; height: var(--size-control); padding: 0 var(--space-sm);
