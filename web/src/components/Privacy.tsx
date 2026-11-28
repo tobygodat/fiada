@@ -18,7 +18,7 @@ export function Privacy() {
         <p>
           Fiada stores your GitHub user id, login, name, avatar URL, granted scopes, sign-in time, and encrypted GitHub access token (to clone
           imported private repositories). GitHub's private-repo scope includes write access, but Fiada only reads repositories you import. The
-          operator can see aggregate counts (accounts, sign-in timestamps, repository counts), not who owns them.
+          operator's usage numbers are totals with no names; the indexer log records your login when you sign in or delete your account.
         </p>
 
         <h2>repositories</h2>
@@ -31,8 +31,8 @@ export function Privacy() {
         <h2>summaries and sorting</h2>
         <p>
           Without a model key, rules sort your code, summaries come from the map, and no code is sent to a model. If you add an Anthropic or OpenAI
-          API key, Fiada sends file paths, names, and contents to that provider on your account under its API terms. Summaries are cached so code
-          is not sent twice; removing your key stops new requests while keeping existing results.
+          API key, Fiada sends file paths, names and code to that provider to sort your code and write summaries, on your account under its API
+          terms. Saved summaries are reused, not asked for again. Removing your key stops new requests and keeps existing results.
         </p>
         <p>
           Your model key stays in your browser and goes over HTTPS with each request. On save, the indexer lists provider models once to verify it.
@@ -43,7 +43,7 @@ export function Privacy() {
         <h2>coding agents</h2>
         <p>
           Connected agents send changed files, diffs, status text, the first line of your latest prompt, and files read or queried. The indexer
-          holds this in memory only, never on disk, until you clear it or the indexer restarts. Agent queries read your map only.
+          holds this in memory only, never on disk, until you clear it, your map sits unused for 30 minutes, or the indexer restarts. Agent queries read your map only.
         </p>
 
         <h2>browser storage</h2>
@@ -56,15 +56,15 @@ export function Privacy() {
         <h2>third parties</h2>
         <p>
           GitHub handles sign-in and repository hosting. Cloudflare serves the site and runs cookie-free Web Analytics (pages, load speed,
-          referrer, country, browser, OS, device type; it doesn't identify you). Render hosts the indexer and holds clones on disk while running.
+          referrer, country, browser, OS, device type; it doesn't identify you). Render hosts the indexer and keeps clones and uploaded folders on its disk; a restart loses uploads, so you upload them again.
           Supabase stores accounts and projects. Anthropic or OpenAI processes code only if you add a key. Google Fonts serves the typeface and
           sees your IP on page load.
         </p>
 
         <h2>deleting your data</h2>
         <p>
-          Sign in and click "delete account" in the sidebar to delete your account, project, clones, and summaries, and revoke GitHub access. You
-          can also revoke access under GitHub Settings, Applications, Authorized OAuth Apps.
+          Sign in and click "delete account" in the sidebar to delete your account, project, clones and summaries. Fiada also asks GitHub to revoke
+          its access; to be sure, revoke it under GitHub Settings, Applications, Authorized OAuth Apps.
         </p>
 
         <p className="small muted">

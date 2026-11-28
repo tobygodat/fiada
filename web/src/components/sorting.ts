@@ -24,7 +24,7 @@ export function sortSummary(s: SortingState, unsorted: number): string {
     if (n) domains.push(`${verb} ${domains.length ? n : plural(n, 'domain')}`);
   }
 
-  const head = s.placed ? `${by} placed ${s.placed}` : unsorted ? `${by} placed 0` : 'All sorted by rules';
+  const head = s.placed || unsorted || domains.length ? `${by} placed ${s.placed ?? 0}` : 'All sorted by rules';
   const parts = [[head, ...domains].join(', '), ...(unsorted ? [`${unsorted} unsorted`] : [])];
 
   return parts.join(' · ');

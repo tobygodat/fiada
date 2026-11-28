@@ -45,7 +45,7 @@ export function Account({ workspace }: { workspace: Workspace | null }) {
   };
 
   const remove = async () => {
-    if (!window.confirm('Delete your Fiada account? This permanently removes your map, imports, clones and summaries, and revokes GitHub access.')) return;
+    if (!window.confirm('Delete your Fiada account? This permanently removes your map, imports, clones and summaries, and asks GitHub to revoke access.')) return;
 
     try {
       await api.deleteAccount();

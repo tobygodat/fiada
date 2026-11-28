@@ -65,6 +65,8 @@ export function ModelKey({ onModelKey }: { onModelKey(key: string | null): Promi
               placeholder="sk-ant-… or sk-…"
               aria-label="Anthropic or OpenAI API key"
               autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
               data-1p-ignore
               data-lpignore="true"
               data-bwignore

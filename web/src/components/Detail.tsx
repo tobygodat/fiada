@@ -160,8 +160,8 @@ type FenceChoice = FenceRule | 'none';
 
 const FENCE_OPTIONS: [FenceChoice, string, string][] = [
   ['none', 'none', 'No restriction.'],
-  ['ask', 'ask first', 'Ask before agent file edits.'],
-  ['off', 'off limits', 'Block agent file edits.'],
+  ['ask', 'ask first', 'Ask before agent edit tools change it.'],
+  ['off', 'off limits', 'Block agent edit tools.'],
 ];
 
 const FENCE_WORDS = { ask: 'ask-first', off: 'off-limits' } as const;
@@ -197,9 +197,9 @@ function FenceBlock({ g, fences, onFence, onSelect }: { g: GraphNode; fences: re
 
   const sentence =
     value === 'off'
-      ? `Blocks agent file edits ${inside}. Shell commands are not checked.`
+      ? `Agent edit tools can't change anything ${inside}. Shell commands aren't checked.`
       : value === 'ask'
-        ? `Asks before agent file edits ${inside}. Shell commands are not checked.`
+        ? `Agents ask you before their edit tools change anything ${inside}. Shell commands aren't checked.`
         : null;
 
   return (

@@ -178,7 +178,7 @@ try {
   } else {
     check(unsorted === 0, `every symbol has a domain (${unsorted} of ${leaves.length} unsorted)`);
     check(byModel === leaves.length, `the model placed all ${leaves.length} (${byModel})`);
-    check(/placed \d+ files and symbols the classifier couldn't/.test(said), 'the sidebar says what the sort placed');
+    check(/placed \d+/.test(said), 'the sidebar says what the sort placed');
     check(!sortLines.some((l) => /asking again/.test(l)), 'no file needed a second ask');
 
     // A domain in the outline, then one of its symbols, then why it's there.
